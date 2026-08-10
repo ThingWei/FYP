@@ -1,0 +1,1 @@
+import '../../../shared/controllers/loadable_controller.dart';import '../repositories/dispute_repository.dart';class DisputeController extends LoadableController{DisputeController(this.repository);final DisputeRepository repository;Future<void> load()=>run(()async{await repository.list();});}

@@ -1,0 +1,1 @@
+import 'package:flutter/material.dart';class DisputeView extends StatelessWidget{const DisputeView({super.key});@override Widget build(BuildContext context)=>const Center(child:Text('Dispute evidence and status'));}

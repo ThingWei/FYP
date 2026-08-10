@@ -1,0 +1,7 @@
+{
+  "name": "renthub-blockchain",
+  "private": true,
+  "scripts": { "compile": "hardhat compile", "test": "hardhat test", "deploy:ganache": "hardhat run scripts/deploy.js --network ganache" },
+  "devDependencies": { "@nomicfoundation/hardhat-toolbox": "^5.0.0", "hardhat": "^2.22.17" }
+}
+

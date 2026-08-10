@@ -1,0 +1,1 @@
+import '../../../shared/controllers/loadable_controller.dart'; import '../repositories/rental_repository.dart'; class RentalController extends LoadableController {RentalController(this.repository);final RentalRepository repository;List<Object> items=[];Future<void> load()=>run(()async=>items=await repository.list());}

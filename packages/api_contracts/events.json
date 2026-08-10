@@ -1,0 +1,7 @@
+{
+  "messageNew": "message:new",
+  "messageRead": "message:read",
+  "notificationNew": "notification:new",
+  "rentalUpdated": "rental:updated"
+}
+

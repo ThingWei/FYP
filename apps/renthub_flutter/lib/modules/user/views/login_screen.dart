@@ -1,0 +1,8 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../shared/models/domain_models.dart';
+import '../../../shared/widgets/common_widgets.dart';
+import '../controllers/auth_controller.dart';
+class LoginScreen extends StatefulWidget { const LoginScreen({super.key}); @override State<LoginScreen> createState()=>_LoginScreenState(); }
+class _LoginScreenState extends State<LoginScreen>{ final email=TextEditingController(text:'renter@renthub.my'),password=TextEditingController(text:'password'); @override Widget build(BuildContext context){final c=context.watch<AuthController>();return Scaffold(body:Center(child:SingleChildScrollView(child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:420),child:Card(child:Padding(padding:const EdgeInsets.all(24),child:Column(mainAxisSize:MainAxisSize.min,children:[Text('RentHub',style:Theme.of(context).textTheme.headlineLarge),const SizedBox(height:24),SegmentedButton<UserRole>(segments:UserRole.values.map((r)=>ButtonSegment(value:r,label:Text(r.name))).toList(),selected:{c.selectedRole},onSelectionChanged:(s)=>c.selectRole(s.first)),const SizedBox(height:16),TextField(controller:email,decoration:const InputDecoration(labelText:'Email')),const SizedBox(height:12),TextField(controller:password,obscureText:true,decoration:const InputDecoration(labelText:'Password')),if(c.error!=null) Padding(padding:const EdgeInsets.all(8),child:Text(c.error!,style:const TextStyle(color:Colors.red))),const SizedBox(height:16),RentHubButton(label:c.loading?'Signing in...':'Sign in',onPressed:c.loading?null:()=>c.login(email.text,password.text))])))))));}}
+

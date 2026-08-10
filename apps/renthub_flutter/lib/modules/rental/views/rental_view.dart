@@ -1,0 +1,1 @@
+import 'package:flutter/material.dart'; class RentalView extends StatelessWidget {const RentalView({super.key});@override Widget build(BuildContext context)=>const Center(child:Text('Active rentals'));}

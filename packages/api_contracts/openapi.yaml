@@ -1,0 +1,30 @@
+openapi: 3.0.3
+info: { title: RentHub API, version: 1.0.0 }
+servers: [{ url: http://localhost:3000/api/v1 }]
+paths:
+  /health:
+    get:
+      responses: { '200': { description: Healthy } }
+  /auth/login:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } } }
+      responses: { '200': { description: Authenticated }, '401': { description: Invalid credentials } }
+  /listings:
+    get:
+      responses: { '200': { description: Paginated listings } }
+    post:
+      security: [{ bearerAuth: [] }]
+      responses: { '201': { description: Listing created } }
+  /bookings:
+    post:
+      security: [{ bearerAuth: [] }]
+      responses: { '201': { description: Booking created } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties: { email: { type: string, format: email }, password: { type: string, minLength: 8 } }
+

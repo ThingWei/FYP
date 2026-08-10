@@ -1,0 +1,14 @@
+**/.env
+**/node_modules/
+**/.dart_tool/
+**/build/
+**/__pycache__/
+**/.pytest_cache/
+**/artifacts/
+**/cache/
+**/coverage/
+**/*.pyc
+services/ai/models/*.pt
+services/ai/uploads/
+blockchain/ignition/deployments/
+

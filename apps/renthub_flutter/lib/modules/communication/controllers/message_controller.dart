@@ -1,0 +1,1 @@
+import '../../../shared/controllers/loadable_controller.dart';import '../repositories/message_repository.dart';class MessageController extends LoadableController {MessageController(this.repository);final MessageRepository repository;Future<void> send(String id,String text)=>run(()=>repository.send(id,text));}
