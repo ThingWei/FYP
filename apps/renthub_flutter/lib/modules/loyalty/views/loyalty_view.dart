@@ -1,1 +1,8 @@
-import 'package:flutter/material.dart';class LoyaltyView extends StatelessWidget{const LoyaltyView({super.key});@override Widget build(BuildContext context)=>const Center(child:Text('Loyalty points and referrals'));}
+import 'package:flutter/material.dart';
+
+class LoyaltyView extends StatelessWidget {
+  const LoyaltyView({super.key});
+  @override
+  Widget build(BuildContext context) =>
+      const Center(child: Text('Loyalty points and referrals'));
+}

@@ -1,1 +1,10 @@
-import '../../../shared/controllers/loadable_controller.dart';import '../repositories/review_repository.dart';class ReviewController extends LoadableController{ReviewController(this.repository);final ReviewRepository repository;Future<void> load()=>run(()async{await repository.list();});}
+import '../../../shared/controllers/loadable_controller.dart';
+import '../repositories/review_repository.dart';
+
+class ReviewController extends LoadableController {
+  ReviewController(this.repository);
+  final ReviewRepository repository;
+  Future<void> load() => run(() async {
+        await repository.list();
+      });
+}

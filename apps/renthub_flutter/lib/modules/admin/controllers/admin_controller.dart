@@ -1,1 +1,9 @@
-import '../../../shared/controllers/loadable_controller.dart';import '../repositories/admin_repository.dart';class AdminController extends LoadableController{AdminController(this.repository);final AdminRepository repository;Map<String,int> metrics={};Future<void> load()=>run(()async=>metrics=await repository.metrics());}
+import '../../../shared/controllers/loadable_controller.dart';
+import '../repositories/admin_repository.dart';
+
+class AdminController extends LoadableController {
+  AdminController(this.repository);
+  final AdminRepository repository;
+  Map<String, int> metrics = {};
+  Future<void> load() => run(() async => metrics = await repository.metrics());
+}

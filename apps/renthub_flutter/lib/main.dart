@@ -8,10 +8,21 @@ import 'modules/booking/controllers/booking_controller.dart';
 
 void main() {
   final dependencies = AppDependencies.create();
-  runApp(MultiProvider(providers: [
-    ChangeNotifierProvider(create: (_) => AuthController(dependencies.authRepository)),
-    ChangeNotifierProvider(create: (_) => ListingController(dependencies.listingRepository)..load()),
-    ChangeNotifierProvider(create: (_) => BookingController(dependencies.bookingRepository)),
-  ], child: const RentHubApp()));
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => AuthController(dependencies.authRepository),
+        ),
+        ChangeNotifierProvider(
+          create: (_) =>
+              ListingController(dependencies.listingRepository)..load(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => BookingController(dependencies.bookingRepository),
+        ),
+      ],
+      child: const RentHubApp(),
+    ),
+  );
 }
-
