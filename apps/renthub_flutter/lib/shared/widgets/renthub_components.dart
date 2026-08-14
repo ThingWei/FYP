@@ -9,17 +9,10 @@ class RentHubLogo extends StatelessWidget {
   Widget build(BuildContext context) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.home_work_outlined, color: Colors.white),
-          ),
+          const Icon(Icons.hub_outlined,
+              color: AppColors.primaryDark, size: 28),
           if (!compact) ...[
-            const SizedBox(width: 10),
+            const SizedBox(width: 6),
             Text(
               'RentHub',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(

@@ -1,690 +1,1656 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
 import '../../core/theme/app_theme.dart';
+import '../../modules/booking/controllers/booking_controller.dart';
 import '../../shared/mock_data/mock_data.dart';
 import '../../shared/models/domain_models.dart';
+import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
+import '../account/account_pages.dart';
+import 'booking/booking_flow.dart';
+
+typedef OpenExplore = void Function(String query);
 
 class RenterShell extends StatefulWidget {
-  const RenterShell(
-      {super.key, required this.onSwitchRole, required this.canSwitch});
+  const RenterShell({
+    super.key,
+    required this.onSwitchRole,
+    required this.canSwitch,
+    this.initialIndex = 0,
+  });
+
   final VoidCallback onSwitchRole;
   final bool canSwitch;
+  final int initialIndex;
+
   @override
   State<RenterShell> createState() => _RenterShellState();
 }
 
 class _RenterShellState extends State<RenterShell> {
-  int index = 0;
-  @override
-  Widget build(BuildContext context) {
-    final pages = [
-      const RenterHome(),
-      const ExplorePage(),
-      const BookingsPage(),
-      const MessagesPage(),
-      ProfilePage(
-          role: 'Renter',
-          canSwitch: widget.canSwitch,
-          onSwitch: widget.onSwitchRole)
-    ];
-    return Scaffold(
-        body: IndexedStack(index: index, children: pages),
-        bottomNavigationBar: NavigationBar(
-            selectedIndex: index,
-            onDestinationSelected: (v) => setState(() => index = v),
-            destinations: const [
-              NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
-                  label: 'Home'),
-              NavigationDestination(icon: Icon(Icons.search), label: 'Explore'),
-              NavigationDestination(
-                  icon: Icon(Icons.calendar_month_outlined), label: 'Bookings'),
-              NavigationDestination(
-                  icon: Icon(Icons.chat_bubble_outline), label: 'Messages'),
-              NavigationDestination(
-                  icon: Icon(Icons.person_outline), label: 'Profile')
-            ]));
-  }
-}
+  final exploreKey = GlobalKey<ExplorePageState>();
+  final bookingsKey = GlobalKey<BookingsPageState>();
+  late int index;
+  BookingDraft? latestDraft;
 
-class RenterHome extends StatelessWidget {
-  const RenterHome({super.key});
-  @override
-  Widget build(BuildContext context) => SafeArea(
-          child: CustomScrollView(slivers: [
-        SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            sliver: SliverToBoxAdapter(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Row(children: [
-                    const RentHubLogo(),
-                    const Spacer(),
-                    IconButton(
-                        tooltip: 'Wishlist',
-                        onPressed: () =>
-                            showMockSuccess(context, 'Wishlist opened'),
-                        icon: const Icon(Icons.favorite_border)),
-                    IconButton(
-                        tooltip: 'Notifications',
-                        onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const NotificationsPage())),
-                        icon: const Badge(
-                            child: Icon(Icons.notifications_outlined)))
-                  ]),
-                  const SizedBox(height: 24),
-                  Text('Find what you need,\nright when you need it.',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 16),
-                  TextField(
-                      readOnly: true,
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const ExplorePage())),
-                      decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
-                          hintText: 'Search cameras, cars, services...',
-                          suffixIcon: Icon(Icons.tune)))
-                ]))),
-        SliverToBoxAdapter(child: _Categories()),
-        SliverPadding(
-            padding: const EdgeInsets.all(16),
-            sliver: SliverToBoxAdapter(
-                child: Row(children: [
-              Text('Recommended near you',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-              const Spacer(),
-              TextButton(
-                  onPressed: () => Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const ExplorePage())),
-                  child: const Text('See all'))
-            ]))),
-        SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-            sliver: SliverGrid(
-                delegate: SliverChildBuilderDelegate(
-                    (context, i) => ListingCard(
-                        listing: MockData.listings[i],
-                        onTap: () =>
-                            _openListing(context, MockData.listings[i])),
-                    childCount: 4),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: .66)))
-      ]));
-}
-
-class _Categories extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    const data = [
-      ('Electronics', Icons.devices),
-      ('Vehicles', Icons.directions_car),
-      ('Services', Icons.design_services),
-      ('Outdoor', Icons.terrain_outlined)
-    ];
-    return SizedBox(
-        height: 112,
-        child: ListView.separated(
-            padding: const EdgeInsets.all(16),
-            scrollDirection: Axis.horizontal,
-            itemCount: data.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, i) => InkWell(
-                onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => ExplorePage(initialQuery: data[i].$1))),
-                child: SizedBox(
-                    width: 72,
-                    child: Column(children: [
-                      CircleAvatar(
-                          radius: 28,
-                          backgroundColor: AppColors.primaryLight,
-                          child: Icon(data[i].$2, color: AppColors.primary)),
-                      const SizedBox(height: 6),
-                      Text(data[i].$1,
-                          style: const TextStyle(fontSize: 12),
-                          textAlign: TextAlign.center)
-                    ])))));
-  }
-}
-
-class ExplorePage extends StatefulWidget {
-  const ExplorePage({super.key, this.initialQuery});
-  final String? initialQuery;
-  @override
-  State<ExplorePage> createState() => _ExplorePageState();
-}
-
-class _ExplorePageState extends State<ExplorePage> {
-  String query = '';
-  bool verified = false;
   @override
   void initState() {
     super.initState();
-    query = widget.initialQuery ?? '';
+    index = widget.initialIndex.clamp(0, 4);
+  }
+
+  void _openExplore(String query) {
+    exploreKey.currentState?.applyQuery(query);
+    setState(() => index = 1);
+  }
+
+  void _rememberDraft(BookingDraft draft) => latestDraft = draft;
+
+  void _returnToTab(int destination) {
+    if (destination == 2) bookingsKey.currentState?.showPending();
+    setState(() => index = destination);
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = MockData.listings
-        .where((e) =>
-            (e.title + e.category)
-                .toLowerCase()
-                .contains(query.toLowerCase()) &&
-            (!verified || e.verified))
-        .toList();
+    final pages = [
+      RenterHome(
+        onExplore: _openExplore,
+        onOpenBookings: () => _returnToTab(2),
+        onReturnHome: () => _returnToTab(0),
+        onDraftCreated: _rememberDraft,
+      ),
+      ExplorePage(
+        key: exploreKey,
+        onOpenBookings: () => _returnToTab(2),
+        onReturnHome: () => _returnToTab(0),
+        onDraftCreated: _rememberDraft,
+      ),
+      BookingsPage(
+        key: bookingsKey,
+        latestDraft: () => latestDraft,
+      ),
+      const MessagesPage(),
+      ProfilePage(
+        role: 'Renter',
+        canSwitch: widget.canSwitch,
+        onSwitch: widget.onSwitchRole,
+      ),
+    ];
     return Scaffold(
-        appBar: AppBar(title: const Text('Explore')),
-        body: SafeArea(
-            child: Column(children: [
-          Padding(
-              padding: const EdgeInsets.all(16),
-              child: TextFormField(
-                  initialValue: query,
-                  onChanged: (v) => setState(() => query = v),
-                  decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search),
-                      hintText: 'Search RentHub',
-                      suffixIcon: IconButton(
-                          icon: const Icon(Icons.tune),
-                          onPressed: () => showModalBottomSheet(
-                              context: context,
-                              showDragHandle: true,
-                              builder: (_) => Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Text('Filters',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleLarge),
-                                        SwitchListTile(
-                                            contentPadding: EdgeInsets.zero,
-                                            title: const Text(
-                                                'Verified Owners only'),
-                                            value: verified,
-                                            onChanged: (v) {
-                                              setState(() => verified = v);
-                                              Navigator.pop(context);
-                                            }),
-                                        const Text('Type'),
-                                        const Wrap(spacing: 8, children: [
-                                          FilterChip(
-                                              label: Text('Physical items'),
-                                              selected: true,
-                                              onSelected: null),
-                                          FilterChip(
-                                              label: Text('Services'),
-                                              selected: false,
-                                              onSelected: null)
-                                        ]),
-                                        const SizedBox(height: 12),
-                                        FilledButton(
-                                            onPressed: () =>
-                                                Navigator.pop(context),
-                                            child: const Text('Show results'))
-                                      ]))))))),
-          Expanded(
-              child: items.isEmpty
-                  ? const Center(
-                      child: Text('No listings match these filters.'))
-                  : GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 230,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: .67),
-                      itemCount: items.length,
-                      itemBuilder: (context, i) => ListingCard(
-                          listing: items[i],
-                          onTap: () => _openListing(context, items[i]))))
-        ])));
+      body: IndexedStack(index: index, children: pages),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: index,
+        onDestinationSelected: (value) => setState(() => index = value),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(icon: Icon(Icons.search), label: 'Explore'),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
+            label: 'Bookings',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline),
+            label: 'Messages',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
   }
 }
 
-void _openListing(BuildContext context, Listing listing) => Navigator.push(
+class RenterHome extends StatefulWidget {
+  const RenterHome({
+    super.key,
+    required this.onExplore,
+    required this.onOpenBookings,
+    required this.onReturnHome,
+    required this.onDraftCreated,
+  });
+
+  final OpenExplore onExplore;
+  final VoidCallback onOpenBookings;
+  final VoidCallback onReturnHome;
+  final ValueChanged<BookingDraft> onDraftCreated;
+
+  @override
+  State<RenterHome> createState() => _RenterHomeState();
+}
+
+class _RenterHomeState extends State<RenterHome> {
+  bool loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(const Duration(milliseconds: 180), () {
+      if (mounted) setState(() => loading = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(
+        body: SafeArea(
+          child: RentHubFeedbackState(
+            kind: FeedbackKind.loading,
+            title: 'Finding rentals nearby',
+            message: 'Loading local marketplace recommendations…',
+          ),
+        ),
+      );
+    }
+
+    final physical =
+        MockData.listings.where((item) => !item.isService).toList();
+    final services = MockData.listings.where((item) => item.isService).toList();
+    return Scaffold(
+      body: SafeArea(
+        child: CustomScrollView(
+          key: const PageStorageKey('renter-home-scroll'),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          color: AppColors.primaryDark,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 4),
+                        const Expanded(
+                          child: Text('Kuala Lumpur',
+                              style: TextStyle(fontSize: 12)),
+                        ),
+                        const RentHubLogo(),
+                        const Spacer(),
+                        IconButton(
+                          tooltip: 'Notifications',
+                          onPressed: () => Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const NotificationsPage(),
+                            ),
+                          ),
+                          icon: const Badge(
+                            child: Icon(Icons.notifications_outlined),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'What do you want to rent or book today?',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      key: const Key('home-search-field'),
+                      readOnly: true,
+                      onTap: () => widget.onExplore(''),
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: 'Search items, vehicles, services…',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _CategoryStrip(onExplore: widget.onExplore),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+              sliver: SliverToBoxAdapter(
+                child: _SectionHeader(
+                  title: 'Recommended for You',
+                  onSeeAll: () => widget.onExplore(''),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 248,
+                child: ListView.separated(
+                  key: const Key('home-recommendations'),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: physical.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, itemIndex) => SizedBox(
+                    width: 188,
+                    child: _HomeListingCard(
+                      listing: physical[itemIndex],
+                      onTap: () => _openListing(
+                        context,
+                        physical[itemIndex],
+                        onOpenBookings: widget.onOpenBookings,
+                        onReturnHome: widget.onReturnHome,
+                        onDraftCreated: widget.onDraftCreated,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SliverPadding(
+              padding: EdgeInsets.fromLTRB(16, 18, 16, 10),
+              sliver: SliverToBoxAdapter(
+                child: _SectionHeader(title: 'Services for You'),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              sliver: SliverList.separated(
+                itemCount: services.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, itemIndex) => _ServiceTeaser(
+                  listing: services[itemIndex],
+                  onTap: () => showMockSuccess(
+                    context,
+                    'Service booking is deferred to a later batch',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryStrip extends StatelessWidget {
+  const _CategoryStrip({required this.onExplore});
+
+  final OpenExplore onExplore;
+
+  @override
+  Widget build(BuildContext context) {
+    const categories = [
+      ('Electronics', Icons.devices_outlined),
+      ('Fashion', Icons.checkroom_outlined),
+      ('Vehicles', Icons.directions_car_outlined),
+      ('Outdoor', Icons.handyman_outlined),
+    ];
+    return SizedBox(
+      height: 106,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, itemIndex) => SizedBox(
+          width: 78,
+          child: Material(
+            color: AppColors.background,
+            shape: RoundedRectangleBorder(
+              side: const BorderSide(color: AppColors.border),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => onExplore(categories[itemIndex].$1),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Column(
+                  children: [
+                    Icon(
+                      categories[itemIndex].$2,
+                      color: AppColors.primaryDark,
+                      size: 28,
+                    ),
+                    const SizedBox(height: 6),
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          categories[itemIndex].$1,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, this.onSeeAll});
+
+  final String title;
+  final VoidCallback? onSeeAll;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+          ),
+          if (onSeeAll != null)
+            TextButton(onPressed: onSeeAll, child: const Text('See All')),
+        ],
+      );
+}
+
+class _HomeListingCard extends StatelessWidget {
+  const _HomeListingCard({required this.listing, required this.onTap});
+
+  final Listing listing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: Key('home-listing-${listing.id}'),
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                        child: _ListingPlaceholder(listing: listing)),
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: _TinyBadge(
+                        icon: listing.verified
+                            ? Icons.verified_outlined
+                            : Icons.star_outline,
+                        label:
+                            listing.verified ? 'VERIFIED' : '${listing.rating}',
+                        color: listing.verified
+                            ? AppColors.success
+                            : AppColors.warning,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            listing.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const Icon(Icons.favorite_border, size: 18),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      listing.location,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.secondaryText,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${formatMoney(listing.dailyPrice)} /day',
+                      style: const TextStyle(
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _ServiceTeaser extends StatelessWidget {
+  const _ServiceTeaser({required this.listing, required this.onTap});
+
+  final Listing listing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 92,
+                  height: 82,
+                  child: _ListingPlaceholder(listing: listing),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        listing.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 3),
+                      const Text(
+                        'Professional service package from a verified Owner.',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.secondaryText,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'From ${formatMoney(listing.dailyPrice)}',
+                        style: const TextStyle(
+                          color: AppColors.primaryDark,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton(onPressed: onTap, child: const Text('View')),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+class ExplorePage extends StatefulWidget {
+  const ExplorePage({
+    super.key,
+    this.initialQuery,
+    required this.onOpenBookings,
+    required this.onReturnHome,
+    required this.onDraftCreated,
+  });
+
+  final String? initialQuery;
+  final VoidCallback onOpenBookings;
+  final VoidCallback onReturnHome;
+  final ValueChanged<BookingDraft> onDraftCreated;
+
+  @override
+  State<ExplorePage> createState() => ExplorePageState();
+}
+
+class ExplorePageState extends State<ExplorePage> {
+  late final TextEditingController search;
+  final ScrollController scrollController = ScrollController();
+  bool verifiedOnly = false;
+  bool availableOnly = true;
+  String category = 'All';
+  String location = 'All locations';
+  double maxPrice = 200;
+
+  String get currentQuery => search.text;
+  double get currentScrollOffset =>
+      scrollController.hasClients ? scrollController.offset : 0;
+
+  @override
+  void initState() {
+    super.initState();
+    search = TextEditingController(text: widget.initialQuery ?? '');
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    scrollController.dispose();
+    super.dispose();
+  }
+
+  void applyQuery(String query) {
+    search.text = query;
+    search.selection = TextSelection.collapsed(offset: query.length);
+    if (scrollController.hasClients) scrollController.jumpTo(0);
+    setState(() {});
+  }
+
+  List<Listing> get filteredItems => MockData.listings.where((item) {
+        if (item.isService) return false;
+        final query = search.text.trim().toLowerCase();
+        final matchesQuery = query.isEmpty ||
+            '${item.title} ${item.category} ${item.location}'
+                .toLowerCase()
+                .contains(query);
+        final matchesCategory = category == 'All' || item.category == category;
+        final matchesLocation = location == 'All locations' ||
+            item.location.toLowerCase().contains(location.toLowerCase());
+        final matchesAvailability = !availableOnly || item.id != 'l-tent';
+        return matchesQuery &&
+            matchesCategory &&
+            matchesLocation &&
+            matchesAvailability &&
+            item.dailyPrice <= maxPrice &&
+            (!verifiedOnly || item.verified);
+      }).toList();
+
+  void _reset() {
+    setState(() {
+      search.clear();
+      verifiedOnly = false;
+      availableOnly = true;
+      category = 'All';
+      location = 'All locations';
+      maxPrice = 200;
+    });
+  }
+
+  Future<void> _openFilters() async {
+    var draftVerified = verifiedOnly;
+    var draftAvailable = availableOnly;
+    var draftCategory = category;
+    var draftLocation = location;
+    var draftPrice = maxPrice;
+    final apply = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              0,
+              20,
+              20 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Filters', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: draftCategory,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                  items: const ['All', 'Electronics', 'Vehicles', 'Outdoor']
+                      .map((value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ))
+                      .toList(),
+                  onChanged: (value) =>
+                      setSheetState(() => draftCategory = value ?? 'All'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: draftLocation,
+                  decoration: const InputDecoration(labelText: 'Location'),
+                  items: const [
+                    'All locations',
+                    'Petaling Jaya',
+                    'Shah Alam',
+                    'Subang Jaya',
+                  ]
+                      .map((value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ))
+                      .toList(),
+                  onChanged: (value) => setSheetState(
+                    () => draftLocation = value ?? 'All locations',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text('Maximum daily price: ${formatMoney(draftPrice)}'),
+                Slider(
+                  value: draftPrice,
+                  min: 40,
+                  max: 200,
+                  divisions: 16,
+                  label: formatMoney(draftPrice),
+                  onChanged: (value) => setSheetState(() => draftPrice = value),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Available dates only'),
+                  value: draftAvailable,
+                  onChanged: (value) =>
+                      setSheetState(() => draftAvailable = value),
+                ),
+                SwitchListTile(
+                  key: const Key('verified-owner-filter'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Verified Owners only'),
+                  value: draftVerified,
+                  onChanged: (value) =>
+                      setSheetState(() => draftVerified = value),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () => Navigator.pop(sheetContext, true),
+                  child: const Text('Show results'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (apply == true) {
+      setState(() {
+        verifiedOnly = draftVerified;
+        availableOnly = draftAvailable;
+        category = draftCategory;
+        location = draftLocation;
+        maxPrice = draftPrice;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = filteredItems;
+    return Scaffold(
+      appBar: AppBar(
+        title: const RentHubLogo(),
+        actions: [
+          TextButton(onPressed: _reset, child: const Text('RESET')),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: TextField(
+                key: const Key('search-results-field'),
+                controller: search,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search),
+                  hintText: 'Search physical items',
+                  suffixIcon: IconButton(
+                    tooltip: 'Clear search',
+                    onPressed: search.text.isEmpty
+                        ? null
+                        : () {
+                            search.clear();
+                            setState(() {});
+                          },
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 48,
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                scrollDirection: Axis.horizontal,
+                children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.tune, size: 18),
+                    label: const Text('Filters'),
+                    onPressed: _openFilters,
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    key: const Key('verified-filter-chip'),
+                    label: const Text('Verified Owners'),
+                    selected: verifiedOnly,
+                    onSelected: (value) => setState(() => verifiedOnly = value),
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: Text('Up to ${formatMoney(maxPrice)}'),
+                    selected: maxPrice < 200,
+                    onSelected: (_) => _openFilters(),
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: Text(location),
+                    selected: location != 'All locations',
+                    onSelected: (_) => _openFilters(),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${items.length} physical items found',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const _TinyBadge(
+                    icon: Icons.inventory_2_outlined,
+                    label: 'PHYSICAL',
+                    color: AppColors.primaryDark,
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: items.isEmpty
+                  ? RentHubFeedbackState(
+                      kind: FeedbackKind.empty,
+                      title: 'No items match these filters',
+                      message:
+                          'Try a wider price range, another location, or clear the filters.',
+                      actionLabel: 'Clear filters',
+                      onAction: _reset,
+                    )
+                  : ListView.separated(
+                      key: const PageStorageKey('search-results-scroll'),
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                      itemCount: items.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, itemIndex) => _SearchResultCard(
+                        listing: items[itemIndex],
+                        onTap: () => _openListing(
+                          context,
+                          items[itemIndex],
+                          onOpenBookings: widget.onOpenBookings,
+                          onReturnHome: widget.onReturnHome,
+                          onDraftCreated: widget.onDraftCreated,
+                        ),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchResultCard extends StatelessWidget {
+  const _SearchResultCard({required this.listing, required this.onTap});
+
+  final Listing listing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: Key('search-result-${listing.id}'),
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AspectRatio(
+                aspectRatio: 16 / 7,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                        child: _ListingPlaceholder(listing: listing)),
+                    Positioned(
+                      right: 10,
+                      top: 10,
+                      child: _TinyBadge(
+                        icon: Icons.star,
+                        label: '${listing.rating}',
+                        color: AppColors.warning,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            listing.title,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        const Icon(Icons.favorite_border, size: 20),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${listing.location} · ${listing.condition}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.secondaryText,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    if (listing.verified)
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.verified,
+                            size: 16,
+                            color: AppColors.success,
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            'VERIFIED OWNER',
+                            style: TextStyle(
+                              color: AppColors.success,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${formatMoney(listing.dailyPrice)} /day',
+                      style: const TextStyle(
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+void _openListing(
+  BuildContext context,
+  Listing listing, {
+  required VoidCallback onOpenBookings,
+  required VoidCallback onReturnHome,
+  required ValueChanged<BookingDraft> onDraftCreated,
+}) {
+  Navigator.push<void>(
     context,
-    MaterialPageRoute(builder: (_) => ListingDetailsPage(listing: listing)));
+    MaterialPageRoute(
+      builder: (_) => ListingDetailsPage(
+        listing: listing,
+        onOpenBookings: onOpenBookings,
+        onReturnHome: onReturnHome,
+        onDraftCreated: onDraftCreated,
+      ),
+    ),
+  );
+}
 
 class ListingDetailsPage extends StatelessWidget {
-  const ListingDetailsPage({super.key, required this.listing});
-  final Listing listing;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(actions: [
-        IconButton(
-            onPressed: () => showMockSuccess(context, 'Added to wishlist'),
-            icon: const Icon(Icons.favorite_border)),
-        PopupMenuButton(
-            itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'report', child: Text('Report listing')),
-                  PopupMenuItem(value: 'block', child: Text('Block Owner'))
-                ],
-            onSelected: (v) => confirmAction(context,
-                title: v == 'block' ? 'Block Owner?' : 'Report listing?',
-                message: 'This mock action can be reversed from Settings.',
-                action: 'Continue',
-                destructive: true))
-      ]),
-      bottomNavigationBar: SafeArea(
-          child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: FilledButton(
-                  onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => BookingFlowPage(listing: listing))),
-                  child: Text(listing.isService
-                      ? 'Book service'
-                      : 'Check availability')))),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        AspectRatio(
-            aspectRatio: 16 / 10,
-            child: Container(
-                decoration: BoxDecoration(
-                    color: AppColors.primaryLight,
-                    borderRadius: BorderRadius.circular(16)),
-                child: Icon(
-                    listing.isService
-                        ? Icons.design_services
-                        : Icons.inventory_2,
-                    size: 72,
-                    color: AppColors.primary))),
-        const SizedBox(height: 20),
-        Row(children: [
-          Expanded(
-              child: Text(listing.title,
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w800))),
-          if (listing.verified)
-            const Icon(Icons.verified, color: AppColors.primary)
-        ]),
-        const SizedBox(height: 8),
-        Text('${listing.location}  •  ★ ${listing.rating} (48 reviews)',
-            style: const TextStyle(color: AppColors.secondaryText)),
-        const SizedBox(height: 16),
-        Text(
-            'RM ${listing.dailyPrice.toStringAsFixed(2)} ${listing.isService ? '/ package' : '/ day'}',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: AppColors.primaryDark, fontWeight: FontWeight.w800)),
-        const Divider(height: 32),
-        ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const CircleAvatar(child: Icon(Icons.person)),
-            title: Text(listing.ownerName),
-            subtitle: const Text('Verified Owner • Trust score 4.9'),
-            trailing: const Icon(Icons.chevron_right)),
-        const Divider(),
-        Text(listing.isService ? 'Package details' : 'Item details',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 8),
-        Text(listing.isService
-            ? 'Includes consultation, professional delivery and edited digital files. Choose a service date, duration and venue during booking.'
-            : 'Condition: ${listing.condition}\nSecurity deposit: RM 200.00\nItem verified • Damage waiver available\nCollection or delivery available.'),
-        const SizedBox(height: 20),
-        Text('What renters say',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800)),
-        const Card(
-            child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                    '★★★★★  “Easy arrangement and exactly as described.”\n— Aina, Petaling Jaya')))
-      ]));
-}
+  const ListingDetailsPage({
+    super.key,
+    required this.listing,
+    required this.onOpenBookings,
+    required this.onReturnHome,
+    required this.onDraftCreated,
+  });
 
-class BookingFlowPage extends StatefulWidget {
-  const BookingFlowPage({super.key, required this.listing});
   final Listing listing;
-  @override
-  State<BookingFlowPage> createState() => _BookingFlowPageState();
-}
+  final VoidCallback onOpenBookings;
+  final VoidCallback onReturnHome;
+  final ValueChanged<BookingDraft> onDraftCreated;
 
-class _BookingFlowPageState extends State<BookingFlowPage> {
-  int step = 0;
-  String fulfilment = 'Collection';
+  void _book(BuildContext context) {
+    if (listing.isService) {
+      showMockSuccess(context, 'Service booking is deferred to a later batch');
+      return;
+    }
+    final draft = BookingDraft(listing: listing);
+    onDraftCreated(draft);
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BookingDetailsPage(
+          draft: draft,
+          onOpenBookings: onOpenBookings,
+          onReturnHome: onReturnHome,
+        ),
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final policy = BookingPolicies.forListing(listing);
+    return Scaffold(
       appBar: AppBar(
-          title: Text(
-              widget.listing.isService ? 'Schedule service' : 'Book item')),
-      body: Stepper(
-          currentStep: step,
-          onStepContinue: () {
-            if (step < 2) {
-              setState(() => step++);
-            } else {
-              Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) =>
-                          PaymentResultPage(listing: widget.listing)));
-            }
-          },
-          onStepCancel: step == 0 ? null : () => setState(() => step--),
-          controlsBuilder: (context, d) => Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Row(children: [
-                Expanded(
-                    child: FilledButton(
-                        onPressed: d.onStepContinue,
-                        child: Text(step == 2 ? 'Pay securely' : 'Continue'))),
-                if (step > 0) ...[
-                  const SizedBox(width: 8),
-                  TextButton(
-                      onPressed: d.onStepCancel, child: const Text('Back'))
-                ]
-              ])),
-          steps: [
-            StepperStep(
-                title: Text(widget.listing.isService
-                    ? 'Date, duration & venue'
-                    : 'Rental dates'),
-                content: const Column(children: [
-                  TextField(
-                      readOnly: true,
-                      decoration: InputDecoration(
-                          labelText: 'Start date',
-                          suffixIcon: Icon(Icons.calendar_today))),
-                  SizedBox(height: 12),
-                  TextField(
-                      readOnly: true,
-                      decoration: InputDecoration(
-                          labelText: 'End date / duration',
-                          suffixIcon: Icon(Icons.schedule)))
-                ])),
-            if (!widget.listing.isService)
-              StepperStep(
-                  title: const Text('Fulfilment'),
-                  content: DropdownButtonFormField(
-                      initialValue: fulfilment,
-                      items: ['Collection', 'Owner delivery']
-                          .map(
-                              (e) => DropdownMenuItem(value: e, child: Text(e)))
-                          .toList(),
-                      onChanged: (v) => setState(() => fulfilment = v!))),
-            StepperStep(
-                title: const Text('Review & payment'),
-                content: Card(
-                    child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(children: [
-                          _PriceRow('Booking', widget.listing.dailyPrice),
-                          const _PriceRow('Service fee', 12),
-                          if (!widget.listing.isService)
-                            const _PriceRow('Refundable deposit', 200),
-                          const Divider(),
-                          _PriceRow(
-                              'Total',
-                              widget.listing.dailyPrice +
-                                  12 +
-                                  (widget.listing.isService ? 0 : 200),
-                              bold: true)
-                        ]))))
-          ]));
-}
-
-class StepperStep extends Step {
-  const StepperStep({required super.title, required super.content})
-      : super(isActive: true);
-}
-
-class _PriceRow extends StatelessWidget {
-  const _PriceRow(this.label, this.value, {this.bold = false});
-  final String label;
-  final double value;
-  final bool bold;
-  @override
-  Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(children: [
-        Expanded(
-            child: Text(label,
-                style: TextStyle(fontWeight: bold ? FontWeight.bold : null))),
-        Text('RM ${value.toStringAsFixed(2)}',
-            style: TextStyle(fontWeight: bold ? FontWeight.bold : null))
-      ]));
-}
-
-class PaymentResultPage extends StatelessWidget {
-  const PaymentResultPage({super.key, required this.listing});
-  final Listing listing;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-      body: SafeArea(
-          child: Center(
-              child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.check_circle,
-                        color: AppColors.success, size: 80),
-                    const SizedBox(height: 16),
-                    Text('Payment successful',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 8),
+        title: const RentHubLogo(compact: true),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Share listing',
+            onPressed: () => showMockSuccess(context, 'Share sheet opened'),
+            icon: const Icon(Icons.share_outlined),
+          ),
+          PopupMenuButton<String>(
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'report', child: Text('Report listing')),
+              PopupMenuItem(value: 'block', child: Text('Block Owner')),
+            ],
+            onSelected: (value) => confirmAction(
+              context,
+              title: value == 'block' ? 'Block Owner?' : 'Report listing?',
+              message: 'This mock action can be reversed from Settings.',
+              action: 'Continue',
+              destructive: true,
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          color: AppColors.background,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                        'Your request for ${listing.title} was sent to the Owner.',
-                        textAlign: TextAlign.center),
-                    const SizedBox(height: 24),
-                    FilledButton(
-                        onPressed: () =>
-                            Navigator.popUntil(context, (r) => r.isFirst),
-                        child: const Text('Back to home'))
-                  ])))));
+                      '${formatMoney(listing.dailyPrice)} /day',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const Text(
+                      'Deposit shown before agreement',
+                      style: TextStyle(
+                        color: AppColors.secondaryText,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              FilledButton.icon(
+                key: const Key('book-now-button'),
+                onPressed: () => _book(context),
+                icon: const Icon(Icons.arrow_forward),
+                label: const Text('Book Now'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          Stack(
+            children: [
+              AspectRatio(
+                aspectRatio: 16 / 10,
+                child: _ListingPlaceholder(listing: listing, large: true),
+              ),
+              const Positioned(
+                left: 16,
+                top: 12,
+                child: _TinyBadge(
+                  icon: Icons.workspace_premium_outlined,
+                  label: 'TOP RATED',
+                  color: AppColors.success,
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(listing.title,
+                    style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 6),
+                Text(
+                  '★ ${listing.rating} (128 reviews)',
+                  style: const TextStyle(color: AppColors.warning),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  listing.location,
+                  style: const TextStyle(color: AppColors.secondaryText),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  child: ListTile(
+                    leading: CircleAvatar(child: Text(listing.ownerName[0])),
+                    title: Text(listing.ownerName),
+                    subtitle:
+                        const Text('Verified Owner · Gold tier · Trust 98'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => showMockSuccess(
+                      context,
+                      'Owner profile preview opened',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Equipment Details',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Perfect-condition ${listing.title} for professional photo and video shoots. Cleaned, checked, and ready for collection.',
+                  style: const TextStyle(color: AppColors.secondaryText),
+                ),
+                const SizedBox(height: 14),
+                const _FeatureGrid(),
+                const SizedBox(height: 16),
+                Text(
+                  'Included Accessories',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                const Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Chip(label: Text('2 Batteries')),
+                    Chip(label: Text('Memory Card')),
+                    Chip(label: Text('Carry Case')),
+                    Chip(label: Text('USB-C Cable')),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _DetailExpansion(
+                  title: 'Availability & Calendar',
+                  icon: Icons.calendar_month_outlined,
+                  child: Text(
+                    'Available for the next 12 days. The range ${formatDateRange(policy.unavailableDates.first.start, policy.unavailableDates.first.end)} is unavailable.',
+                  ),
+                ),
+                const _DetailExpansion(
+                  title: 'Rental Policy',
+                  icon: Icons.description_outlined,
+                  child: Text(
+                    'Return the item in the same condition. Agreement acceptance is required before the demo authorization.',
+                  ),
+                ),
+                _DetailExpansion(
+                  title: 'Pickup & Return Details',
+                  icon: Icons.location_on_outlined,
+                  child: Text(
+                    'Self pickup: ${policy.pickupLocation}. Owner delivery is also available.',
+                  ),
+                ),
+                _DetailExpansion(
+                  title: 'Deposit Information',
+                  icon: Icons.account_balance_wallet_outlined,
+                  child: Text(
+                    '${formatMoney(policy.deposit)} refundable deposit. It is included only in the local demo authorization.',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class BookingsPage extends StatelessWidget {
-  const BookingsPage({super.key});
+class _FeatureGrid extends StatelessWidget {
+  const _FeatureGrid();
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('My bookings')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        for (int i = 0; i < 4; i++)
-          Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Card(
-                  child: ListTile(
-                      contentPadding: const EdgeInsets.all(12),
-                      leading: const CircleAvatar(
-                          backgroundColor: AppColors.primaryLight,
-                          child: Icon(Icons.inventory_2_outlined)),
-                      title: Text(MockData.listings[i].title),
-                      subtitle: Text(i == 2
-                          ? 'Service date: 24 Aug 2026'
-                          : '18–20 Aug 2026'),
-                      trailing: StatusBadge(MockData.bookingStatuses[i + 1]),
-                      onTap: () => showModalBottomSheet(
-                          context: context,
-                          showDragHandle: true,
-                          builder: (_) => Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Text(
-                                        MockData.listings[i].isService
-                                            ? 'Service order'
-                                            : 'Rental tracking',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleLarge),
-                                    const SizedBox(height: 12),
-                                    Text(MockData.listings[i].isService
-                                        ? 'Confirm completion after the Owner delivers the service.'
-                                        : 'Approved → Handover → In use → Return'),
-                                    const SizedBox(height: 16),
-                                    FilledButton(
-                                        onPressed: () => showMockSuccess(
-                                            context,
-                                            MockData.listings[i].isService
-                                                ? 'Service completion confirmed'
-                                                : 'Extension request sent'),
-                                        child: Text(
-                                            MockData.listings[i].isService
-                                                ? 'Confirm completion'
-                                                : 'Request extension')),
-                                    OutlinedButton(
-                                        onPressed: () => showMockSuccess(
-                                            context, 'Dispute form opened'),
-                                        child: const Text('Report an issue'))
-                                  ]))))))
-      ]));
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          const data = [
+            ('Resolution', '12.1 MP'),
+            ('Video', '4K 120p 10-bit'),
+            ('Mount', 'Sony E-Mount'),
+            ('Condition', 'Excellent'),
+          ];
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: data
+                .map(
+                  (item) => SizedBox(
+                    width: (constraints.maxWidth - 8) / 2,
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.$1.toUpperCase(),
+                            style: const TextStyle(
+                              color: AppColors.secondaryText,
+                              fontSize: 10,
+                            ),
+                          ),
+                          Text(item.$2),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          );
+        },
+      );
+}
+
+class _DetailExpansion extends StatelessWidget {
+  const _DetailExpansion({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: ExpansionTile(
+          leading: Icon(icon, color: AppColors.primaryDark),
+          title: Text(title),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          children: [Align(alignment: Alignment.centerLeft, child: child)],
+        ),
+      );
+}
+
+class BookingsPage extends StatefulWidget {
+  const BookingsPage({super.key, required this.latestDraft});
+
+  final BookingDraft? Function() latestDraft;
+
+  @override
+  State<BookingsPage> createState() => BookingsPageState();
+}
+
+class BookingsPageState extends State<BookingsPage>
+    with SingleTickerProviderStateMixin {
+  late final TabController tabs;
+  bool loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    tabs = TabController(length: 4, vsync: this);
+    Future<void>.delayed(const Duration(milliseconds: 180), () {
+      if (mounted) setState(() => loading = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    tabs.dispose();
+    super.dispose();
+  }
+
+  void showPending() {
+    tabs.animateTo(0);
+    if (mounted) setState(() {});
+  }
+
+  List<_BookingRecord> _records(BuildContext context) {
+    final controller = context.watch<BookingController?>();
+    final latest = controller?.latest;
+    final draft = widget.latestDraft();
+    final now = dateOnly(DateTime.now());
+    final records = <_BookingRecord>[];
+    if (latest != null) {
+      final listing = MockData.listings.firstWhere(
+        (item) => item.id == latest.listingId,
+        orElse: () => MockData.listings.first,
+      );
+      final days = latest.end.difference(latest.start).inDays + 1;
+      records.add(
+        _BookingRecord(
+          id: latest.id,
+          title: listing.title,
+          dates: formatDateRange(latest.start, latest.end),
+          status: latest.status,
+          amount: draft?.createdBooking?.id == latest.id
+              ? draft!.total
+              : listing.dailyPrice * days +
+                  BookingPolicies.forListing(listing).deposit,
+        ),
+      );
+    }
+    records.addAll([
+      _BookingRecord(
+        id: 'active-myvi',
+        title: 'Perodua Myvi 2022',
+        dates: formatDateRange(
+          now.add(const Duration(days: 1)),
+          now.add(const Duration(days: 3)),
+        ),
+        status: 'active',
+        amount: 450,
+      ),
+      _BookingRecord(
+        id: 'completed-camera',
+        title: 'Event Photography Package',
+        dates: formatDateRange(
+          now.subtract(const Duration(days: 20)),
+          now.subtract(const Duration(days: 20)),
+        ),
+        status: 'completed',
+        amount: 650,
+      ),
+      _BookingRecord(
+        id: 'cancelled-tent',
+        title: 'Four-person Camping Tent',
+        dates: formatDateRange(
+          now.subtract(const Duration(days: 35)),
+          now.subtract(const Duration(days: 33)),
+        ),
+        status: 'cancelled',
+        amount: 135,
+      ),
+    ]);
+    return records;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(
+        body: SafeArea(
+          child: RentHubFeedbackState(
+            kind: FeedbackKind.loading,
+            title: 'Loading bookings',
+            message: 'Organising your local booking history…',
+          ),
+        ),
+      );
+    }
+    final records = _records(context);
+    const statuses = ['pending', 'active', 'completed', 'cancelled'];
+    return Scaffold(
+      appBar: AppBar(
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RentHubLogo(),
+            Text(
+              'My Bookings',
+              style: TextStyle(fontSize: 16, color: AppColors.text),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Booking notifications',
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(builder: (_) => const NotificationsPage()),
+            ),
+            icon: const Badge(child: Icon(Icons.notifications_outlined)),
+          ),
+        ],
+        bottom: TabBar(
+          controller: tabs,
+          isScrollable: true,
+          tabs: const [
+            Tab(text: 'Pending'),
+            Tab(text: 'Active'),
+            Tab(text: 'Completed'),
+            Tab(text: 'Cancelled'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: tabs,
+        children: statuses.map((status) {
+          final matching = records
+              .where((record) => record.status.toLowerCase() == status)
+              .toList();
+          if (matching.isEmpty) {
+            return RentHubFeedbackState(
+              kind: FeedbackKind.empty,
+              title: 'No ${status.toLowerCase()} bookings',
+              message: 'Bookings with this status will appear here.',
+            );
+          }
+          return ListView.separated(
+            key: PageStorageKey('bookings-$status'),
+            padding: const EdgeInsets.all(16),
+            itemCount: matching.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (context, itemIndex) => _BookingCard(
+              record: matching[itemIndex],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _BookingRecord {
+  const _BookingRecord({
+    required this.id,
+    required this.title,
+    required this.dates,
+    required this.status,
+    required this.amount,
+  });
+
+  final String id;
+  final String title;
+  final String dates;
+  final String status;
+  final double amount;
+}
+
+class _BookingCard extends StatelessWidget {
+  const _BookingCard({required this.record});
+
+  final _BookingRecord record;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 76,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryLight,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.photo_camera_outlined,
+                      color: AppColors.primaryDark,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          record.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          record.dates,
+                          style: const TextStyle(
+                            color: AppColors.secondaryText,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          formatMoney(record.amount),
+                          style: const TextStyle(
+                            color: AppColors.primaryDark,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 22),
+              LayoutBuilder(
+                builder: (context, constraints) => Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    StatusBadge(
+                      record.status == 'pending'
+                          ? 'Pending Owner Approval'
+                          : record.status,
+                    ),
+                    OutlinedButton(
+                      onPressed: () => showModalBottomSheet<void>(
+                        context: context,
+                        showDragHandle: true,
+                        builder: (_) => Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                record.title,
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 10),
+                              Text(record.dates),
+                              const SizedBox(height: 8),
+                              StatusBadge(record.status),
+                              if (record.status == 'pending') ...[
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'Awaiting Owner approval. This booking is not Active, Confirmed, or Paid.',
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      child: const Text('View Details'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _ListingPlaceholder extends StatelessWidget {
+  const _ListingPlaceholder({required this.listing, this.large = false});
+
+  final Listing listing;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            const Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppColors.background, AppColors.primaryLight],
+                  ),
+                ),
+              ),
+            ),
+            Icon(
+              listing.category == 'Vehicles'
+                  ? Icons.directions_car
+                  : listing.isService
+                      ? Icons.camera_outlined
+                      : Icons.photo_camera,
+              size: large ? 108 : 64,
+              color: AppColors.primaryDark,
+              semanticLabel: '${listing.title} image placeholder',
+            ),
+          ],
+        ),
+      );
+}
+
+class _TinyBadge extends StatelessWidget {
+  const _TinyBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.background.withValues(alpha: .94),
+          borderRadius: BorderRadius.circular(99),
+          border: Border.all(color: color.withValues(alpha: .45)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 13),
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 class MessagesPage extends StatelessWidget {
   const MessagesPage({super.key});
+
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Messages')),
-      body: ListView(children: [
-        for (final l in MockData.listings.take(3))
-          ListTile(
-              leading: CircleAvatar(child: Text(l.ownerName[0])),
-              title: Text(l.ownerName),
-              subtitle: const Text('Yes, the selected date is available.'),
-              trailing: const Text('10:24'),
-              onTap: () => Navigator.push(
+        appBar: AppBar(title: const Text('Messages')),
+        body: ListView(
+          children: [
+            for (final listing in MockData.listings.take(3))
+              ListTile(
+                leading: CircleAvatar(child: Text(listing.ownerName[0])),
+                title: Text(listing.ownerName),
+                subtitle: const Text('Yes, the selected date is available.'),
+                trailing: const Text('10:24'),
+                onTap: () => Navigator.push<void>(
                   context,
                   MaterialPageRoute(
-                      builder: (_) => ChatPage(name: l.ownerName))))
-      ]));
+                    builder: (_) => ChatPage(name: listing.ownerName),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
 }
 
 class ChatPage extends StatelessWidget {
   const ChatPage({super.key, required this.name});
+
   final String name;
+
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: Text(name)),
-      body: Column(children: [
-        const Expanded(
-            child: Padding(
+        appBar: AppBar(title: Text(name)),
+        body: Column(
+          children: [
+            const Expanded(
+              child: Padding(
                 padding: EdgeInsets.all(16),
                 child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Align(
-                          alignment: Alignment.centerLeft,
-                          child: Chip(
-                              label: Text('Hi! The listing is available.'))),
-                      Align(
-                          alignment: Alignment.centerRight,
-                          child: Chip(
-                              backgroundColor: AppColors.primaryLight,
-                              label: Text('Great, I’ll make a booking.')))
-                    ]))),
-        const SafeArea(
-            child: Padding(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Chip(
+                        label: Text('Hi! The listing is available.'),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Chip(
+                        backgroundColor: AppColors.primaryLight,
+                        label: Text('Great, I’ll make a booking.'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SafeArea(
+              child: Padding(
                 padding: EdgeInsets.all(12),
                 child: TextField(
-                    decoration: InputDecoration(
-                        hintText: 'Write a message',
-                        suffixIcon: Icon(Icons.send)))))
-      ]));
-}
-
-class NotificationsPage extends StatefulWidget {
-  const NotificationsPage({super.key});
-  @override
-  State<NotificationsPage> createState() => _NotificationsPageState();
-}
-
-class _NotificationsPageState extends State<NotificationsPage> {
-  final items = [...MockData.notifications];
-  @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Notifications'), actions: [
-        TextButton(
-            onPressed: () => setState(items.clear),
-            child: const Text('Clear all'))
-      ]),
-      body: items.isEmpty
-          ? const Center(child: Text('You’re all caught up.'))
-          : ListView.builder(
-              itemCount: items.length,
-              itemBuilder: (_, i) => Dismissible(
-                  key: ValueKey(items[i]),
-                  onDismissed: (_) => setState(() => items.removeAt(i)),
-                  child: ListTile(
-                      leading: const CircleAvatar(
-                          child: Icon(Icons.notifications_outlined)),
-                      title: Text(items[i]),
-                      subtitle: const Text('Today')))));
-}
-
-class ProfilePage extends StatelessWidget {
-  const ProfilePage(
-      {super.key,
-      required this.role,
-      required this.canSwitch,
-      required this.onSwitch});
-  final String role;
-  final bool canSwitch;
-  final VoidCallback onSwitch;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        const CircleAvatar(radius: 38, child: Text('NI')),
-        const SizedBox(height: 12),
-        const Center(
-            child: Text('Nur Izzati',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
-        Center(
-            child: Text('$role • Verified identity • Trust 4.7',
-                style: const TextStyle(color: AppColors.secondaryText))),
-        const SizedBox(height: 24),
-        if (canSwitch)
-          Card(
-              child: ListTile(
-                  leading: const Icon(Icons.swap_horiz),
-                  title: Text(
-                      'Switch to ${role == 'Renter' ? 'Owner' : 'Renter'}'),
-                  onTap: onSwitch)),
-        for (final item in const [
-          ('Edit profile', Icons.edit_outlined),
-          ('Identity verification', Icons.verified_user_outlined),
-          ('Loyalty & referrals', Icons.card_giftcard),
-          ('Settings', Icons.settings_outlined),
-          ('Help & support', Icons.help_outline)
-        ])
-          Card(
-              child: ListTile(
-                  leading: Icon(item.$2),
-                  title: Text(item.$1),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => showMockSuccess(context, '${item.$1} opened')))
-      ]));
+                  decoration: InputDecoration(
+                    hintText: 'Write a message',
+                    suffixIcon: Icon(Icons.send),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
 }

@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/mock_data/mock_data.dart';
 import '../../shared/widgets/renthub_components.dart';
-import '../renter/renter_app.dart' show MessagesPage, ProfilePage;
+import '../account/account_pages.dart';
+import '../renter/renter_app.dart' show MessagesPage;
 
 class OwnerShell extends StatefulWidget {
   const OwnerShell(
@@ -53,7 +54,8 @@ class OwnerDashboard extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const RentHubLogo(), actions: [
         IconButton(
-            onPressed: () => showMockSuccess(context, 'Notifications opened'),
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const NotificationsPage())),
             icon: const Badge(child: Icon(Icons.notifications_outlined)))
       ]),
       body: ListView(padding: const EdgeInsets.all(16), children: [

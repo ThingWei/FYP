@@ -35,7 +35,47 @@ abstract final class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.surface,
-      fontFamily: 'Roboto',
+      textTheme: const TextTheme(
+        displaySmall: TextStyle(
+          fontSize: 32,
+          height: 1.25,
+          fontWeight: FontWeight.w700,
+          color: AppColors.text,
+        ),
+        headlineSmall: TextStyle(
+          fontSize: 24,
+          height: 1.3,
+          fontWeight: FontWeight.w700,
+          color: AppColors.text,
+        ),
+        titleLarge: TextStyle(
+          fontSize: 20,
+          height: 1.4,
+          fontWeight: FontWeight.w600,
+          color: AppColors.text,
+        ),
+        titleMedium: TextStyle(
+          fontSize: 16,
+          height: 1.5,
+          fontWeight: FontWeight.w600,
+          color: AppColors.text,
+        ),
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          height: 1.5,
+          color: AppColors.text,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          height: 1.45,
+          color: AppColors.text,
+        ),
+        labelLarge: TextStyle(
+          fontSize: 14,
+          height: 1.4,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
       appBarTheme: const AppBarTheme(
         elevation: 0,
         backgroundColor: AppColors.background,
@@ -54,6 +94,9 @@ abstract final class AppTheme {
       inputDecorationTheme: const InputDecorationTheme(
         filled: true,
         fillColor: AppColors.background,
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        labelStyle: TextStyle(color: AppColors.secondaryText),
+        hintStyle: TextStyle(color: Color(0xFF94A3B8)),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(12)),
           borderSide: BorderSide(color: AppColors.border),
@@ -61,6 +104,14 @@ abstract final class AppTheme {
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(12)),
           borderSide: BorderSide(color: AppColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+          borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+          borderSide: BorderSide(color: AppColors.error),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -82,7 +133,8 @@ abstract final class AppTheme {
       navigationBarTheme: const NavigationBarThemeData(
         backgroundColor: AppColors.background,
         indicatorColor: AppColors.primaryLight,
-        height: 72,
+        height: 68,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       dividerTheme: const DividerThemeData(color: AppColors.border),
     );

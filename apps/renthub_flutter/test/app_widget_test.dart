@@ -13,6 +13,7 @@ void main() {
       ),
     );
     expect(find.text('RentHub'), findsOneWidget);
-    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.text('Log In'), findsOneWidget);
+    expect(find.text('Create Account'), findsOneWidget);
   });
 }

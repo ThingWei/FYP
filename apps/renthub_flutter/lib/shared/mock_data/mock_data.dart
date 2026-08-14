@@ -35,7 +35,7 @@ abstract final class MockData {
       id: 'l-camera',
       title: 'Sony Alpha A7 III Camera',
       category: 'Electronics',
-      dailyPrice: 120,
+      dailyPrice: 85,
       condition: 'Excellent',
       ownerName: 'Daniel Tan',
       location: 'Petaling Jaya, Selangor',

@@ -1,20 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/models/domain_models.dart';
+import '../../../shared/widgets/account_components.dart';
 import '../../../shared/widgets/renthub_components.dart';
 import '../controllers/auth_controller.dart';
+import 'forgot_password_screen.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final key = GlobalKey<FormState>();
-  final email = TextEditingController(text: 'demo@renthub.my'),
-      password = TextEditingController(text: 'password');
+  final formKey = GlobalKey<FormState>();
+  final email = TextEditingController(text: 'demo@renthub.my');
+  final password = TextEditingController(text: 'password');
+
   @override
   void dispose() {
     email.dispose();
@@ -22,122 +27,132 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  Future<void> _login() async {
+    if (!formKey.currentState!.validate()) return;
+    await context
+        .read<AuthController>()
+        .login(email.text.trim(), password.text);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final c = context.watch<AuthController>();
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Form(
-                    key: key,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+    final controller = context.watch<AuthController>();
+    return AccountScaffold(
+      child: AutofillGroup(
+        child: Form(
+          key: formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Welcome back. Please enter your details.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.secondaryText),
+              ),
+              const SizedBox(height: 24),
+              AccountCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    RentHubTextField(
+                      controller: email,
+                      label: 'Email',
+                      hint: 'Enter your email',
+                      icon: Icons.mail_outline,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.email],
+                      validator: (value) => value != null &&
+                              RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(value)
+                          ? null
+                          : 'Enter a valid email address',
+                    ),
+                    const SizedBox(height: 16),
+                    RentHubTextField(
+                      controller: password,
+                      label: 'Password',
+                      hint: 'Enter your password',
+                      icon: Icons.lock_outline,
+                      obscure: true,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.password],
+                      validator: (value) => (value?.length ?? 0) >= 6
+                          ? null
+                          : 'Password must be at least 6 characters',
+                      onFieldSubmitted: (_) => _login(),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => const ForgotPasswordScreen(),
+                          ),
+                        ),
+                        child: const Text('Forgot Password?'),
+                      ),
+                    ),
+                    if (controller.error != null) ...[
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          controller.error!,
+                          style: const TextStyle(color: AppColors.error),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    RentHubActionButton(
+                      label: 'Log In',
+                      loading: controller.loading,
+                      onPressed: _login,
+                    ),
+                    const SizedBox(height: 18),
+                    const Row(
                       children: [
-                        const Center(child: RentHubLogo()),
-                        const SizedBox(height: 28),
-                        Text(
-                          'Welcome back',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const Text(
-                          'Rent with confidence across Malaysia.',
-                          style: TextStyle(color: AppColors.secondaryText),
-                        ),
-                        const SizedBox(height: 20),
-                        SegmentedButton<UserRole>(
-                          segments: const [
-                            ButtonSegment(
-                              value: UserRole.renter,
-                              icon: Icon(Icons.search),
-                              label: Text('Renter'),
-                            ),
-                            ButtonSegment(
-                              value: UserRole.owner,
-                              icon: Icon(Icons.storefront),
-                              label: Text('Owner'),
-                            ),
-                          ],
-                          selected: {c.selectedRole},
-                          onSelectionChanged: (s) => c.selectRole(s.first),
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: email,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(labelText: 'Email'),
-                          validator: (v) => v?.contains('@') == true
-                              ? null
-                              : 'Enter a valid email',
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: password,
-                          obscureText: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Password',
-                          ),
-                          validator: (v) => (v?.length ?? 0) >= 6
-                              ? null
-                              : 'At least 6 characters',
-                        ),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () => showMockSuccess(
-                              context,
-                              'Password reset instructions sent',
-                            ),
-                            child: const Text('Forgot password?'),
+                        Expanded(child: Divider()),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'or',
+                            style: TextStyle(color: AppColors.secondaryText),
                           ),
                         ),
-                        if (c.error != null)
-                          Text(
-                            c.error!,
-                            style: const TextStyle(color: AppColors.error),
-                          ),
-                        FilledButton(
-                          onPressed: c.loading
-                              ? null
-                              : () {
-                                  if (key.currentState!.validate()) {
-                                    c.login(email.text, password.text);
-                                  }
-                                },
-                          child: Text(c.loading ? 'Signing in…' : 'Sign in'),
-                        ),
-                        const SizedBox(height: 8),
+                        Expanded(child: Divider()),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    RentHubActionButton(
+                      label: 'Continue with Auth0',
+                      icon: Icons.account_circle_outlined,
+                      style: RentHubButtonStyle.secondary,
+                      onPressed: () => showMockSuccess(
+                        context,
+                        'Auth0 is simulated in this prototype',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        const Text("Don't have an account?"),
                         TextButton(
-                          onPressed: () => showMockSuccess(
+                          onPressed: () => Navigator.push(
                             context,
-                            'Registration form opened',
+                            MaterialPageRoute<void>(
+                              builder: (_) => const RegisterScreen(),
+                            ),
                           ),
-                          child: const Text('New to RentHub? Create account'),
-                        ),
-                        const Text(
-                          'Use demo@renthub.my to preview role switching.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.secondaryText,
-                          ),
+                          child: const Text('Create Account'),
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),
