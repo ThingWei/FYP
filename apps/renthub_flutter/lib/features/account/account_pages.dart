@@ -6,8 +6,8 @@ import '../../modules/user/controllers/auth_controller.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
+import '../auth/pages/kyc_document_submission_page.dart';
 import 'role_selection_screen.dart';
-import 'verification_gate_screen.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -42,35 +42,22 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _verification() async {
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => const VerificationGateScreen()),
+      MaterialPageRoute(builder: (_) => const KycDocumentSubmissionPage()),
     );
     if (result == true && mounted) setState(() => verified = true);
   }
 
   Future<void> _editProfile() async {
     final auth = context.read<AuthController>();
-    final name = TextEditingController(text: auth.user?.name ?? 'Nur Izzati');
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit personal info'),
-        content: TextField(
-          controller: name,
-          decoration: const InputDecoration(labelText: 'Display name'),
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditProfilePage(
+          initialName: auth.user?.name ?? 'Nur Izzati',
+          initialEmail: auth.user?.email ?? 'demo@renthub.my',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
-    name.dispose();
     if (saved == true && mounted) {
       showMockSuccess(context, 'Profile changes saved for this session');
     }
@@ -219,6 +206,16 @@ class _ProfilePageState extends State<ProfilePage> {
                       onTap: _chooseRole,
                     ),
                   _SettingsTile(
+                    icon: Icons.settings_outlined,
+                    label: 'Application Settings',
+                    onTap: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ApplicationSettingsPage(),
+                      ),
+                    ),
+                  ),
+                  _SettingsTile(
                     icon: Icons.help_outline,
                     label: 'Help & Support',
                     onTap: () => showMockSuccess(context, 'Help centre opened'),
@@ -243,6 +240,213 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
   }
+}
+
+class EditProfilePage extends StatefulWidget {
+  const EditProfilePage({
+    super.key,
+    required this.initialName,
+    required this.initialEmail,
+  });
+
+  final String initialName;
+  final String initialEmail;
+
+  @override
+  State<EditProfilePage> createState() => _EditProfilePageState();
+}
+
+class _EditProfilePageState extends State<EditProfilePage> {
+  final formKey = GlobalKey<FormState>();
+  late final name = TextEditingController(text: widget.initialName);
+  late final email = TextEditingController(text: widget.initialEmail);
+  final phone = TextEditingController(text: '+60 12-345 6789');
+  final address = TextEditingController(
+    text: '123 Nexus Way, Apt 4B, Kuala Lumpur',
+  );
+
+  @override
+  void dispose() {
+    name.dispose();
+    email.dispose();
+    phone.dispose();
+    address.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Edit Profile')),
+        body: SafeArea(
+          child: Form(
+            key: formKey,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              children: [
+                Center(
+                  child: Stack(
+                    children: [
+                      const CircleAvatar(
+                        radius: 42,
+                        backgroundColor: AppColors.primaryLight,
+                        child: Icon(Icons.person,
+                            size: 44, color: AppColors.primaryDark),
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: IconButton.filled(
+                          tooltip: 'Change avatar',
+                          onPressed: () => showMockSuccess(
+                            context,
+                            'Avatar placeholder updated',
+                          ),
+                          icon: const Icon(Icons.edit, size: 18),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                AccountCard(
+                  child: Column(
+                    children: [
+                      TextFormField(
+                        controller: name,
+                        decoration:
+                            const InputDecoration(labelText: 'Full name'),
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                                ? 'Name is required'
+                                : null,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: email,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Email address',
+                          helperText: 'Verified',
+                        ),
+                        validator: (value) => value?.contains('@') == true
+                            ? null
+                            : 'Enter a valid email',
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: phone,
+                        keyboardType: TextInputType.phone,
+                        decoration:
+                            const InputDecoration(labelText: 'Phone number'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: address,
+                        minLines: 2,
+                        maxLines: 3,
+                        decoration:
+                            const InputDecoration(labelText: 'Primary address'),
+                      ),
+                      const SizedBox(height: 20),
+                      RentHubActionButton(
+                        label: 'Save Changes',
+                        onPressed: () {
+                          if (formKey.currentState!.validate()) {
+                            Navigator.pop(context, true);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+class ApplicationSettingsPage extends StatefulWidget {
+  const ApplicationSettingsPage({super.key});
+
+  @override
+  State<ApplicationSettingsPage> createState() =>
+      _ApplicationSettingsPageState();
+}
+
+class _ApplicationSettingsPageState extends State<ApplicationSettingsPage> {
+  bool bookingAlerts = true;
+  bool messageAlerts = true;
+  bool promotions = false;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Settings')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              AccountCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Notifications',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Booking updates'),
+                      value: bookingAlerts,
+                      onChanged: (value) =>
+                          setState(() => bookingAlerts = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('New messages'),
+                      value: messageAlerts,
+                      onChanged: (value) =>
+                          setState(() => messageAlerts = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Promotions'),
+                      value: promotions,
+                      onChanged: (value) => setState(() => promotions = value),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              AccountCard(
+                child: Column(
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.block_outlined),
+                      title: const Text('Blocked Owners'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => showMockSuccess(
+                        context,
+                        'No blocked Owners in this prototype',
+                      ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.language_outlined),
+                      title: const Text('Language'),
+                      subtitle: const Text('English (Malaysia)'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => showMockSuccess(
+                        context,
+                        'Language selector opened',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _ProfileSection extends StatelessWidget {

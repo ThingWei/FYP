@@ -14,6 +14,18 @@ class RentHubApp extends StatelessWidget {
         title: 'RentHub',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
+        builder: (context, child) => ColoredBox(
+          color: AppColors.surface,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: ColoredBox(
+                color: AppColors.surface,
+                child: child ?? const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        ),
         home: Consumer<AuthController>(
           builder: (_, auth, __) {
             if (!auth.authenticated) return const LoginScreen();

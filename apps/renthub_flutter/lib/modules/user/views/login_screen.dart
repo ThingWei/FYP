@@ -9,7 +9,16 @@ import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({
+    super.key,
+    this.onAuthenticated,
+    this.administrator = false,
+    this.initialEmail = 'demo@renthub.my',
+  });
+
+  final VoidCallback? onAuthenticated;
+  final bool administrator;
+  final String initialEmail;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -17,7 +26,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final formKey = GlobalKey<FormState>();
-  final email = TextEditingController(text: 'demo@renthub.my');
+  late final email = TextEditingController(text: widget.initialEmail);
   final password = TextEditingController(text: 'password');
 
   @override
@@ -29,9 +38,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     if (!formKey.currentState!.validate()) return;
-    await context
-        .read<AuthController>()
-        .login(email.text.trim(), password.text);
+    final controller = context.read<AuthController>();
+    await controller.login(email.text.trim(), password.text);
+    if (mounted && controller.authenticated) widget.onAuthenticated?.call();
   }
 
   @override
@@ -44,8 +53,10 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Welcome back. Please enter your details.',
+              Text(
+                widget.administrator
+                    ? 'Administrator portal. Sign in with your RentHub account.'
+                    : 'Welcome back. Please enter your details.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.secondaryText),
               ),
@@ -108,47 +119,59 @@ class _LoginScreenState extends State<LoginScreen> {
                       loading: controller.loading,
                       onPressed: _login,
                     ),
-                    const SizedBox(height: 18),
-                    const Row(
-                      children: [
-                        Expanded(child: Divider()),
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            'or',
-                            style: TextStyle(color: AppColors.secondaryText),
-                          ),
-                        ),
-                        Expanded(child: Divider()),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    RentHubActionButton(
-                      label: 'Continue with Auth0',
-                      icon: Icons.account_circle_outlined,
-                      style: RentHubButtonStyle.secondary,
-                      onPressed: () => showMockSuccess(
-                        context,
-                        'Auth0 is simulated in this prototype',
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        const Text("Don't have an account?"),
-                        TextButton(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => const RegisterScreen(),
+                    if (!widget.administrator) ...[
+                      const SizedBox(height: 18),
+                      const Row(
+                        children: [
+                          Expanded(child: Divider()),
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              'or',
+                              style: TextStyle(color: AppColors.secondaryText),
                             ),
                           ),
-                          child: const Text('Create Account'),
+                          Expanded(child: Divider()),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      RentHubActionButton(
+                        label: 'Continue with Auth0',
+                        icon: Icons.account_circle_outlined,
+                        style: RentHubButtonStyle.secondary,
+                        onPressed: () => showMockSuccess(
+                          context,
+                          'Auth0 is simulated in this prototype',
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text("Don't have an account?"),
+                          TextButton(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => const RegisterScreen(),
+                              ),
+                            ),
+                            child: const Text('Create Account'),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Prototype authentication only. Administrative actions create local audit entries.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.secondaryText,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

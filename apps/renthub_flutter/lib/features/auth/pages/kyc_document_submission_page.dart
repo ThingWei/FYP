@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_theme.dart';
-import '../../shared/widgets/account_components.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/account_components.dart';
+import 'kyc_verification_status_page.dart';
 
-class VerificationGateScreen extends StatefulWidget {
-  const VerificationGateScreen({super.key});
+class KycDocumentSubmissionPage extends StatefulWidget {
+  const KycDocumentSubmissionPage({super.key});
 
   @override
-  State<VerificationGateScreen> createState() => _VerificationGateScreenState();
+  State<KycDocumentSubmissionPage> createState() =>
+      _KycDocumentSubmissionPageState();
 }
 
-class _VerificationGateScreenState extends State<VerificationGateScreen> {
+class _KycDocumentSubmissionPageState extends State<KycDocumentSubmissionPage> {
   bool loading = false;
   bool verified = false;
 
@@ -34,20 +36,14 @@ class _VerificationGateScreenState extends State<VerificationGateScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: verified ? _success() : _gate(),
+                child: verified
+                    ? KycVerificationStatusPage(
+                        onReturn: () => Navigator.pop(context, true),
+                      )
+                    : _gate(),
               ),
             ),
           ),
-        ),
-      );
-
-  Widget _success() => AccountCard(
-        child: RentHubFeedbackState(
-          kind: FeedbackKind.success,
-          title: 'Verification Successful',
-          message: 'Your identity is verified for this prototype.',
-          actionLabel: 'Return to Profile',
-          onAction: () => Navigator.pop(context, true),
         ),
       );
 
@@ -80,9 +76,9 @@ class _VerificationGateScreenState extends State<VerificationGateScreen> {
             style: TextStyle(color: AppColors.secondaryText),
           ),
           const SizedBox(height: 24),
-          AccountCard(
+          const AccountCard(
             child: Column(
-              children: const [
+              children: [
                 _BenefitRow(
                   icon: Icons.lock_outline,
                   title: 'Secure and trusted bookings',

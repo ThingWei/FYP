@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:renthub_flutter/features/account/account_pages.dart';
 import 'package:renthub_flutter/features/account/role_selection_screen.dart';
-import 'package:renthub_flutter/features/account/verification_gate_screen.dart';
+import 'package:renthub_flutter/features/auth/pages/kyc_document_submission_page.dart';
 import 'package:renthub_flutter/modules/user/controllers/auth_controller.dart';
 import 'package:renthub_flutter/modules/user/repositories/auth_repository.dart';
 import 'package:renthub_flutter/modules/user/views/forgot_password_screen.dart';
@@ -205,7 +205,7 @@ void main() {
       ),
       const MaterialApp(home: ForgotPasswordScreen()),
       const MaterialApp(home: RoleSelectionScreen()),
-      const MaterialApp(home: VerificationGateScreen()),
+      const MaterialApp(home: KycDocumentSubmissionPage()),
       ChangeNotifierProvider.value(
         value: auth,
         child: MaterialApp(

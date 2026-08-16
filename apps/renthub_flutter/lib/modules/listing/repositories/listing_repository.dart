@@ -1,4 +1,5 @@
 import '../../../core/network/api_client.dart';
+import '../../../shared/mock_data/mock_data.dart';
 import '../../../shared/models/domain_models.dart';
 
 abstract interface class ListingRepository {
@@ -7,21 +8,7 @@ abstract interface class ListingRepository {
 }
 
 class MockListingRepository implements ListingRepository {
-  final _items = <Listing>[
-    const Listing(
-      id: '1',
-      title: 'Sony Alpha Camera',
-      category: 'Devices & Electronics',
-      dailyPrice: 45,
-      condition: 'Excellent',
-    ),
-    const Listing(
-      id: '2',
-      title: 'Bosch Cordless Drill',
-      category: 'Equipment & Tools',
-      dailyPrice: 20,
-    ),
-  ];
+  final _items = MockData.listings.toList();
   @override
   Future<List<Listing>> list() async => List.unmodifiable(_items);
   @override

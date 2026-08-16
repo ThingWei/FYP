@@ -5,14 +5,38 @@
 - Stitch project: `2362719991600770029`
 - Stitch URL supplied: `https://stitch.withgoogle.com/projects/2362719991600770029`
 - Local Flutter app: `apps/renthub_flutter`
-- Inspection date: 14 August 2026 (Asia/Kuala_Lumpur)
-- Mutation status: the Stitch project was not modified. Flutter UI Implementation Batches 1 and 2 were completed and are recorded below.
+- Inspection date: 16 August 2026 (Asia/Kuala_Lumpur)
+- Mutation status: the Stitch project was not modified. Flutter UI Implementation Batches 1, 2, and Combined Batch 3 are recorded below.
 
 ## Stitch retrieval result
 
-The retry succeeded on 14 August 2026. `list_projects` was called first and returned project `2362719991600770029` (`Multi-Category Rental Marketplace`). `get_project` then returned 55 canonical screen resources. The Stitch `list_screens` RPC returned `Request contains an invalid argument`, so each canonical screen ID from the project was resolved with `get_screen`; all 55 screens were retrieved. Two transient per-screen errors succeeded on retry. No browser fallback was used.
+The latest audit succeeded on 16 August 2026. `list_projects` was called first and returned project `2362719991600770029` (`Multi-Category Rental Marketplace`). The current project exposes 76 resources, including superseded originals and v2/replacement variants; the product inventory contains 65 canonical screens. Relevant Batch 3 screens were resolved with fresh `get_screen` calls, with two transient errors succeeding on retry. No Stitch design was modified.
 
-Project metadata: public, `TEXT_TO_UI_PRO`, updated `2026-08-14T12:02:00.936512Z`, with a primarily mobile project canvas. The inventory contains 48 mobile screens, six desktop screens, and one device-agnostic logo asset.
+Project metadata: public, `TEXT_TO_UI_PRO`, updated `2026-08-16T06:34:14.596487Z`, with a primarily mobile project canvas. The 65 canonical instances comprise 56 mobile screens, eight desktop screens, and one device-agnostic logo asset.
+
+### Combined Batch 3 affected mappings
+
+This compact delta supersedes the historical status text for the affected rows in the original 55-screen baseline below. Unlisted Batch 1 and Batch 2 mappings are unchanged.
+
+| Screen | Stitch ID | Current Flutter mapping | Status |
+|---|---|---|---|
+| Edit Profile | `0a9aeff3fadb457bae02b26f29f5efd0` | `EditProfilePage` | Implemented |
+| Sign-out Confirmation | `335270986f884ac3a5a260502dc42ec5` | `ProfilePage` confirmation dialog | Implemented |
+| RentHub Home v2 | `60b975855fb4491d8d992ed87baa469e` | `RenterHome` | Implemented; mobile-first |
+| Updated Categories Home | `4f8d15c0372d4cc4b43d92b72c71b978` | `RenterHome`, `RentHubCategories` | Implemented; protected order |
+| Search Results v2 | `8dc635fa3a3241268e1a13084b99fa89` | `ExplorePage`, `ServiceResultsPage` | Implemented |
+| Item Details v2 | `a9651688c0d546e794051bf9c9145b80` | `ListingDetailsPage` | Implemented |
+| Rental Completed | `478bde3b46704bf7ae6ec42da87d4203` | `PhysicalRentalCompletedPage` | Implemented |
+| Owner Dashboard v2 | `698c4aae739c4e8b8d40218ccdf08a46` | `OwnerDashboard` | Implemented; mobile-first |
+| Create Listing v2 | `89f7307019174bb1a67d1535adec1971` | `ListingForm`, `ListingPreviewPage` | Implemented |
+| Booking Requests v2 | `920925c1c1cf4ef9ac3da345e82c18df` | `OwnerRequests`, `OwnerRequestDetailsPage` | Implemented |
+| Active Rentals v2 | `8768829cd851490390daa98ea3a66537` | `OwnerActiveRentalsPage` | Implemented |
+| Owner Extension Review | `f920c111e5de4bddb7f40574a48d7f03` | `OwnerExtensionReviewPage` | Implemented |
+| Owner Insurance Claim | `4239097dbba64012aafafae4d256d53f` | `OwnerInsuranceClaimPage` | Implemented |
+| Admin Category Management | `af50a42d6d17468383b49fe4efd738de` | `_CategoryManagementPage` | Implemented; six protected categories |
+| Admin Profile & Settings | `3698c3358d534700958508552532c954` | `_AdminProfileSettingsPage` | Implemented |
+
+Batch 3 also completes the existing Stitch-backed Wishlist/comparison, separate service journey, physical post-booking, owner handover/return/dispute/earnings, messaging, and task-specific responsive admin mappings. Their original screen IDs remain unchanged.
 
 ## Verified local Flutter inventory
 
@@ -22,9 +46,9 @@ Project metadata: public, `TEXT_TO_UI_PRO`, updated `2026-08-14T12:02:00.936512Z
 |---|---|---|---|
 | Login | `lib/modules/user/views/login_screen.dart` | Implemented (Batch 1) | Stitch-aligned card, validation, loading/error handling, password visibility, simulated Auth0 action, and working registration/reset navigation. Existing mock login logic is preserved. |
 | Registration | `lib/modules/user/views/register_screen.dart` | Implemented (Batch 1) | Three-step details/security/role-and-terms flow, validation, loading/error handling, success state, and existing `AuthController.register` integration. |
-| Admin login | `lib/features/admin/admin_app.dart` | Exists | Separate web entry point with validation and mock credentials. |
+| Admin login | `lib/features/admin/admin_app.dart` | Implemented (Batch 3) | Reuses the shared login and redirects the administrator role into the separate responsive admin shell. |
 | Role switching | `lib/app/app.dart`, `lib/features/account/role_selection_screen.dart` | Implemented (Batch 1) | Dedicated Stitch-aligned role selection is available only to eligible dual-role users and preserves controller role state. |
-| Profile | `lib/features/account/account_pages.dart` (`ProfilePage`) | Implemented (Batch 1) | Shared renter/owner profile includes personal info, verification, address/payment mock actions, trust score, role switch, help/security actions, and confirmed controller-driven sign-out. |
+| Profile | `lib/features/account/account_pages.dart` (`ProfilePage`, `EditProfilePage`, `ApplicationSettingsPage`) | Extended (Batch 3) | Adds routed profile editing and app settings while preserving verification, role switch, and confirmed controller-driven sign-out. |
 | Notifications | `lib/features/account/account_pages.dart` (`NotificationsPage`) | Implemented (Batch 1) | Shared renter/owner entry points, category filters, grouped read/unread cards, mark-all-read, tap feedback, dismissal with undo, loading and empty/error presentations. |
 | Splash and onboarding | — | Missing | No routed implementation found. |
 | Forgot-password form | `lib/modules/user/views/forgot_password_screen.dart` | Implemented (Batch 1) | Local four-state email/code/new-password/success flow with loading, validation, retry guidance and no external integration. |
@@ -34,11 +58,11 @@ Project metadata: public, `TEXT_TO_UI_PRO`, updated `2026-08-14T12:02:00.936512Z
 | Local UI | Status | Notes |
 |---|---|---|
 | Five-destination renter shell | Exists | Home, Explore, Bookings, Messages, and Profile use an `IndexedStack` and Material navigation bar. |
-| Home/discovery | Implemented (Batch 2 physical-item journey) | Stitch-aligned location/search/categories/recommendations/service teaser and routed item discovery are complete for the approved journey. Wishlist persistence and nearby/promoted expansion remain deferred. |
-| Explore/search results | Implemented (Batch 2 physical-item journey) | Query, category/type, location, price, availability, and verified-Owner filters work and survive details back navigation with scroll position. Dedicated service results remain deferred. |
-| Listing details | Implemented (Batch 2 physical-item journey) | Physical-item imagery placeholder, price, location, rating, verified Owner/trust, condition, equipment, policy, fulfilment, deposit, and booking route are complete. Service-specific detail work remains deferred. |
-| Wishlist | Missing | No dedicated screen or persisted mock state. |
-| Listing comparison | Missing | No screen or comparison selection flow found. |
+| Home/discovery | Extended (Batch 3) | Mobile discovery uses the protected six-category order; Services opens its separate journey and Wishlist is integrated. |
+| Explore/search results | Extended (Batch 3) | Batch 2 state retention remains; category labels use the protected taxonomy and Services has dedicated results. |
+| Listing details | Extended (Batch 3) | Physical details preserve Batch 2; service listings use distinct provider, schedule, summary, payment, and status terminology. |
+| Wishlist | Implemented (Batch 3) | Dedicated session-local Wishlist routes to details and comparison. |
+| Listing comparison | Implemented (Batch 3) | Explore and Wishlist expose same-category 2–3 item selection, fixed compare actions, ID-based navigation, preserved Back state, and vertically stacked mobile comparison cards. |
 | Booking and checkout | Implemented (Batch 2 physical-item journey) | Dedicated date/availability/fulfilment/location/quantity and pricing selection, agreement acceptance, local simulated authorization, exactly-once Pending creation, and submitted state are routed end to end. |
 | Booking history | Implemented (Batch 2 approved scope) | Pending, Active, Completed, and Cancelled tabs work; the latest created request appears first under Pending. Dedicated booking detail/post-booking flows remain deferred. |
 | Physical rental tracking, extension, return evidence | Incomplete | Some actions are represented from booking cards, but dedicated end-to-end screens and condition evidence workflow are absent. |
@@ -149,7 +173,9 @@ Status meanings: **represented** means an equivalent routed local UI exists; **p
 | Dispute Case Details | `558ea52994454e98870b2ddbe1242ac0` | Desktop | Admin | Disputes generic table | Missing as a participant/evidence/conversation resolution view. |
 | Admin: Reports & Finance | `b1af2851ca754babb7c6f4a4cb6b83d1` | Desktop | Admin | Reports + bookings/transactions destinations | Partial; monitoring tables exist, finance/refund/report details missing. |
 
-### Coverage summary
+### Historical Batch 2 coverage summary
+
+The counts below describe the original 55-screen baseline before the authoritative Batch 3 delta above. They are retained only for batch history and are not the current completion count.
 
 | Classification | Count |
 |---|---:|
@@ -160,16 +186,9 @@ Status meanings: **represented** means an equivalent routed local UI exists; **p
 
 Stitch does not contain dedicated screens for every required local/product concept. Notable local or required concepts without a one-to-one Stitch screen include splash/onboarding, Explore as a persistent navigation destination, owner/renter profile drill-down, loyalty/referral, insurance-claim submission/status, bundle management, editable platform settings, review moderation detail, audit-log detail, and several admin destinations represented only through broader Stitch admin screens.
 
-## Recommended implementation order
+## Current implementation status
 
-Batch 1 completed the seven Stitch-backed shared account screens: login, registration, password reset, role selection, KYC gate, profile/settings, and notifications. Batch 2 completed the eight-screen physical-item discovery-to-Pending-request journey, including the dedicated booking-details selection surface and prototype-only simulated authorization. Splash/onboarding, wishlist/comparison, services, and post-booking flows remain outside those approved batches.
-
-1. **Extend the completed renter discovery-to-request foundation.** Batch 2 now covers physical-item search, availability/date selection, booking summary, agreement, simulated authorization, and Pending request creation. Add wishlist, listing comparison, and the excluded service-booking variant in a later approved batch.
-2. **Finish physical-item and service post-booking branches.** Add physical tracking, extension, handover/return and condition evidence separately from service completion.
-3. **Complete owner supply and request workflows.** Persist create/edit listing state, add request details and rejection reasons, then active-order, earnings, review, dispute, and claim flows.
-4. **Replace generic admin tables with task-specific detail screens.** Prioritise identity verification, listing moderation, user suspension, and dispute resolution, including confirmation, required reasons, evidence, and visible state updates.
-5. **Integrate remaining communications and trust flows.** Connect reviews, disputes, claims, loyalty, referrals, and deeper settings/help pages to active navigation.
-6. **Expand representative state and responsive QA.** Continue mobile checks at 360/390 logical pixels and admin checks at 1024/1440 widths before treating all UI coverage as complete.
+Batch 1 account/authentication and Batch 2 physical discovery-to-Pending-request behavior remain intact. Combined Batch 3 adds the remaining Stitch-backed renter post-booking and separate service branches, owner operations, account editing, protected taxonomy, messaging, and responsive administrator workflows. Real integrations and journeys explicitly excluded by the Batch 3 request remain deferred.
 
 ## Mapping caveats
 
