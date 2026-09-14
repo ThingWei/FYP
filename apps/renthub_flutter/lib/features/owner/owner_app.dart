@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/renthub_categories.dart';
 import '../../core/theme/app_theme.dart';
+import '../../modules/booking/controllers/booking_controller.dart';
 import '../../shared/mock_data/mock_data.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../account/account_pages.dart';
 import '../renter/renter_app.dart' show MessagesPage;
+import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import '../renter/rentals/pages/rate_review_page.dart';
+import 'owner_bundle_management_page.dart';
 
 class OwnerShell extends StatefulWidget {
   const OwnerShell(
@@ -129,7 +133,7 @@ class OwnerDashboard extends StatelessWidget {
                 ?.copyWith(fontWeight: FontWeight.w800)),
         Card(
             child: ListTile(
-                title: Text('Sony Alpha A7 III Camera'),
+                title: Text('Sony Alpha a7S III Mirrorless Camera'),
                 subtitle: const Text('Successful • 12 Aug 2026'),
                 trailing: const Text('+ RM 228.00',
                     style: TextStyle(
@@ -166,11 +170,97 @@ class _Metric extends StatelessWidget {
           ])));
 }
 
-class OwnerListings extends StatelessWidget {
+class OwnerListings extends StatefulWidget {
   const OwnerListings({super.key});
+
+  @override
+  State<OwnerListings> createState() => _OwnerListingsState();
+}
+
+class _OwnerListingRecord {
+  _OwnerListingRecord(this.listing, this.status);
+  Listing listing;
+  String status;
+}
+
+class _OwnerListingsState extends State<OwnerListings> {
+  late final records = [
+    for (var index = 0; index < MockData.listings.length; index++)
+      _OwnerListingRecord(
+        MockData.listings[index],
+        index == 3
+            ? 'Draft'
+            : index == 4
+                ? 'Pending review'
+                : 'Active',
+      ),
+  ];
+
+  Future<void> _create(bool isService) async {
+    final listing = await Navigator.push<Listing>(
+      context,
+      MaterialPageRoute(builder: (_) => ListingForm(isService: isService)),
+    );
+    if (listing == null || !mounted) return;
+    setState(() =>
+        records.insert(0, _OwnerListingRecord(listing, 'Pending review')));
+    showMockSuccess(context, '${listing.title} submitted for review');
+  }
+
+  Future<void> _edit(int index) async {
+    final current = records[index];
+    final updated = await Navigator.push<Listing>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ListingForm(
+          isService: current.listing.isService,
+          initialListing: current.listing,
+        ),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    setState(() {
+      current.listing = updated;
+      current.status = 'Pending review';
+    });
+    showMockSuccess(context, '${updated.title} updated and resubmitted');
+  }
+
+  Future<void> _manage(int index, String action) async {
+    final record = records[index];
+    if (action == 'delete') {
+      final accepted = await confirmAction(
+        context,
+        title: 'Delete ${record.listing.title}?',
+        message:
+            'This removes the listing from the prototype. Existing mock booking records are retained.',
+        action: 'Delete Listing',
+        destructive: true,
+      );
+      if (accepted && mounted) setState(() => records.removeAt(index));
+      return;
+    }
+    setState(() =>
+        record.status = record.status == 'Inactive' ? 'Active' : 'Inactive');
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('My listings')),
+      appBar: AppBar(
+        title: const Text('My listings'),
+        actions: [
+          IconButton(
+            tooltip: 'Manage bundles',
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const OwnerBundleManagementPage(),
+              ),
+            ),
+            icon: const Icon(Icons.inventory_2_outlined),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
           onPressed: () => showModalBottomSheet(
               context: context,
@@ -187,22 +277,14 @@ class OwnerListings extends StatelessWidget {
                         FilledButton.icon(
                             onPressed: () {
                               Navigator.pop(context);
-                              Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const ListingForm(isService: false)));
+                              _create(false);
                             },
                             icon: const Icon(Icons.inventory_2_outlined),
                             label: const Text('Physical item')),
                         OutlinedButton.icon(
                             onPressed: () {
                               Navigator.pop(context);
-                              Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const ListingForm(isService: true)));
+                              _create(true);
                             },
                             icon: const Icon(Icons.design_services_outlined),
                             label: const Text('Service'))
@@ -211,50 +293,90 @@ class OwnerListings extends StatelessWidget {
           label: const Text('New listing')),
       body: ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: MockData.listings.length,
-          itemBuilder: (context, i) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Card(
-                  child: ListTile(
-                      contentPadding: const EdgeInsets.all(12),
-                      leading: CircleAvatar(
-                          backgroundColor: AppColors.primaryLight,
-                          child: Icon(MockData.listings[i].isService
-                              ? Icons.design_services
-                              : Icons.inventory_2)),
-                      title: Text(MockData.listings[i].title),
-                      subtitle: Text(
-                          'RM ${MockData.listings[i].dailyPrice.toStringAsFixed(2)}'),
-                      trailing: StatusBadge(i == 3
-                          ? 'Draft'
-                          : i == 4
-                              ? 'Pending review'
-                              : 'Active'),
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => ListingForm(
-                                  isService:
-                                      MockData.listings[i].isService))))))));
+          itemCount: records.length,
+          itemBuilder: (context, i) {
+            final record = records[i];
+            return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                    child: ListTile(
+                        contentPadding: const EdgeInsets.all(12),
+                        leading: CircleAvatar(
+                            backgroundColor: AppColors.primaryLight,
+                            child: Icon(record.listing.isService
+                                ? Icons.design_services
+                                : Icons.inventory_2)),
+                        title: Text(record.listing.title),
+                        subtitle: Text(
+                          'RM ${record.listing.dailyPrice.toStringAsFixed(2)} • ${record.status}',
+                        ),
+                        trailing: PopupMenuButton<String>(
+                          tooltip: 'Manage ${record.listing.title}',
+                          onSelected: (action) => _manage(i, action),
+                          itemBuilder: (_) => [
+                            PopupMenuItem(
+                              value: 'status',
+                              child: Text(record.status == 'Inactive'
+                                  ? 'Resume listing'
+                                  : 'Pause listing'),
+                            ),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Delete listing'),
+                            ),
+                          ],
+                        ),
+                        onTap: () => _edit(i))));
+          }));
 }
 
 class ListingForm extends StatefulWidget {
-  const ListingForm({super.key, required this.isService});
+  const ListingForm({
+    super.key,
+    required this.isService,
+    this.initialListing,
+  });
   final bool isService;
+  final Listing? initialListing;
   @override
   State<ListingForm> createState() => _ListingFormState();
 }
 
 class _ListingFormState extends State<ListingForm> {
   final key = GlobalKey<FormState>();
-  late String category =
-      widget.isService ? RentHubCategories.services : RentHubCategories.devices;
+  late String category = widget.initialListing?.category ??
+      (widget.isService
+          ? RentHubCategories.services
+          : RentHubCategories.devices);
+  late String condition = const ['New', 'Excellent', 'Good', 'Fair']
+          .contains(widget.initialListing?.condition)
+      ? widget.initialListing!.condition
+      : 'Excellent';
+  late final title =
+      TextEditingController(text: widget.initialListing?.title ?? '');
+  late final price = TextEditingController(
+    text: widget.initialListing?.dailyPrice.toStringAsFixed(2) ?? '',
+  );
+  late final location =
+      TextEditingController(text: widget.initialListing?.location ?? '');
   bool promotion = false;
+
+  @override
+  void dispose() {
+    title.dispose();
+    price.dispose();
+    location.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
-          title: Text(
-              widget.isService ? 'Service listing' : 'Physical-item listing')),
+          title: Text(widget.initialListing == null
+              ? widget.isService
+                  ? 'Create service listing'
+                  : 'Create physical-item listing'
+              : 'Edit listing')),
       body: Form(
           key: key,
           child: ListView(padding: const EdgeInsets.all(16), children: [
@@ -272,6 +394,7 @@ class _ListingFormState extends State<ListingForm> {
                     ])),
             const SizedBox(height: 16),
             TextFormField(
+                controller: title,
                 decoration: const InputDecoration(labelText: 'Title'),
                 validator: (v) =>
                     v == null || v.isEmpty ? 'Title is required' : null),
@@ -292,14 +415,20 @@ class _ListingFormState extends State<ListingForm> {
                     setState(() => category = value ?? category)),
             const SizedBox(height: 12),
             TextFormField(
+                controller: price,
+                keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                     labelText: widget.isService
                         ? 'Package price (RM)'
                         : 'Daily price (RM)',
                     helperText:
-                        'Suggested price: RM ${widget.isService ? '350–700' : '80–140'}')),
+                        'Suggested price: RM ${widget.isService ? '350–700' : '80–140'}'),
+                validator: (value) => (double.tryParse(value ?? '') ?? 0) <= 0
+                    ? 'Enter a valid price'
+                    : null),
             const SizedBox(height: 12),
             TextFormField(
+                controller: location,
                 decoration: const InputDecoration(labelText: 'Location')),
             const SizedBox(height: 12),
             if (widget.isService) ...[
@@ -312,12 +441,12 @@ class _ListingFormState extends State<ListingForm> {
                   decoration: const InputDecoration(labelText: 'Duration'))
             ] else ...[
               DropdownButtonFormField(
-                  initialValue: 'Excellent',
+                  initialValue: condition,
                   decoration: const InputDecoration(labelText: 'Condition'),
                   items: ['New', 'Excellent', 'Good', 'Fair']
                       .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                       .toList(),
-                  onChanged: (_) {}),
+                  onChanged: (value) => condition = value ?? condition),
               const SizedBox(height: 12),
               TextFormField(
                   decoration: const InputDecoration(
@@ -367,10 +496,28 @@ class _ListingFormState extends State<ListingForm> {
                 child: const Text('Preview Listing')),
             const SizedBox(height: 8),
             FilledButton(
+                key: const Key('save-owner-listing'),
                 onPressed: () {
                   if (key.currentState!.validate()) {
-                    showMockSuccess(context, 'Listing saved for review');
-                    Navigator.pop(context);
+                    Navigator.pop(
+                      context,
+                      Listing(
+                        id: widget.initialListing?.id ??
+                            'owner-${DateTime.now().millisecondsSinceEpoch}',
+                        title: title.text.trim(),
+                        category: category,
+                        dailyPrice: double.parse(price.text),
+                        condition: condition,
+                        ownerName:
+                            widget.initialListing?.ownerName ?? 'Nur Izzati',
+                        location: location.text.trim().isEmpty
+                            ? 'Kuala Lumpur'
+                            : location.text.trim(),
+                        verified: widget.initialListing?.verified ?? false,
+                        isService: widget.isService,
+                        rating: widget.initialListing?.rating ?? 0,
+                      ),
+                    );
                   }
                 },
                 child: const Text('Save listing'))
@@ -385,23 +532,52 @@ class OwnerRequests extends StatefulWidget {
 }
 
 class _OwnerRequestsState extends State<OwnerRequests> {
-  final states = ['Pending', 'Pending', 'Approved'];
+  final states = <String, String>{
+    'l-camera': 'Pending',
+    'l-canon-r5': 'Pending',
+    'l-fujifilm-xt4': 'Approved',
+  };
 
-  Future<void> _review(int index) async {
+  Future<void> _review({
+    required Listing listing,
+    required String initialStatus,
+    required String dates,
+    required double total,
+    String? staticListingId,
+    Booking? booking,
+  }) async {
     final result = await Navigator.push<String>(
       context,
       MaterialPageRoute(
         builder: (_) => OwnerRequestDetailsPage(
-          listing: MockData.listings[index],
-          initialStatus: states[index],
+          listing: listing,
+          initialStatus: initialStatus,
+          dates: dates,
+          total: total,
+          renterName: booking == null ? 'Aina Rahman' : 'Alex Tan',
         ),
       ),
     );
-    if (result != null && mounted) setState(() => states[index] = result);
+    if (result == null || !mounted) return;
+    if (booking != null) {
+      context.read<BookingController>().updateStatus(
+            booking.id,
+            result.toLowerCase(),
+          );
+    } else if (staticListingId != null) {
+      setState(() => states[staticListingId] = result);
+    }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final booking = context.watch<BookingController?>()?.latest;
+    final dynamicCount = booking == null ? 0 : 1;
+    final staticListings = MockData.listings
+        .take(3)
+        .where((listing) => listing.id != booking?.listingId)
+        .toList();
+    return Scaffold(
       appBar: AppBar(
           title: Text(
               widget.standalone ? 'All Booking Requests' : 'Booking requests'),
@@ -419,49 +595,89 @@ class _OwnerRequestsState extends State<OwnerRequests> {
           ]),
       body: ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: 3,
-          itemBuilder: (context, i) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Card(
-                  child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(children: [
-                              Expanded(
-                                  child: Text(MockData.listings[i].title,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold))),
-                              StatusBadge(states[i])
-                            ]),
-                            const SizedBox(height: 8),
-                            const Text('Aina Rahman • Verified • Trust 4.8'),
-                            const Text('18–20 Aug 2026'),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton(
-                                onPressed: () => _review(i),
-                                child: const Text('View Request Details'),
-                              ),
-                            ),
-                            if (states[i] == 'Pending') ...[
-                              const SizedBox(height: 12),
+          itemCount: staticListings.length + dynamicCount,
+          itemBuilder: (context, i) {
+            final isCreatedRequest = booking != null && i == 0;
+            final staticIndex = i - dynamicCount;
+            final listing = isCreatedRequest
+                ? MockData.listings.firstWhere(
+                    (item) => item.id == booking.listingId,
+                    orElse: () => MockData.listings.first,
+                  )
+                : staticListings[staticIndex];
+            final status = isCreatedRequest
+                ? _ownerStatusLabel(booking.status)
+                : states[listing.id] ?? 'Pending';
+            final dates = isCreatedRequest
+                ? formatDateRange(booking.start, booking.end)
+                : '18–20 Aug 2026';
+            final days = isCreatedRequest
+                ? booking.end.difference(booking.start).inDays + 1
+                : 3;
+            final total = listing.dailyPrice * days +
+                (listing.id == 'l-camera' ? 315 : 300);
+            void review() => _review(
+                  listing: listing,
+                  initialStatus: status,
+                  dates: dates,
+                  total: total,
+                  staticListingId: isCreatedRequest ? null : listing.id,
+                  booking: isCreatedRequest ? booking : null,
+                );
+            return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                    child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Row(children: [
                                 Expanded(
-                                    child: OutlinedButton(
-                                        onPressed: () => _review(i),
-                                        child: const Text('Reject'))),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                    child: FilledButton(
-                                        onPressed: () => _review(i),
-                                        child: const Text('Approve')))
-                              ])
-                            ]
-                          ]))))));
+                                    child: Text(listing.title,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold))),
+                                StatusBadge(status)
+                              ]),
+                              const SizedBox(height: 8),
+                              Text(isCreatedRequest
+                                  ? 'Alex Tan • Verified Renter • Trust 92'
+                                  : 'Aina Rahman • Verified • Trust 4.8'),
+                              Text(dates),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton(
+                                  onPressed: review,
+                                  child: const Text('View Request Details'),
+                                ),
+                              ),
+                              if (status == 'Pending') ...[
+                                const SizedBox(height: 12),
+                                Row(children: [
+                                  Expanded(
+                                      child: OutlinedButton(
+                                          onPressed: review,
+                                          child: const Text('Reject'))),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                      child: FilledButton(
+                                          onPressed: review,
+                                          child: const Text('Approve')))
+                                ])
+                              ]
+                            ]))));
+          }),
+    );
+  }
 }
+
+String _ownerStatusLabel(String status) => switch (status.toLowerCase()) {
+      'active' => 'Active',
+      'rejected' => 'Rejected',
+      'approved' => 'Approved',
+      _ => 'Pending',
+    };
 
 class ListingPreviewPage extends StatelessWidget {
   const ListingPreviewPage({
@@ -639,9 +855,15 @@ class OwnerRequestDetailsPage extends StatefulWidget {
     super.key,
     required this.listing,
     required this.initialStatus,
+    this.renterName = 'Aina Rahman',
+    this.dates = '18–20 Aug 2026',
+    this.total,
   });
   final Listing listing;
   final String initialStatus;
+  final String renterName;
+  final String dates;
+  final double? total;
 
   @override
   State<OwnerRequestDetailsPage> createState() =>
@@ -660,7 +882,7 @@ class _OwnerRequestDetailsPageState extends State<OwnerRequestDetailsPage> {
           action: 'Approve',
         ) &&
         mounted) {
-      Navigator.pop(context, 'Approved');
+      Navigator.pop(context, 'Active');
     }
   }
 
@@ -705,10 +927,15 @@ class _OwnerRequestDetailsPageState extends State<OwnerRequestDetailsPage> {
         heading: widget.listing.title,
         status: status,
         children: [
-          const _OwnerDetailRow('Renter', 'Aina Rahman • Verified • Trust 98'),
-          const _OwnerDetailRow('Dates', '18–20 Aug 2026 • 3 days'),
-          _OwnerDetailRow('Request total',
-              'RM ${(widget.listing.dailyPrice * 3 + 300).toStringAsFixed(2)}'),
+          _OwnerDetailRow(
+            'Renter',
+            '${widget.renterName} • Verified • Trust ${widget.renterName == 'Alex Tan' ? '92' : '98'}',
+          ),
+          _OwnerDetailRow('Dates', widget.dates),
+          _OwnerDetailRow(
+            'Request total',
+            formatMoney(widget.total ?? widget.listing.dailyPrice * 3 + 300),
+          ),
           _OwnerDetailRow(
             widget.listing.isService ? 'Requirements' : 'Fulfilment',
             widget.listing.isService
@@ -744,14 +971,35 @@ class OwnerActiveRentalsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final created = context.watch<BookingController?>()?.latest;
+    final createdListing = created?.status.toLowerCase() == 'active'
+        ? MockData.listings.firstWhere(
+            (item) => item.id == created!.listingId,
+            orElse: () => MockData.listings.first,
+          )
+        : null;
+    final entries = <(String, String, String)>[
+      if (createdListing != null)
+        (
+          createdListing.title,
+          'Approved request • ${formatDateRange(created!.start, created.end)}',
+          'Active',
+        ),
+      ...const [
+        ('Makita Cordless Drill Set', 'Pickup today, 2:00 PM', 'Handover'),
+        ('Perodua Myvi 2022', 'Overdue by 4 hours', 'Late'),
+      ],
+      if (createdListing?.id != 'l-camera')
+        const (
+          'Sony Alpha a7S III Mirrorless Camera',
+          'Return due in 2 days',
+          'Active',
+        ),
+    ];
     final content = ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        for (final entry in const [
-          ('Sony Alpha A7 III Camera', 'Return due in 2 days', 'Active'),
-          ('Makita Cordless Drill Set', 'Pickup today, 2:00 PM', 'Handover'),
-          ('Perodua Myvi 2022', 'Overdue by 4 hours', 'Late'),
-        ]) ...[
+        for (final entry in entries) ...[
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1129,7 +1377,11 @@ class OwnerEarningsPage extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               for (final entry in const [
-                ('Sony Alpha A7 III Camera', '+ RM 228.00', 'Successful'),
+                (
+                  'Sony Alpha a7S III Mirrorless Camera',
+                  '+ RM 228.00',
+                  'Successful'
+                ),
                 ('Perodua Myvi 2022', '+ RM 420.00', 'Pending'),
                 ('Photography Package', '+ RM 617.50', 'Successful'),
               ])

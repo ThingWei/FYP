@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import '../../../core/network/api_client.dart';
+import '../../../core/network/session_identity.dart';
 import '../../../shared/models/domain_models.dart';
 
 abstract interface class AuthRepository {
@@ -9,6 +13,7 @@ abstract interface class AuthRepository {
     UserRole role,
   );
   Future<void> logout();
+  void selectRole(UserRole role);
 }
 
 class MockAuthRepository implements AuthRepository {
@@ -33,4 +38,93 @@ class MockAuthRepository implements AuthRepository {
       User(id: 'demo-user', email: e, name: n, roles: {r});
   @override
   Future<void> logout() async {}
+
+  @override
+  void selectRole(UserRole role) {}
+}
+
+class LiveAuthRepository implements AuthRepository {
+  LiveAuthRepository(this.api, this.session);
+
+  final ApiClient api;
+  final SessionIdentity session;
+
+  static const _accounts =
+      <String, ({String id, String name, Set<UserRole> roles})>{
+    'renter@renthub.my': (
+      id: 'u-renter',
+      name: 'Alex Tan',
+      roles: {UserRole.renter},
+    ),
+    'owner@renthub.my': (
+      id: 'u-owner',
+      name: 'Sarah J.',
+      roles: {UserRole.owner},
+    ),
+    'aina@renthub.my': (
+      id: 'u-aina',
+      name: 'Aina Rahman',
+      roles: {UserRole.owner},
+    ),
+    'demo@renthub.my': (
+      id: 'u-dual',
+      name: 'Nur Izzati',
+      roles: {UserRole.renter, UserRole.owner},
+    ),
+    'admin@renthub.my': (
+      id: 'u-admin',
+      name: 'Admin Farah',
+      roles: {UserRole.admin},
+    ),
+  };
+
+  void _prepareIdentity(String email, UserRole requestedRole, {String? name}) {
+    final normalized = email.toLowerCase();
+    final known = _accounts[normalized];
+    final roles = known?.roles ?? {requestedRole};
+    if (!roles.contains(requestedRole)) {
+      throw ApiException(
+          403, 'This account does not have the ${requestedRole.name} role');
+    }
+    session.set(
+      id: known?.id ?? 'u-local-${normalized.hashCode.abs()}',
+      email: normalized,
+      name: known?.name ?? name ?? normalized.split('@').first,
+      assignedRoles: roles,
+    );
+  }
+
+  @override
+  Future<User> login(String email, String password, UserRole role) async {
+    _prepareIdentity(email, role);
+    final data = await api.request('POST', '/users/session');
+    return User.fromJson(data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<User> register(
+    String name,
+    String email,
+    String password,
+    UserRole role,
+  ) async {
+    _prepareIdentity(email, role, name: name);
+    final data = await api.request('POST', '/users/session');
+    return User.fromJson(data as Map<String, dynamic>);
+  }
+
+  @override
+  void selectRole(UserRole role) {
+    if (!session.active || !session.roles.contains(role)) return;
+    unawaited(
+      api.request(
+        'PATCH',
+        '/users/me/active-role',
+        body: {'role': role.name},
+      ),
+    );
+  }
+
+  @override
+  Future<void> logout() async => session.clear();
 }

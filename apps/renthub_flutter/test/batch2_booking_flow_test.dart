@@ -210,9 +210,18 @@ void main() {
       const Offset(0, -260),
     );
     await tester.pumpAndSettle();
+    expect(key.currentState!.currentScrollOffset, greaterThan(0));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('search-result-l-car')),
+      120,
+      scrollable: find.descendant(
+        of: find.byKey(const PageStorageKey('search-results-scroll')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.ensureVisible(find.byKey(const Key('search-result-l-car')));
+    await tester.pumpAndSettle();
     final scrollOffset = key.currentState!.currentScrollOffset;
-    expect(scrollOffset, greaterThan(0));
-
     await tester.tap(find.byKey(const Key('search-result-l-car')));
     await tester.pumpAndSettle();
     await tester.pageBack();
@@ -308,7 +317,7 @@ void main() {
     await tester.tap(find.text('View in My Bookings'));
     await tester.pumpAndSettle();
     expect(find.text('My Bookings'), findsOneWidget);
-    expect(find.text('Sony Alpha A7 III Camera'), findsOneWidget);
+    expect(find.text('Sony Alpha a7S III Mirrorless Camera'), findsOneWidget);
     expect(find.text('Pending Owner Approval'), findsOneWidget);
     expect(repository.createCalls, 1);
   });

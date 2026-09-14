@@ -1,3 +1,15 @@
-import { createModule } from '../../core/moduleFactory.js';
-export const listingModule = createModule('Listing', { title: { type: String, required: true }, category: { type: String, required: true }, description: String, dailyPrice: { type: Number, min: 0, required: true }, condition: String, location: { type: { type: String, default: 'Point' }, coordinates: [Number] }, status: { type: String, default: 'active' }, ownerId: String, images: [String] });
+import { AvailabilityModel } from './availability.model.js';
+import { listingController } from './listing.controller.js';
+import { ListingModel } from './listing.model.js';
+import { listingRepository } from './listing.repository.js';
+import { listingRouter } from './listing.routes.js';
+import { listingService } from './listing.service.js';
 
+export const listingModule = {
+  Model: ListingModel,
+  AvailabilityModel,
+  repository: listingRepository,
+  service: listingService,
+  controller: listingController,
+  router: listingRouter,
+};

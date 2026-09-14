@@ -5,13 +5,16 @@ import '../../../../shared/models/domain_models.dart';
 
 class ServiceDraft extends ChangeNotifier {
   ServiceDraft(this.service)
-      : date = DateTime(2026, 8, 22),
+      : date = DateTime(2026, 10, 3),
         time = const TimeOfDay(hour: 14, minute: 0);
 
   final Listing service;
   DateTime date;
   TimeOfDay time;
   String requirements = '';
+  String packageName = 'Essential Event Coverage';
+  String duration = '3 hours';
+  String venue = 'The Glasshouse Seputeh';
   int guests = 50;
   bool processing = false;
   Booking? createdBooking;
@@ -41,7 +44,7 @@ class ServiceDraft extends ChangeNotifier {
     processing = true;
     notifyListeners();
     await Future<void>.delayed(const Duration(milliseconds: 450));
-    await controller.create(service.id, date, date);
+    await controller.create(service.id, date, date, amount: total);
     createdBooking = controller.latest;
     processing = false;
     notifyListeners();

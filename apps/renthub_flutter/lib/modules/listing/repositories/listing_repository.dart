@@ -33,6 +33,26 @@ class LiveListingRepository implements ListingRepository {
           .map((e) => Listing.fromJson(e))
           .toList();
   @override
-  Future<Listing> create(Map<String, dynamic> data) async =>
-      Listing.fromJson(await api.request('POST', '/listings', body: data));
+  Future<Listing> create(Map<String, dynamic> data) async {
+    final isService = data['category'] == 'Services';
+    final payload = <String, dynamic>{
+      ...data,
+      'listingType': isService ? 'service' : 'physical',
+      'location': data['location'] ?? 'Kuala Lumpur',
+      if (!isService) ...{
+        'condition': data['condition'] ?? 'Good',
+        'fulfilmentMethods': data['fulfilmentMethods'] ?? ['pickup'],
+      },
+      if (isService)
+        'serviceDetails': data['serviceDetails'] ??
+            {
+              'packageName': data['title'],
+              'durationMinutes': 60,
+              'venueMode': 'flexible',
+            },
+    };
+    return Listing.fromJson(
+      await api.request('POST', '/listings', body: payload),
+    );
+  }
 }

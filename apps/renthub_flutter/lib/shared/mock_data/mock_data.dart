@@ -23,14 +23,14 @@ abstract final class MockData {
   static const renter = User(
     id: 'u-renter',
     email: 'renter@renthub.my',
-    name: 'Aina Rahman',
+    name: 'Alex Tan',
     roles: {UserRole.renter},
-    trustScore: 4.8,
+    trustScore: 4.6,
   );
   static const owner = User(
     id: 'u-owner',
     email: 'owner@renthub.my',
-    name: 'Daniel Tan',
+    name: 'Sarah J.',
     roles: {UserRole.owner},
     trustScore: 4.9,
   );
@@ -52,12 +52,12 @@ abstract final class MockData {
   static const listings = <Listing>[
     Listing(
       id: 'l-camera',
-      title: 'Sony Alpha A7 III Camera',
+      title: 'Sony Alpha a7S III Mirrorless Camera',
       category: RentHubCategories.devices,
       dailyPrice: 85,
       condition: 'Excellent',
-      ownerName: 'Daniel Tan',
-      location: 'Petaling Jaya, Selangor',
+      ownerName: 'Sarah J.',
+      location: 'Bukit Bintang, Kuala Lumpur',
       verified: true,
       isService: false,
       rating: 4.9,
@@ -114,8 +114,8 @@ abstract final class MockData {
       id: 'l-photo',
       title: 'Event Photography Package',
       category: RentHubCategories.services,
-      dailyPrice: 650,
-      ownerName: 'Mei Lin Studio',
+      dailyPrice: 450,
+      ownerName: 'Aina Rahman',
       location: 'Kuala Lumpur',
       verified: true,
       isService: true,
@@ -208,8 +208,8 @@ abstract final class MockData {
 
   static const comparisonDetails = <String, ListingComparisonDetails>{
     'l-camera': ListingComparisonDetails(
-      deposit: 500,
-      distanceKm: 1.2,
+      deposit: 300,
+      distanceKm: 2.4,
       reviewCount: 128,
       trustScore: 96,
       fulfilmentMethod: 'Pickup or Owner delivery',

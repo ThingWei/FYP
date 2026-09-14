@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/models/domain_models.dart';
 import '../../../shared/widgets/account_components.dart';
 import '../../../shared/widgets/renthub_components.dart';
 import '../controllers/auth_controller.dart';
@@ -61,6 +62,27 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: TextStyle(color: AppColors.secondaryText),
               ),
               const SizedBox(height: 24),
+              if (!widget.administrator) ...[
+                SegmentedButton<UserRole>(
+                  segments: const [
+                    ButtonSegment(
+                      value: UserRole.renter,
+                      icon: Icon(Icons.search),
+                      label: Text('Renter'),
+                    ),
+                    ButtonSegment(
+                      value: UserRole.owner,
+                      icon: Icon(Icons.inventory_2_outlined),
+                      label: Text('Owner'),
+                    ),
+                  ],
+                  selected: {controller.selectedRole},
+                  onSelectionChanged: controller.loading
+                      ? null
+                      : (selection) => controller.selectRole(selection.first),
+                ),
+                const SizedBox(height: 16),
+              ],
               AccountCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,

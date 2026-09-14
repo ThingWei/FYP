@@ -6,8 +6,10 @@ void main() {
   test('loads mock listings and creates one', () async {
     final controller = ListingController(MockListingRepository());
     await controller.load();
-    expect(controller.listings.length, 2);
+    final initialCount = controller.listings.length;
+    expect(initialCount, greaterThan(1));
     await controller.create('Tent', 'Equipment & Tools', 15);
-    expect(controller.listings.length, 3);
+    expect(controller.listings.length, initialCount + 1);
+    expect(controller.listings.last.title, 'Tent');
   });
 }

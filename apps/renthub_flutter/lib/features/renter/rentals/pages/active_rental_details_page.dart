@@ -5,6 +5,8 @@ import '../../../../shared/widgets/account_components.dart';
 import '../../booking/booking_flow.dart';
 import '../../shared/widgets/renter_flow_components.dart';
 import 'cancel_booking_page.dart';
+import 'dispute_tracking_page.dart';
+import 'insurance_claim_status_page.dart';
 import 'raise_dispute_page.dart';
 import 'rate_review_page.dart';
 import 'renter_return_submission_page.dart';
@@ -98,18 +100,48 @@ class PhysicalRentalDetailsPage extends StatelessWidget {
               ),
             ),
           ),
-        ],
-        const SizedBox(height: 8),
-        RentHubActionButton(
-          label: 'Raise a Dispute',
-          style: RentHubButtonStyle.outline,
-          onPressed: () => Navigator.push<void>(
-            context,
-            MaterialPageRoute(
-              builder: (_) => DisputeSubmissionPage(subject: listing.title),
+        ] else if (normalized == 'disputed') ...[
+          const RenterInfoSection(
+            title: 'Rental under review',
+            text:
+                'The deposit remains protected while the dispute and related claim are reviewed.',
+          ),
+          RentHubActionButton(
+            label: 'Track Dispute',
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DisputeTrackingPage(subject: listing.title),
+              ),
             ),
           ),
-        ),
+          const SizedBox(height: 8),
+          RentHubActionButton(
+            label: 'View Insurance Claim',
+            style: RentHubButtonStyle.secondary,
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => InsuranceClaimStatusPage(
+                  subject: listing.title,
+                ),
+              ),
+            ),
+          ),
+        ],
+        if (normalized != 'disputed') ...[
+          const SizedBox(height: 8),
+          RentHubActionButton(
+            label: 'Raise a Dispute',
+            style: RentHubButtonStyle.outline,
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DisputeSubmissionPage(subject: listing.title),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

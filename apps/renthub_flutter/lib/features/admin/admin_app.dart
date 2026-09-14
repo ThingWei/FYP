@@ -56,16 +56,15 @@ class _AdminShellState extends State<AdminShell> {
   int selected = 0;
   static const destinations = <_Destination>[
     _Destination('Dashboard', Icons.dashboard_outlined),
-    _Destination('Users & KYC', Icons.people_outline),
+    _Destination('Verification', Icons.verified_user_outlined),
+    _Destination('Users', Icons.people_outline),
     _Destination('Listings', Icons.inventory_2_outlined),
-    _Destination('Bookings', Icons.calendar_month_outlined),
-    _Destination('Disputes', Icons.gavel_outlined),
-    _Destination('Transactions', Icons.receipt_long_outlined),
-    _Destination('Reports & Analytics', Icons.bar_chart_outlined),
-    _Destination('Categories', Icons.category_outlined),
-    _Destination('Audit History', Icons.history),
-    _Destination('Notifications', Icons.notifications_outlined),
-    _Destination('Profile & Settings', Icons.settings_outlined),
+    _Destination('Bookings & Transactions', Icons.receipt_long_outlined),
+    _Destination('Disputes & Claims', Icons.gavel_outlined),
+    _Destination('Reports', Icons.bar_chart_outlined),
+    _Destination('Reviews', Icons.rate_review_outlined),
+    _Destination('Platform Settings', Icons.settings_outlined),
+    _Destination('Audit Logs', Icons.history),
   ];
 
   @override
@@ -88,12 +87,22 @@ class _AdminShellState extends State<AdminShell> {
               actions: [
                 IconButton(
                   tooltip: 'Admin notifications',
-                  onPressed: () => setState(() => selected = 9),
+                  onPressed: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const _AdminNotificationsRoute(),
+                    ),
+                  ),
                   icon: const Badge(child: Icon(Icons.notifications_outlined)),
                 ),
                 IconButton(
                   tooltip: 'Admin profile',
-                  onPressed: () => setState(() => selected = 10),
+                  onPressed: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const _AdminProfileRoute(),
+                    ),
+                  ),
                   icon: const CircleAvatar(radius: 16, child: Text('NI')),
                 ),
                 const SizedBox(width: 12),
@@ -145,6 +154,7 @@ class _AdminNavigation extends StatelessWidget {
                 child: Material(
                   color: Colors.transparent,
                   child: ListTile(
+                    key: ValueKey('admin-nav-$i'),
                     selected: selected == i,
                     selectedTileColor: AppColors.primaryLight,
                     shape: RoundedRectangleBorder(
@@ -173,9 +183,7 @@ class AdminPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => switch (index) {
         0 => _Dashboard(onNavigate: onNavigate),
-        7 => const _CategoryManagementPage(),
-        9 => const _AdminNotificationsPage(),
-        10 => const _AdminProfileSettingsPage(),
+        8 => const _PlatformSettingsPage(),
         _ => _AdminRecordsPage(section: index),
       };
 }
@@ -220,17 +228,46 @@ class _Dashboard extends StatelessWidget {
                     title: '16 listing moderation tasks',
                     subtitle: 'Including 4 reported listings',
                     status: 'Review',
-                    onTap: () => onNavigate(2),
+                    onTap: () => onNavigate(3),
                   ),
                   _ActionTile(
                     title: '4 urgent disputes',
                     subtitle: 'Evidence response due today',
                     status: 'Urgent',
-                    onTap: () => onNavigate(4),
+                    onTap: () => onNavigate(5),
                   ),
                 ],
               ),
             ),
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: [
+              _AdminShortcutCard(
+                icon: Icons.health_and_safety_outlined,
+                title: 'Platform Health',
+                subtitle: 'All prototype services operational',
+                onTap: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const _PlatformHealthPage(),
+                  ),
+                ),
+              ),
+              _AdminShortcutCard(
+                icon: Icons.policy_outlined,
+                title: 'Fraud & Risk',
+                subtitle: '7 indicators require review',
+                onTap: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const _FraudRiskPage(),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       );
@@ -247,45 +284,51 @@ class _AdminRecordsPageState extends State<_AdminRecordsPage> {
   String query = '';
 
   String get title => switch (widget.section) {
-        1 => 'Users & KYC',
-        2 => 'Listing Moderation',
-        3 => 'Booking Monitoring',
-        4 => 'Disputes & Evidence',
-        5 => 'Transactions',
-        6 => 'Reports & Analytics',
-        8 => 'Audit History',
+        1 => 'Identity Verification',
+        2 => 'User Directory',
+        3 => 'Listing Moderation',
+        4 => 'Bookings & Transactions',
+        5 => 'Disputes & Claims',
+        6 => 'Reports',
+        7 => 'Review Moderation',
+        9 => 'Audit Logs',
         _ => 'Records',
       };
 
   List<_AdminRecord> get records => switch (widget.section) {
         1 => const [
-            _AdminRecord('Aina Rahman', 'Verified renter • Trust 96', 'Active'),
-            _AdminRecord('Marcus Chen', 'KYC resubmission required', 'Pending'),
-            _AdminRecord(
-                'Sarah Jenkins', 'Verified Owner • Trust 98', 'Active'),
+            _AdminRecord('KYC-2041 • Marcus Chen', 'MyKad • OCR confidence 81%',
+                'Pending'),
+            _AdminRecord('KYC-2038 • Siti Nabila',
+                'Passport • image requires review', 'Resubmission'),
+            _AdminRecord('KYC-2036 • Alex Tan', 'MyKad • OCR confidence 97%',
+                'Approved'),
           ],
         2 => const [
-            _AdminRecord(
-                'Sony A7III Camera', 'Devices • Daniel Tan', 'Pending'),
-            _AdminRecord(
-                'Reported Myvi Listing', 'Vehicles • 3 reports', 'Reported'),
-            _AdminRecord('Event Photography', 'Services • Mei Lin', 'Approved'),
+            _AdminRecord('Alex Tan', 'Verified renter • Trust 92', 'Active'),
+            _AdminRecord('Marcus Chen', 'KYC resubmission required', 'Active'),
+            _AdminRecord('Sarah J.', 'Verified Owner • Gold Tier', 'Active'),
           ],
         3 => const [
-            _AdminRecord('Booking RH-2048', 'Camera • 18–20 Aug', 'Pending'),
+            _AdminRecord('Sony Alpha a7S III Mirrorless Camera',
+                'Devices • Sarah J.', 'Pending'),
             _AdminRecord(
-                'Booking RH-2039', 'Myvi • handover complete', 'Active'),
-            _AdminRecord('Service RH-2032', 'Photography package', 'Completed'),
+                'Reported Myvi Listing', 'Vehicles • 3 reports', 'Reported'),
+            _AdminRecord(
+                'Event Photography', 'Services • Aina Rahman', 'Approved'),
           ],
         4 => const [
+            _AdminRecord('Booking RH-BKG-2026-09142',
+                'RM 570.00 • Camera • 20–22 Sep 2026', 'Pending'),
+            _AdminRecord(
+                'Transaction TXN-8194', 'RM 472.50 • Service', 'Successful'),
+            _AdminRecord(
+                'Transaction TXN-8172', 'RM 300.00 deposit', 'Refunded'),
+          ],
+        5 => const [
             _AdminRecord('Dispute DSP-018', 'Late vehicle return', 'Urgent'),
             _AdminRecord('Claim CLM-007', 'Damaged camera lens', 'Open'),
             _AdminRecord('Dispute DSP-011', 'Service deliverables', 'Review'),
-          ],
-        5 => const [
-            _AdminRecord('TXN-8201', 'RM 570.00 • simulated', 'Pending'),
-            _AdminRecord('TXN-8194', 'RM 472.50 • service', 'Successful'),
-            _AdminRecord('TXN-8172', 'RM 300.00 deposit', 'Refunded'),
           ],
         6 => const [
             _AdminRecord(
@@ -295,7 +338,15 @@ class _AdminRecordsPageState extends State<_AdminRecordsPage> {
             _AdminRecord(
                 'Category demand', 'Six-category performance', 'Ready'),
           ],
-        8 => const [
+        7 => const [
+            _AdminRecord('REV-0321 • Camera rental',
+                '5 stars • Clear and respectful', 'Published'),
+            _AdminRecord('REV-0319 • Vehicle rental',
+                '1 star • Reported by Owner', 'Flagged'),
+            _AdminRecord('REV-0312 • Event photography',
+                '4 stars • Service completed', 'Published'),
+          ],
+        9 => const [
             _AdminRecord('AUD-1009', 'KYC approved by Admin Farah', 'Recorded'),
             _AdminRecord(
                 'AUD-1008', 'Listing suspended with reason', 'Recorded'),
@@ -315,6 +366,8 @@ class _AdminRecordsPageState extends State<_AdminRecordsPage> {
       builder: (context, constraints) => ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          Text(title, style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 16),
           Row(children: [
             Expanded(
               child: TextField(
@@ -350,6 +403,7 @@ class _AdminRecordsPageState extends State<_AdminRecordsPage> {
                             DataCell(Text(record.detail)),
                             DataCell(StatusBadge(record.status)),
                             DataCell(TextButton(
+                              key: ValueKey('admin-review-${record.name}'),
                               onPressed: () => _open(record),
                               child: Text(widget.section == 8
                                   ? 'View Event'
@@ -439,12 +493,13 @@ class _AdminRecordDetailPageState extends State<_AdminRecordDetailPage> {
     reason.dispose();
     if (!confirmed || !mounted) return;
     setState(() => status = next);
-    showMockSuccess(context, '$next completed and added to Audit History');
+    showMockSuccess(context, '$next completed and added to Audit Logs');
   }
 
   @override
   Widget build(BuildContext context) {
-    final readOnly = widget.section == 3 || widget.section == 8;
+    final readOnly = widget.section == 9 ||
+        (widget.section == 4 && widget.record.name.startsWith('Booking'));
     return Scaffold(
       appBar: AppBar(title: Text(widget.record.name)),
       body: SafeArea(
@@ -479,6 +534,34 @@ class _AdminRecordDetailPageState extends State<_AdminRecordDetailPage> {
               ),
             ),
             const SizedBox(height: 16),
+            if (widget.section == 1) ...[
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('Document and OCR Review',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      SizedBox(height: 12),
+                      _AdminEvidenceRow('Document type', 'MyKad'),
+                      _AdminEvidenceRow('Name extracted', 'Marcus Chen'),
+                      _AdminEvidenceRow('MyKad number', 'Masked for prototype'),
+                      _AdminEvidenceRow(
+                          'OCR confidence', '81% • Manual review'),
+                      _AdminEvidenceRow(
+                          'Forgery indicator', 'No decisive indicator'),
+                      SizedBox(height: 8),
+                      Text(
+                        'Front and back document image placeholders. No real identity document is displayed.',
+                        style: TextStyle(color: AppColors.secondaryText),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             if (readOnly)
               const Card(
                 child: ListTile(
@@ -489,23 +572,37 @@ class _AdminRecordDetailPageState extends State<_AdminRecordDetailPage> {
               )
             else if (widget.section == 1) ...[
               RentHubActionButton(
-                label:
-                    status == 'Suspended' ? 'Reactivate User' : 'Approve KYC',
-                onPressed: () =>
-                    _action(status == 'Suspended' ? 'Reactivated' : 'Approved'),
+                label: 'Approve KYC',
+                onPressed: () => _action('Approved'),
               ),
               const SizedBox(height: 8),
               RentHubActionButton(
-                label: status == 'Suspended'
-                    ? 'Request KYC Resubmission'
-                    : 'Suspend User',
+                label: 'Request Resubmission',
+                style: RentHubButtonStyle.secondary,
+                onPressed: () => _action('Resubmission Required'),
+              ),
+              const SizedBox(height: 8),
+              RentHubActionButton(
+                label: 'Reject KYC',
                 style: RentHubButtonStyle.destructive,
-                onPressed: () => _action(
-                  status == 'Suspended' ? 'Resubmission Required' : 'Suspended',
-                  destructive: true,
-                ),
+                onPressed: () => _action('Rejected', destructive: true),
               ),
             ] else if (widget.section == 2) ...[
+              RentHubActionButton(
+                label:
+                    status == 'Suspended' ? 'Reactivate User' : 'Suspend User',
+                onPressed: () => _action(
+                  status == 'Suspended' ? 'Reactivated' : 'Suspended',
+                  destructive: status != 'Suspended',
+                ),
+              ),
+              const SizedBox(height: 8),
+              RentHubActionButton(
+                label: 'Ban Account',
+                style: RentHubButtonStyle.destructive,
+                onPressed: () => _action('Banned', destructive: true),
+              ),
+            ] else if (widget.section == 3) ...[
               RentHubActionButton(
                   label: 'Approve Listing',
                   onPressed: () => _action('Approved')),
@@ -517,6 +614,12 @@ class _AdminRecordDetailPageState extends State<_AdminRecordDetailPage> {
               ),
             ] else if (widget.section == 4) ...[
               RentHubActionButton(
+                label: 'Issue Prototype Refund',
+                style: RentHubButtonStyle.destructive,
+                onPressed: () => _action('Refunded', destructive: true),
+              ),
+            ] else if (widget.section == 5) ...[
+              RentHubActionButton(
                   label: 'Resolve Dispute',
                   onPressed: () => _action('Resolved')),
               const SizedBox(height: 8),
@@ -525,25 +628,182 @@ class _AdminRecordDetailPageState extends State<_AdminRecordDetailPage> {
                 style: RentHubButtonStyle.secondary,
                 onPressed: () => _action('Evidence Requested'),
               ),
-            ] else if (widget.section == 5)
-              RentHubActionButton(
-                label: 'Issue Prototype Refund',
-                style: RentHubButtonStyle.destructive,
-                onPressed: () => _action('Refunded', destructive: true),
-              )
-            else if (widget.section == 6)
+            ] else if (widget.section == 6)
               RentHubActionButton(
                 label: 'Export Mock Report',
                 onPressed: () => showMockSuccess(
                   context,
                   'Mock report prepared for download',
                 ),
+              )
+            else if (widget.section == 7) ...[
+              RentHubActionButton(
+                label: status == 'Hidden' ? 'Restore Review' : 'Keep Published',
+                onPressed: () => _action(
+                  status == 'Hidden' ? 'Published' : 'Published',
+                ),
               ),
+              const SizedBox(height: 8),
+              RentHubActionButton(
+                label: 'Hide Review',
+                style: RentHubButtonStyle.destructive,
+                onPressed: () => _action('Hidden', destructive: true),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
+}
+
+class _PlatformSettingsPage extends StatefulWidget {
+  const _PlatformSettingsPage();
+
+  @override
+  State<_PlatformSettingsPage> createState() => _PlatformSettingsPageState();
+}
+
+class _PlatformSettingsPageState extends State<_PlatformSettingsPage> {
+  final formKey = GlobalKey<FormState>();
+  final platformFee = TextEditingController(text: '5.0');
+  final referralPoints = TextEditingController(text: '250');
+  bool maintenanceMode = false;
+  bool highValueKyc = true;
+
+  @override
+  void dispose() {
+    platformFee.dispose();
+    referralPoints.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Form(
+        key: formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            Text('Platform Settings',
+                style: Theme.of(context).textTheme.headlineSmall),
+            const Text(
+              'Prototype rules update only the local administrator interface.',
+              style: TextStyle(color: AppColors.secondaryText),
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                SizedBox(
+                  width: 440,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text('Marketplace Rules',
+                              style: Theme.of(context).textTheme.titleLarge),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: platformFee,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Prototype platform fee (%)',
+                            ),
+                            validator: (value) {
+                              final number = double.tryParse(value ?? '');
+                              return number == null || number < 0 || number > 20
+                                  ? 'Enter a value from 0 to 20'
+                                  : null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: referralPoints,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Successful referral points',
+                            ),
+                            validator: (value) =>
+                                (int.tryParse(value ?? '') ?? 0) < 1
+                                    ? 'Enter at least 1 point'
+                                    : null,
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title:
+                                const Text('Require KYC for high-value items'),
+                            value: highValueKyc,
+                            onChanged: (value) =>
+                                setState(() => highValueKyc = value),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Maintenance mode'),
+                            subtitle: const Text(
+                              'Displays a prototype maintenance notice only.',
+                            ),
+                            value: maintenanceMode,
+                            onChanged: (value) =>
+                                setState(() => maintenanceMode = value),
+                          ),
+                          const SizedBox(height: 12),
+                          RentHubActionButton(
+                            label: 'Save Platform Settings',
+                            onPressed: () {
+                              if (formKey.currentState!.validate()) {
+                                showMockSuccess(
+                                  context,
+                                  'Platform settings saved and audit entry added',
+                                );
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 360,
+                  child: Card(
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.category_outlined),
+                          title: const Text('Listing Categories'),
+                          subtitle: const Text('6 protected categories'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const _CategoryManagementRoute(),
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          leading: const Icon(Icons.health_and_safety_outlined),
+                          title: const Text('Platform Health'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const _PlatformHealthPage(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
 }
 
 class _CategoryManagementPage extends StatelessWidget {
@@ -598,6 +858,140 @@ class _CategoryManagementPage extends StatelessWidget {
           ),
         ],
       );
+}
+
+class _CategoryManagementRoute extends StatelessWidget {
+  const _CategoryManagementRoute();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        appBar: _AdminRouteAppBar(title: 'Listing Categories'),
+        body: SafeArea(child: _CategoryManagementPage()),
+      );
+}
+
+class _PlatformHealthPage extends StatelessWidget {
+  const _PlatformHealthPage();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Platform Health')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const Card(
+                color: AppColors.blueSurface,
+                child: ListTile(
+                  leading: Icon(Icons.check_circle, color: AppColors.success),
+                  title: Text('All prototype components operational'),
+                  subtitle: Text(
+                    'This status is simulated and does not monitor production services.',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final component in const [
+                ('Flutter application', 'Available', '42 ms'),
+                ('Mock API adapter', 'Available', '68 ms'),
+                ('Mock AI adapter', 'Available', '124 ms'),
+                ('Local message channel', 'Available', '35 ms'),
+              ])
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.dns_outlined),
+                    title: Text(component.$1),
+                    subtitle: Text('Prototype response: ${component.$3}'),
+                    trailing: StatusBadge(component.$2),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _FraudRiskPage extends StatefulWidget {
+  const _FraudRiskPage();
+
+  @override
+  State<_FraudRiskPage> createState() => _FraudRiskPageState();
+}
+
+class _FraudRiskPageState extends State<_FraudRiskPage> {
+  final statuses = ['Review', 'Review', 'Monitored'];
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Fraud & Risk Indicators')),
+        body: SafeArea(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(24),
+            itemCount: statuses.length,
+            itemBuilder: (context, index) {
+              final records = const [
+                ('RISK-021', 'Repeated identity-document image'),
+                ('RISK-019', 'Unusual high-value booking activity'),
+                ('RISK-014', 'Multiple listing reports'),
+              ];
+              return Card(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(16),
+                  leading: const Icon(Icons.policy_outlined,
+                      color: AppColors.warning),
+                  title: Text(records[index].$1),
+                  subtitle: Text(records[index].$2),
+                  trailing: StatusBadge(statuses[index]),
+                  onTap: () async {
+                    final accepted = await confirmAction(
+                      context,
+                      title: 'Flag this risk indicator?',
+                      message:
+                          'The related account will be marked for manual review and an audit event will be added.',
+                      action: 'Flag for Review',
+                    );
+                    if (accepted && mounted) {
+                      setState(() => statuses[index] = 'Flagged');
+                    }
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      );
+}
+
+class _AdminNotificationsRoute extends StatelessWidget {
+  const _AdminNotificationsRoute();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        appBar: _AdminRouteAppBar(title: 'Admin Notifications'),
+        body: SafeArea(child: _AdminNotificationsPage()),
+      );
+}
+
+class _AdminProfileRoute extends StatelessWidget {
+  const _AdminProfileRoute();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        appBar: _AdminRouteAppBar(title: 'Admin Profile'),
+        body: SafeArea(child: _AdminProfileSettingsPage()),
+      );
+}
+
+class _AdminRouteAppBar extends StatelessWidget implements PreferredSizeWidget {
+  const _AdminRouteAppBar({required this.title});
+
+  final String title;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
+  @override
+  Widget build(BuildContext context) => AppBar(title: Text(title));
 }
 
 class _AdminNotificationsPage extends StatefulWidget {
@@ -775,6 +1169,83 @@ class _AdminRecord {
   final String status;
 }
 
+class _AdminEvidenceRow extends StatelessWidget {
+  const _AdminEvidenceRow(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 150,
+              child: Text(
+                label,
+                style: const TextStyle(color: AppColors.secondaryText),
+              ),
+            ),
+            Expanded(child: Text(value)),
+          ],
+        ),
+      );
+}
+
+class _AdminShortcutCard extends StatelessWidget {
+  const _AdminShortcutCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 330,
+        child: Card(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppColors.primaryLight,
+                    child: Icon(icon, color: AppColors.primaryDark),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title,
+                            style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                          subtitle,
+                          style:
+                              const TextStyle(color: AppColors.secondaryText),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
 class _ActionTile extends StatelessWidget {
   const _ActionTile({
     required this.title,
@@ -804,7 +1275,7 @@ class _Metric extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
         width: 230,
-        height: 164,
+        height: 172,
         child: Card(
           child: Padding(
             padding: const EdgeInsets.all(18),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../../shared/widgets/account_components.dart';
-import '../../../../shared/widgets/renthub_components.dart';
 import '../../booking/booking_flow.dart';
 import '../../shared/widgets/renter_flow_components.dart';
+import '../../renter_app.dart' show InteractiveChatPage;
 import '../models/service_draft.dart';
 import 'service_in_progress_page.dart';
 
@@ -18,8 +18,11 @@ class ServiceBookingStatusPage extends StatelessWidget {
         heading: draft.service.title,
         status: draft.createdBooking?.status ?? 'Pending',
         children: [
+          RenterFactRow('Package', draft.packageName),
           RenterFactRow('Date', formatShortDate(draft.date)),
           RenterFactRow('Start time', draft.time.format(context)),
+          RenterFactRow('Duration', draft.duration),
+          RenterFactRow('Venue', draft.venue),
           RenterFactRow('Provider', draft.service.ownerName),
           RenterFactRow('Total', formatMoney(draft.total)),
           const RenterInfoSection(
@@ -30,7 +33,13 @@ class ServiceBookingStatusPage extends StatelessWidget {
           RentHubActionButton(
             label: 'Message Provider',
             style: RentHubButtonStyle.secondary,
-            onPressed: () => showMockSuccess(context, 'Conversation opened'),
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    InteractiveChatPage(name: draft.service.ownerName),
+              ),
+            ),
           ),
           const SizedBox(height: 8),
           RentHubActionButton(

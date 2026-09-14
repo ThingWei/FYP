@@ -94,7 +94,7 @@ class ServiceDetailsPage extends StatelessWidget {
                   onTap: () => Navigator.push<void>(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => ProviderProfilePage(service: service),
+                      builder: (_) => ProviderProfilePage(listing: service),
                     ),
                   ),
                 ),
@@ -108,11 +108,11 @@ class ServiceDetailsPage extends StatelessWidget {
               const RenterInfoSection(
                 title: "What's Included",
                 text:
-                    'Pre-event consultation\nProfessional service delivery\nDigital deliverables and follow-up',
+                    'Essential Event Coverage\n3 hours of photography\nDigital deliverables and follow-up',
               ),
               const RenterInfoSection(
                 title: 'Availability',
-                text: 'Next available: Saturday, 22 August 2026',
+                text: 'Next available: Saturday, 3 October 2026',
               ),
             ],
           ),

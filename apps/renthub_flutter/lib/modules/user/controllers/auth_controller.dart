@@ -10,6 +10,7 @@ class AuthController extends LoadableController {
   bool get authenticated => user != null;
   void selectRole(UserRole role) {
     selectedRole = role;
+    repository.selectRole(role);
     notifyListeners();
   }
 

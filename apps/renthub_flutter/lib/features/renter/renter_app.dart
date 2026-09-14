@@ -14,6 +14,7 @@ import 'comparison/controllers/compare_selection_controller.dart';
 import 'comparison/pages/compare_items_page.dart';
 import 'discovery/controllers/renter_prototype_state.dart';
 import 'discovery/pages/wishlist_page.dart';
+import 'profile/pages/public_owner_provider_profile_page.dart';
 import 'rentals/pages/active_rental_details_page.dart';
 import 'services/pages/service_booking_history_details_page.dart';
 import 'services/pages/service_details_page.dart';
@@ -1135,6 +1136,51 @@ class ListingDetailsPage extends StatelessWidget {
   final VoidCallback onReturnHome;
   final ValueChanged<BookingDraft> onDraftCreated;
 
+  Future<void> _safetyAction(BuildContext context, String action) async {
+    final blocked =
+        RenterPrototypeState.blockedOwners.value.contains(listing.ownerName);
+    final isBlockAction = action == 'block';
+    final accepted = await confirmAction(
+      context,
+      title: isBlockAction
+          ? blocked
+              ? 'Unblock ${listing.ownerName}?'
+              : 'Block ${listing.ownerName}?'
+          : 'Report this listing?',
+      message: isBlockAction
+          ? blocked
+              ? 'You will be able to book and message this Owner again.'
+              : 'Booking and messaging with this Owner will be disabled until you unblock them in Settings.'
+          : 'The listing will be added to the local moderation queue for this prototype.',
+      action: isBlockAction
+          ? blocked
+              ? 'Unblock'
+              : 'Block Owner'
+          : 'Submit Report',
+      destructive: !blocked,
+    );
+    if (!accepted || !context.mounted) return;
+    if (isBlockAction) {
+      final owners = {...RenterPrototypeState.blockedOwners.value};
+      blocked
+          ? owners.remove(listing.ownerName)
+          : owners.add(listing.ownerName);
+      RenterPrototypeState.blockedOwners.value = owners;
+      showMockSuccess(
+        context,
+        blocked
+            ? '${listing.ownerName} unblocked'
+            : '${listing.ownerName} blocked',
+      );
+    } else {
+      RenterPrototypeState.reportedListings.value = {
+        ...RenterPrototypeState.reportedListings.value,
+        listing.id,
+      };
+      showMockSuccess(context, 'Listing report submitted for moderation');
+    }
+  }
+
   void _book(BuildContext context) {
     if (listing.isService) {
       Navigator.push<void>(
@@ -1195,17 +1241,30 @@ class ListingDetailsPage extends StatelessWidget {
             onPressed: () => showMockSuccess(context, 'Share sheet opened'),
             icon: const Icon(Icons.share_outlined),
           ),
-          PopupMenuButton<String>(
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'report', child: Text('Report listing')),
-              PopupMenuItem(value: 'block', child: Text('Block Owner')),
-            ],
-            onSelected: (value) => confirmAction(
-              context,
-              title: value == 'block' ? 'Block Owner?' : 'Report listing?',
-              message: 'This mock action can be reversed from Settings.',
-              action: 'Continue',
-              destructive: true,
+          ValueListenableBuilder<Set<String>>(
+            valueListenable: RenterPrototypeState.blockedOwners,
+            builder: (context, blockedOwners, _) =>
+                ValueListenableBuilder<Set<String>>(
+              valueListenable: RenterPrototypeState.reportedListings,
+              builder: (context, reportedListings, _) =>
+                  PopupMenuButton<String>(
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'report',
+                    enabled: !reportedListings.contains(listing.id),
+                    child: Text(reportedListings.contains(listing.id)
+                        ? 'Report submitted'
+                        : 'Report listing'),
+                  ),
+                  PopupMenuItem(
+                    value: 'block',
+                    child: Text(blockedOwners.contains(listing.ownerName)
+                        ? 'Unblock Owner'
+                        : 'Block Owner'),
+                  ),
+                ],
+                onSelected: (value) => _safetyAction(context, value),
+              ),
             ),
           ),
         ],
@@ -1237,11 +1296,17 @@ class ListingDetailsPage extends StatelessWidget {
                   ],
                 ),
               ),
-              FilledButton.icon(
-                key: const Key('book-now-button'),
-                onPressed: () => _book(context),
-                icon: const Icon(Icons.arrow_forward),
-                label: const Text('Book Now'),
+              ValueListenableBuilder<Set<String>>(
+                valueListenable: RenterPrototypeState.blockedOwners,
+                builder: (context, blockedOwners, _) {
+                  final blocked = blockedOwners.contains(listing.ownerName);
+                  return FilledButton.icon(
+                    key: const Key('book-now-button'),
+                    onPressed: blocked ? null : () => _book(context),
+                    icon: Icon(blocked ? Icons.block : Icons.arrow_forward),
+                    label: Text(blocked ? 'Owner Blocked' : 'Book Now'),
+                  );
+                },
               ),
             ],
           ),
@@ -1292,9 +1357,13 @@ class ListingDetailsPage extends StatelessWidget {
                     subtitle:
                         const Text('Verified Owner · Gold tier · Trust 98'),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () => showMockSuccess(
+                    onTap: () => Navigator.push<void>(
                       context,
-                      'Owner profile preview opened',
+                      MaterialPageRoute(
+                        builder: (_) => ProviderProfilePage(
+                          listing: listing,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1451,7 +1520,7 @@ class BookingsPageState extends State<BookingsPage>
   @override
   void initState() {
     super.initState();
-    tabs = TabController(length: 4, vsync: this);
+    tabs = TabController(length: 6, vsync: this);
     Future<void>.delayed(const Duration(milliseconds: 180), () {
       if (mounted) setState(() => loading = false);
     });
@@ -1470,27 +1539,29 @@ class BookingsPageState extends State<BookingsPage>
 
   List<_BookingRecord> _records(BuildContext context) {
     final controller = context.watch<BookingController?>();
-    final latest = controller?.latest;
     final draft = widget.latestDraft();
     final now = dateOnly(DateTime.now());
     final records = <_BookingRecord>[];
-    if (latest != null) {
+    for (final booking in controller?.bookings ?? const <Booking>[]) {
       final listing = MockData.listings.firstWhere(
-        (item) => item.id == latest.listingId,
+        (item) => item.id == booking.listingId,
         orElse: () => MockData.listings.first,
       );
-      final days = latest.end.difference(latest.start).inDays + 1;
+      final days = booking.end.difference(booking.start).inDays + 1;
       records.add(
         _BookingRecord(
-          id: latest.id,
+          id: booking.id,
           listingId: listing.id,
           title: listing.title,
-          dates: formatDateRange(latest.start, latest.end),
-          status: latest.status,
-          amount: draft?.createdBooking?.id == latest.id
-              ? draft!.total
-              : listing.dailyPrice * days +
-                  BookingPolicies.forListing(listing).deposit,
+          dates: formatDateRange(booking.start, booking.end),
+          status: booking.status,
+          amount: controller?.amountFor(booking.id) ??
+              (draft?.createdBooking?.id == booking.id
+                  ? draft!.total
+                  : listing.isService
+                      ? listing.dailyPrice * 1.05
+                      : listing.dailyPrice * days +
+                          BookingPolicies.forListing(listing).deposit),
         ),
       );
     }
@@ -1515,7 +1586,7 @@ class BookingsPageState extends State<BookingsPage>
           now.subtract(const Duration(days: 20)),
         ),
         status: 'completed',
-        amount: 650,
+        amount: 472.50,
       ),
       _BookingRecord(
         id: 'cancelled-tent',
@@ -1527,6 +1598,17 @@ class BookingsPageState extends State<BookingsPage>
         ),
         status: 'cancelled',
         amount: 135,
+      ),
+      _BookingRecord(
+        id: 'disputed-drill',
+        listingId: 'l-drill',
+        title: 'Makita Cordless Drill Set',
+        dates: formatDateRange(
+          now.subtract(const Duration(days: 8)),
+          now.subtract(const Duration(days: 6)),
+        ),
+        status: 'disputed',
+        amount: 264,
       ),
     ]);
     return records;
@@ -1546,7 +1628,14 @@ class BookingsPageState extends State<BookingsPage>
       );
     }
     final records = _records(context);
-    const statuses = ['pending', 'active', 'completed', 'cancelled'];
+    const statuses = [
+      'pending',
+      'active',
+      'completed',
+      'cancelled',
+      'rejected',
+      'disputed',
+    ];
     return Scaffold(
       appBar: AppBar(
         title: const Column(
@@ -1577,6 +1666,8 @@ class BookingsPageState extends State<BookingsPage>
             Tab(text: 'Active'),
             Tab(text: 'Completed'),
             Tab(text: 'Cancelled'),
+            Tab(text: 'Rejected'),
+            Tab(text: 'Disputed'),
           ],
         ),
       ),

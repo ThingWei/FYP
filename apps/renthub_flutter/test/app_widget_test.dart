@@ -9,7 +9,7 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => AuthController(MockAuthRepository()),
-        child: const RentHubApp(),
+        child: const RentHubApp(showIntroduction: false),
       ),
     );
     expect(find.text('RentHub'), findsOneWidget);

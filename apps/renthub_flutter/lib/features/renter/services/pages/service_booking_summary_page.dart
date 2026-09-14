@@ -45,8 +45,11 @@ class ServiceSummaryPage extends StatelessWidget {
               const SizedBox(height: 12),
               RenterFlowCard(
                 child: Column(children: [
+                  RenterFactRow('Package', draft.packageName),
                   RenterFactRow('Date', formatShortDate(draft.date)),
                   RenterFactRow('Start time', draft.time.format(context)),
+                  RenterFactRow('Duration', draft.duration),
+                  RenterFactRow('Venue', draft.venue),
                   RenterFactRow('Guests', '${draft.guests}'),
                   RenterFactRow('Requirements', draft.requirements),
                 ]),

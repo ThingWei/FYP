@@ -181,6 +181,10 @@ void main() {
 
     expect(find.byType(CompareItemsPage), findsOneWidget);
     expect(find.text('Four-person Camping Tent'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Makita Cordless Drill Set'),
+      300,
+    );
     expect(find.text('Makita Cordless Drill Set'), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();

@@ -5,12 +5,15 @@ import 'app/dependencies.dart';
 import 'modules/user/controllers/auth_controller.dart';
 import 'modules/listing/controllers/listing_controller.dart';
 import 'modules/booking/controllers/booking_controller.dart';
+import 'modules/loyalty/controllers/loyalty_controller.dart';
+import 'features/live/live_renthub_controller.dart';
 
 void main() {
   final dependencies = AppDependencies.create();
   runApp(
     MultiProvider(
       providers: [
+        Provider.value(value: dependencies),
         ChangeNotifierProvider(
           create: (_) => AuthController(dependencies.authRepository),
         ),
@@ -20,6 +23,19 @@ void main() {
         ),
         ChangeNotifierProvider(
           create: (_) => BookingController(dependencies.bookingRepository),
+        ),
+        ChangeNotifierProvider(
+          create: (_) =>
+              LoyaltyController(dependencies.loyaltyRepository)..load(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => LiveRentHubController(
+            dependencies.api,
+            socketUrl: const String.fromEnvironment(
+              'SOCKET_URL',
+              defaultValue: 'http://localhost:3000',
+            ),
+          ),
         ),
       ],
       child: const RentHubApp(),

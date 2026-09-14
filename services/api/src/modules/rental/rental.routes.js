@@ -1,0 +1,111 @@
+import { Router } from 'express';
+import { authenticate, authorize } from '../../middleware/auth.js';
+import { validate } from '../../middleware/validate.js';
+import { rentalController } from './rental.controller.js';
+import {
+  extensionDecisionValidation,
+  extensionRequestValidation,
+  handoverValidation,
+  listRentalsValidation,
+  rentalIdValidation,
+  returnConfirmationValidation,
+  returnSubmissionValidation,
+} from './rental.validation.js';
+
+export const rentalRouter = Router();
+
+rentalRouter.get(
+  '/mine',
+  authenticate,
+  authorize('renter'),
+  listRentalsValidation,
+  validate,
+  rentalController.listMine,
+);
+rentalRouter.get(
+  '/owner',
+  authenticate,
+  authorize('owner'),
+  listRentalsValidation,
+  validate,
+  rentalController.listOwner,
+);
+rentalRouter.get(
+  '/admin',
+  authenticate,
+  authorize('admin'),
+  listRentalsValidation,
+  validate,
+  rentalController.listAdmin,
+);
+rentalRouter.post(
+  '/:id/handover',
+  authenticate,
+  authorize('owner'),
+  handoverValidation,
+  validate,
+  rentalController.confirmHandover,
+);
+rentalRouter.post(
+  '/:id/start-service',
+  authenticate,
+  authorize('owner'),
+  rentalIdValidation,
+  validate,
+  rentalController.startService,
+);
+rentalRouter.post(
+  '/:id/extensions',
+  authenticate,
+  authorize('renter'),
+  extensionRequestValidation,
+  validate,
+  rentalController.requestExtension,
+);
+rentalRouter.patch(
+  '/:id/extensions/decision',
+  authenticate,
+  authorize('owner'),
+  extensionDecisionValidation,
+  validate,
+  rentalController.decideExtension,
+);
+rentalRouter.post(
+  '/:id/return',
+  authenticate,
+  authorize('renter'),
+  returnSubmissionValidation,
+  validate,
+  rentalController.submitReturn,
+);
+rentalRouter.post(
+  '/:id/return/confirm',
+  authenticate,
+  authorize('owner'),
+  returnConfirmationValidation,
+  validate,
+  rentalController.confirmReturn,
+);
+rentalRouter.post(
+  '/:id/service-delivered',
+  authenticate,
+  authorize('owner'),
+  rentalIdValidation,
+  validate,
+  rentalController.markServiceDelivered,
+);
+rentalRouter.post(
+  '/:id/service-completion',
+  authenticate,
+  authorize('renter'),
+  rentalIdValidation,
+  validate,
+  rentalController.confirmServiceCompletion,
+);
+rentalRouter.get(
+  '/:id',
+  authenticate,
+  rentalIdValidation,
+  validate,
+  rentalController.get,
+);

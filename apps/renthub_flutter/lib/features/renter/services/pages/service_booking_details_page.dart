@@ -25,10 +25,12 @@ class ServiceBookingPage extends StatefulWidget {
 class _ServiceBookingPageState extends State<ServiceBookingPage> {
   final formKey = GlobalKey<FormState>();
   final requirements = TextEditingController();
+  late final venue = TextEditingController(text: widget.draft.venue);
 
   @override
   void dispose() {
     requirements.dispose();
+    venue.dispose();
     super.dispose();
   }
 
@@ -44,6 +46,7 @@ class _ServiceBookingPageState extends State<ServiceBookingPage> {
               onPressed: () {
                 if (!formKey.currentState!.validate()) return;
                 widget.draft.requirements = requirements.text.trim();
+                widget.draft.venue = venue.text.trim();
                 Navigator.push<void>(
                   context,
                   MaterialPageRoute(
@@ -107,6 +110,17 @@ class _ServiceBookingPageState extends State<ServiceBookingPage> {
                             ),
                           ),
                         ]),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: venue,
+                          decoration: const InputDecoration(
+                            labelText: 'Venue or service location',
+                          ),
+                          validator: (value) =>
+                              value == null || value.trim().isEmpty
+                                  ? 'Venue or service location is required'
+                                  : null,
+                        ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: requirements,

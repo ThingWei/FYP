@@ -7,6 +7,8 @@ import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../auth/pages/kyc_document_submission_page.dart';
+import 'account_management_pages.dart';
+import 'loyalty_referral_page.dart';
 import 'role_selection_screen.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -172,13 +174,41 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
             const SizedBox(height: 12),
+            if (widget.role == 'Renter') ...[
+              Card(
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: AppColors.primaryLight,
+                    child: Icon(
+                      Icons.card_giftcard_outlined,
+                      color: AppColors.primaryDark,
+                    ),
+                  ),
+                  title: const Text('Loyalty & Referrals'),
+                  subtitle:
+                      const Text('Points, rewards and your referral code'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const LoyaltyReferralPage(),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             _ProfileSection(
               title: 'Addresses',
               child: _ManageBlock(
                 icon: Icons.location_on_outlined,
                 value: '1 default address\nPetaling Jaya, Selangor',
-                onManage: () =>
-                    showMockSuccess(context, 'Address manager opened'),
+                onManage: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AddressManagementPage(),
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -187,9 +217,11 @@ class _ProfilePageState extends State<ProfilePage> {
               child: _ManageBlock(
                 icon: Icons.credit_card,
                 value: 'Visa ···· 4242',
-                onManage: () => showMockSuccess(
+                onManage: () => Navigator.push<void>(
                   context,
-                  'Payment methods are simulated in this prototype',
+                  MaterialPageRoute(
+                    builder: (_) => const PaymentMethodsPage(),
+                  ),
                 ),
               ),
             ),
@@ -218,13 +250,20 @@ class _ProfilePageState extends State<ProfilePage> {
                   _SettingsTile(
                     icon: Icons.help_outline,
                     label: 'Help & Support',
-                    onTap: () => showMockSuccess(context, 'Help centre opened'),
+                    onTap: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const HelpSupportPage(),
+                      ),
+                    ),
                   ),
                   _SettingsTile(
                     icon: Icons.shield_outlined,
                     label: 'Security',
-                    onTap: () =>
-                        showMockSuccess(context, 'Security settings opened'),
+                    onTap: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SecurityPage()),
+                    ),
                   ),
                   _SettingsTile(
                     icon: Icons.logout,
@@ -424,9 +463,11 @@ class _ApplicationSettingsPageState extends State<ApplicationSettingsPage> {
                       leading: const Icon(Icons.block_outlined),
                       title: const Text('Blocked Owners'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => showMockSuccess(
+                      onTap: () => Navigator.push<void>(
                         context,
-                        'No blocked Owners in this prototype',
+                        MaterialPageRoute(
+                          builder: (_) => const BlockedOwnersPage(),
+                        ),
                       ),
                     ),
                     ListTile(
@@ -435,9 +476,11 @@ class _ApplicationSettingsPageState extends State<ApplicationSettingsPage> {
                       title: const Text('Language'),
                       subtitle: const Text('English (Malaysia)'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => showMockSuccess(
+                      onTap: () => Navigator.push<void>(
                         context,
-                        'Language selector opened',
+                        MaterialPageRoute(
+                          builder: (_) => const LanguagePage(),
+                        ),
                       ),
                     ),
                   ],
@@ -594,7 +637,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           category: NotificationCategory.bookings,
           title: 'Upcoming Pickup: Sony Camera',
           message:
-              'Your rental with Daniel is scheduled for pickup in 2 hours at Central Station.',
+              'Your rental with Sarah J. is scheduled for pickup in 2 hours at Lot 10, Bukit Bintang.',
           time: '10:45 AM',
           today: true,
         ),
@@ -662,6 +705,23 @@ class _NotificationsPageState extends State<NotificationsPage> {
             TextButton(
               onPressed: items.any((item) => !item.read) ? _markAllRead : null,
               child: const Text('Mark all read'),
+            ),
+            IconButton(
+              tooltip: 'Clear all notifications',
+              onPressed: items.isEmpty
+                  ? null
+                  : () async {
+                      final accepted = await confirmAction(
+                        context,
+                        title: 'Clear all notifications?',
+                        message:
+                            'All notifications will be removed from this prototype session.',
+                        action: 'Clear All',
+                        destructive: true,
+                      );
+                      if (accepted && mounted) setState(() => items = []);
+                    },
+              icon: const Icon(Icons.delete_sweep_outlined),
             ),
           ],
         ),

@@ -1,9 +1,57 @@
-import events from '../../../../packages/api_contracts/events.json' with { type: 'json' };
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { env } from '../config/env.js';
+import { ThreadModel } from '../modules/communication/thread.model.js';
+import { setSocketServer } from './eventBus.js';
+
+let jwks;
+
 export function registerSocket(io) {
+  setSocketServer(io);
+  io.use(async (socket, next) => {
+    try {
+      if (env.authMode === 'mock') {
+        const candidate = socket.handshake.auth?.userId;
+        socket.data.userId =
+          typeof candidate === 'string' && candidate.length <= 120
+            ? candidate
+            : 'u-dual';
+        return next();
+      }
+      const token = socket.handshake.auth?.token;
+      if (!token) return next(new Error('Authentication required'));
+      const issuer = env.authIssuer.endsWith('/')
+        ? env.authIssuer
+        : `${env.authIssuer}/`;
+      jwks ??= createRemoteJWKSet(new URL('.well-known/jwks.json', issuer));
+      const { payload } = await jwtVerify(token, jwks, {
+        issuer,
+        audience: env.authAudience,
+      });
+      if (typeof payload.sub !== 'string') {
+        return next(new Error('Invalid access token'));
+      }
+      socket.data.userId = payload.sub;
+      return next();
+    } catch {
+      return next(new Error('Invalid access token'));
+    }
+  });
   io.on('connection', (socket) => {
-    socket.on('thread:join', (threadId) => socket.join(`thread:${threadId}`));
-    socket.on(events.messageNew, (message) => io.to(`thread:${message.threadId}`).emit(events.messageNew, message));
-    socket.on(events.messageRead, (receipt) => io.to(`thread:${receipt.threadId}`).emit(events.messageRead, receipt));
+    const userId = socket.data.userId;
+    socket.join(`user:${userId}`);
+    socket.on('thread:join', async (threadId) => {
+      if (
+        typeof threadId !== 'string' ||
+        !/^THR-[A-Z0-9-]+$/i.test(threadId)
+      ) {
+        return;
+      }
+      const thread = await ThreadModel.exists({
+        publicId: threadId,
+        participantIds: userId,
+      });
+      if (thread) socket.join(`thread:${threadId}`);
+    });
   });
 }
 
