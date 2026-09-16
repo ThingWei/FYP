@@ -34,8 +34,8 @@ class LiveBookingRepository implements BookingRepository {
   ) async {
     final listing = await api.request('GET', '/listings/$listingId')
         as Map<String, dynamic>;
-    final isService = listing['listingType'] == 'service' ||
-        listing['isService'] == true;
+    final isService =
+        listing['listingType'] == 'service' || listing['isService'] == true;
     final fulfilmentMethods = listing['fulfilmentMethods'] as List?;
     final payload = <String, dynamic>{
       'listingId': listingId,
@@ -44,10 +44,10 @@ class LiveBookingRepository implements BookingRepository {
       if (isService)
         'serviceVenue': listing['location'] ?? 'To be confirmed'
       else
-        'fulfilmentMethod': fulfilmentMethods != null &&
-                fulfilmentMethods.isNotEmpty
-            ? fulfilmentMethods.first
-            : 'pickup',
+        'fulfilmentMethod':
+            fulfilmentMethods != null && fulfilmentMethods.isNotEmpty
+                ? fulfilmentMethods.first
+                : 'pickup',
     };
     return Booking.fromJson(
       await api.request('POST', '/bookings', body: payload)

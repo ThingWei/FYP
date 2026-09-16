@@ -30,6 +30,9 @@ class LiveRentHubController extends ChangeNotifier {
   List<Conversation> conversations = [];
   List<RentHubNotification> notifications = [];
   List<Transaction> transactions = [];
+  List<Review> reviews = [];
+  List<Review> receivedReviews = [];
+  List<Review> adminReviews = [];
   List<Map<String, dynamic>> users = [];
   List<Map<String, dynamic>> messageReports = [];
 
@@ -60,6 +63,7 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/bookings/mine'),
           api.request('GET', '/rentals/mine'),
           api.request('GET', '/messages/threads'),
+          api.request('GET', '/reviews/mine'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         _connectRealtime(profile!.id);
@@ -67,6 +71,7 @@ class LiveRentHubController extends ChangeNotifier {
         bookings = _models(results[2], Booking.fromJson);
         rentals = _models(results[3], Rental.fromJson);
         conversations = _models(results[4], Conversation.fromJson);
+        reviews = _models(results[5], Review.fromJson);
       });
 
   Future<void> loadOwner() => _perform(() async {
@@ -76,6 +81,8 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/bookings/owner'),
           api.request('GET', '/rentals/owner'),
           api.request('GET', '/messages/threads'),
+          api.request('GET', '/reviews/received'),
+          api.request('GET', '/reviews/mine'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         _connectRealtime(profile!.id);
@@ -83,6 +90,8 @@ class LiveRentHubController extends ChangeNotifier {
         bookings = _models(results[2], Booking.fromJson);
         rentals = _models(results[3], Rental.fromJson);
         conversations = _models(results[4], Conversation.fromJson);
+        receivedReviews = _models(results[5], Review.fromJson);
+        reviews = _models(results[6], Review.fromJson);
       });
 
   Future<void> loadAdmin() => _perform(() async {
@@ -94,6 +103,7 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/rentals/admin'),
           api.request('GET', '/payments'),
           api.request('GET', '/messages/reports'),
+          api.request('GET', '/reviews/admin'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         users = (results[1] as List).cast<Map<String, dynamic>>();
@@ -102,6 +112,7 @@ class LiveRentHubController extends ChangeNotifier {
         rentals = _models(results[4], Rental.fromJson);
         transactions = _models(results[5], Transaction.fromJson);
         messageReports = (results[6] as List).cast<Map<String, dynamic>>();
+        adminReviews = _models(results[7], Review.fromJson);
       });
 
   void _connectRealtime(String userId) {
@@ -124,6 +135,11 @@ class LiveRentHubController extends ChangeNotifier {
     return _realtimeMessages.stream
         .where((message) => message.threadId == threadId);
   }
+
+  Future<List<Review>> listingReviews(String listingId) async => _models(
+        await api.request('GET', '/reviews/listing/$listingId'),
+        Review.fromJson,
+      );
 
   Future<Booking> createAndAuthorizeBooking({
     required Listing listing,
@@ -178,6 +194,110 @@ class LiveRentHubController extends ChangeNotifier {
           ) as Map<String, dynamic>,
         );
         _replaceBooking(updated);
+      });
+
+  Future<Review> submitReview({
+    required Rental rental,
+    required int overallRating,
+    required int communicationRating,
+    int? conditionRating,
+    int? valueRating,
+    required String text,
+  }) =>
+      _perform(() async {
+        final review = Review.fromJson(
+          await api.request(
+            'POST',
+            '/reviews',
+            body: {
+              'rentalId': rental.id,
+              'overallRating': overallRating,
+              'communicationRating': communicationRating,
+              if (rental.listingType == 'physical' && conditionRating != null)
+                'conditionRating': conditionRating,
+              if (valueRating != null) 'valueRating': valueRating,
+              'text': text.trim(),
+            },
+          ) as Map<String, dynamic>,
+        );
+        reviews.insert(0, review);
+        notifyListeners();
+        return review;
+      });
+
+  Future<Review> editReview({
+    required Review existing,
+    required Rental rental,
+    required int overallRating,
+    required int communicationRating,
+    int? conditionRating,
+    int? valueRating,
+    required String text,
+  }) =>
+      _perform(() async {
+        final review = Review.fromJson(
+          await api.request(
+            'PATCH',
+            '/reviews/${existing.id}',
+            body: {
+              'overallRating': overallRating,
+              'communicationRating': communicationRating,
+              if (rental.listingType == 'physical' && conditionRating != null)
+                'conditionRating': conditionRating,
+              if (valueRating != null) 'valueRating': valueRating,
+              'text': text.trim(),
+            },
+          ) as Map<String, dynamic>,
+        );
+        final index = reviews.indexWhere((item) => item.id == review.id);
+        if (index >= 0) reviews[index] = review;
+        notifyListeners();
+        return review;
+      });
+
+  Future<void> flagReview(String id, String reason) => _perform(() async {
+        await api.request(
+          'POST',
+          '/reviews/$id/flag',
+          body: {'reason': reason.trim()},
+        );
+        final index = receivedReviews.indexWhere((item) => item.id == id);
+        if (index >= 0) {
+          final previous = receivedReviews[index];
+          receivedReviews[index] = Review(
+            previous.id,
+            previous.rating,
+            previous.text,
+            rentalId: previous.rentalId,
+            listingId: previous.listingId,
+            listingTitle: previous.listingTitle,
+            authorId: previous.authorId,
+            authorName: previous.authorName,
+            subjectId: previous.subjectId,
+            subjectName: previous.subjectName,
+            status: previous.status,
+            flagged: true,
+            createdAt: previous.createdAt,
+          );
+        }
+        notifyListeners();
+      });
+
+  Future<void> moderateReview(
+    String id,
+    String status, {
+    String reason = '',
+  }) =>
+      _perform(() async {
+        await api.request(
+          'PATCH',
+          '/reviews/$id/moderation',
+          body: {
+            'status': status,
+            if (reason.trim().isNotEmpty) 'reason': reason.trim(),
+          },
+        );
+        await loadAdmin();
       });
 
   Future<void> decideBooking(

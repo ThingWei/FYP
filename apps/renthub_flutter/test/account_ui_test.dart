@@ -41,6 +41,7 @@ void main() {
 
     await tester.tap(find.text('Return to login'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Create Account'));
     await tester.tap(find.text('Create Account'));
     await tester.pumpAndSettle();
     expect(find.text('Join RentHub to start renting and listing.'),

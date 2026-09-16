@@ -7,6 +7,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_review_page.dart';
 import 'live_shared_pages.dart';
 
 class LiveRenterShell extends StatefulWidget {
@@ -322,12 +323,14 @@ class LiveBookingPage extends StatefulWidget {
 class _LiveBookingPageState extends State<LiveBookingPage> {
   late DateTime start = DateTime.now().add(const Duration(days: 7));
   late DateTime end = DateTime.now().add(const Duration(days: 9));
+  TimeOfDay serviceTime = const TimeOfDay(hour: 14, minute: 0);
   String paymentMethod = 'card';
   String fulfilmentMethod = 'pickup';
   bool waiver = false;
   final venue = TextEditingController(text: 'Kuala Lumpur');
   final note = TextEditingController();
   bool submitting = false;
+  Future<List<Review>>? reviewFuture;
 
   @override
   void initState() {
@@ -335,6 +338,13 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     final methods = widget.listing.fulfilmentMethods;
     if (methods.isNotEmpty) fulfilmentMethod = methods.first;
     waiver = widget.listing.damageWaiverAvailable;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    reviewFuture ??=
+        context.read<LiveRentHubController>().listingReviews(widget.listing.id);
   }
 
   @override
@@ -363,6 +373,14 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     });
   }
 
+  Future<void> _pickServiceTime() async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: serviceTime,
+    );
+    if (selected != null) setState(() => serviceTime = selected);
+  }
+
   Future<void> _submit() async {
     if (submitting || end.isBefore(start)) return;
     if (widget.listing.isService && venue.text.trim().length < 2) {
@@ -381,10 +399,19 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     if (!accepted || !mounted) return;
     setState(() => submitting = true);
     try {
+      final bookingStart = widget.listing.isService
+          ? DateTime(
+              start.year,
+              start.month,
+              start.day,
+              serviceTime.hour,
+              serviceTime.minute,
+            )
+          : start;
       final booking =
           await context.read<LiveRentHubController>().createAndAuthorizeBooking(
                 listing: widget.listing,
-                start: start,
+                start: bookingStart,
                 end: end,
                 paymentMethod: paymentMethod,
                 fulfilmentMethod: fulfilmentMethod,
@@ -471,6 +498,49 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
+                child: FutureBuilder<List<Review>>(
+                  future: reviewFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const LinearProgressIndicator();
+                    }
+                    final reviews = snapshot.data ?? const <Review>[];
+                    if (reviews.isEmpty) {
+                      return const Text(
+                        'No published reviews yet. Be the first after completing a booking.',
+                        style: TextStyle(color: AppColors.secondaryText),
+                      );
+                    }
+                    final average = reviews
+                            .map((review) => review.rating)
+                            .reduce((a, b) => a + b) /
+                        reviews.length;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${average.toStringAsFixed(1)} / 5 from ${reviews.length} review${reviews.length == 1 ? '' : 's'}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        for (final review in reviews.take(2)) ...[
+                          Text(
+                            '${review.authorName} • ${review.rating}/5',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          Text(review.text),
+                          const SizedBox(height: 8),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -490,6 +560,14 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                         subtitle: Text('${end.day}/${end.month}/${end.year}'),
                         trailing: const Icon(Icons.calendar_today_outlined),
                         onTap: () => _pick(false),
+                      ),
+                    if (listing.isService)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Service time'),
+                        subtitle: Text(serviceTime.format(context)),
+                        trailing: const Icon(Icons.schedule_outlined),
+                        onTap: _pickServiceTime,
                       ),
                     if (listing.isService)
                       TextField(
@@ -757,6 +835,36 @@ class _RenterRentalActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (rental.status == 'completed') {
+      final matching = context
+          .watch<LiveRentHubController>()
+          .reviews
+          .where((review) => review.rentalId == rental.id)
+          .toList();
+      final existing = matching.isEmpty ? null : matching.first;
+      return FilledButton.icon(
+        onPressed: existing != null && !existing.canEdit
+            ? null
+            : () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LiveReviewPage(
+                      rental: rental,
+                      subject: 'Owner for ${rental.listingId}',
+                      existing: existing,
+                    ),
+                  ),
+                ),
+        icon: const Icon(Icons.star_outline),
+        label: Text(
+          existing == null
+              ? 'Rate & Review'
+              : existing.canEdit
+                  ? 'Edit Review'
+                  : 'Review Submitted',
+        ),
+      );
+    }
     if (rental.listingType == 'service' &&
         rental.status == 'completion_pending') {
       return FilledButton.icon(

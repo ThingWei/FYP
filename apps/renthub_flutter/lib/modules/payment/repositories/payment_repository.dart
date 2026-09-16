@@ -41,8 +41,8 @@ class LiveBookingPaymentRepository {
       );
 
   Future<List<Transaction>> listForBooking(String bookingId) async {
-    final data = await api.request('GET', '/payments/booking/$bookingId')
-        as List;
+    final data =
+        await api.request('GET', '/payments/booking/$bookingId') as List;
     return data
         .map((item) => Transaction.fromJson(item as Map<String, dynamic>))
         .toList();

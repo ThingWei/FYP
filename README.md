@@ -20,3 +20,39 @@ RentHub is a multi-category rental marketplace monorepo. The Flutter client is t
 
 Mock mode is the Flutter default, so the UI can run without the other services. See `docs/architecture.md` for boundaries and extension points.
 
+## Run with the MongoDB backend
+
+Start MongoDB and the API first:
+
+```powershell
+docker compose up -d mongodb
+cd services/api
+Copy-Item .env.example .env
+npm.cmd run seed
+npm.cmd run dev
+```
+
+Run the renter and owner application on the CORS-enabled port:
+
+```powershell
+cd apps/renthub_flutter
+flutter run -d chrome --web-port 8080 --dart-define=USE_MOCKS=false --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
+```
+
+Run the separate administrator portal:
+
+```powershell
+cd apps/renthub_flutter
+flutter run -d chrome --web-port 3001 -t lib/main_admin.dart --dart-define=USE_MOCKS=false --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
+```
+
+The seeded prototype accounts accept any password of at least six characters:
+
+- `renter@renthub.my`
+- `owner@renthub.my`
+- `aina@renthub.my`
+- `demo@renthub.my` for role switching
+- `admin@renthub.my` in the administrator portal
+
+Live mode persists users, listings, bookings, rentals, payments, messages, notifications, reviews, and moderation changes in MongoDB. Payments remain simulated and use server-calculated amounts.
+

@@ -13,6 +13,7 @@ import { ListingModel } from '../src/modules/listing/listing.model.js';
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { NotificationModel } from '../src/modules/communication/notification.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
+import { ReviewModel } from '../src/modules/review/review.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
 
 let mongodb;
@@ -34,6 +35,12 @@ const serviceOwner = {
   'x-user-email': 'aina@renthub.my',
   'x-user-name': 'Aina Rahman',
   'x-user-roles': 'owner',
+};
+const admin = {
+  'x-user-id': 'u-admin',
+  'x-user-email': 'admin@renthub.my',
+  'x-user-name': 'Admin Farah',
+  'x-user-roles': 'admin',
 };
 
 async function startProfiles() {
@@ -115,6 +122,7 @@ before(async () => {
     PaymentModel.init(),
     NotificationModel.init(),
     RentalModel.init(),
+    ReviewModel.init(),
   ]);
 });
 
@@ -127,6 +135,7 @@ beforeEach(async () => {
     PaymentModel.deleteMany({}),
     NotificationModel.deleteMany({}),
     RentalModel.deleteMany({}),
+    ReviewModel.deleteMany({}),
   ]);
   await startProfiles();
   await createCatalog();
@@ -156,6 +165,14 @@ test('calculates the authoritative camera total and exposes both participant vie
     .set(owner);
   assert.equal(renterBookings.body.meta.total, 1);
   assert.equal(ownerRequests.body.meta.total, 1);
+
+  const adminBookings = await request(app)
+    .get('/api/v1/bookings/admin?status=pending')
+    .set(admin);
+  assert.equal(adminBookings.status, 200);
+  assert.equal(adminBookings.body.data.length, 1);
+  assert.equal(adminBookings.body.data[0].id, response.body.data.id);
+  assert.equal(adminBookings.body.meta.total, 1);
 });
 
 test('runs physical approval, handover, extension and return lifecycle', async () => {
@@ -171,6 +188,14 @@ test('runs physical approval, handover, extension and return lifecycle', async (
 
   const rentalRecord = await RentalModel.findOne({ bookingId }).lean();
   assert.equal(rentalRecord.status, 'scheduled');
+
+  const adminRentals = await request(app)
+    .get('/api/v1/rentals/admin?status=scheduled')
+    .set(admin);
+  assert.equal(adminRentals.status, 200);
+  assert.equal(adminRentals.body.data.length, 1);
+  assert.equal(adminRentals.body.data[0].id, rentalRecord.publicId);
+  assert.equal(adminRentals.body.meta.total, 1);
 
   const handover = await request(app)
     .post(`/api/v1/rentals/${rentalRecord.publicId}/handover`)
@@ -356,6 +381,156 @@ test('runs service approval, delivery and renter completion lifecycle', async ()
   ]) {
     assert.ok(notificationTypes.includes(expected), expected);
   }
+});
+
+test('publishes, edits, flags and moderates participant reviews', async () => {
+  const created = await createCameraBooking();
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId);
+  await request(app)
+    .patch(`/api/v1/bookings/${bookingId}/decision`)
+    .set(owner)
+    .send({ status: 'approved' });
+  const rental = await RentalModel.findOne({ bookingId });
+
+  const tooEarly = await request(app)
+    .post('/api/v1/reviews')
+    .set(renter)
+    .send({
+      rentalId: rental.publicId,
+      overallRating: 5,
+      communicationRating: 5,
+      text: 'A review cannot be submitted before this rental is completed.',
+    });
+  assert.equal(tooEarly.status, 409);
+  assert.equal(tooEarly.body.error.code, 'REVIEW_NOT_AVAILABLE');
+
+  rental.status = 'completed';
+  await rental.save();
+
+  const outsider = await request(app)
+    .post('/api/v1/reviews')
+    .set(serviceOwner)
+    .send({
+      rentalId: rental.publicId,
+      overallRating: 5,
+      communicationRating: 5,
+      text: 'A non-participant must not be able to review this rental.',
+    });
+  assert.equal(outsider.status, 404);
+
+  const submitted = await request(app)
+    .post('/api/v1/reviews')
+    .set(renter)
+    .send({
+      rentalId: rental.publicId,
+      overallRating: 5,
+      conditionRating: 5,
+      communicationRating: 4,
+      valueRating: 5,
+      text: 'The camera was excellent and the Owner communicated clearly.',
+    });
+  assert.equal(submitted.status, 201, JSON.stringify(submitted.body));
+  assert.equal(submitted.body.data.subjectId, 'u-owner');
+  assert.equal(submitted.body.data.canEdit, true);
+  const reviewId = submitted.body.data.id;
+
+  const duplicate = await request(app)
+    .post('/api/v1/reviews')
+    .set(renter)
+    .send({
+      rentalId: rental.publicId,
+      overallRating: 5,
+      communicationRating: 5,
+      text: 'This duplicate review must not be accepted by the API.',
+    });
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.code, 'REVIEW_ALREADY_EXISTS');
+
+  const edited = await request(app)
+    .patch(`/api/v1/reviews/${reviewId}`)
+    .set(renter)
+    .send({
+      overallRating: 4,
+      conditionRating: 5,
+      communicationRating: 4,
+      valueRating: 4,
+      text: 'The camera remained excellent and collection was straightforward.',
+    });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.data.overallRating, 4);
+  assert.ok(edited.body.data.editedAt);
+
+  await ReviewModel.collection.updateOne(
+    { publicId: reviewId },
+    { $set: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) } },
+  );
+  const lateEdit = await request(app)
+    .patch(`/api/v1/reviews/${reviewId}`)
+    .set(renter)
+    .send({
+      overallRating: 5,
+      conditionRating: 5,
+      communicationRating: 5,
+      valueRating: 5,
+      text: 'This edit is outside the permitted twenty-four hour window.',
+    });
+  assert.equal(lateEdit.status, 409);
+  assert.equal(lateEdit.body.error.code, 'EDIT_WINDOW_ENDED');
+
+  const ownerReview = await request(app)
+    .post('/api/v1/reviews')
+    .set(owner)
+    .send({
+      rentalId: rental.publicId,
+      overallRating: 5,
+      conditionRating: 1,
+      communicationRating: 5,
+      valueRating: 1,
+      text: 'Alex coordinated collection and returned the full kit on time.',
+    });
+  assert.equal(ownerReview.status, 201);
+  assert.equal(ownerReview.body.data.subjectId, 'u-renter');
+  assert.equal(ownerReview.body.data.conditionRating, undefined);
+  assert.equal(ownerReview.body.data.valueRating, undefined);
+
+  const renterReceived = await request(app)
+    .get('/api/v1/reviews/received')
+    .set(renter);
+  assert.equal(renterReceived.body.meta.total, 1);
+  assert.equal(renterReceived.body.data[0].id, ownerReview.body.data.id);
+
+  const publicReviews = await request(app).get('/api/v1/reviews/listing/l-camera');
+  assert.equal(publicReviews.status, 200);
+  assert.equal(publicReviews.body.meta.total, 1);
+  assert.equal(publicReviews.body.data[0].id, reviewId);
+
+  const summary = await request(app).get('/api/v1/reviews/subjects/u-owner/summary');
+  assert.equal(summary.body.data.averageRating, 4);
+  assert.equal(summary.body.data.reviewCount, 1);
+
+  const flagged = await request(app)
+    .post(`/api/v1/reviews/${reviewId}/flag`)
+    .set(owner)
+    .send({ reason: 'This review requires a factual moderation check.' });
+  assert.equal(flagged.status, 200);
+  assert.ok(flagged.body.data.flag.flaggedAt);
+
+  const queue = await request(app)
+    .get('/api/v1/reviews/admin?flagged=true')
+    .set(admin);
+  assert.equal(queue.status, 200);
+  assert.equal(queue.body.meta.total, 1);
+
+  const hidden = await request(app)
+    .patch(`/api/v1/reviews/${reviewId}/moderation`)
+    .set(admin)
+    .send({ status: 'hidden', reason: 'Hidden while evidence is reviewed.' });
+  assert.equal(hidden.status, 200);
+  assert.equal(hidden.body.data.status, 'hidden');
+
+  const hiddenPublic = await request(app).get('/api/v1/reviews/listing/l-camera');
+  assert.equal(hiddenPublic.body.meta.total, 0);
 });
 
 test('supports cancellation and requires a rejection reason', async () => {

@@ -78,7 +78,8 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
           },
         );
         return Scaffold(
-          drawer: persistent ? null : Drawer(child: SafeArea(child: navigation)),
+          drawer:
+              persistent ? null : Drawer(child: SafeArea(child: navigation)),
           appBar: AppBar(
             automaticallyImplyLeading: !persistent,
             title: Text(destinations[selected].$1),
@@ -129,6 +130,7 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
         3 => const _AdminListings(),
         4 => const _AdminBookingsTransactions(),
         6 => const _AdminMessageReports(),
+        7 => const _AdminReviews(),
         _ => _DeferredAdminModule(title: destinations[index].$1),
       };
 }
@@ -175,11 +177,13 @@ class _AdminDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = context.watch<LiveRentHubController>();
-    final pendingListings =
-        data.adminListings.where((item) => item.status == 'pending_review').length;
-    final openReports = data.messageReports
-        .where((item) => item['status'] == 'open')
+    final pendingListings = data.adminListings
+        .where((item) => item.status == 'pending_review')
         .length;
+    final openReports =
+        data.messageReports.where((item) => item['status'] == 'open').length;
+    final flaggedReviews =
+        data.adminReviews.where((review) => review.flagged).length;
     return RefreshIndicator(
       onRefresh: data.loadAdmin,
       child: ListView(
@@ -196,7 +200,8 @@ class _AdminDashboard extends StatelessWidget {
             spacing: 16,
             runSpacing: 16,
             children: [
-              _AdminMetric('Users', '${data.users.length}', Icons.people_outline),
+              _AdminMetric(
+                  'Users', '${data.users.length}', Icons.people_outline),
               _AdminMetric(
                 'Pending listings',
                 '$pendingListings',
@@ -211,6 +216,11 @@ class _AdminDashboard extends StatelessWidget {
                 'Open message reports',
                 '$openReports',
                 Icons.report_outlined,
+              ),
+              _AdminMetric(
+                'Flagged reviews',
+                '$flaggedReviews',
+                Icons.rate_review_outlined,
               ),
             ],
           ),
@@ -316,7 +326,8 @@ class _AdminUsers extends StatelessWidget {
               children: [
                 StatusBadge(status),
                 const SizedBox(width: 8),
-                if (status == 'active' && !(user['roles'] as List).contains('admin'))
+                if (status == 'active' &&
+                    !(user['roles'] as List).contains('admin'))
                   OutlinedButton(
                     onPressed: () => _restrict(context, user),
                     child: const Text('Suspend'),
@@ -346,7 +357,8 @@ class _AdminListings extends StatelessWidget {
         content: status == 'rejected'
             ? TextField(
                 controller: reason,
-                decoration: const InputDecoration(labelText: 'Rejection reason'),
+                decoration:
+                    const InputDecoration(labelText: 'Rejection reason'),
               )
             : Text(listing.title),
         actions: [
@@ -430,7 +442,8 @@ class _AdminBookingsTransactions extends StatelessWidget {
   const _AdminBookingsTransactions();
 
   Future<void> _refund(BuildContext context, Transaction transaction) async {
-    final amount = TextEditingController(text: transaction.amount.toStringAsFixed(2));
+    final amount =
+        TextEditingController(text: transaction.amount.toStringAsFixed(2));
     final reason = TextEditingController(text: 'Administrator-approved refund');
     final accepted = await showDialog<bool>(
       context: context,
@@ -607,6 +620,130 @@ class _AdminMessageReports extends StatelessWidget {
                     ],
                   ),
                 ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AdminReviews extends StatelessWidget {
+  const _AdminReviews();
+
+  Future<void> _moderate(
+    BuildContext context,
+    Review review,
+    String status,
+  ) async {
+    final reason = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(status == 'hidden' ? 'Hide review?' : 'Restore review?'),
+        content: status == 'hidden'
+            ? TextField(
+                controller: reason,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Moderation reason',
+                ),
+              )
+            : Text(review.text),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(status == 'hidden' ? 'Hide' : 'Restore'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) {
+      reason.dispose();
+      return;
+    }
+    if (status == 'hidden' && reason.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A moderation reason is required.')),
+      );
+      reason.dispose();
+      return;
+    }
+    try {
+      await context.read<LiveRentHubController>().moderateReview(
+            review.id,
+            status,
+            reason: reason.text,
+          );
+    } catch (exception) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+    reason.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reviews = context.watch<LiveRentHubController>().adminReviews;
+    if (reviews.isEmpty) {
+      return const RentHubFeedbackState(
+        kind: FeedbackKind.empty,
+        title: 'No reviews yet',
+        message: 'Completed-order reviews and flags will appear here.',
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(24),
+      itemCount: reviews.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final review = reviews[index];
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${review.authorName} reviewed ${review.subjectName}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    if (review.flagged) ...[
+                      const StatusBadge('Flagged'),
+                      const SizedBox(width: 8),
+                    ],
+                    StatusBadge(review.status),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text('${review.rating}/5 • ${review.listingTitle}'),
+                Text(review.text),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: review.status == 'hidden'
+                      ? OutlinedButton(
+                          onPressed: () =>
+                              _moderate(context, review, 'published'),
+                          child: const Text('Restore Review'),
+                        )
+                      : FilledButton.tonal(
+                          onPressed: () => _moderate(context, review, 'hidden'),
+                          child: const Text('Hide Review'),
+                        ),
+                ),
               ],
             ),
           ),

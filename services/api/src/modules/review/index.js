@@ -1,3 +1,11 @@
-import { createModule } from '../../core/moduleFactory.js';
-export const reviewModule = createModule('Review', { rentalId: String, authorId: String, subjectId: String, rating: { type: Number, min: 1, max: 5 }, text: String });
+import { ReviewModel } from './review.model.js';
+import { reviewRepository } from './review.repository.js';
+import { reviewRouter } from './review.routes.js';
+import { reviewService } from './review.service.js';
 
+export const reviewModule = {
+  router: reviewRouter,
+  service: reviewService,
+  repository: reviewRepository,
+  ReviewModel,
+};

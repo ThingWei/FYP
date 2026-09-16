@@ -97,8 +97,13 @@ class LiveAuthRepository implements AuthRepository {
   @override
   Future<User> login(String email, String password, UserRole role) async {
     _prepareIdentity(email, role);
-    final data = await api.request('POST', '/users/session');
-    return User.fromJson(data as Map<String, dynamic>);
+    try {
+      final data = await api.request('POST', '/users/session');
+      return User.fromJson(data as Map<String, dynamic>);
+    } catch (_) {
+      session.clear();
+      rethrow;
+    }
   }
 
   @override
@@ -109,8 +114,13 @@ class LiveAuthRepository implements AuthRepository {
     UserRole role,
   ) async {
     _prepareIdentity(email, role, name: name);
-    final data = await api.request('POST', '/users/session');
-    return User.fromJson(data as Map<String, dynamic>);
+    try {
+      final data = await api.request('POST', '/users/session');
+      return User.fromJson(data as Map<String, dynamic>);
+    } catch (_) {
+      session.clear();
+      rethrow;
+    }
   }
 
   @override

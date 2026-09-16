@@ -8,6 +8,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_review_page.dart';
 import 'live_shared_pages.dart';
 
 class LiveOwnerShell extends StatefulWidget {
@@ -111,6 +112,47 @@ class LiveOwnerDashboard extends StatelessWidget {
 
   final VoidCallback onOpenRequests;
 
+  Future<void> _flag(BuildContext context, Review review) async {
+    final reason = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Flag suspicious review?'),
+        content: TextField(
+          controller: reason,
+          minLines: 2,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Reason for administrator review',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Submit Flag'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && reason.text.trim().length >= 5 && context.mounted) {
+      try {
+        await context
+            .read<LiveRentHubController>()
+            .flagReview(review.id, reason.text);
+      } catch (exception) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(exception.toString())));
+        }
+      }
+    }
+    reason.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
@@ -200,6 +242,34 @@ class LiveOwnerDashboard extends StatelessWidget {
             else
               for (final rental in controller.rentals)
                 _OwnerRentalCard(rental: rental),
+            const SizedBox(height: 20),
+            Text('Reviews received',
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            if (controller.receivedReviews.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text('Completed-order reviews will appear here.'),
+                ),
+              )
+            else
+              for (final review in controller.receivedReviews.take(3))
+                Card(
+                  child: ListTile(
+                    leading: CircleAvatar(child: Text('${review.rating}')),
+                    title:
+                        Text('${review.authorName} • ${review.listingTitle}'),
+                    subtitle: Text(review.text),
+                    trailing: review.flagged
+                        ? const StatusBadge('Flagged')
+                        : IconButton(
+                            tooltip: 'Flag suspicious review',
+                            onPressed: () => _flag(context, review),
+                            icon: const Icon(Icons.flag_outlined),
+                          ),
+                  ),
+                ),
           ],
         ),
       ),
@@ -736,7 +806,37 @@ class _OwnerRentalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget? action;
-    if (rental.status == 'scheduled') {
+    if (rental.status == 'completed') {
+      final matching = context
+          .watch<LiveRentHubController>()
+          .reviews
+          .where((review) => review.rentalId == rental.id)
+          .toList();
+      final existing = matching.isEmpty ? null : matching.first;
+      action = OutlinedButton.icon(
+        onPressed: existing != null && !existing.canEdit
+            ? null
+            : () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LiveReviewPage(
+                      rental: rental,
+                      subject: 'Renter for ${rental.listingId}',
+                      existing: existing,
+                      reviewingRenter: true,
+                    ),
+                  ),
+                ),
+        icon: const Icon(Icons.rate_review_outlined),
+        label: Text(
+          existing == null
+              ? 'Review Renter'
+              : existing.canEdit
+                  ? 'Edit Renter Review'
+                  : 'Renter Reviewed',
+        ),
+      );
+    } else if (rental.status == 'scheduled') {
       action = FilledButton(
         onPressed: () => rental.listingType == 'service'
             ? _run(context, 'start-service')

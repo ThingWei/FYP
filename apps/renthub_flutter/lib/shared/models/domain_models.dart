@@ -284,9 +284,46 @@ class RentHubNotification {
 }
 
 class Review {
-  const Review(this.id, this.rating, this.text);
-  final String id, text;
+  const Review(
+    this.id,
+    this.rating,
+    this.text, {
+    this.rentalId = '',
+    this.listingId = '',
+    this.listingTitle = '',
+    this.authorId = '',
+    this.authorName = '',
+    this.subjectId = '',
+    this.subjectName = '',
+    this.status = 'published',
+    this.canEdit = false,
+    this.flagged = false,
+    this.createdAt,
+  });
+  final String id, text, rentalId, listingId, listingTitle;
+  final String authorId, authorName, subjectId, subjectName, status;
   final int rating;
+  final bool canEdit, flagged;
+  final DateTime? createdAt;
+
+  factory Review.fromJson(Map<String, dynamic> json) => Review(
+        (json['publicId'] ?? json['id'] ?? json['_id']) as String,
+        (json['overallRating'] ?? json['rating'] as num).toInt(),
+        json['text'] as String,
+        rentalId: json['rentalId'] as String? ?? '',
+        listingId: json['listingId'] as String? ?? '',
+        listingTitle: json['listingTitle'] as String? ?? '',
+        authorId: json['authorId'] as String? ?? '',
+        authorName: json['authorName'] as String? ?? 'RentHub user',
+        subjectId: json['subjectId'] as String? ?? '',
+        subjectName: json['subjectName'] as String? ?? 'RentHub user',
+        status: json['status'] as String? ?? 'published',
+        canEdit: json['canEdit'] as bool? ?? false,
+        flagged: (json['flag'] as Map<String, dynamic>?)?['flaggedAt'] != null,
+        createdAt: json['createdAt'] == null
+            ? null
+            : DateTime.parse(json['createdAt'] as String),
+      );
 }
 
 class Dispute {

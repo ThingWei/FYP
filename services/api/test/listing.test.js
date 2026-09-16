@@ -155,6 +155,19 @@ test('enforces owner submission and administrator moderation transitions', async
   assert.equal(submitted.status, 200);
   assert.equal(submitted.body.data.status, 'pending_review');
 
+  const renterCannotViewQueue = await request(app)
+    .get('/api/v1/listings/admin')
+    .set(renterHeaders);
+  assert.equal(renterCannotViewQueue.status, 403);
+
+  const moderationQueue = await request(app)
+    .get('/api/v1/listings/admin?status=pending_review')
+    .set(adminHeaders);
+  assert.equal(moderationQueue.status, 200);
+  assert.equal(moderationQueue.body.data.length, 1);
+  assert.equal(moderationQueue.body.data[0].id, id);
+  assert.equal(moderationQueue.body.meta.total, 1);
+
   const editDuringReview = await request(app)
     .patch(`/api/v1/listings/${id}`)
     .set(ownerHeaders)

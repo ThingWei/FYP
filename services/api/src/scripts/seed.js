@@ -8,6 +8,7 @@ import { ThreadModel } from '../modules/communication/thread.model.js';
 import { listingModule } from '../modules/listing/index.js';
 import { PaymentModel } from '../modules/payment/payment.model.js';
 import { RentalModel } from '../modules/rental/rental.model.js';
+import { ReviewModel } from '../modules/review/review.model.js';
 import { UserModel } from '../modules/user/user.model.js';
 
 const users = [
@@ -358,6 +359,30 @@ const bookings = [
     paymentStatus: 'authorized',
     paymentAuthorizationId: 'TXN-AUTH-2026-03218',
   },
+  {
+    publicId: 'RH-BKG-2026-07001',
+    listingId: 'l-camera',
+    listingTitle: 'Sony Alpha a7S III Mirrorless Camera',
+    listingType: 'physical',
+    renterId: 'u-renter',
+    renterName: 'Alex Tan',
+    ownerId: 'u-owner',
+    startDate: new Date('2026-07-10T00:00:00+08:00'),
+    endDate: new Date('2026-07-11T00:00:00+08:00'),
+    fulfilmentMethod: 'pickup',
+    damageWaiverSelected: false,
+    pricing: {
+      baseAmount: 170,
+      securityDeposit: 300,
+      damageWaiverFee: 0,
+      platformFee: 0,
+      total: 470,
+      currency: 'MYR',
+    },
+    status: 'completed',
+    paymentStatus: 'settled',
+    completedAt: new Date('2026-07-11T18:00:00+08:00'),
+  },
 ];
 
 const payments = [
@@ -420,6 +445,60 @@ const rentals = [
       evidence: ['local://handover/camera-front.jpg'],
       recordedAt: new Date('2026-09-20T09:00:00+08:00'),
     },
+  },
+  {
+    publicId: 'RH-RNT-2026-07001',
+    bookingId: 'RH-BKG-2026-07001',
+    listingId: 'l-camera',
+    listingType: 'physical',
+    renterId: 'u-renter',
+    ownerId: 'u-owner',
+    startDate: new Date('2026-07-10T00:00:00+08:00'),
+    endDate: new Date('2026-07-11T00:00:00+08:00'),
+    status: 'completed',
+    handover: {
+      condition: 'Excellent',
+      notes: 'Camera kit checked before collection.',
+      evidence: ['local://handover/history-camera.jpg'],
+      recordedAt: new Date('2026-07-10T09:00:00+08:00'),
+    },
+    returnSubmission: {
+      condition: 'Excellent',
+      notes: 'Returned in the original condition.',
+      evidence: ['local://return/history-camera.jpg'],
+      recordedAt: new Date('2026-07-11T17:30:00+08:00'),
+    },
+    returnOutcome: {
+      condition: 'Excellent',
+      notes: 'No deposit deduction.',
+      depositDeduction: 0,
+      confirmedAt: new Date('2026-07-11T18:00:00+08:00'),
+    },
+  },
+];
+
+const reviews = [
+  {
+    publicId: 'RH-REV-SEED-07001',
+    rentalId: 'RH-RNT-2026-07001',
+    bookingId: 'RH-BKG-2026-07001',
+    listingId: 'l-camera',
+    listingTitle: 'Sony Alpha a7S III Mirrorless Camera',
+    listingType: 'physical',
+    authorId: 'u-renter',
+    authorName: 'Alex Tan',
+    authorRole: 'renter',
+    subjectId: 'u-owner',
+    subjectName: 'Sarah J.',
+    subjectRole: 'owner',
+    overallRating: 5,
+    conditionRating: 5,
+    communicationRating: 5,
+    valueRating: 4,
+    text: 'The camera was in excellent condition and collection was straightforward.',
+    status: 'published',
+    createdAt: new Date('2026-07-11T19:00:00+08:00'),
+    updatedAt: new Date('2026-07-11T19:00:00+08:00'),
   },
 ];
 
@@ -584,6 +663,15 @@ try {
       },
     })),
   );
+  await ReviewModel.bulkWrite(
+    reviews.map((review) => ({
+      updateOne: {
+        filter: { publicId: review.publicId },
+        update: { $set: review },
+        upsert: true,
+      },
+    })),
+  );
   await PaymentModel.bulkWrite(
     payments.map((payment) => ({
       updateOne: {
@@ -634,7 +722,7 @@ try {
       `${bookings.length} bookings, ${rentals.length} rentals, ` +
       `${payments.length} payments, ${threads.length} threads, ` +
       `${messages.length} messages, ${notifications.length} notifications, ` +
-      `${messageReports.length} message report`,
+      `${messageReports.length} message report, ${reviews.length} review`,
   );
 } finally {
   await disconnectDatabase();

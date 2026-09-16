@@ -19,6 +19,7 @@ import { NotificationModel } from '../src/modules/communication/notification.mod
 import { ThreadModel } from '../src/modules/communication/thread.model.js';
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
+import { ReviewModel } from '../src/modules/review/review.model.js';
 
 let mongodb;
 const runFile = promisify(execFile);
@@ -80,13 +81,14 @@ test('readiness reports MongoDB and the seed script is idempotent', async () => 
 
   assert.equal(await UserModel.countDocuments(), 5);
   assert.equal(await ListingModel.countDocuments(), 13);
-  assert.equal(await BookingModel.countDocuments(), 2);
-  assert.equal(await RentalModel.countDocuments(), 1);
+  assert.equal(await BookingModel.countDocuments(), 3);
+  assert.equal(await RentalModel.countDocuments(), 2);
   assert.equal(await PaymentModel.countDocuments(), 3);
   assert.equal(await ThreadModel.countDocuments(), 2);
   assert.equal(await MessageModel.countDocuments(), 4);
   assert.equal(await NotificationModel.countDocuments(), 4);
   assert.equal(await MessageReportModel.countDocuments(), 1);
+  assert.equal(await ReviewModel.countDocuments(), 1);
   const renter = await UserModel.findOne({ authId: 'u-renter' }).lean();
   assert.equal(renter.displayName, 'Alex Tan');
   assert.equal(renter.trustScore, 92);
