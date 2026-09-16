@@ -7,6 +7,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_shared_pages.dart';
 
@@ -835,6 +836,20 @@ class _RenterRentalActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final existingDispute =
+        context.watch<LiveRentHubController>().disputeForRental(rental.id);
+    final disputeButton = OutlinedButton.icon(
+      onPressed: () => Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => LiveDisputePage(rental: rental, owner: false),
+        ),
+      ),
+      icon: Icon(existingDispute == null
+          ? Icons.gavel_outlined
+          : Icons.manage_search_outlined),
+      label: Text(existingDispute == null ? 'Raise Dispute' : 'Track Dispute'),
+    );
     if (rental.status == 'completed') {
       final matching = context
           .watch<LiveRentHubController>()
@@ -842,40 +857,54 @@ class _RenterRentalActions extends StatelessWidget {
           .where((review) => review.rentalId == rental.id)
           .toList();
       final existing = matching.isEmpty ? null : matching.first;
-      return FilledButton.icon(
-        onPressed: existing != null && !existing.canEdit
-            ? null
-            : () => Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => LiveReviewPage(
-                      rental: rental,
-                      subject: 'Owner for ${rental.listingId}',
-                      existing: existing,
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.icon(
+            onPressed: existing != null && !existing.canEdit
+                ? null
+                : () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => LiveReviewPage(
+                          rental: rental,
+                          subject: 'Owner for ${rental.listingId}',
+                          existing: existing,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-        icon: const Icon(Icons.star_outline),
-        label: Text(
-          existing == null
-              ? 'Rate & Review'
-              : existing.canEdit
-                  ? 'Edit Review'
-                  : 'Review Submitted',
-        ),
+            icon: const Icon(Icons.star_outline),
+            label: Text(
+              existing == null
+                  ? 'Rate & Review'
+                  : existing.canEdit
+                      ? 'Edit Review'
+                      : 'Review Submitted',
+            ),
+          ),
+          disputeButton,
+        ],
       );
     }
     if (rental.listingType == 'service' &&
         rental.status == 'completion_pending') {
-      return FilledButton.icon(
-        onPressed: () => _action(
-          context,
-          'service-completion',
-          null,
-          'Service completion confirmed',
-        ),
-        icon: const Icon(Icons.task_alt),
-        label: const Text('Confirm Service Completion'),
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.icon(
+            onPressed: () => _action(
+              context,
+              'service-completion',
+              null,
+              'Service completion confirmed',
+            ),
+            icon: const Icon(Icons.task_alt),
+            label: const Text('Confirm Service Completion'),
+          ),
+          disputeButton,
+        ],
       );
     }
     if (rental.listingType == 'physical' && rental.status == 'active') {
@@ -939,8 +968,13 @@ class _RenterRentalActions extends StatelessWidget {
             },
             child: const Text('Submit Return'),
           ),
+          disputeButton,
         ],
       );
+    }
+    if (rental.status == 'disputed') return disputeButton;
+    if (!['cancelled', 'scheduled'].contains(rental.status)) {
+      return disputeButton;
     }
     return const SizedBox.shrink();
   }

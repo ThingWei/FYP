@@ -54,5 +54,5 @@ The seeded prototype accounts accept any password of at least six characters:
 - `demo@renthub.my` for role switching
 - `admin@renthub.my` in the administrator portal
 
-Live mode persists users, listings, bookings, rentals, payments, messages, notifications, reviews, and moderation changes in MongoDB. Payments remain simulated and use server-calculated amounts.
+Live mode persists users, listings, bookings, rentals, payments, messages, notifications, reviews, disputes, damage-waiver claims, loyalty accounts, reward ledgers, referrals, configurable loyalty rules, and administrator audit entries in MongoDB. Payments, booking-discount rewards, and dispute allocations remain simulated and use server-calculated or administrator-recorded amounts; no real financial or blockchain transfer is claimed.
 

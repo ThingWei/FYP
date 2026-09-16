@@ -10,6 +10,12 @@ import {
 import { BookingModel } from '../src/modules/booking/booking.model.js';
 import { AvailabilityModel } from '../src/modules/listing/availability.model.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
+import {
+  LoyaltyAccountModel,
+  LoyaltyConfigModel,
+  ReferralModel,
+  RewardLedgerModel,
+} from '../src/modules/loyalty/loyalty.model.js';
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { NotificationModel } from '../src/modules/communication/notification.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
@@ -123,6 +129,10 @@ before(async () => {
     NotificationModel.init(),
     RentalModel.init(),
     ReviewModel.init(),
+    LoyaltyAccountModel.init(),
+    LoyaltyConfigModel.init(),
+    ReferralModel.init(),
+    RewardLedgerModel.init(),
   ]);
 });
 
@@ -136,6 +146,10 @@ beforeEach(async () => {
     NotificationModel.deleteMany({}),
     RentalModel.deleteMany({}),
     ReviewModel.deleteMany({}),
+    LoyaltyAccountModel.deleteMany({}),
+    LoyaltyConfigModel.deleteMany({}),
+    ReferralModel.deleteMany({}),
+    RewardLedgerModel.deleteMany({}),
   ]);
   await startProfiles();
   await createCatalog();

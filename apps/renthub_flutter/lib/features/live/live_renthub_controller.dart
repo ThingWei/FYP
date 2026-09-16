@@ -33,8 +33,17 @@ class LiveRentHubController extends ChangeNotifier {
   List<Review> reviews = [];
   List<Review> receivedReviews = [];
   List<Review> adminReviews = [];
+  List<Dispute> disputes = [];
+  List<InsuranceClaim> claims = [];
+  List<Dispute> adminDisputes = [];
+  List<InsuranceClaim> adminClaims = [];
   List<Map<String, dynamic>> users = [];
   List<Map<String, dynamic>> messageReports = [];
+  List<Map<String, dynamic>> auditLogs = [];
+  Reward? loyalty;
+  Map<String, dynamic> loyaltyConfig = {};
+  List<Map<String, dynamic>> adminRewardLedger = [];
+  List<Map<String, dynamic>> adminReferrals = [];
 
   Future<T> _perform<T>(Future<T> Function() operation) async {
     loading = true;
@@ -64,6 +73,9 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/rentals/mine'),
           api.request('GET', '/messages/threads'),
           api.request('GET', '/reviews/mine'),
+          api.request('GET', '/disputes/mine'),
+          api.request('GET', '/disputes/claims/mine'),
+          api.request('GET', '/rewards/summary'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         _connectRealtime(profile!.id);
@@ -72,6 +84,9 @@ class LiveRentHubController extends ChangeNotifier {
         rentals = _models(results[3], Rental.fromJson);
         conversations = _models(results[4], Conversation.fromJson);
         reviews = _models(results[5], Review.fromJson);
+        disputes = _models(results[6], Dispute.fromJson);
+        claims = _models(results[7], InsuranceClaim.fromJson);
+        loyalty = Reward.fromJson(results[8] as Map<String, dynamic>);
       });
 
   Future<void> loadOwner() => _perform(() async {
@@ -83,6 +98,9 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/messages/threads'),
           api.request('GET', '/reviews/received'),
           api.request('GET', '/reviews/mine'),
+          api.request('GET', '/disputes/mine'),
+          api.request('GET', '/disputes/claims/mine'),
+          api.request('GET', '/rewards/summary'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         _connectRealtime(profile!.id);
@@ -92,6 +110,9 @@ class LiveRentHubController extends ChangeNotifier {
         conversations = _models(results[4], Conversation.fromJson);
         receivedReviews = _models(results[5], Review.fromJson);
         reviews = _models(results[6], Review.fromJson);
+        disputes = _models(results[7], Dispute.fromJson);
+        claims = _models(results[8], InsuranceClaim.fromJson);
+        loyalty = Reward.fromJson(results[9] as Map<String, dynamic>);
       });
 
   Future<void> loadAdmin() => _perform(() async {
@@ -104,6 +125,12 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/payments'),
           api.request('GET', '/messages/reports'),
           api.request('GET', '/reviews/admin'),
+          api.request('GET', '/disputes/admin'),
+          api.request('GET', '/disputes/claims/admin'),
+          api.request('GET', '/admin'),
+          api.request('GET', '/rewards/admin/config'),
+          api.request('GET', '/rewards/admin/ledger'),
+          api.request('GET', '/rewards/admin/referrals'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         users = (results[1] as List).cast<Map<String, dynamic>>();
@@ -113,7 +140,227 @@ class LiveRentHubController extends ChangeNotifier {
         transactions = _models(results[5], Transaction.fromJson);
         messageReports = (results[6] as List).cast<Map<String, dynamic>>();
         adminReviews = _models(results[7], Review.fromJson);
+        adminDisputes = _models(results[8], Dispute.fromJson);
+        adminClaims = _models(results[9], InsuranceClaim.fromJson);
+        auditLogs = (results[10] as List).cast<Map<String, dynamic>>();
+        loyaltyConfig = results[11] as Map<String, dynamic>;
+        adminRewardLedger = (results[12] as List).cast<Map<String, dynamic>>();
+        adminReferrals = (results[13] as List).cast<Map<String, dynamic>>();
       });
+
+  Future<void> loadRewards() => _perform(() async {
+        loyalty = Reward.fromJson(
+          await api.request('GET', '/rewards/summary') as Map<String, dynamic>,
+        );
+      });
+
+  Future<void> redeemReward(int points) => _perform(() async {
+        loyalty = Reward.fromJson(
+          await api.request(
+            'POST',
+            '/rewards/redeem',
+            body: {'points': points},
+          ) as Map<String, dynamic>,
+        );
+      });
+
+  Future<void> applyReferralCode(String code) => _perform(() async {
+        await api.request(
+          'POST',
+          '/rewards/referrals/apply',
+          body: {'referralCode': code.trim().toUpperCase()},
+        );
+        loyalty = Reward.fromJson(
+          await api.request('GET', '/rewards/summary') as Map<String, dynamic>,
+        );
+      });
+
+  Future<void> updateLoyaltyConfig(Map<String, dynamic> input) =>
+      _perform(() async {
+        loyaltyConfig = await api.request(
+          'PUT',
+          '/rewards/admin/config',
+          body: input,
+        ) as Map<String, dynamic>;
+        adminRewardLedger = (await api.request(
+          'GET',
+          '/rewards/admin/ledger',
+        ) as List)
+            .cast<Map<String, dynamic>>();
+        auditLogs = (await api.request('GET', '/admin') as List)
+            .cast<Map<String, dynamic>>();
+      });
+
+  Dispute? disputeForRental(String rentalId) {
+    for (final dispute in disputes) {
+      if (dispute.rentalId == rentalId) return dispute;
+    }
+    return null;
+  }
+
+  InsuranceClaim? claimForRental(String rentalId) {
+    for (final claim in claims) {
+      if (claim.rentalId == rentalId) return claim;
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>> loadDisputeCase(String id) async =>
+      (await api.request('GET', '/disputes/$id')) as Map<String, dynamic>;
+
+  Future<Dispute> createDispute({
+    required Rental rental,
+    required String category,
+    required String summary,
+    required String description,
+    List<String> evidence = const [],
+  }) =>
+      _perform(() async {
+        final dispute = Dispute.fromJson(
+          await api.request(
+            'POST',
+            '/disputes',
+            body: {
+              'rentalId': rental.id,
+              'category': category,
+              'summary': summary.trim(),
+              'description': description.trim(),
+              'evidence': evidence,
+            },
+          ) as Map<String, dynamic>,
+        );
+        disputes.insert(0, dispute);
+        rentals = rentals
+            .map((item) => item.id == rental.id
+                ? Rental(
+                    item.id,
+                    'disputed',
+                    bookingId: item.bookingId,
+                    listingId: item.listingId,
+                    listingType: item.listingType,
+                    renterId: item.renterId,
+                    ownerId: item.ownerId,
+                    start: item.start,
+                    end: item.end,
+                    extensionStatus: item.extensionStatus,
+                  )
+                : item)
+            .toList();
+        notifyListeners();
+        return dispute;
+      });
+
+  Future<Dispute> respondToDispute(
+    Dispute dispute,
+    String text, {
+    List<String> evidence = const [],
+  }) =>
+      _perform(() async {
+        final updated = Dispute.fromJson(
+          await api.request(
+            'POST',
+            '/disputes/${dispute.id}/responses',
+            body: {'text': text.trim(), 'evidence': evidence},
+          ) as Map<String, dynamic>,
+        );
+        _replaceDispute(updated, disputes);
+        return updated;
+      });
+
+  Future<InsuranceClaim> submitClaim({
+    required Dispute dispute,
+    required String description,
+    required double amount,
+    required List<String> evidence,
+  }) =>
+      _perform(() async {
+        final claim = InsuranceClaim.fromJson(
+          await api.request(
+            'POST',
+            '/disputes/${dispute.id}/claims',
+            body: {
+              'description': description.trim(),
+              'amountRequested': amount,
+              'evidence': evidence,
+            },
+          ) as Map<String, dynamic>,
+        );
+        claims.insert(0, claim);
+        notifyListeners();
+        return claim;
+      });
+
+  Future<void> updateDisputeStatus(
+    Dispute dispute,
+    String status,
+    String note,
+  ) =>
+      _perform(() async {
+        final updated = Dispute.fromJson(
+          await api.request(
+            'PATCH',
+            '/disputes/${dispute.id}/review-status',
+            body: {'status': status, 'note': note.trim()},
+          ) as Map<String, dynamic>,
+        );
+        _replaceDispute(updated, adminDisputes);
+      });
+
+  Future<void> resolveDispute({
+    required Dispute dispute,
+    required String outcome,
+    required String notes,
+    double? renterAmount,
+    double? ownerAmount,
+  }) =>
+      _perform(() async {
+        final updated = Dispute.fromJson(
+          await api.request(
+            'PATCH',
+            '/disputes/${dispute.id}/resolve',
+            body: {
+              'outcome': outcome,
+              'notes': notes.trim(),
+              if (renterAmount != null) 'renterAmount': renterAmount,
+              if (ownerAmount != null) 'ownerAmount': ownerAmount,
+            },
+          ) as Map<String, dynamic>,
+        );
+        _replaceDispute(updated, adminDisputes);
+      });
+
+  Future<void> decideClaim({
+    required InsuranceClaim claim,
+    required String status,
+    required String reason,
+    double? approvedAmount,
+  }) =>
+      _perform(() async {
+        final updated = InsuranceClaim.fromJson(
+          await api.request(
+            'PATCH',
+            '/disputes/claims/${claim.id}/decision',
+            body: {
+              'status': status,
+              'reason': reason.trim(),
+              if (approvedAmount != null) 'approvedAmount': approvedAmount,
+            },
+          ) as Map<String, dynamic>,
+        );
+        final index = adminClaims.indexWhere((item) => item.id == updated.id);
+        if (index >= 0) adminClaims[index] = updated;
+        notifyListeners();
+      });
+
+  void _replaceDispute(Dispute dispute, List<Dispute> target) {
+    final index = target.indexWhere((item) => item.id == dispute.id);
+    if (index < 0) {
+      target.insert(0, dispute);
+    } else {
+      target[index] = dispute;
+    }
+    notifyListeners();
+  }
 
   void _connectRealtime(String userId) {
     if (_socketUserId == userId) return;

@@ -14,6 +14,8 @@ The final Flutter interfaces can now run in either local mock mode or live Mongo
 - Shows published listing reviews and supports completed-order review submission and editing.
 - Loads MongoDB conversation threads, messages, and notifications.
 - Sends messages over REST and receives new messages through Socket.IO.
+- Raises physical-item or service disputes, adds case responses, and tracks administrator decisions.
+- Loads the persistent loyalty balance and activity ledger, redeems configured booking rewards, and applies or shares referral codes.
 
 ## Live owner flow
 
@@ -23,6 +25,8 @@ The final Flutter interfaces can now run in either local mock mode or live Mongo
 - Handles physical handover, extension decisions, return confirmation, service start, and service delivery.
 - Uses the same persistent messaging and notification records as the renter.
 - Shows received reviews and supports suspicious-review flags.
+- Raises and responds to disputes and submits covered physical-item damage claims.
+- Loads the Owner's persistent loyalty balance and reward activity.
 
 ## Live administrator flow
 
@@ -32,6 +36,10 @@ The final Flutter interfaces can now run in either local mock mode or live Mongo
 - Reviews booking and transaction records and issues simulated refunds.
 - Resolves reported messages.
 - Moderates persistent reviews and shows the flagged-review queue count.
+- Reviews dispute agreement, inspection, evidence, conversation, and response context.
+- Requests more evidence, escalates or resolves disputes, and approves or rejects claims.
+- Shows append-only dispute and claim decisions in the live Audit Logs destination.
+- Configures loyalty earning, referral, and redemption rules and monitors the reward ledger and referral activity.
 - Clearly labels modules that do not yet have a backend phase instead of showing dummy records as live data.
 
 ## Safety and consistency decisions
@@ -42,12 +50,16 @@ The final Flutter interfaces can now run in either local mock mode or live Mongo
 - Failed login requests clear the temporary local API identity.
 - Service bookings include an explicit appointment time and venue.
 - Administrator queue endpoints require the administrator role.
+- Dispute allocations and blockchain references are explicitly simulated; no real transfer is claimed.
+- Service disputes never expose physical condition, deposit, return, or insurance controls.
+- Rental completion and first-booking referral awards use unique source keys to prevent duplicate points on retries.
+- Redemption costs and reward values are selected from administrator-configured server rules rather than trusted client amounts.
 
 ## Validation
 
-- `npm.cmd test`: 31 of 31 API tests passed.
-- `flutter analyze --no-pub`: no issues found.
-- `flutter test --no-pub`: 52 of 52 Flutter tests passed.
+- `npm.cmd test`: 37 of 37 API tests passed.
+- `flutter analyze`: no issues found.
+- `flutter test`: 59 of 59 Flutter tests passed.
 - Live renter/owner web build: passed with `USE_MOCKS=false`.
 - Live administrator web build: passed with `USE_MOCKS=false`.
 

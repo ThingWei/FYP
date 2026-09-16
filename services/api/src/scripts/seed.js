@@ -5,10 +5,18 @@ import { MessageModel } from '../modules/communication/message.model.js';
 import { MessageReportModel } from '../modules/communication/messageReport.model.js';
 import { NotificationModel } from '../modules/communication/notification.model.js';
 import { ThreadModel } from '../modules/communication/thread.model.js';
+import { ClaimModel } from '../modules/dispute/claim.model.js';
+import { DisputeModel } from '../modules/dispute/dispute.model.js';
 import { listingModule } from '../modules/listing/index.js';
 import { PaymentModel } from '../modules/payment/payment.model.js';
 import { RentalModel } from '../modules/rental/rental.model.js';
 import { ReviewModel } from '../modules/review/review.model.js';
+import {
+  LoyaltyAccountModel,
+  LoyaltyConfigModel,
+  ReferralModel,
+  RewardLedgerModel,
+} from '../modules/loyalty/loyalty.model.js';
 import { UserModel } from '../modules/user/user.model.js';
 
 const users = [
@@ -383,6 +391,30 @@ const bookings = [
     paymentStatus: 'settled',
     completedAt: new Date('2026-07-11T18:00:00+08:00'),
   },
+  {
+    publicId: 'RH-BKG-2026-08001',
+    listingId: 'l-camera',
+    listingTitle: 'Sony Alpha a7S III Mirrorless Camera',
+    listingType: 'physical',
+    renterId: 'u-renter',
+    renterName: 'Alex Tan',
+    ownerId: 'u-owner',
+    startDate: new Date('2026-08-18T00:00:00+08:00'),
+    endDate: new Date('2026-08-19T00:00:00+08:00'),
+    fulfilmentMethod: 'pickup',
+    damageWaiverSelected: true,
+    pricing: {
+      baseAmount: 170,
+      securityDeposit: 300,
+      damageWaiverFee: 15,
+      platformFee: 0,
+      total: 485,
+      currency: 'MYR',
+    },
+    status: 'disputed',
+    paymentStatus: 'captured',
+    activatedAt: new Date('2026-08-18T09:00:00+08:00'),
+  },
 ];
 
 const payments = [
@@ -475,6 +507,29 @@ const rentals = [
       confirmedAt: new Date('2026-07-11T18:00:00+08:00'),
     },
   },
+  {
+    publicId: 'RH-RNT-2026-08001',
+    bookingId: 'RH-BKG-2026-08001',
+    listingId: 'l-camera',
+    listingType: 'physical',
+    renterId: 'u-renter',
+    ownerId: 'u-owner',
+    startDate: new Date('2026-08-18T00:00:00+08:00'),
+    endDate: new Date('2026-08-19T00:00:00+08:00'),
+    status: 'disputed',
+    handover: {
+      condition: 'Excellent',
+      notes: 'Camera and accessories checked at collection.',
+      evidence: ['local://handover/dispute-camera.jpg'],
+      recordedAt: new Date('2026-08-18T09:00:00+08:00'),
+    },
+    returnSubmission: {
+      condition: 'Good',
+      notes: 'Minor mark observed near the tripod mount.',
+      evidence: ['local://return/dispute-camera.jpg'],
+      recordedAt: new Date('2026-08-19T17:00:00+08:00'),
+    },
+  },
 ];
 
 const reviews = [
@@ -501,6 +556,150 @@ const reviews = [
     updatedAt: new Date('2026-07-11T19:00:00+08:00'),
   },
 ];
+
+const disputes = [
+  {
+    publicId: 'RH-DSP-SEED08001',
+    rentalId: 'RH-RNT-2026-08001',
+    bookingId: 'RH-BKG-2026-08001',
+    listingId: 'l-camera',
+    listingTitle: 'Sony Alpha a7S III Mirrorless Camera',
+    listingType: 'physical',
+    raisedById: 'u-owner',
+    raisedByName: 'Sarah J.',
+    raisedByRole: 'owner',
+    respondentId: 'u-renter',
+    respondentName: 'Alex Tan',
+    respondentRole: 'renter',
+    category: 'return_condition',
+    summary: 'Return condition requires review',
+    description:
+      'A new mark was recorded near the tripod mount during the return inspection.',
+    evidence: ['local://disputes/inspection-close-up.jpg'],
+    status: 'under_review',
+    previousRentalStatus: 'return_submitted',
+    previousBookingStatus: 'active',
+    responses: [
+      {
+        userId: 'u-renter',
+        role: 'renter',
+        text: 'The mark was visible in my collection photo, which I have attached.',
+        evidence: ['local://disputes/collection-photo.jpg'],
+        submittedAt: new Date('2026-08-19T19:00:00+08:00'),
+      },
+    ],
+  },
+];
+
+const claims = [
+  {
+    publicId: 'RH-CLM-SEED08001',
+    disputeId: 'RH-DSP-SEED08001',
+    rentalId: 'RH-RNT-2026-08001',
+    bookingId: 'RH-BKG-2026-08001',
+    listingId: 'l-camera',
+    listingTitle: 'Sony Alpha a7S III Mirrorless Camera',
+    ownerId: 'u-owner',
+    renterId: 'u-renter',
+    description:
+      'Assessment requested for the documented mark near the camera tripod mount.',
+    amountRequested: 120,
+    evidence: ['local://claims/seed-repair-quotation.pdf'],
+    status: 'pending',
+  },
+];
+
+const loyaltyAccounts = [
+  {
+    userId: 'u-renter',
+    points: 850,
+    referralCode: 'RH-ALEX92',
+    totalEarned: 850,
+    totalRedeemed: 0,
+  },
+  {
+    userId: 'u-owner',
+    points: 250,
+    referralCode: 'RH-SARAH98',
+    totalEarned: 250,
+    totalRedeemed: 0,
+  },
+  {
+    userId: 'u-aina',
+    points: 100,
+    referralCode: 'RH-AINA98',
+    totalEarned: 100,
+    totalRedeemed: 0,
+  },
+  {
+    userId: 'u-dual',
+    points: 0,
+    referralCode: 'RH-IZZATI94',
+    totalEarned: 0,
+    totalRedeemed: 0,
+  },
+  {
+    userId: 'u-admin',
+    points: 0,
+    referralCode: 'RH-ADMIN00',
+    totalEarned: 0,
+    totalRedeemed: 0,
+  },
+];
+
+const rewardLedger = [
+  {
+    publicId: 'RH-RWD-SEEDBONUS01',
+    userId: 'u-renter',
+    type: 'bonus',
+    points: 730,
+    balanceAfter: 730,
+    description: 'RentHub early-member bonus',
+    sourceType: 'system',
+    sourceId: 'seed-bonus-2026',
+    sourceKey: 'seed:bonus:u-renter',
+    createdAt: new Date('2026-07-01T09:00:00+08:00'),
+    updatedAt: new Date('2026-07-01T09:00:00+08:00'),
+  },
+  {
+    publicId: 'RH-RWD-SEED07001',
+    userId: 'u-renter',
+    type: 'rental_completed',
+    points: 120,
+    balanceAfter: 850,
+    description: 'Sony Alpha a7S III Mirrorless Camera completed',
+    sourceType: 'rental',
+    sourceId: 'RH-RNT-2026-07001',
+    sourceKey: 'completion:RH-RNT-2026-07001',
+    createdAt: new Date('2026-07-11T18:05:00+08:00'),
+    updatedAt: new Date('2026-07-11T18:05:00+08:00'),
+  },
+];
+
+const referrals = [
+  {
+    publicId: 'RH-REF-SEEDDUAL01',
+    referralCode: 'RH-ALEX92',
+    referrerId: 'u-renter',
+    refereeId: 'u-dual',
+    status: 'pending',
+    appliedAt: new Date('2026-09-10T10:00:00+08:00'),
+  },
+];
+
+const loyaltyConfig = {
+  key: 'default',
+  enabled: true,
+  physicalCompletionPoints: 120,
+  serviceCompletionPoints: 100,
+  referralRewardPoints: 250,
+  refereeDiscountAmount: 5,
+  redemptionOptions: [
+    { points: 500, discountAmount: 5 },
+    { points: 1000, discountAmount: 10 },
+  ],
+  updatedBy: 'u-admin',
+};
 
 const threads = [
   {
@@ -672,6 +871,56 @@ try {
       },
     })),
   );
+  await DisputeModel.bulkWrite(
+    disputes.map((dispute) => ({
+      updateOne: {
+        filter: { publicId: dispute.publicId },
+        update: { $set: dispute },
+        upsert: true,
+      },
+    })),
+  );
+  await ClaimModel.bulkWrite(
+    claims.map((claim) => ({
+      updateOne: {
+        filter: { publicId: claim.publicId },
+        update: { $set: claim },
+        upsert: true,
+      },
+    })),
+  );
+  await LoyaltyAccountModel.bulkWrite(
+    loyaltyAccounts.map((account) => ({
+      updateOne: {
+        filter: { userId: account.userId },
+        update: { $set: account },
+        upsert: true,
+      },
+    })),
+  );
+  await RewardLedgerModel.bulkWrite(
+    rewardLedger.map((entry) => ({
+      updateOne: {
+        filter: { publicId: entry.publicId },
+        update: { $set: entry },
+        upsert: true,
+      },
+    })),
+  );
+  await ReferralModel.bulkWrite(
+    referrals.map((referral) => ({
+      updateOne: {
+        filter: { publicId: referral.publicId },
+        update: { $set: referral },
+        upsert: true,
+      },
+    })),
+  );
+  await LoyaltyConfigModel.findOneAndUpdate(
+    { key: 'default' },
+    { $set: loyaltyConfig },
+    { upsert: true, runValidators: true },
+  );
   await PaymentModel.bulkWrite(
     payments.map((payment) => ({
       updateOne: {
@@ -722,7 +971,10 @@ try {
       `${bookings.length} bookings, ${rentals.length} rentals, ` +
       `${payments.length} payments, ${threads.length} threads, ` +
       `${messages.length} messages, ${notifications.length} notifications, ` +
-      `${messageReports.length} message report, ${reviews.length} review`,
+      `${messageReports.length} message report, ${reviews.length} review, ` +
+      `${disputes.length} dispute, ${claims.length} claim, ` +
+      `${loyaltyAccounts.length} loyalty accounts, ` +
+      `${rewardLedger.length} reward entries, ${referrals.length} referral`,
   );
 } finally {
   await disconnectDatabase();

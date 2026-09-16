@@ -8,6 +8,7 @@ import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import 'live_renthub_controller.dart';
+import 'live_loyalty_page.dart';
 
 class LiveMessagesPage extends StatefulWidget {
   const LiveMessagesPage({super.key});
@@ -440,6 +441,9 @@ class _LiveNotificationsPageState extends State<LiveNotificationsPage> {
                   ('message', 'Messages'),
                   ('payment', 'Payments'),
                   ('rental', 'Rentals'),
+                  ('review', 'Reviews'),
+                  ('dispute', 'Disputes'),
+                  ('loyalty', 'Rewards'),
                 ])
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -506,6 +510,9 @@ class _LiveNotificationsPageState extends State<LiveNotificationsPage> {
                                       'message' => Icons.chat_bubble_outline,
                                       'payment' => Icons.payments_outlined,
                                       'rental' => Icons.inventory_2_outlined,
+                                      'review' => Icons.star_outline,
+                                      'dispute' => Icons.gavel_outlined,
+                                      'loyalty' => Icons.card_giftcard_outlined,
                                       _ => Icons.receipt_long_outlined,
                                     },
                                     color: AppColors.primaryDark,
@@ -550,7 +557,8 @@ class LiveProfilePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final profile = context.watch<LiveRentHubController>().profile;
+    final controller = context.watch<LiveRentHubController>();
+    final profile = controller.profile;
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
       body: SafeArea(
@@ -589,6 +597,18 @@ class LiveProfilePage extends StatelessWidget {
               title: const Text('Connected to RentHub API'),
               subtitle:
                   const Text('Profile and activity are stored in MongoDB.'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.card_giftcard_outlined),
+              title: const Text('Loyalty & Referrals'),
+              subtitle: Text(
+                '${controller.loyalty?.points ?? 0} points • Rewards and referral code',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute(builder: (_) => const LiveLoyaltyPage()),
+              ),
             ),
             if (canSwitch)
               ListTile(

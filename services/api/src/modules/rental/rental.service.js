@@ -8,6 +8,7 @@ import {
   recordServiceSettlement,
 } from '../payment/payment.service.js';
 import { UserModel } from '../user/user.model.js';
+import { awardRentalCompletion } from '../loyalty/loyalty.service.js';
 import { RENTAL_STATUSES } from './rental.model.js';
 import { rentalRepository } from './rental.repository.js';
 
@@ -311,6 +312,7 @@ export const rentalService = {
       entityType: 'rental',
       entityId: rental.publicId,
     });
+    await awardRentalCompletion(completedRental, booking);
     return completedRental;
   },
 
@@ -352,6 +354,7 @@ export const rentalService = {
       entityType: 'rental',
       entityId: rental.publicId,
     });
+    await awardRentalCompletion(completedRental, booking);
     return completedRental;
   },
 };

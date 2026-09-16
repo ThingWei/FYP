@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app/app.dart';
 import 'app/dependencies.dart';
+import 'core/config/backend_mode.dart';
 import 'modules/user/controllers/auth_controller.dart';
 import 'modules/listing/controllers/listing_controller.dart';
 import 'modules/booking/controllers/booking_controller.dart';
@@ -25,8 +26,12 @@ void main() {
           create: (_) => BookingController(dependencies.bookingRepository),
         ),
         ChangeNotifierProvider(
-          create: (_) =>
-              LoyaltyController(dependencies.loyaltyRepository)..load(),
+          create: (_) {
+            final controller =
+                LoyaltyController(dependencies.loyaltyRepository);
+            if (BackendMode.useMocks) controller.load();
+            return controller;
+          },
         ),
         ChangeNotifierProvider(
           create: (_) => LiveRentHubController(

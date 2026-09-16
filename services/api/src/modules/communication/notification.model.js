@@ -6,6 +6,8 @@ export const NOTIFICATION_CATEGORIES = [
   'payment',
   'rental',
   'review',
+  'dispute',
+  'loyalty',
 ];
 
 const notificationSchema = new mongoose.Schema(
@@ -23,7 +25,18 @@ const notificationSchema = new mongoose.Schema(
     body: { type: String, required: true, trim: true, maxlength: 500 },
     entityType: {
       type: String,
-      enum: ['booking', 'rental', 'payment', 'thread', 'message', 'review'],
+      enum: [
+        'booking',
+        'rental',
+        'payment',
+        'thread',
+        'message',
+        'review',
+        'dispute',
+        'claim',
+        'reward',
+        'referral',
+      ],
       required: true,
     },
     entityId: { type: String, required: true, trim: true, index: true },

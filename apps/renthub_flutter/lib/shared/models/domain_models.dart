@@ -327,14 +327,265 @@ class Review {
 }
 
 class Dispute {
-  const Dispute(this.id, this.status, this.reason);
-  final String id, status, reason;
+  const Dispute(
+    this.id,
+    this.status,
+    this.reason, {
+    this.rentalId = '',
+    this.bookingId = '',
+    this.listingId = '',
+    this.listingTitle = '',
+    this.listingType = 'physical',
+    this.category = 'other',
+    this.description = '',
+    this.evidence = const [],
+    this.raisedByName = '',
+    this.respondentName = '',
+    this.responses = const [],
+    this.adminNote = '',
+    this.outcome,
+    this.renterAmount = 0,
+    this.ownerAmount = 0,
+    this.mockBlockchainReference,
+  });
+
+  final String id, status, reason, rentalId, bookingId, listingId;
+  final String listingTitle, listingType, category, description;
+  final List<String> evidence;
+  final String raisedByName, respondentName, adminNote;
+  final List<DisputeResponse> responses;
+  final String? outcome, mockBlockchainReference;
+  final double renterAmount, ownerAmount;
+
+  bool get closed => status == 'resolved' || status == 'dismissed';
+
+  factory Dispute.fromJson(Map<String, dynamic> json) {
+    final resolution = json['resolution'] as Map<String, dynamic>? ?? const {};
+    return Dispute(
+      (json['publicId'] ?? json['id'] ?? json['_id']) as String,
+      json['status'] as String,
+      json['summary'] as String? ?? json['reason'] as String? ?? '',
+      rentalId: json['rentalId'] as String? ?? '',
+      bookingId: json['bookingId'] as String? ?? '',
+      listingId: json['listingId'] as String? ?? '',
+      listingTitle: json['listingTitle'] as String? ?? '',
+      listingType: json['listingType'] as String? ?? 'physical',
+      category: json['category'] as String? ?? 'other',
+      description: json['description'] as String? ?? '',
+      evidence: (json['evidence'] as List? ?? const []).cast<String>(),
+      raisedByName: json['raisedByName'] as String? ?? '',
+      respondentName: json['respondentName'] as String? ?? '',
+      responses: (json['responses'] as List? ?? const [])
+          .map((item) => DisputeResponse.fromJson(item as Map<String, dynamic>))
+          .toList(),
+      adminNote: json['adminNote'] as String? ?? '',
+      outcome: resolution['outcome'] as String?,
+      renterAmount: (resolution['renterAmount'] as num?)?.toDouble() ?? 0,
+      ownerAmount: (resolution['ownerAmount'] as num?)?.toDouble() ?? 0,
+      mockBlockchainReference: resolution['mockBlockchainReference'] as String?,
+    );
+  }
+}
+
+class DisputeResponse {
+  const DisputeResponse({
+    required this.userId,
+    required this.role,
+    required this.text,
+    required this.evidence,
+    this.submittedAt,
+  });
+
+  final String userId, role, text;
+  final List<String> evidence;
+  final DateTime? submittedAt;
+
+  factory DisputeResponse.fromJson(Map<String, dynamic> json) =>
+      DisputeResponse(
+        userId: json['userId'] as String? ?? '',
+        role: json['role'] as String? ?? '',
+        text: json['text'] as String? ?? '',
+        evidence: (json['evidence'] as List? ?? const []).cast<String>(),
+        submittedAt: json['submittedAt'] == null
+            ? null
+            : DateTime.parse(json['submittedAt'] as String),
+      );
+}
+
+class InsuranceClaim {
+  const InsuranceClaim({
+    required this.id,
+    required this.disputeId,
+    required this.rentalId,
+    required this.listingTitle,
+    required this.description,
+    required this.amountRequested,
+    required this.status,
+    this.approvedAmount = 0,
+    this.decisionReason = '',
+  });
+
+  final String id, disputeId, rentalId, listingTitle, description, status;
+  final double amountRequested, approvedAmount;
+  final String decisionReason;
+
+  factory InsuranceClaim.fromJson(Map<String, dynamic> json) {
+    final decision = json['decision'] as Map<String, dynamic>? ?? const {};
+    return InsuranceClaim(
+      id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
+      disputeId: json['disputeId'] as String,
+      rentalId: json['rentalId'] as String,
+      listingTitle: json['listingTitle'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      amountRequested: (json['amountRequested'] as num).toDouble(),
+      status: json['status'] as String,
+      approvedAmount: (decision['approvedAmount'] as num?)?.toDouble() ?? 0,
+      decisionReason: decision['reason'] as String? ?? '',
+    );
+  }
 }
 
 class Reward {
-  const Reward(this.points, this.referralCode);
+  const Reward(
+    this.points,
+    this.referralCode, {
+    this.totalEarned = 0,
+    this.totalRedeemed = 0,
+    this.ledger = const [],
+    this.redemptionOptions = const [],
+    this.referral,
+    this.rules = const LoyaltyRules(),
+    this.canApplyReferral = false,
+  });
   final int points;
   final String referralCode;
+  final int totalEarned, totalRedeemed;
+  final List<RewardLedgerEntry> ledger;
+  final List<RedemptionOption> redemptionOptions;
+  final ReferralStatus? referral;
+  final LoyaltyRules rules;
+  final bool canApplyReferral;
+
+  factory Reward.fromJson(Map<String, dynamic> json) => Reward(
+        (json['points'] as num?)?.toInt() ?? 0,
+        json['referralCode'] as String? ?? '',
+        totalEarned: (json['totalEarned'] as num?)?.toInt() ?? 0,
+        totalRedeemed: (json['totalRedeemed'] as num?)?.toInt() ?? 0,
+        ledger: (json['ledger'] as List? ?? const [])
+            .map((item) =>
+                RewardLedgerEntry.fromJson(item as Map<String, dynamic>))
+            .toList(),
+        redemptionOptions: (json['redemptionOptions'] as List? ?? const [])
+            .map((item) =>
+                RedemptionOption.fromJson(item as Map<String, dynamic>))
+            .toList(),
+        referral: json['referral'] == null
+            ? null
+            : ReferralStatus.fromJson(
+                json['referral'] as Map<String, dynamic>,
+              ),
+        rules: LoyaltyRules.fromJson(
+          json['rules'] as Map<String, dynamic>? ?? const {},
+        ),
+        canApplyReferral: json['canApplyReferral'] as bool? ?? false,
+      );
+}
+
+class RewardLedgerEntry {
+  const RewardLedgerEntry({
+    required this.id,
+    required this.type,
+    required this.points,
+    required this.balanceAfter,
+    required this.description,
+    this.rewardCode,
+    this.discountAmount,
+    this.createdAt,
+  });
+
+  final String id, type, description;
+  final int points, balanceAfter;
+  final String? rewardCode;
+  final double? discountAmount;
+  final DateTime? createdAt;
+
+  factory RewardLedgerEntry.fromJson(Map<String, dynamic> json) {
+    final reward = json['reward'] as Map<String, dynamic>? ?? const {};
+    return RewardLedgerEntry(
+      id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
+      type: json['type'] as String,
+      points: (json['points'] as num).toInt(),
+      balanceAfter: (json['balanceAfter'] as num).toInt(),
+      description: json['description'] as String,
+      rewardCode: reward['code'] as String?,
+      discountAmount: (reward['discountAmount'] as num?)?.toDouble(),
+      createdAt: json['createdAt'] == null
+          ? null
+          : DateTime.parse(json['createdAt'] as String),
+    );
+  }
+}
+
+class RedemptionOption {
+  const RedemptionOption({
+    required this.points,
+    required this.discountAmount,
+  });
+
+  final int points;
+  final double discountAmount;
+
+  factory RedemptionOption.fromJson(Map<String, dynamic> json) =>
+      RedemptionOption(
+        points: (json['points'] as num).toInt(),
+        discountAmount: (json['discountAmount'] as num).toDouble(),
+      );
+}
+
+class ReferralStatus {
+  const ReferralStatus({
+    required this.id,
+    required this.code,
+    required this.status,
+    this.rewardAmount = 0,
+  });
+
+  final String id, code, status;
+  final double rewardAmount;
+
+  factory ReferralStatus.fromJson(Map<String, dynamic> json) => ReferralStatus(
+        id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
+        code: json['referralCode'] as String,
+        status: json['status'] as String,
+        rewardAmount: (json['refereeRewardAmount'] as num?)?.toDouble() ?? 0,
+      );
+}
+
+class LoyaltyRules {
+  const LoyaltyRules({
+    this.enabled = true,
+    this.physicalCompletionPoints = 120,
+    this.serviceCompletionPoints = 100,
+    this.referralRewardPoints = 250,
+    this.refereeDiscountAmount = 5,
+  });
+
+  final bool enabled;
+  final int physicalCompletionPoints, serviceCompletionPoints;
+  final int referralRewardPoints;
+  final double refereeDiscountAmount;
+
+  factory LoyaltyRules.fromJson(Map<String, dynamic> json) => LoyaltyRules(
+        enabled: json['enabled'] as bool? ?? true,
+        physicalCompletionPoints:
+            (json['physicalCompletionPoints'] as num?)?.toInt() ?? 120,
+        serviceCompletionPoints:
+            (json['serviceCompletionPoints'] as num?)?.toInt() ?? 100,
+        referralRewardPoints:
+            (json['referralRewardPoints'] as num?)?.toInt() ?? 250,
+        refereeDiscountAmount:
+            (json['refereeDiscountAmount'] as num?)?.toDouble() ?? 5,
+      );
 }
 
 class VerificationResult {

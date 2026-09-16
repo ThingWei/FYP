@@ -42,7 +42,9 @@ class AppDependencies {
       BackendMode.useMocks
           ? MockBookingRepository()
           : LiveBookingRepository(api),
-      MockLoyaltyRepository(),
+      BackendMode.useMocks
+          ? MockLoyaltyRepository()
+          : LiveLoyaltyRepository(api),
     );
   }
 }

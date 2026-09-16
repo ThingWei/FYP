@@ -129,8 +129,11 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
         2 => const _AdminUsers(),
         3 => const _AdminListings(),
         4 => const _AdminBookingsTransactions(),
+        5 => const _AdminDisputesClaims(),
         6 => const _AdminMessageReports(),
         7 => const _AdminReviews(),
+        8 => const _AdminPlatformSettings(),
+        9 => const _AdminAuditLogs(),
         _ => _DeferredAdminModule(title: destinations[index].$1),
       };
 }
@@ -543,6 +546,467 @@ class _AdminBookingsTransactions extends StatelessWidget {
   }
 }
 
+class _AdminDisputesClaims extends StatelessWidget {
+  const _AdminDisputesClaims();
+
+  void _showError(BuildContext context, Object exception) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(exception.toString())));
+  }
+
+  Future<void> _viewCase(BuildContext context, Dispute dispute) async {
+    try {
+      final record = await context
+          .read<LiveRentHubController>()
+          .loadDisputeCase(dispute.id);
+      if (!context.mounted) return;
+      final caseContext =
+          record['caseContext'] as Map<String, dynamic>? ?? const {};
+      final agreement =
+          caseContext['agreement'] as Map<String, dynamic>? ?? const {};
+      final inspection =
+          caseContext['inspection'] as Map<String, dynamic>? ?? const {};
+      final messages = caseContext['conversation'] as List? ?? const [];
+      final pricing = agreement['pricing'] as Map<String, dynamic>? ?? const {};
+      final handover =
+          inspection['handover'] as Map<String, dynamic>? ?? const {};
+      final returned =
+          inspection['returnSubmission'] as Map<String, dynamic>? ?? const {};
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Case file ${dispute.id}'),
+          content: SizedBox(
+            width: 680,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Agreement',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  Text(dispute.listingTitle),
+                  Text(
+                    '${dispute.listingType == 'physical' ? agreement['fulfilmentMethod'] : agreement['serviceVenue']} • ${formatMoney((pricing['total'] as num?)?.toDouble() ?? 0)}',
+                  ),
+                  const Divider(height: 28),
+                  Text('Evidence & inspection',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  Text('Dispute attachments: ${dispute.evidence.length}'),
+                  if (dispute.listingType == 'physical') ...[
+                    Text(
+                        'Handover condition: ${handover['condition'] ?? 'Not recorded'}'),
+                    Text(
+                        'Return condition: ${returned['condition'] ?? 'Not recorded'}'),
+                    Text(
+                      'Inspection attachments: ${(handover['evidence'] as List?)?.length ?? 0} handover, ${(returned['evidence'] as List?)?.length ?? 0} return',
+                    ),
+                  ] else
+                    Text(
+                      'Service delivery: ${inspection['serviceDeliveredAt'] ?? 'Not recorded'}',
+                    ),
+                  const Divider(height: 28),
+                  Text('Conversation history',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  if (messages.isEmpty)
+                    const Text('No booking conversation messages.')
+                  else
+                    for (final raw in messages)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        leading: const Icon(Icons.chat_bubble_outline),
+                        title: Text(
+                          (raw as Map<String, dynamic>)['senderId'] as String,
+                        ),
+                        subtitle: Text(raw['text'] as String),
+                      ),
+                  if (dispute.responses.isNotEmpty) ...[
+                    const Divider(height: 28),
+                    Text('Case responses',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    for (final item in dispute.responses)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(item.role),
+                        subtitle: Text(item.text),
+                        trailing: Text('${item.evidence.length} files'),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      );
+    } catch (exception) {
+      if (context.mounted) _showError(context, exception);
+    }
+  }
+
+  Future<void> _updateStatus(
+    BuildContext context,
+    Dispute dispute,
+    String status,
+  ) async {
+    final note = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          status == 'escalated'
+              ? 'Escalate dispute?'
+              : 'Request more evidence?',
+        ),
+        content: TextField(
+          controller: note,
+          minLines: 3,
+          maxLines: 5,
+          decoration: const InputDecoration(labelText: 'Required note'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && note.text.trim().length >= 5 && context.mounted) {
+      try {
+        await context
+            .read<LiveRentHubController>()
+            .updateDisputeStatus(dispute, status, note.text);
+      } catch (exception) {
+        if (context.mounted) _showError(context, exception);
+      }
+    } else if (accepted == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('A note of at least 5 characters is required.')),
+      );
+    }
+    note.dispose();
+  }
+
+  Future<void> _resolve(BuildContext context, Dispute dispute) async {
+    var outcome = 'release_to_renter';
+    final renterAmount = TextEditingController();
+    final ownerAmount = TextEditingController();
+    final notes = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Record dispute decision'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: outcome,
+                    decoration: const InputDecoration(labelText: 'Outcome'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'release_to_renter',
+                        child: Text('Release to renter'),
+                      ),
+                      DropdownMenuItem(value: 'split', child: Text('Split')),
+                      DropdownMenuItem(
+                        value: 'release_to_owner',
+                        child: Text('Release to Owner'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'dismissed',
+                        child: Text('Dismiss dispute'),
+                      ),
+                    ],
+                    onChanged: (value) => setState(() => outcome = value!),
+                  ),
+                  if (outcome == 'split') ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: renterAmount,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                          labelText: 'Renter amount (RM)'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: ownerAmount,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration:
+                          const InputDecoration(labelText: 'Owner amount (RM)'),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: notes,
+                    minLines: 3,
+                    maxLines: 5,
+                    decoration:
+                        const InputDecoration(labelText: 'Decision notes'),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Amounts are simulated allocations only. This action does not move real money.',
+                    style: TextStyle(color: AppColors.secondaryText),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Record Decision'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final renter = double.tryParse(renterAmount.text);
+    final owner = double.tryParse(ownerAmount.text);
+    final splitValid = outcome != 'split' ||
+        (renter != null && renter > 0 && owner != null && owner > 0);
+    if (accepted == true &&
+        notes.text.trim().length >= 10 &&
+        splitValid &&
+        context.mounted) {
+      try {
+        await context.read<LiveRentHubController>().resolveDispute(
+              dispute: dispute,
+              outcome: outcome,
+              notes: notes.text,
+              renterAmount: outcome == 'split' ? renter : null,
+              ownerAmount: outcome == 'split' ? owner : null,
+            );
+      } catch (exception) {
+        if (context.mounted) _showError(context, exception);
+      }
+    } else if (accepted == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter decision notes and valid split amounts.'),
+        ),
+      );
+    }
+    renterAmount.dispose();
+    ownerAmount.dispose();
+    notes.dispose();
+  }
+
+  Future<void> _decideClaim(
+    BuildContext context,
+    InsuranceClaim claim,
+    String status,
+  ) async {
+    final reason = TextEditingController();
+    final amount = TextEditingController(
+      text:
+          status == 'approved' ? claim.amountRequested.toStringAsFixed(2) : '',
+    );
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${status == 'approved' ? 'Approve' : 'Reject'} claim?'),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (status == 'approved')
+                TextField(
+                  controller: amount,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration:
+                      const InputDecoration(labelText: 'Approved amount (RM)'),
+                ),
+              if (status == 'approved') const SizedBox(height: 12),
+              TextField(
+                controller: reason,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(labelText: 'Decision reason'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+    final parsed = double.tryParse(amount.text);
+    if (accepted == true &&
+        reason.text.trim().length >= 5 &&
+        (status == 'rejected' || parsed != null) &&
+        context.mounted) {
+      try {
+        await context.read<LiveRentHubController>().decideClaim(
+              claim: claim,
+              status: status,
+              reason: reason.text,
+              approvedAmount: status == 'approved' ? parsed : null,
+            );
+      } catch (exception) {
+        if (context.mounted) _showError(context, exception);
+      }
+    }
+    reason.dispose();
+    amount.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = context.watch<LiveRentHubController>();
+    return RefreshIndicator(
+      onRefresh: data.loadAdmin,
+      child: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Text('Dispute queue', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          if (data.adminDisputes.isEmpty)
+            const Card(
+              child: ListTile(
+                title: Text('No disputes'),
+                subtitle: Text('Participant disputes will appear here.'),
+              ),
+            ),
+          for (final dispute in data.adminDisputes)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            dispute.reason,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        StatusBadge(dispute.status.replaceAll('_', ' ')),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text('${dispute.listingTitle} • ${dispute.id}'),
+                    Text(
+                      '${dispute.raisedByName} vs ${dispute.respondentName}',
+                      style: const TextStyle(color: AppColors.secondaryText),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () => _viewCase(context, dispute),
+                          child: const Text('View Case File'),
+                        ),
+                        if (!dispute.closed) ...[
+                          OutlinedButton(
+                            onPressed: () => _updateStatus(
+                              context,
+                              dispute,
+                              'more_evidence_required',
+                            ),
+                            child: const Text('Request Evidence'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () => _updateStatus(
+                              context,
+                              dispute,
+                              'escalated',
+                            ),
+                            child: const Text('Escalate'),
+                          ),
+                          FilledButton(
+                            onPressed: () => _resolve(context, dispute),
+                            child: const Text('Resolve'),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 28),
+          Text('Damage-waiver claims',
+              style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          if (data.adminClaims.isEmpty)
+            const Card(
+              child: ListTile(
+                title: Text('No claims'),
+                subtitle: Text('Physical-item claims will appear here.'),
+              ),
+            ),
+          for (final claim in data.adminClaims)
+            Card(
+              child: ListTile(
+                title: Text(claim.listingTitle),
+                subtitle: Text(
+                  '${claim.id} • Requested ${formatMoney(claim.amountRequested)}\n${claim.description}',
+                ),
+                isThreeLine: true,
+                trailing: claim.status == 'pending'
+                    ? Wrap(
+                        spacing: 8,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () =>
+                                _decideClaim(context, claim, 'rejected'),
+                            child: const Text('Reject'),
+                          ),
+                          FilledButton(
+                            onPressed: () =>
+                                _decideClaim(context, claim, 'approved'),
+                            child: const Text('Approve'),
+                          ),
+                        ],
+                      )
+                    : StatusBadge(claim.status),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AdminMessageReports extends StatelessWidget {
   const _AdminMessageReports();
 
@@ -745,6 +1209,296 @@ class _AdminReviews extends StatelessWidget {
                         ),
                 ),
               ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AdminPlatformSettings extends StatefulWidget {
+  const _AdminPlatformSettings();
+
+  @override
+  State<_AdminPlatformSettings> createState() => _AdminPlatformSettingsState();
+}
+
+class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
+  final formKey = GlobalKey<FormState>();
+  final physicalPoints = TextEditingController();
+  final servicePoints = TextEditingController();
+  final referralPoints = TextEditingController();
+  final friendReward = TextEditingController();
+  final redemptionOptions = TextEditingController();
+  bool enabled = true;
+  bool initialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final config = context.watch<LiveRentHubController>().loyaltyConfig;
+    if (initialized || config.isEmpty) return;
+    initialized = true;
+    enabled = config['enabled'] as bool? ?? true;
+    physicalPoints.text = '${config['physicalCompletionPoints'] ?? 120}';
+    servicePoints.text = '${config['serviceCompletionPoints'] ?? 100}';
+    referralPoints.text = '${config['referralRewardPoints'] ?? 250}';
+    friendReward.text = '${config['refereeDiscountAmount'] ?? 5}';
+    redemptionOptions.text =
+        (config['redemptionOptions'] as List? ?? const []).map((raw) {
+      final option = raw as Map<String, dynamic>;
+      return '${option['points']}:${option['discountAmount']}';
+    }).join(', ');
+  }
+
+  @override
+  void dispose() {
+    physicalPoints.dispose();
+    servicePoints.dispose();
+    referralPoints.dispose();
+    friendReward.dispose();
+    redemptionOptions.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>>? _parseOptions() {
+    final options = <Map<String, dynamic>>[];
+    for (final token in redemptionOptions.text.split(',')) {
+      final parts = token.trim().split(':');
+      if (parts.length != 2) return null;
+      final points = int.tryParse(parts[0].trim());
+      final amount = double.tryParse(parts[1].trim());
+      if (points == null || points < 1 || amount == null || amount <= 0) {
+        return null;
+      }
+      options.add({'points': points, 'discountAmount': amount});
+    }
+    if (options.isEmpty ||
+        options.map((item) => item['points']).toSet().length !=
+            options.length) {
+      return null;
+    }
+    return options;
+  }
+
+  Future<void> _save() async {
+    if (!formKey.currentState!.validate()) return;
+    final options = _parseOptions();
+    if (options == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Use unique reward pairs such as 500:5, 1000:10.'),
+        ),
+      );
+      return;
+    }
+    try {
+      await context.read<LiveRentHubController>().updateLoyaltyConfig({
+        'enabled': enabled,
+        'physicalCompletionPoints': int.parse(physicalPoints.text),
+        'serviceCompletionPoints': int.parse(servicePoints.text),
+        'referralRewardPoints': int.parse(referralPoints.text),
+        'refereeDiscountAmount': double.parse(friendReward.text),
+        'redemptionOptions': options,
+      });
+      if (mounted) showMockSuccess(context, 'Loyalty rules saved and audited');
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
+  String? _wholeNumber(String? value) {
+    final parsed = int.tryParse(value ?? '');
+    return parsed == null || parsed < 0 ? 'Enter zero or more' : null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = context.watch<LiveRentHubController>();
+    if (data.loyaltyConfig.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        Text('Loyalty & referral rules',
+            style: Theme.of(context).textTheme.headlineSmall),
+        const Text(
+          'Changes apply to future completions, referrals and redemptions and are written to the administrator audit log.',
+          style: TextStyle(color: AppColors.secondaryText),
+        ),
+        const SizedBox(height: 16),
+        Form(
+          key: formKey,
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Loyalty programme enabled'),
+                    subtitle: const Text(
+                      'Pausing prevents future automatic awards and redemptions.',
+                    ),
+                    value: enabled,
+                    onChanged: (value) => setState(() => enabled = value),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 12,
+                    children: [
+                      _RuleField(
+                        controller: physicalPoints,
+                        label: 'Physical completion points',
+                        validator: _wholeNumber,
+                      ),
+                      _RuleField(
+                        controller: servicePoints,
+                        label: 'Service completion points',
+                        validator: _wholeNumber,
+                      ),
+                      _RuleField(
+                        controller: referralPoints,
+                        label: 'Referrer reward points',
+                        validator: _wholeNumber,
+                      ),
+                      _RuleField(
+                        controller: friendReward,
+                        label: 'Friend reward (RM)',
+                        validator: (value) {
+                          final amount = double.tryParse(value ?? '');
+                          return amount == null || amount < 0
+                              ? 'Enter zero or more'
+                              : null;
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: redemptionOptions,
+                    decoration: const InputDecoration(
+                      labelText: 'Reward options (points:RM)',
+                      helperText: 'Example: 500:5, 1000:10',
+                    ),
+                    validator: (value) => (value?.trim().isEmpty ?? true)
+                        ? 'At least one reward is required'
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.icon(
+                      onPressed: data.loading ? null : _save,
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text('Save Rules'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text('Referral activity',
+            style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        if (data.adminReferrals.isEmpty)
+          const Card(
+            child: ListTile(title: Text('No referral applications yet')),
+          ),
+        for (final referral in data.adminReferrals)
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.people_outline),
+              title:
+                  Text('${referral['referrerId']} → ${referral['refereeId']}'),
+              subtitle: Text(referral['referralCode'] as String),
+              trailing: StatusBadge(referral['status'] as String),
+            ),
+          ),
+        const SizedBox(height: 24),
+        Text('Recent points ledger',
+            style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        for (final entry in data.adminRewardLedger.take(20))
+          Card(
+            child: ListTile(
+              title: Text(entry['description'] as String),
+              subtitle: Text('${entry['userId']} • ${entry['type']}'),
+              trailing: Text(
+                '${(entry['points'] as num) > 0 ? '+' : ''}${entry['points']}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _RuleField extends StatelessWidget {
+  const _RuleField({
+    required this.controller,
+    required this.label,
+    required this.validator,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String? Function(String?) validator;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 260,
+        child: TextFormField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(labelText: label),
+          validator: validator,
+        ),
+      );
+}
+
+class _AdminAuditLogs extends StatelessWidget {
+  const _AdminAuditLogs();
+
+  @override
+  Widget build(BuildContext context) {
+    final logs = context.watch<LiveRentHubController>().auditLogs;
+    if (logs.isEmpty) {
+      return const RentHubFeedbackState(
+        kind: FeedbackKind.empty,
+        title: 'No audit entries yet',
+        message: 'Administrator dispute and claim decisions will appear here.',
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(24),
+      itemCount: logs.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final log = logs[index];
+        final metadata = log['metadata'] as Map<String, dynamic>? ?? const {};
+        return Card(
+          child: ListTile(
+            leading: const Icon(Icons.history, color: AppColors.primary),
+            title: Text((log['action'] as String).replaceAll('.', ' • ')),
+            subtitle: Text(
+              '${log['actorId']} → ${log['targetType']} ${log['targetId']}\n${metadata.entries.map((entry) => '${entry.key}: ${entry.value}').join(' • ')}',
+            ),
+            isThreeLine: true,
+            trailing: Text(
+              (log['createdAt'] as String? ?? '').replaceFirst('T', '\n'),
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: AppColors.secondaryText),
             ),
           ),
         );

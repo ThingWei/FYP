@@ -8,6 +8,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_shared_pages.dart';
 
@@ -897,6 +898,25 @@ class _OwnerRentalCard extends StatelessWidget {
         ],
       );
     }
+    final existingDispute =
+        context.watch<LiveRentHubController>().disputeForRental(rental.id);
+    final canDispute = !['cancelled', 'scheduled'].contains(rental.status);
+    final disputeAction = canDispute
+        ? OutlinedButton.icon(
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => LiveDisputePage(rental: rental, owner: true),
+              ),
+            ),
+            icon: Icon(existingDispute == null
+                ? Icons.gavel_outlined
+                : Icons.manage_search_outlined),
+            label: Text(
+              existingDispute == null ? 'Raise Dispute' : 'Manage Dispute',
+            ),
+          )
+        : null;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -910,9 +930,16 @@ class _OwnerRentalCard extends StatelessWidget {
               ],
             ),
             Text('Booking ${rental.bookingId}'),
-            if (action != null) ...[
+            if (action != null || disputeAction != null) ...[
               const SizedBox(height: 10),
-              action,
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (action != null) action,
+                  if (disputeAction != null) disputeAction,
+                ],
+              ),
             ],
           ],
         ),
