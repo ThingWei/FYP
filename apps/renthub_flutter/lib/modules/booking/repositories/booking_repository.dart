@@ -1,4 +1,5 @@
 import '../../../core/network/api_client.dart';
+import '../../../core/network/idempotency_key.dart';
 import '../../../shared/models/domain_models.dart';
 
 abstract interface class BookingRepository {
@@ -39,6 +40,7 @@ class LiveBookingRepository implements BookingRepository {
     final fulfilmentMethods = listing['fulfilmentMethods'] as List?;
     final payload = <String, dynamic>{
       'listingId': listingId,
+      'idempotencyKey': newCheckoutIdempotencyKey(),
       'startDate': start.toUtc().toIso8601String(),
       'endDate': end.toUtc().toIso8601String(),
       if (isService)

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/network/api_client.dart';
+import '../../core/network/idempotency_key.dart';
 import '../../core/network/socket_service.dart';
 import '../../shared/models/domain_models.dart';
 
@@ -397,13 +398,16 @@ class LiveRentHubController extends ChangeNotifier {
     String serviceVenue = 'To be confirmed',
     bool damageWaiverSelected = false,
     String renterNote = '',
+    String? idempotencyKey,
   }) =>
       _perform(() async {
+        final checkoutKey = idempotencyKey ?? newCheckoutIdempotencyKey();
         final bookingData = await api.request(
           'POST',
           '/bookings',
           body: {
             'listingId': listing.id,
+            'idempotencyKey': checkoutKey,
             'startDate': start.toUtc().toIso8601String(),
             'endDate': end.toUtc().toIso8601String(),
             if (listing.isService) 'serviceVenue': serviceVenue,
@@ -420,7 +424,7 @@ class LiveRentHubController extends ChangeNotifier {
           body: {
             'bookingId': booking.id,
             'method': paymentMethod,
-            'idempotencyKey': 'checkout:${booking.id}',
+            'idempotencyKey': checkoutKey,
           },
         );
         booking = Booking.fromJson(

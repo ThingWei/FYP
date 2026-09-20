@@ -10,6 +10,7 @@ export const createBookingValidation = [
   body().custom((value) => {
     const allowed = new Set([
       'listingId',
+      'idempotencyKey',
       'startDate',
       'endDate',
       'fulfilmentMethod',
@@ -22,6 +23,10 @@ export const createBookingValidation = [
     return true;
   }),
   body('listingId').matches(/^l-[a-z\d-]+$/i),
+  body('idempotencyKey')
+    .trim()
+    .isLength({ min: 8, max: 100 })
+    .matches(/^[a-zA-Z0-9:_-]+$/),
   body('startDate').isISO8601().toDate(),
   body('endDate').isISO8601().toDate(),
   body('fulfilmentMethod').optional().isIn(['pickup', 'owner_delivery']),

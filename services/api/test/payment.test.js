@@ -60,6 +60,7 @@ async function setupBooking() {
     .set(renter)
     .send({
       listingId: 'l-camera',
+      idempotencyKey: 'payment-booking-test',
       startDate: '2026-11-20',
       endDate: '2026-11-22',
       fulfilmentMethod: 'pickup',

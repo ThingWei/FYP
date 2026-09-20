@@ -54,6 +54,10 @@ void main() {
       (api.calls[1].$3 as Map<String, dynamic>)['fulfilmentMethod'],
       'owner_delivery',
     );
+    expect(
+      (api.calls[1].$3 as Map<String, dynamic>)['idempotencyKey'],
+      matches(RegExp(r'^checkout:\d+:[a-f0-9]{8}$')),
+    );
   });
 
   test('live payment repository sends no client-controlled amount', () async {
@@ -112,6 +116,7 @@ void main() {
       start: DateTime.utc(2026, 9, 20),
       end: DateTime.utc(2026, 9, 22),
       paymentMethod: 'card',
+      idempotencyKey: 'checkout:test-attempt-123',
     );
 
     expect(
@@ -123,6 +128,9 @@ void main() {
       ],
     );
     final paymentBody = api.calls[1].$3 as Map<String, dynamic>;
+    final bookingBody = api.calls[0].$3 as Map<String, dynamic>;
+    expect(bookingBody['idempotencyKey'], 'checkout:test-attempt-123');
+    expect(paymentBody['idempotencyKey'], bookingBody['idempotencyKey']);
     expect(paymentBody.containsKey('amount'), isFalse);
     expect(booking.paymentStatus, 'authorized');
     expect(booking.total, 570);

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import mongoose from 'mongoose';
 import { AppError } from '../../core/errors.js';
 import { ListingModel } from '../listing/listing.model.js';
@@ -15,6 +16,32 @@ const dayMs = 24 * 60 * 60 * 1000;
 
 function money(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function requestFingerprint(input) {
+  const normalized = {
+    listingId: input.listingId,
+    startDate: new Date(input.startDate).toISOString(),
+    endDate: new Date(input.endDate).toISOString(),
+    fulfilmentMethod: input.fulfilmentMethod ?? null,
+    serviceVenue: input.serviceVenue?.trim() || null,
+    damageWaiverSelected: Boolean(input.damageWaiverSelected),
+    renterNote: input.renterNote?.trim() ?? '',
+  };
+  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
+async function findIdempotentBooking(renterId, key, fingerprint) {
+  const booking = await bookingRepository.findByIdempotencyKey(renterId, key);
+  if (!booking) return null;
+  if (booking.idempotencyFingerprint !== fingerprint) {
+    throw new AppError(
+      'Idempotency key is already in use for another booking request',
+      409,
+      'IDEMPOTENCY_CONFLICT',
+    );
+  }
+  return booking;
 }
 
 function publicId(type, start) {
@@ -115,6 +142,13 @@ async function assertAvailable(listing, startDate, endDate, excludeId) {
 export const bookingService = {
   async create(input, identity) {
     const renter = await requireActiveUser(identity, 'renter');
+    const fingerprint = requestFingerprint(input);
+    const replay = await findIdempotentBooking(
+      renter.authId,
+      input.idempotencyKey,
+      fingerprint,
+    );
+    if (replay) return replay;
     const listing = await ListingModel.findOne({
       publicId: input.listingId,
       status: 'active',
@@ -140,23 +174,37 @@ export const bookingService = {
     }
     const waiverSelected =
       Boolean(input.damageWaiverSelected) && listing.damageWaiverAvailable;
-    const booking = await bookingRepository.create({
-      publicId: publicId(listing.listingType, startDate),
-      listingId: listing.publicId,
-      listingTitle: listing.title,
-      listingType: listing.listingType,
-      renterId: renter.authId,
-      renterName: renter.displayName,
-      ownerId: listing.ownerId,
-      startDate,
-      endDate,
-      fulfilmentMethod: input.fulfilmentMethod,
-      serviceVenue: input.serviceVenue,
-      damageWaiverSelected: waiverSelected,
-      renterNote: input.renterNote ?? '',
-      pricing: pricing(listing, startDate, endDate, waiverSelected),
-      status: 'pending',
-    });
+    let booking;
+    try {
+      booking = await bookingRepository.create({
+        publicId: publicId(listing.listingType, startDate),
+        listingId: listing.publicId,
+        listingTitle: listing.title,
+        listingType: listing.listingType,
+        renterId: renter.authId,
+        renterName: renter.displayName,
+        ownerId: listing.ownerId,
+        idempotencyKey: input.idempotencyKey,
+        idempotencyFingerprint: fingerprint,
+        startDate,
+        endDate,
+        fulfilmentMethod: input.fulfilmentMethod,
+        serviceVenue: input.serviceVenue,
+        damageWaiverSelected: waiverSelected,
+        renterNote: input.renterNote ?? '',
+        pricing: pricing(listing, startDate, endDate, waiverSelected),
+        status: 'pending',
+      });
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const concurrentReplay = await findIdempotentBooking(
+        renter.authId,
+        input.idempotencyKey,
+        fingerprint,
+      );
+      if (concurrentReplay) return concurrentReplay;
+      throw error;
+    }
     await ensureBookingThread(booking);
     await notifyUser({
       userId: booking.ownerId,

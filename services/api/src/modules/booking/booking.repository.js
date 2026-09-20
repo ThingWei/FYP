@@ -10,6 +10,10 @@ function identifiers(id) {
 
 export const bookingRepository = {
   create: (data) => BookingModel.create(data),
+  findByIdempotencyKey: (renterId, idempotencyKey) =>
+    BookingModel.findOne({ renterId, idempotencyKey }).select(
+      '+idempotencyKey +idempotencyFingerprint',
+    ),
   findById: (id) => BookingModel.findOne({ $or: identifiers(id) }),
   findParticipantBooking: (id, identity) =>
     BookingModel.findOne({

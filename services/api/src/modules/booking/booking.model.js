@@ -35,6 +35,13 @@ const bookingSchema = new mongoose.Schema(
     listingTitle: { type: String, required: true, trim: true },
     listingType: { type: String, enum: ['physical', 'service'], required: true },
     renterId: { type: String, required: true, index: true },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      select: false,
+    },
+    idempotencyFingerprint: { type: String, trim: true, select: false },
     renterName: { type: String, required: true, trim: true },
     ownerId: { type: String, required: true, index: true },
     startDate: { type: Date, required: true },
@@ -79,6 +86,8 @@ const bookingSchema = new mongoose.Schema(
         value.total = value.pricing?.total;
         delete value._id;
         delete value.__v;
+        delete value.idempotencyKey;
+        delete value.idempotencyFingerprint;
         return value;
       },
     },
@@ -109,6 +118,14 @@ bookingSchema.pre('validate', function validateBooking() {
 bookingSchema.index({ listingId: 1, status: 1, startDate: 1, endDate: 1 });
 bookingSchema.index({ renterId: 1, createdAt: -1 });
 bookingSchema.index({ ownerId: 1, createdAt: -1 });
+bookingSchema.index(
+  { renterId: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $type: 'string' } },
+    name: 'unique_renter_booking_idempotency',
+  },
+);
 
 export const BookingModel =
   mongoose.models.Booking ?? mongoose.model('Booking', bookingSchema);

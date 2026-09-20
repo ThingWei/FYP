@@ -52,6 +52,7 @@ async function setupConversation() {
     .set(renter)
     .send({
       listingId: 'l-camera',
+      idempotencyKey: 'communication-booking-test',
       startDate: '2026-11-20',
       endDate: '2026-11-22',
       fulfilmentMethod: 'pickup',

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/network/idempotency_key.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
@@ -331,6 +332,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   final venue = TextEditingController(text: 'Kuala Lumpur');
   final note = TextEditingController();
   bool submitting = false;
+  late final String checkoutIdempotencyKey = newCheckoutIdempotencyKey();
   Future<List<Review>>? reviewFuture;
 
   @override
@@ -419,6 +421,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 serviceVenue: venue.text.trim(),
                 damageWaiverSelected: waiver,
                 renterNote: note.text,
+                idempotencyKey: checkoutIdempotencyKey,
               );
       if (!mounted) return;
       await showDialog<void>(

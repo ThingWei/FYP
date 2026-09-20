@@ -18,11 +18,13 @@ import {
 } from '../src/modules/loyalty/loyalty.model.js';
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { NotificationModel } from '../src/modules/communication/notification.model.js';
+import { ThreadModel } from '../src/modules/communication/thread.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
 import { ReviewModel } from '../src/modules/review/review.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
 
 let mongodb;
+let bookingSequence = 0;
 
 const renter = {
   'x-user-id': 'u-renter',
@@ -93,12 +95,14 @@ async function createCatalog() {
   });
 }
 
-async function createCameraBooking() {
+async function createCameraBooking({ idempotencyKey } = {}) {
+  bookingSequence += 1;
   return request(app)
     .post('/api/v1/bookings')
     .set(renter)
     .send({
       listingId: 'l-camera',
+      idempotencyKey: idempotencyKey ?? `booking-test:${bookingSequence}`,
       startDate: '2026-09-20T00:00:00.000Z',
       endDate: '2026-09-22T00:00:00.000Z',
       fulfilmentMethod: 'pickup',
@@ -127,6 +131,7 @@ before(async () => {
     BookingModel.init(),
     PaymentModel.init(),
     NotificationModel.init(),
+    ThreadModel.init(),
     RentalModel.init(),
     ReviewModel.init(),
     LoyaltyAccountModel.init(),
@@ -137,6 +142,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  bookingSequence = 0;
   await Promise.all([
     UserModel.deleteMany({}),
     ListingModel.deleteMany({}),
@@ -144,6 +150,7 @@ beforeEach(async () => {
     BookingModel.deleteMany({}),
     PaymentModel.deleteMany({}),
     NotificationModel.deleteMany({}),
+    ThreadModel.deleteMany({}),
     RentalModel.deleteMany({}),
     ReviewModel.deleteMany({}),
     LoyaltyAccountModel.deleteMany({}),
@@ -187,6 +194,61 @@ test('calculates the authoritative camera total and exposes both participant vie
   assert.equal(adminBookings.body.data.length, 1);
   assert.equal(adminBookings.body.data[0].id, response.body.data.id);
   assert.equal(adminBookings.body.meta.total, 1);
+});
+
+test('replays a booking request without duplicating records or side effects', async () => {
+  const idempotencyKey = 'checkout:sequential-retry';
+  const first = await createCameraBooking({ idempotencyKey });
+  const replay = await createCameraBooking({ idempotencyKey });
+
+  assert.equal(first.status, 201);
+  assert.equal(replay.status, 201);
+  assert.equal(replay.body.data.id, first.body.data.id);
+  assert.equal(await BookingModel.countDocuments(), 1);
+  assert.equal(await ThreadModel.countDocuments(), 1);
+  assert.equal(
+    await NotificationModel.countDocuments({ type: 'booking_created' }),
+    1,
+  );
+});
+
+test('deduplicates concurrent booking requests', async () => {
+  const idempotencyKey = 'checkout:concurrent-retry';
+  const [first, replay] = await Promise.all([
+    createCameraBooking({ idempotencyKey }),
+    createCameraBooking({ idempotencyKey }),
+  ]);
+
+  assert.equal(first.status, 201);
+  assert.equal(replay.status, 201);
+  assert.equal(replay.body.data.id, first.body.data.id);
+  assert.equal(await BookingModel.countDocuments(), 1);
+  assert.equal(await ThreadModel.countDocuments(), 1);
+  assert.equal(
+    await NotificationModel.countDocuments({ type: 'booking_created' }),
+    1,
+  );
+});
+
+test('rejects reuse of a booking idempotency key for changed input', async () => {
+  const idempotencyKey = 'checkout:changed-request';
+  const first = await createCameraBooking({ idempotencyKey });
+  const conflict = await request(app)
+    .post('/api/v1/bookings')
+    .set(renter)
+    .send({
+      listingId: 'l-camera',
+      idempotencyKey,
+      startDate: '2026-09-20T00:00:00.000Z',
+      endDate: '2026-09-23T00:00:00.000Z',
+      fulfilmentMethod: 'pickup',
+      damageWaiverSelected: true,
+    });
+
+  assert.equal(first.status, 201);
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.error.code, 'IDEMPOTENCY_CONFLICT');
+  assert.equal(await BookingModel.countDocuments(), 1);
 });
 
 test('runs physical approval, handover, extension and return lifecycle', async () => {
@@ -318,6 +380,7 @@ test('locks approved dates against another booking', async () => {
     .set({ ...renter, 'x-user-id': 'u-renter-two' })
     .send({
       listingId: 'l-camera',
+      idempotencyKey: 'booking-test:availability-conflict',
       startDate: '2026-09-22T00:00:00.000Z',
       endDate: '2026-09-23T00:00:00.000Z',
       fulfilmentMethod: 'pickup',
@@ -333,6 +396,7 @@ test('runs service approval, delivery and renter completion lifecycle', async ()
     .set(renter)
     .send({
       listingId: 'l-photo',
+      idempotencyKey: 'booking-test:service-lifecycle',
       startDate: '2026-10-03T14:00:00.000Z',
       endDate: '2026-10-03T14:00:00.000Z',
       serviceVenue: 'Glasshouse Seputeh, Kuala Lumpur',
