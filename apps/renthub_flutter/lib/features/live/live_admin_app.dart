@@ -146,13 +146,13 @@ class _AdminNavigation extends StatelessWidget {
   final ValueChanged<int> onSelected;
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
+  Widget build(BuildContext context) => Material(
         color: AppColors.background,
         child: ListView(
           padding: const EdgeInsets.all(12),
           children: [
             const Padding(
-              padding: EdgeInsets.all(12),
+              padding: EdgeInsets.symmetric(vertical: 12),
               child: RentHubLogo(),
             ),
             for (var index = 0;
@@ -184,8 +184,10 @@ class _AdminDashboard extends StatelessWidget {
     final pendingListings = data.adminListings
         .where((item) => item.status == 'pending_review')
         .length;
-    final openReports =
-        data.messageReports.where((item) => item['status'] == 'open').length;
+    final openReports = data.messageReports
+            .where((item) => item['status'] == 'open')
+            .length +
+        data.moderationReports.where((item) => item['status'] == 'open').length;
     final flaggedReviews =
         data.adminReviews.where((review) => review.flagged).length;
     return RefreshIndicator(
@@ -217,7 +219,7 @@ class _AdminDashboard extends StatelessWidget {
                 Icons.receipt_long_outlined,
               ),
               _AdminMetric(
-                'Open message reports',
+                'Open safety reports',
                 '$openReports',
                 Icons.report_outlined,
               ),
@@ -243,7 +245,7 @@ class _AdminMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
         width: 220,
-        height: 120,
+        height: 140,
         child: Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1200,82 +1202,211 @@ class _AdminMessageReports extends StatelessWidget {
   Future<void> _resolve(
     BuildContext context,
     Map<String, dynamic> report,
-    String status,
-  ) async {
+    String status, {
+    required bool messageReport,
+  }) async {
+    final resolution = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title:
+            Text(status == 'resolved' ? 'Resolve report?' : 'Dismiss report?'),
+        content: TextField(
+          controller: resolution,
+          minLines: 2,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Required resolution note',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              resolution.text.trim().length >= 5,
+            ),
+            child: Text(status == 'resolved' ? 'Resolve' : 'Dismiss'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) {
+      resolution.dispose();
+      return;
+    }
     try {
-      await context.read<LiveRentHubController>().resolveMessageReport(
-            (report['publicId'] ?? report['id']) as String,
-            status,
-            status == 'resolved'
-                ? 'Reviewed and action recorded by the administrator.'
-                : 'Report reviewed and dismissed by the administrator.',
-          );
+      final controller = context.read<LiveRentHubController>();
+      final id = (report['publicId'] ?? report['id']) as String;
+      if (messageReport) {
+        await controller.resolveMessageReport(id, status, resolution.text);
+      } else {
+        await controller.resolveModerationReport(id, status, resolution.text);
+      }
     } catch (exception) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(exception.toString())));
       }
     }
+    resolution.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final reports = context.watch<LiveRentHubController>().messageReports;
-    if (reports.isEmpty) {
+    final data = context.watch<LiveRentHubController>();
+    final moderationReports = data.moderationReports;
+    final messageReports = data.messageReports;
+    if (moderationReports.isEmpty && messageReports.isEmpty) {
       return const RentHubFeedbackState(
         kind: FeedbackKind.empty,
-        title: 'No message reports',
-        message: 'Reported conversation content will appear here.',
+        title: 'No reports',
+        message: 'User, listing, review, and message reports will appear here.',
       );
     }
-    return ListView.separated(
+    return ListView(
       padding: const EdgeInsets.all(24),
-      itemCount: reports.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final report = reports[index];
-        final status = report['status'] as String;
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('Reason: ${report['reason']}'),
-                    ),
-                    StatusBadge(status),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text('“${report['messageText']}”'),
-                Text(
-                  report['details'] as String? ?? '',
-                  style: const TextStyle(color: AppColors.secondaryText),
-                ),
-                if (status == 'open') ...[
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
+      children: [
+        Text('Safety reports',
+            style: Theme.of(context).textTheme.headlineSmall),
+        const Text(
+          'MongoDB-backed reports for users, listings, reviews, and messages.',
+          style: TextStyle(color: AppColors.secondaryText),
+        ),
+        const SizedBox(height: 16),
+        for (final report in moderationReports) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      OutlinedButton(
-                        onPressed: () => _resolve(context, report, 'dismissed'),
-                        child: const Text('Dismiss'),
+                      Icon(
+                        switch (report['targetType']) {
+                          'user' => Icons.person_off_outlined,
+                          'listing' => Icons.inventory_2_outlined,
+                          _ => Icons.rate_review_outlined,
+                        },
+                        color: AppColors.warning,
                       ),
-                      FilledButton(
-                        onPressed: () => _resolve(context, report, 'resolved'),
-                        child: const Text('Resolve'),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${report['targetType']} • ${report['targetLabel']}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                       ),
+                      StatusBadge(report['status'] as String),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Text('Reason: ${report['reason']}'),
+                  if ((report['details'] as String? ?? '').isNotEmpty)
+                    Text(
+                      report['details'] as String,
+                      style: const TextStyle(color: AppColors.secondaryText),
+                    ),
+                  Text(
+                    'Reporter: ${report['reporterId']} • Target: ${report['targetId']}',
+                    style: const TextStyle(color: AppColors.secondaryText),
+                  ),
+                  if (report['status'] == 'open') ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () => _resolve(
+                            context,
+                            report,
+                            'dismissed',
+                            messageReport: false,
+                          ),
+                          child: const Text('Dismiss'),
+                        ),
+                        FilledButton(
+                          onPressed: () => _resolve(
+                            context,
+                            report,
+                            'resolved',
+                            messageReport: false,
+                          ),
+                          child: const Text('Resolve'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-        );
-      },
+          const SizedBox(height: 10),
+        ],
+        if (messageReports.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text('Message reports',
+              style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+        ],
+        for (final report in messageReports) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('Reason: ${report['reason']}'),
+                      ),
+                      StatusBadge(report['status'] as String),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text('“${report['messageText']}”'),
+                  Text(
+                    report['details'] as String? ?? '',
+                    style: const TextStyle(color: AppColors.secondaryText),
+                  ),
+                  if (report['status'] == 'open') ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () => _resolve(
+                            context,
+                            report,
+                            'dismissed',
+                            messageReport: true,
+                          ),
+                          child: const Text('Dismiss'),
+                        ),
+                        FilledButton(
+                          onPressed: () => _resolve(
+                            context,
+                            report,
+                            'resolved',
+                            messageReport: true,
+                          ),
+                          child: const Text('Resolve'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+      ],
     );
   }
 }
@@ -1413,30 +1544,75 @@ class _AdminPlatformSettings extends StatefulWidget {
 
 class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
   final formKey = GlobalKey<FormState>();
+  final platformFormKey = GlobalKey<FormState>();
   final physicalPoints = TextEditingController();
   final servicePoints = TextEditingController();
   final referralPoints = TextEditingController();
   final friendReward = TextEditingController();
   final redemptionOptions = TextEditingController();
+  final marketplaceFee = TextEditingController();
+  final highValueThreshold = TextEditingController();
+  final reportThreshold = TextEditingController();
+  final ocrThreshold = TextEditingController();
+  final supportEmail = TextEditingController();
+  final bookingPolicy = TextEditingController();
+  final contentPolicy = TextEditingController();
+  final bookingApprovedTemplate = TextEditingController();
+  final verificationTemplate = TextEditingController();
+  final reportResolvedTemplate = TextEditingController();
   bool enabled = true;
   bool initialized = false;
+  bool platformInitialized = false;
+  bool maintenanceMode = false;
+  bool highValueKycEnabled = true;
+  final categoryStates = <String, bool>{};
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final config = context.watch<LiveRentHubController>().loyaltyConfig;
-    if (initialized || config.isEmpty) return;
-    initialized = true;
-    enabled = config['enabled'] as bool? ?? true;
-    physicalPoints.text = '${config['physicalCompletionPoints'] ?? 120}';
-    servicePoints.text = '${config['serviceCompletionPoints'] ?? 100}';
-    referralPoints.text = '${config['referralRewardPoints'] ?? 250}';
-    friendReward.text = '${config['refereeDiscountAmount'] ?? 5}';
-    redemptionOptions.text =
-        (config['redemptionOptions'] as List? ?? const []).map((raw) {
-      final option = raw as Map<String, dynamic>;
-      return '${option['points']}:${option['discountAmount']}';
-    }).join(', ');
+    final controller = context.watch<LiveRentHubController>();
+    final config = controller.loyaltyConfig;
+    if (!initialized && config.isNotEmpty) {
+      initialized = true;
+      enabled = config['enabled'] as bool? ?? true;
+      physicalPoints.text = '${config['physicalCompletionPoints'] ?? 120}';
+      servicePoints.text = '${config['serviceCompletionPoints'] ?? 100}';
+      referralPoints.text = '${config['referralRewardPoints'] ?? 250}';
+      friendReward.text = '${config['refereeDiscountAmount'] ?? 5}';
+      redemptionOptions.text =
+          (config['redemptionOptions'] as List? ?? const []).map((raw) {
+        final option = raw as Map<String, dynamic>;
+        return '${option['points']}:${option['discountAmount']}';
+      }).join(', ');
+    }
+    final platform = controller.platformSettings;
+    if (!platformInitialized && platform.isNotEmpty) {
+      platformInitialized = true;
+      marketplaceFee.text = '${platform['marketplaceFeePercent'] ?? 5}';
+      maintenanceMode = platform['maintenanceMode'] as bool? ?? false;
+      highValueKycEnabled = platform['highValueKycEnabled'] as bool? ?? true;
+      highValueThreshold.text = '${platform['highValueThreshold'] ?? 1000}';
+      reportThreshold.text = '${platform['reportAutoHideThreshold'] ?? 3}';
+      ocrThreshold.text = '${platform['verificationOcrThreshold'] ?? 80}';
+      supportEmail.text =
+          platform['supportEmail'] as String? ?? 'support@renthub.my';
+      bookingPolicy.text = platform['bookingPolicy'] as String? ?? '';
+      contentPolicy.text = platform['contentPolicy'] as String? ?? '';
+      final templates =
+          platform['notificationTemplates'] as Map<String, dynamic>? ??
+              const {};
+      bookingApprovedTemplate.text =
+          templates['bookingApproved'] as String? ?? '';
+      verificationTemplate.text =
+          templates['verificationUpdate'] as String? ?? '';
+      reportResolvedTemplate.text =
+          templates['reportResolved'] as String? ?? '';
+      for (final raw in platform['categories'] as List? ?? const []) {
+        final category = raw as Map<String, dynamic>;
+        categoryStates[category['name'] as String] =
+            category['active'] as bool? ?? true;
+      }
+    }
   }
 
   @override
@@ -1446,7 +1622,50 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
     referralPoints.dispose();
     friendReward.dispose();
     redemptionOptions.dispose();
+    marketplaceFee.dispose();
+    highValueThreshold.dispose();
+    reportThreshold.dispose();
+    ocrThreshold.dispose();
+    supportEmail.dispose();
+    bookingPolicy.dispose();
+    contentPolicy.dispose();
+    bookingApprovedTemplate.dispose();
+    verificationTemplate.dispose();
+    reportResolvedTemplate.dispose();
     super.dispose();
+  }
+
+  Future<void> _savePlatform() async {
+    if (!platformFormKey.currentState!.validate()) return;
+    try {
+      await context.read<LiveRentHubController>().updatePlatformSettings({
+        'marketplaceFeePercent': double.parse(marketplaceFee.text),
+        'maintenanceMode': maintenanceMode,
+        'highValueKycEnabled': highValueKycEnabled,
+        'highValueThreshold': double.parse(highValueThreshold.text),
+        'reportAutoHideThreshold': int.parse(reportThreshold.text),
+        'verificationOcrThreshold': int.parse(ocrThreshold.text),
+        'supportEmail': supportEmail.text.trim(),
+        'bookingPolicy': bookingPolicy.text.trim(),
+        'contentPolicy': contentPolicy.text.trim(),
+        'notificationTemplates': {
+          'bookingApproved': bookingApprovedTemplate.text.trim(),
+          'verificationUpdate': verificationTemplate.text.trim(),
+          'reportResolved': reportResolvedTemplate.text.trim(),
+        },
+        'categories': categoryStates.entries
+            .map((entry) => {'name': entry.key, 'active': entry.value})
+            .toList(),
+      });
+      if (mounted) {
+        showMockSuccess(context, 'Platform settings saved and audited');
+      }
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
   }
 
   List<Map<String, dynamic>>? _parseOptions() {
@@ -1506,12 +1725,194 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
   @override
   Widget build(BuildContext context) {
     final data = context.watch<LiveRentHubController>();
-    if (data.loyaltyConfig.isEmpty) {
+    if (data.loyaltyConfig.isEmpty || data.platformSettings.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
+        Text('Platform Settings',
+            style: Theme.of(context).textTheme.headlineSmall),
+        const Text(
+          'Marketplace, verification, moderation, category, policy, and notification rules persist in MongoDB and are audited.',
+          style: TextStyle(color: AppColors.secondaryText),
+        ),
+        const SizedBox(height: 16),
+        Form(
+          key: platformFormKey,
+          child: Column(
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('Marketplace & safety rules',
+                          style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 12,
+                        children: [
+                          _RuleField(
+                            controller: marketplaceFee,
+                            label: 'Marketplace fee (%)',
+                            validator: (value) {
+                              final number = double.tryParse(value ?? '');
+                              return number == null || number < 0 || number > 20
+                                  ? 'Enter 0 to 20'
+                                  : null;
+                            },
+                          ),
+                          _RuleField(
+                            controller: highValueThreshold,
+                            label: 'High-value KYC threshold (RM)',
+                            validator: (value) =>
+                                (double.tryParse(value ?? '') ?? -1) < 0
+                                    ? 'Enter zero or more'
+                                    : null,
+                          ),
+                          _RuleField(
+                            controller: reportThreshold,
+                            label: 'Auto-hide report threshold',
+                            validator: (value) {
+                              final number = int.tryParse(value ?? '');
+                              return number == null ||
+                                      number < 1 ||
+                                      number > 100
+                                  ? 'Enter 1 to 100'
+                                  : null;
+                            },
+                          ),
+                          _RuleField(
+                            controller: ocrThreshold,
+                            label: 'OCR confidence threshold (%)',
+                            validator: (value) {
+                              final number = int.tryParse(value ?? '');
+                              return number == null ||
+                                      number < 0 ||
+                                      number > 100
+                                  ? 'Enter 0 to 100'
+                                  : null;
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title:
+                            const Text('Require KYC for high-value listings'),
+                        value: highValueKycEnabled,
+                        onChanged: (value) =>
+                            setState(() => highValueKycEnabled = value),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Maintenance mode'),
+                        subtitle: const Text(
+                          'Persisted operational flag for controlled maintenance windows.',
+                        ),
+                        value: maintenanceMode,
+                        onChanged: (value) =>
+                            setState(() => maintenanceMode = value),
+                      ),
+                      TextFormField(
+                        controller: supportEmail,
+                        decoration:
+                            const InputDecoration(labelText: 'Support email'),
+                        validator: (value) => value != null &&
+                                RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(value)
+                            ? null
+                            : 'Enter a valid email',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('Policies & notification templates',
+                          style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 12),
+                      for (final field in [
+                        (bookingPolicy, 'Booking policy', 10),
+                        (contentPolicy, 'Content policy', 10),
+                        (
+                          bookingApprovedTemplate,
+                          'Booking-approved message',
+                          5
+                        ),
+                        (
+                          verificationTemplate,
+                          'Verification-update message',
+                          5
+                        ),
+                        (reportResolvedTemplate, 'Report-resolved message', 5),
+                      ]) ...[
+                        TextFormField(
+                          controller: field.$1,
+                          minLines: field.$2.contains('policy') ? 2 : 1,
+                          maxLines: field.$2.contains('policy') ? 4 : 2,
+                          decoration: InputDecoration(labelText: field.$2),
+                          validator: (value) =>
+                              (value?.trim().length ?? 0) < field.$3
+                                  ? 'Enter at least ${field.$3} characters'
+                                  : null,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('Listing categories',
+                          style: Theme.of(context).textTheme.titleLarge),
+                      const Text(
+                        'Canonical category names are protected; availability can be changed.',
+                        style: TextStyle(color: AppColors.secondaryText),
+                      ),
+                      for (final entry in categoryStates.entries)
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(Icons.lock_outline),
+                          title: Text(entry.key),
+                          subtitle: const Text('Protected category name'),
+                          value: entry.value,
+                          onChanged: (value) => setState(
+                            () => categoryStates[entry.key] = value,
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: FilledButton.icon(
+                          onPressed: data.loading ? null : _savePlatform,
+                          icon: const Icon(Icons.save_outlined),
+                          label: const Text('Save Platform Settings'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 32),
         Text('Loyalty & referral rules',
             style: Theme.of(context).textTheme.headlineSmall),
         const Text(

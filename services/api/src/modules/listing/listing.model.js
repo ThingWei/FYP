@@ -72,6 +72,7 @@ const listingSchema = new mongoose.Schema(
     },
     ownerId: { type: String, required: true, trim: true, index: true },
     ownerName: { type: String, required: true, trim: true, maxlength: 80 },
+    ownerTrustScore: { type: Number, min: 0, max: 100, default: 50 },
     title: { type: String, required: true, trim: true, minlength: 3, maxlength: 120 },
     description: { type: String, trim: true, maxlength: 3000, default: '' },
     category: { type: String, required: true, enum: LISTING_CATEGORIES, index: true },
@@ -184,6 +185,7 @@ listingSchema.pre('validate', function validateListingType() {
 
 listingSchema.index({ title: 'text', description: 'text', location: 'text' });
 listingSchema.index({ status: 1, category: 1, listingType: 1, dailyPrice: 1 });
+listingSchema.index({ status: 1, rating: -1, createdAt: -1 });
 
 export const ListingModel =
   mongoose.models.Listing ?? mongoose.model('Listing', listingSchema);

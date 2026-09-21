@@ -850,13 +850,22 @@ try {
     })),
   );
   await listingModule.Model.bulkWrite(
-    listings.map((listing) => ({
-      updateOne: {
-        filter: { title: listing.title, ownerId: listing.ownerId },
-        update: { $set: listing },
-        upsert: true,
-      },
-    })),
+    listings.map((listing) => {
+      const owner = users.find((user) => user.authId === listing.ownerId);
+      return {
+        updateOne: {
+          filter: { title: listing.title, ownerId: listing.ownerId },
+          update: {
+            $set: {
+              ...listing,
+              ownerTrustScore:
+                owner?.trustScore ?? Math.round((listing.rating ?? 2.5) * 20),
+            },
+          },
+          upsert: true,
+        },
+      };
+    }),
   );
   await BookingModel.bulkWrite(
     bookings.map((booking) => ({

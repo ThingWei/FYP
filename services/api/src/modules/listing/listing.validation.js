@@ -119,6 +119,10 @@ export const listListingsValidation = [
   query('type').optional().isIn(LISTING_TYPES),
   query('location').optional().trim().isLength({ max: 100 }),
   query('verified').optional().isBoolean(),
+  query('promoted').optional().isBoolean(),
+  query('sort')
+    .optional()
+    .isIn(['recommended', 'price_asc', 'price_desc', 'rating', 'newest', 'trust']),
   query('minPrice').optional().isFloat({ min: 0 }),
   query('maxPrice').optional().isFloat({ min: 0 }),
   query('availableFrom').optional().isISO8601(),

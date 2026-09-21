@@ -47,6 +47,29 @@ export const userController = {
     ok(res, await userService.unblockUser(req.user, req.params.userId)),
   ),
 
+  savedListings: asyncHandler(async (req, res) =>
+    ok(res, await userService.savedListings(req.user)),
+  ),
+
+  saveListing: asyncHandler(async (req, res) =>
+    ok(res, await userService.saveListing(req.user, req.params.listingId)),
+  ),
+
+  removeSavedListing: asyncHandler(async (req, res) =>
+    ok(res, await userService.removeSavedListing(req.user, req.params.listingId)),
+  ),
+
+  comparison: asyncHandler(async (req, res) =>
+    ok(res, await userService.comparison(req.user)),
+  ),
+
+  updateComparison: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await userService.updateComparison(req.user, req.body.listingIds),
+    ),
+  ),
+
   publicProfile: asyncHandler(async (req, res) =>
     ok(res, await userService.getPublic(req.params.id)),
   ),

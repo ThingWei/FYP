@@ -100,6 +100,22 @@ const userSchema = new mongoose.Schema(
       default: [],
     },
     blockedUserIds: { type: [String], default: [] },
+    savedListingIds: {
+      type: [{ type: String, match: /^l-[a-z0-9-]+$/i }],
+      default: [],
+      validate: {
+        validator: (ids) => ids.length <= 100 && new Set(ids).size === ids.length,
+        message: 'Saved listings must contain at most 100 unique items',
+      },
+    },
+    comparisonListingIds: {
+      type: [{ type: String, match: /^l-[a-z0-9-]+$/i }],
+      default: [],
+      validate: {
+        validator: (ids) => ids.length <= 4 && new Set(ids).size === ids.length,
+        message: 'Comparison must contain at most 4 unique items',
+      },
+    },
     settings: {
       language: { type: String, enum: ['en', 'ms'], default: 'en' },
       pushNotifications: { type: Boolean, default: true },

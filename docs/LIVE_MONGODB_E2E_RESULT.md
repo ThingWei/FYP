@@ -73,9 +73,10 @@ The principal renter/Owner lifecycle above is live. RentHub is not yet fully liv
 - Login and registration use the development header identity adapter. Passwords are not authenticated and Auth0/JWT is not integrated.
 - Profile editing, saved addresses, notification preferences, and identity-verification status are now connected to MongoDB in the final live renter and Owner shells. Real document upload remains deferred; the development verification flow stores local placeholder references and OCR-result placeholders.
 - The administrator Verification destination now reviews MongoDB-backed pending identity submissions and records decisions in notifications and audit logs.
-- The live Reports destination currently covers persistent reported messages, not the full analytics/reporting scope.
-- Platform Settings currently persists loyalty/referral rules only; categories, policies, notification templates, verification thresholds, and content settings remain deferred.
-- Wishlist, listing comparison, advanced discovery/recommendations, and several rich filter behaviors remain in the mock interface rather than the final live shell.
+- The live Reports destination now combines persistent user, listing, review, and message safety reports with audited resolution actions. Downloadable analytics exports remain deferred.
+- Platform Settings now persists marketplace, category, policy, notification-template, verification-threshold, moderation-threshold, maintenance, loyalty, and referral rules.
+- Wishlist, listing comparison, availability filtering, promoted-only discovery, verified-Owner filtering, price/location/type/category filters, and discovery sorting now use the live API and MongoDB-backed user state.
+- Personalized or machine-learned recommendations remain deferred; the current recommended order uses promotion, rating, and recency signals.
 - Owner availability, listing editing/resubmission, promotion configuration, and physical-item bundle management are now connected through the live controller. Bundle checkout remains a future extension; the current renter UI presents the offer on the listing.
 - Evidence and listing images use local placeholder references. Firebase/object storage upload is not integrated.
 - Referral sharing produces a visible local action but does not invoke an operating-system share provider.
@@ -108,9 +109,9 @@ No inconsistent booking IDs, stale persisted statuses, duplicate bookings, dupli
 
 - Live write phase: passed.
 - Separate restart/read phase: passed with the same booking ID.
-- `npm.cmd test`: 43/43 passed after the Owner operations follow-up.
+- `npm.cmd test`: 46/46 passed after the Owner operations and discovery/administration follow-ups.
 - `flutter analyze`: no issues found.
-- `flutter test`: 59 passed, with the two opt-in live E2E phases skipped during the ordinary offline suite.
+- Earlier full Flutter regression: 59 passed, with the two opt-in live E2E phases skipped. The Phase 11 reduced set added 11/11 passing discovery, administration, Owner-operations, and listing checks.
 - Live renter/Owner web build with `USE_MOCKS=false`: passed.
 - Live administrator web build with `USE_MOCKS=false`: passed.
 
@@ -118,4 +119,4 @@ The web compiler continues to report the existing upstream Socket.IO WebAssembly
 
 ## H. Next step
 
-The next product implementation should connect wishlist, comparison, and advanced discovery filters to MongoDB-backed live mode. Separately, configure either a persistent local MongoDB instance or an ignored Atlas `MONGODB_URI`, enable a controllable browser, and repeat the write/restart/read scenario manually from the final screens.
+The next production-readiness phase should replace development identity headers with Auth0/JWT, add real object-storage uploads for listing and evidence images, and then repeat the write/restart/read scenario against an ignored Atlas `MONGODB_URI` from the final screens. Multi-item bundle checkout and downloadable analytics exports remain separate product extensions.

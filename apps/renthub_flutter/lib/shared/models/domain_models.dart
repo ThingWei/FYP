@@ -105,6 +105,7 @@ class Listing {
     required this.dailyPrice,
     this.condition = 'Good',
     this.ownerName = 'RentHub Owner',
+    this.ownerTrustScore = 50,
     this.location = 'Kuala Lumpur',
     this.verified = false,
     this.isService = false,
@@ -131,7 +132,7 @@ class Listing {
   });
   final String id, title, category, condition, ownerName, location;
   final String description, status, ownerId, priceUnit;
-  final double dailyPrice, rating;
+  final double dailyPrice, rating, ownerTrustScore;
   final double securityDeposit, damageWaiverFee;
   final bool verified, isService;
   final bool damageWaiverAvailable;
@@ -157,6 +158,7 @@ class Listing {
       dailyPrice: (j['dailyPrice'] as num).toDouble(),
       condition: j['condition'] ?? 'Good',
       ownerName: j['ownerName'] ?? 'RentHub Owner',
+      ownerTrustScore: (j['ownerTrustScore'] as num?)?.toDouble() ?? 50,
       location: j['location'] ?? 'Kuala Lumpur',
       verified: j['verified'] ?? false,
       isService: j['isService'] ?? false,

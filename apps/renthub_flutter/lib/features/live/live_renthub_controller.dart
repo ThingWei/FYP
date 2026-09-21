@@ -24,6 +24,8 @@ class LiveRentHubController extends ChangeNotifier {
   String? error;
   User? profile;
   List<Listing> listings = [];
+  List<Listing> savedListings = [];
+  List<Listing> comparisonListings = [];
   List<Listing> ownerListings = [];
   List<Listing> adminListings = [];
   List<Booking> bookings = [];
@@ -40,9 +42,11 @@ class LiveRentHubController extends ChangeNotifier {
   List<InsuranceClaim> adminClaims = [];
   List<Map<String, dynamic>> users = [];
   List<Map<String, dynamic>> messageReports = [];
+  List<Map<String, dynamic>> moderationReports = [];
   List<Map<String, dynamic>> auditLogs = [];
   Reward? loyalty;
   Map<String, dynamic> loyaltyConfig = {};
+  Map<String, dynamic> platformSettings = {};
   List<Map<String, dynamic>> adminRewardLedger = [];
   List<Map<String, dynamic>> adminReferrals = [];
 
@@ -77,6 +81,8 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/disputes/mine'),
           api.request('GET', '/disputes/claims/mine'),
           api.request('GET', '/rewards/summary'),
+          api.request('GET', '/users/me/saved-listings'),
+          api.request('GET', '/users/me/comparison'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         _connectRealtime(profile!.id);
@@ -88,6 +94,8 @@ class LiveRentHubController extends ChangeNotifier {
         disputes = _models(results[6], Dispute.fromJson);
         claims = _models(results[7], InsuranceClaim.fromJson);
         loyalty = Reward.fromJson(results[8] as Map<String, dynamic>);
+        savedListings = _models(results[9], Listing.fromJson);
+        comparisonListings = _models(results[10], Listing.fromJson);
       });
 
   Future<void> loadOwner() => _perform(() async {
@@ -132,6 +140,8 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/rewards/admin/config'),
           api.request('GET', '/rewards/admin/ledger'),
           api.request('GET', '/rewards/admin/referrals'),
+          api.request('GET', '/admin/reports'),
+          api.request('GET', '/admin/settings'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         users = (results[1] as List).cast<Map<String, dynamic>>();
@@ -147,6 +157,99 @@ class LiveRentHubController extends ChangeNotifier {
         loyaltyConfig = results[11] as Map<String, dynamic>;
         adminRewardLedger = (results[12] as List).cast<Map<String, dynamic>>();
         adminReferrals = (results[13] as List).cast<Map<String, dynamic>>();
+        moderationReports = (results[14] as List).cast<Map<String, dynamic>>();
+        platformSettings = results[15] as Map<String, dynamic>;
+      });
+
+  Future<List<Listing>> discoverListings(
+    Map<String, String> parameters,
+  ) async {
+    final query = Uri(queryParameters: {
+      for (final entry in parameters.entries)
+        if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
+    }).query;
+    return _models(
+      await api.request('GET', '/listings${query.isEmpty ? '' : '?$query'}'),
+      Listing.fromJson,
+    );
+  }
+
+  bool isSaved(String listingId) =>
+      savedListings.any((listing) => listing.id == listingId);
+
+  bool isCompared(String listingId) =>
+      comparisonListings.any((listing) => listing.id == listingId);
+
+  Future<void> toggleSavedListing(Listing listing) => _perform(() async {
+        if (isSaved(listing.id)) {
+          await api.request('DELETE', '/users/me/saved-listings/${listing.id}');
+          savedListings.removeWhere((item) => item.id == listing.id);
+        } else {
+          final saved = Listing.fromJson(
+            await api.request('PUT', '/users/me/saved-listings/${listing.id}')
+                as Map<String, dynamic>,
+          );
+          savedListings.insert(0, saved);
+        }
+      });
+
+  Future<void> toggleComparisonListing(Listing listing) => _perform(() async {
+        final ids = comparisonListings.map((item) => item.id).toList();
+        if (ids.remove(listing.id)) {
+          // The item was already selected and is now removed.
+        } else {
+          if (ids.length >= 4) {
+            throw ApiException(
+              409,
+              'You can compare up to four listings at a time.',
+              code: 'COMPARISON_LIMIT',
+            );
+          }
+          ids.add(listing.id);
+        }
+        comparisonListings = _models(
+          await api.request(
+            'PUT',
+            '/users/me/comparison',
+            body: {'listingIds': ids},
+          ),
+          Listing.fromJson,
+        );
+      });
+
+  Future<void> clearComparison() => _perform(() async {
+        await api.request(
+          'PUT',
+          '/users/me/comparison',
+          body: {'listingIds': <String>[]},
+        );
+        comparisonListings = [];
+      });
+
+  Future<void> submitModerationReport({
+    required String targetType,
+    required String targetId,
+    required String reason,
+    String details = '',
+  }) =>
+      _perform(() async {
+        await api.request(
+          'POST',
+          '/admin/reports',
+          body: {
+            'targetType': targetType,
+            'targetId': targetId,
+            'reason': reason,
+            'details': details.trim(),
+          },
+        );
+      });
+
+  Future<void> blockUser(String userId) => _perform(() async {
+        profile = User.fromJson(
+          await api.request('POST', '/users/me/blocked-users/$userId')
+              as Map<String, dynamic>,
+        );
       });
 
   Future<void> loadRewards() => _perform(() async {
@@ -908,6 +1011,31 @@ class LiveRentHubController extends ChangeNotifier {
           body: {'status': status, 'resolution': resolution},
         );
         await loadAdmin();
+      });
+
+  Future<void> resolveModerationReport(
+    String id,
+    String status,
+    String resolution,
+  ) =>
+      _perform(() async {
+        await api.request(
+          'PATCH',
+          '/admin/reports/$id',
+          body: {'status': status, 'resolution': resolution},
+        );
+        await loadAdmin();
+      });
+
+  Future<void> updatePlatformSettings(Map<String, dynamic> input) =>
+      _perform(() async {
+        platformSettings = await api.request(
+          'PUT',
+          '/admin/settings',
+          body: input,
+        ) as Map<String, dynamic>;
+        auditLogs = (await api.request('GET', '/admin') as List)
+            .cast<Map<String, dynamic>>();
       });
 
   Future<void> moderateListing(

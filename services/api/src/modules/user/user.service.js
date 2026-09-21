@@ -218,6 +218,63 @@ export const userService = {
     return user;
   },
 
+  async savedListings(identity) {
+    const user = await requireCurrentUser(identity);
+    return ListingModel.find({
+      publicId: { $in: user.savedListingIds },
+      status: 'active',
+    }).sort({ updatedAt: -1 });
+  },
+
+  async saveListing(identity, listingId) {
+    const user = await requireCurrentUser(identity);
+    const listing = await ListingModel.findOne({ publicId: listingId, status: 'active' });
+    if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
+    if (!user.savedListingIds.includes(listingId)) {
+      if (user.savedListingIds.length >= 100) {
+        throw new AppError('Wishlist limit reached', 409, 'WISHLIST_LIMIT');
+      }
+      user.savedListingIds.push(listingId);
+      await user.save();
+    }
+    return listing;
+  },
+
+  async removeSavedListing(identity, listingId) {
+    const user = await requireCurrentUser(identity);
+    user.savedListingIds = user.savedListingIds.filter((id) => id !== listingId);
+    await user.save();
+    return { listingId, saved: false };
+  },
+
+  async comparison(identity) {
+    const user = await requireCurrentUser(identity);
+    return ListingModel.find({
+      publicId: { $in: user.comparisonListingIds },
+      status: 'active',
+    });
+  },
+
+  async updateComparison(identity, listingIds) {
+    const user = await requireCurrentUser(identity);
+    const uniqueIds = [...new Set(listingIds)];
+    const listings = await ListingModel.find({
+      publicId: { $in: uniqueIds },
+      status: 'active',
+    });
+    if (listings.length !== uniqueIds.length) {
+      throw new AppError(
+        'Every comparison item must be an active listing',
+        400,
+        'INVALID_COMPARISON',
+      );
+    }
+    user.comparisonListingIds = uniqueIds;
+    await user.save();
+    const byId = new Map(listings.map((listing) => [listing.publicId, listing]));
+    return uniqueIds.map((id) => byId.get(id));
+  },
+
   async getPublic(id) {
     if (!mongoose.isValidObjectId(id) && !/^u-[a-z0-9-]+$/i.test(id)) {
       throw new AppError('Invalid user identifier', 400, 'INVALID_ID');

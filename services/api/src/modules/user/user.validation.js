@@ -66,6 +66,29 @@ export const targetUserValidation = [
     .withMessage('Invalid user identifier'),
 ];
 
+export const savedListingValidation = [
+  param('listingId')
+    .trim()
+    .matches(/^l-[a-z\d-]+$/i)
+    .withMessage('Invalid listing identifier'),
+];
+
+export const comparisonValidation = [
+  body().custom((value) => {
+    const unknown = Object.keys(value).filter((field) => field !== 'listingIds');
+    if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
+    return true;
+  }),
+  body('listingIds').isArray({ max: 4 }),
+  body('listingIds.*').matches(/^l-[a-z\d-]+$/i),
+  body('listingIds').custom((ids) => {
+    if (new Set(ids).size !== ids.length) {
+      throw new Error('Comparison listing identifiers must be unique');
+    }
+    return true;
+  }),
+];
+
 export const publicUserValidation = [userId];
 
 export const listValidation = [

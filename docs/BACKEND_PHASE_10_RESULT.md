@@ -41,4 +41,4 @@ Full Flutter regression tests, web builds, manual browser testing, and the opt-i
 
 ## Recommended next phase
 
-Connect wishlist, comparison selections, and advanced discovery filters to live MongoDB-backed mode.
+Completed in Backend Phase 11 together with the remaining administrator Reports and Platform Settings work.

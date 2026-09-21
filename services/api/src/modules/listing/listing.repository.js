@@ -19,12 +19,12 @@ export const listingRepository = {
   findOwnedById: (id, ownerId) =>
     ListingModel.findOne({ $or: identifiers(id), ownerId }),
 
-  async listPublic({ page, limit, filter, unavailableIds }) {
+  async listPublic({ page, limit, filter, unavailableIds, sort }) {
     const criteria = { status: 'active', ...filter };
     if (unavailableIds?.length) criteria.publicId = { $nin: unavailableIds };
     const [items, total] = await Promise.all([
       ListingModel.find(criteria)
-        .sort({ promoted: -1, createdAt: -1 })
+        .sort(sort)
         .skip((page - 1) * limit)
         .limit(limit),
       ListingModel.countDocuments(criteria),

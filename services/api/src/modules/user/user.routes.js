@@ -4,10 +4,12 @@ import { validate } from '../../middleware/validate.js';
 import { userController } from './user.controller.js';
 import {
   accountStatusValidation,
+  comparisonValidation,
   listValidation,
   profileValidation,
   publicUserValidation,
   roleValidation,
+  savedListingValidation,
   targetUserValidation,
   verificationDecisionValidation,
   verificationSubmissionValidation,
@@ -51,6 +53,33 @@ userRouter.delete(
   targetUserValidation,
   validate,
   userController.unblockUser,
+);
+userRouter.get(
+  '/me/saved-listings',
+  authenticate,
+  userController.savedListings,
+);
+userRouter.put(
+  '/me/saved-listings/:listingId',
+  authenticate,
+  savedListingValidation,
+  validate,
+  userController.saveListing,
+);
+userRouter.delete(
+  '/me/saved-listings/:listingId',
+  authenticate,
+  savedListingValidation,
+  validate,
+  userController.removeSavedListing,
+);
+userRouter.get('/me/comparison', authenticate, userController.comparison);
+userRouter.put(
+  '/me/comparison',
+  authenticate,
+  comparisonValidation,
+  validate,
+  userController.updateComparison,
 );
 userRouter.get(
   '/public/:id',

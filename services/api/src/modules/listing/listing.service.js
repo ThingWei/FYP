@@ -1,4 +1,5 @@
 import { AppError } from '../../core/errors.js';
+import { PlatformSettingModel } from '../admin/platformSetting.model.js';
 import { UserModel } from '../user/user.model.js';
 import {
   LISTING_CATEGORIES,
@@ -75,6 +76,12 @@ export const listingService = {
   async list(query) {
     const { page, limit } = pageOptions(query);
     const filter = {};
+    const platform = await PlatformSettingModel.findOne({ key: 'platform' })
+      .select('categories')
+      .lean();
+    const activeCategories = platform?.categories
+      ?.filter((category) => category.active)
+      .map((category) => category.name);
     if (query.search?.trim()) {
       const pattern = escapedPattern(query.search.trim());
       filter.$or = [
@@ -83,10 +90,23 @@ export const listingService = {
         { location: pattern },
       ];
     }
-    if (LISTING_CATEGORIES.includes(query.category)) filter.category = query.category;
+    if (LISTING_CATEGORIES.includes(query.category)) {
+      filter.category =
+        activeCategories && !activeCategories.includes(query.category)
+          ? { $in: [] }
+          : query.category;
+    } else if (activeCategories) {
+      filter.category = { $in: activeCategories };
+    }
     if (['physical', 'service'].includes(query.type)) filter.listingType = query.type;
     if (query.location?.trim()) filter.location = escapedPattern(query.location.trim());
     if (query.verified !== undefined) filter.verified = query.verified === 'true';
+    if (query.promoted === 'true') {
+      const now = new Date();
+      filter['promotion.enabled'] = true;
+      filter['promotion.startsAt'] = { $lte: now };
+      filter['promotion.endsAt'] = { $gte: now };
+    }
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
       filter.dailyPrice = {
         ...(query.minPrice !== undefined && { $gte: Number(query.minPrice) }),
@@ -105,6 +125,14 @@ export const listingService = {
       limit,
       filter,
       unavailableIds,
+      sort: {
+        recommended: { promoted: -1, rating: -1, createdAt: -1 },
+        price_asc: { dailyPrice: 1, createdAt: -1 },
+        price_desc: { dailyPrice: -1, createdAt: -1 },
+        rating: { rating: -1, reviewCount: -1, createdAt: -1 },
+        newest: { createdAt: -1 },
+        trust: { ownerTrustScore: -1, rating: -1, createdAt: -1 },
+      }[query.sort ?? 'recommended'],
     });
     return { items, meta: { page, limit, total } };
   },
@@ -121,6 +149,7 @@ export const listingService = {
       ...listingInput(input),
       ownerId: owner.authId,
       ownerName: owner.displayName,
+      ownerTrustScore: owner.trustScore,
       verified: owner.verification.status === 'approved',
       status: 'draft',
     });
