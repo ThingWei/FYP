@@ -28,6 +28,7 @@ import {
   ReferralModel,
   RewardLedgerModel,
 } from '../src/modules/loyalty/loyalty.model.js';
+import { adminModule } from '../src/modules/admin/index.js';
 
 let mongodb;
 const runFile = promisify(execFile);
@@ -50,11 +51,21 @@ const identity = ({
 before(async () => {
   mongodb = await MongoMemoryServer.create();
   await connectDatabase(mongodb.getUri());
-  await UserModel.init();
+  await Promise.all([
+    UserModel.init(),
+    ListingModel.init(),
+    NotificationModel.init(),
+    adminModule.Model.init(),
+  ]);
 });
 
 beforeEach(async () => {
-  await UserModel.deleteMany({});
+  await Promise.all([
+    UserModel.deleteMany({}),
+    ListingModel.deleteMany({}),
+    NotificationModel.deleteMany({}),
+    adminModule.Model.deleteMany({}),
+  ]);
 });
 
 after(async () => {
@@ -167,6 +178,91 @@ test('validates profile updates and role switching', async () => {
     .send({ role: 'owner' });
   assert.equal(switched.status, 200);
   assert.equal(switched.body.data.activeRole, 'owner');
+});
+
+test('submits and reviews identity verification with audit and notification', async () => {
+  const owner = identity({
+    id: 'u-verification-owner',
+    email: 'verification-owner@renthub.my',
+    name: 'Nadia Lim',
+    roles: 'owner',
+  });
+  const admin = identity({
+    id: 'u-admin',
+    email: 'admin@renthub.my',
+    name: 'Admin Farah',
+    roles: 'admin',
+  });
+  await request(app).post('/api/v1/users/session').set(owner);
+  await request(app).post('/api/v1/users/session').set(admin);
+  await ListingModel.create({
+    publicId: 'l-verification-test',
+    ownerId: 'u-verification-owner',
+    ownerName: 'Nadia Lim',
+    title: 'Verification Test Camera',
+    category: 'Devices',
+    listingType: 'physical',
+    dailyPrice: 50,
+    condition: 'Good',
+    fulfilmentMethods: ['pickup'],
+    location: 'Shah Alam, Selangor',
+    status: 'active',
+    verified: false,
+  });
+
+  const submitted = await request(app)
+    .post('/api/v1/users/me/verification')
+    .set(owner)
+    .send({
+      documentType: 'mykad',
+      documentRefs: [
+        'local://verification/mykad-front.jpg',
+        'local://verification/mykad-back.jpg',
+      ],
+    });
+  assert.equal(submitted.status, 200);
+  assert.equal(submitted.body.data.verification.status, 'pending');
+  assert.equal(submitted.body.data.verification.documentRefs.length, 2);
+
+  const duplicate = await request(app)
+    .post('/api/v1/users/me/verification')
+    .set(owner)
+    .send({
+      documentType: 'mykad',
+      documentRefs: ['local://verification/mykad-front.jpg'],
+    });
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.code, 'VERIFICATION_PENDING');
+
+  const target = await UserModel.findOne({
+    authId: 'u-verification-owner',
+  }).lean();
+  const reviewed = await request(app)
+    .patch(`/api/v1/users/${target._id}/verification`)
+    .set(admin)
+    .send({ status: 'approved', tier: 'enhanced' });
+  assert.equal(reviewed.status, 200);
+  assert.equal(reviewed.body.data.verification.status, 'approved');
+  assert.equal(reviewed.body.data.verification.tier, 'enhanced');
+
+  const listing = await ListingModel.findOne({
+    publicId: 'l-verification-test',
+  }).lean();
+  assert.equal(listing.verified, true);
+  assert.equal(
+    await NotificationModel.countDocuments({
+      userId: 'u-verification-owner',
+      type: 'verification_approved',
+    }),
+    1,
+  );
+  assert.equal(
+    await adminModule.Model.countDocuments({
+      action: 'verification.approved',
+      targetId: 'u-verification-owner',
+    }),
+    1,
+  );
 });
 
 test('rejects more than one default address', async () => {

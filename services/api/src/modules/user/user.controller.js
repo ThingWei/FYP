@@ -21,6 +21,24 @@ export const userController = {
     ok(res, await userService.selectRole(req.user, req.body.role)),
   ),
 
+  submitVerification: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await userService.submitVerification(req.user, matchedData(req)),
+    ),
+  ),
+
+  reviewVerification: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await userService.reviewVerification(
+        req.params.userId,
+        matchedData(req),
+        req.user,
+      ),
+    ),
+  ),
+
   blockUser: asyncHandler(async (req, res) =>
     ok(res, await userService.blockUser(req.user, req.params.userId)),
   ),

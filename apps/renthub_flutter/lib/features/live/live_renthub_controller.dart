@@ -119,7 +119,7 @@ class LiveRentHubController extends ChangeNotifier {
   Future<void> loadAdmin() => _perform(() async {
         final results = await Future.wait([
           api.request('GET', '/users/me'),
-          api.request('GET', '/users'),
+          api.request('GET', '/users?limit=100'),
           api.request('GET', '/listings/admin'),
           api.request('GET', '/bookings/admin'),
           api.request('GET', '/rentals/admin'),
@@ -174,6 +174,97 @@ class LiveRentHubController extends ChangeNotifier {
         loyalty = Reward.fromJson(
           await api.request('GET', '/rewards/summary') as Map<String, dynamic>,
         );
+      });
+
+  Future<void> updateProfile({
+    required String displayName,
+    required String phone,
+  }) =>
+      _perform(() async {
+        profile = User.fromJson(
+          await api.request(
+            'PATCH',
+            '/users/me',
+            body: {
+              'displayName': displayName.trim(),
+              'phone': phone.trim(),
+            },
+          ) as Map<String, dynamic>,
+        );
+      });
+
+  Future<void> updateAddresses(List<UserAddress> addresses) =>
+      _perform(() async {
+        profile = User.fromJson(
+          await api.request(
+            'PATCH',
+            '/users/me',
+            body: {
+              'addresses': addresses.map((item) => item.toJson()).toList(),
+            },
+          ) as Map<String, dynamic>,
+        );
+      });
+
+  Future<void> updateAccountSettings({
+    required String language,
+    required bool pushNotifications,
+    required bool emailNotifications,
+  }) =>
+      _perform(() async {
+        profile = User.fromJson(
+          await api.request(
+            'PATCH',
+            '/users/me',
+            body: {
+              'settings': {
+                'language': language,
+                'pushNotifications': pushNotifications,
+                'emailNotifications': emailNotifications,
+              },
+            },
+          ) as Map<String, dynamic>,
+        );
+      });
+
+  Future<void> submitIdentityVerification(String documentType) =>
+      _perform(() async {
+        final references = documentType == 'mykad'
+            ? [
+                'local://verification/mykad-front.jpg',
+                'local://verification/mykad-back.jpg',
+              ]
+            : ['local://verification/passport-photo-page.jpg'];
+        profile = User.fromJson(
+          await api.request(
+            'POST',
+            '/users/me/verification',
+            body: {
+              'documentType': documentType,
+              'documentRefs': references,
+            },
+          ) as Map<String, dynamic>,
+        );
+      });
+
+  Future<void> reviewIdentityVerification(
+    String userId,
+    String status, {
+    String tier = 'basic',
+    String reason = '',
+  }) =>
+      _perform(() async {
+        final updated = await api.request(
+          'PATCH',
+          '/users/$userId/verification',
+          body: {
+            'status': status,
+            if (status == 'approved') 'tier': tier,
+            if (reason.trim().isNotEmpty) 'reason': reason.trim(),
+          },
+        ) as Map<String, dynamic>;
+        final index = users.indexWhere((item) => item['_id'] == userId);
+        if (index >= 0) users[index] = updated;
       });
 
   Future<void> updateLoyaltyConfig(Map<String, dynamic> input) =>

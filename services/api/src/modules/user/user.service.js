@@ -1,5 +1,8 @@
 import mongoose from 'mongoose';
 import { AppError } from '../../core/errors.js';
+import { adminModule } from '../admin/index.js';
+import { notifyUser } from '../communication/notification.service.js';
+import { ListingModel } from '../listing/listing.model.js';
 import { ACCOUNT_STATUSES, USER_ROLES } from './user.model.js';
 import { userRepository } from './user.repository.js';
 
@@ -89,6 +92,108 @@ export const userService = {
     }
     user.activeRole = role;
     await user.save();
+    return user;
+  },
+
+  async submitVerification(identity, input) {
+    const user = await requireCurrentUser(identity);
+    if (user.verification.status === 'pending') {
+      throw new AppError(
+        'Identity verification is already pending',
+        409,
+        'VERIFICATION_PENDING',
+      );
+    }
+    if (user.verification.status === 'approved') {
+      throw new AppError(
+        'Identity is already verified',
+        409,
+        'ALREADY_VERIFIED',
+      );
+    }
+    user.verification = {
+      status: 'pending',
+      tier: 'none',
+      documentType: input.documentType,
+      documentRefs: input.documentRefs,
+      ocrResult: {
+        status: 'pending_review',
+        nameMatch: 'pending',
+        documentNumber: '******-**-****',
+      },
+      reason: '',
+      submittedAt: new Date(),
+      reviewedAt: undefined,
+      reviewedBy: '',
+    };
+    await user.save();
+    return user;
+  },
+
+  async reviewVerification(id, input, identity) {
+    const user = await userRepository.findById(id);
+    if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
+    if (user.verification.status !== 'pending') {
+      throw new AppError(
+        'Only pending verification submissions can be reviewed',
+        409,
+        'INVALID_VERIFICATION_STATE',
+      );
+    }
+    if (input.status !== 'approved' && !input.reason?.trim()) {
+      throw new AppError(
+        'A review reason is required',
+        400,
+        'REASON_REQUIRED',
+      );
+    }
+    user.verification.status = input.status;
+    user.verification.tier =
+      input.status === 'approved' ? (input.tier ?? 'basic') : 'none';
+    user.verification.reason = input.reason?.trim() ?? '';
+    user.verification.reviewedAt = new Date();
+    user.verification.reviewedBy = identity.authId;
+    user.verification.ocrResult = {
+      status: 'reviewed',
+      nameMatch: 'matched',
+      documentNumber: '******-**-****',
+      confidence: 0.94,
+    };
+    await user.save();
+    if (user.roles.includes('owner')) {
+      await ListingModel.updateMany(
+        { ownerId: user.authId },
+        { verified: input.status === 'approved' },
+      );
+    }
+    await Promise.all([
+      adminModule.service.create({
+        actorId: identity.authId,
+        action: `verification.${input.status}`,
+        targetType: 'user',
+        targetId: user.authId,
+        metadata: {
+          tier: user.verification.tier,
+          reason: user.verification.reason,
+        },
+        createdBy: identity.authId,
+      }),
+      notifyUser({
+        userId: user.authId,
+        category: 'verification',
+        type: `verification_${input.status}`,
+        title:
+          input.status === 'approved'
+            ? 'Identity verification approved'
+            : 'Identity verification needs attention',
+        body:
+          input.status === 'approved'
+            ? `Your ${user.verification.tier} verification is active.`
+            : user.verification.reason,
+        entityType: 'user',
+        entityId: user.authId,
+      }),
+    ]);
     return user;
   },
 

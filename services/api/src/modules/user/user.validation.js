@@ -2,6 +2,7 @@ import { body, param, query } from 'express-validator';
 import {
   ACCOUNT_STATUSES,
   USER_ROLES,
+  VERIFICATION_STATUSES,
 } from './user.model.js';
 
 const userId = param('id')
@@ -43,6 +44,21 @@ export const profileValidation = [
 
 export const roleValidation = [body('role').isIn(USER_ROLES)];
 
+export const verificationSubmissionValidation = [
+  body().custom((value) => {
+    const allowed = new Set(['documentType', 'documentRefs']);
+    const unknown = Object.keys(value).filter((field) => !allowed.has(field));
+    if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
+    return true;
+  }),
+  body('documentType').isIn(['mykad', 'passport']),
+  body('documentRefs').isArray({ min: 1, max: 2 }),
+  body('documentRefs.*')
+    .trim()
+    .matches(/^local:\/\/[a-z\d/_-]+\.(?:jpg|jpeg|png)$/i)
+    .withMessage('Only local placeholder image references are supported'),
+];
+
 export const targetUserValidation = [
   param('userId')
     .trim()
@@ -63,5 +79,16 @@ export const listValidation = [
 export const accountStatusValidation = [
   userId,
   body('status').isIn(ACCOUNT_STATUSES),
+  body('reason').optional().trim().isLength({ max: 500 }),
+];
+
+export const verificationDecisionValidation = [
+  ...targetUserValidation,
+  body('status').isIn(
+    VERIFICATION_STATUSES.filter((status) =>
+      ['approved', 'rejected', 'resubmission_required'].includes(status),
+    ),
+  ),
+  body('tier').optional().isIn(['basic', 'enhanced']),
   body('reason').optional().trim().isLength({ max: 500 }),
 ];

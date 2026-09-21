@@ -7,6 +7,12 @@ const publicFields =
 export const userRepository = {
   findByAuthId: (authId) => UserModel.findOne({ authId }),
 
+  findById(id) {
+    const identifiers = [{ authId: id }];
+    if (mongoose.isValidObjectId(id)) identifiers.push({ _id: id });
+    return UserModel.findOne({ $or: identifiers });
+  },
+
   findPublicById(id) {
     const identifiers = [{ authId: id }];
     if (mongoose.isValidObjectId(id)) identifiers.push({ _id: id });

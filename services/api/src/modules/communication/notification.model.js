@@ -8,6 +8,7 @@ export const NOTIFICATION_CATEGORIES = [
   'review',
   'dispute',
   'loyalty',
+  'verification',
 ];
 
 const notificationSchema = new mongoose.Schema(
@@ -36,6 +37,7 @@ const notificationSchema = new mongoose.Schema(
         'claim',
         'reward',
         'referral',
+        'user',
       ],
       required: true,
     },

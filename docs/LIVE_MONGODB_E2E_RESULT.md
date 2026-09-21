@@ -71,7 +71,7 @@ database: up / connected
 The principal renter/Owner lifecycle above is live. RentHub is not yet fully live in every UI area:
 
 - Login and registration use the development header identity adapter. Passwords are not authenticated and Auth0/JWT is not integrated.
-- The live profile page is read-only. Profile editing, addresses, identity verification, settings, help, and support remain in the mock UI or are not exposed by the live shell.
+- Profile editing, saved addresses, notification preferences, and identity-verification status are now connected to MongoDB in the final live renter and Owner shells. Real document upload remains deferred; the development verification flow stores local placeholder references and OCR-result placeholders.
 - The administrator Verification destination is explicitly deferred in live mode.
 - The live Reports destination currently covers persistent reported messages, not the full analytics/reporting scope.
 - Platform Settings currently persists loyalty/referral rules only; categories, policies, notification templates, verification thresholds, and content settings remain deferred.
@@ -120,4 +120,4 @@ The web compiler continues to report the existing upstream Socket.IO WebAssembly
 
 ## H. Next step
 
-The next product implementation should connect profile editing, saved addresses, settings, and identity-verification status to the final live renter/Owner UI. Separately, configure either a persistent local MongoDB instance or an ignored Atlas `MONGODB_URI`, enable a controllable browser, and repeat the same write/restart/read scenario manually from the final screens.
+The next product implementation should connect Owner availability, promotions, and bundle management to the final live UI. Separately, configure either a persistent local MongoDB instance or an ignored Atlas `MONGODB_URI`, enable a controllable browser, and repeat the write/restart/read scenario manually from the final screens.

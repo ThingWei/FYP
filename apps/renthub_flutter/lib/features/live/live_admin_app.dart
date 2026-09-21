@@ -126,6 +126,7 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
 
   Widget _page(int index) => switch (index) {
         0 => const _AdminDashboard(),
+        1 => const _AdminVerification(),
         2 => const _AdminUsers(),
         3 => const _AdminListings(),
         4 => const _AdminBookingsTransactions(),
@@ -258,6 +259,192 @@ class _AdminMetric extends StatelessWidget {
           ),
         ),
       );
+}
+
+class _AdminVerification extends StatelessWidget {
+  const _AdminVerification();
+
+  Future<void> _review(
+    BuildContext context,
+    Map<String, dynamic> user,
+    String status,
+  ) async {
+    final reason = TextEditingController();
+    var tier = 'basic';
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            status == 'approved'
+                ? 'Approve identity?'
+                : status == 'rejected'
+                    ? 'Reject identity?'
+                    : 'Request resubmission?',
+          ),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(user['displayName'] as String),
+                const SizedBox(height: 12),
+                if (status == 'approved')
+                  DropdownButtonFormField<String>(
+                    initialValue: tier,
+                    decoration:
+                        const InputDecoration(labelText: 'Verification tier'),
+                    items: const [
+                      DropdownMenuItem(value: 'basic', child: Text('Basic')),
+                      DropdownMenuItem(
+                        value: 'enhanced',
+                        child: Text('Enhanced'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => tier = value ?? 'basic'),
+                  )
+                else
+                  TextField(
+                    controller: reason,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Required reason',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted != true || !context.mounted) {
+      reason.dispose();
+      return;
+    }
+    if (status != 'approved' && reason.text.trim().length < 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a review reason.')),
+      );
+      reason.dispose();
+      return;
+    }
+    try {
+      await context.read<LiveRentHubController>().reviewIdentityVerification(
+            user['_id'].toString(),
+            status,
+            tier: tier,
+            reason: reason.text,
+          );
+    } catch (exception) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+    reason.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final users = context.watch<LiveRentHubController>().users;
+    final pending = users.where((user) {
+      final verification = user['verification'] as Map<String, dynamic>?;
+      return verification?['status'] == 'pending';
+    }).toList();
+    if (pending.isEmpty) {
+      return const RentHubFeedbackState(
+        kind: FeedbackKind.empty,
+        title: 'Verification queue is clear',
+        message: 'New identity submissions will appear here.',
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(24),
+      itemCount: pending.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final user = pending[index];
+        final verification =
+            user['verification'] as Map<String, dynamic>? ?? const {};
+        final references =
+            (verification['documentRefs'] as List?)?.cast<String>() ?? const [];
+        final ocr =
+            verification['ocrResult'] as Map<String, dynamic>? ?? const {};
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const CircleAvatar(
+                      child: Icon(Icons.person_search_outlined),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            user['displayName'] as String,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          Text(
+                            '${verification['documentType'] ?? 'Document'} | ${references.length} placeholder image(s)',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const StatusBadge('pending'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'OCR: ${ocr['status'] ?? 'pending'} | Name match: ${ocr['nameMatch'] ?? 'pending'}',
+                ),
+                const SizedBox(height: 4),
+                for (final reference in references)
+                  Text(reference, style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () =>
+                          _review(context, user, 'resubmission_required'),
+                      child: const Text('Request Resubmission'),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => _review(context, user, 'rejected'),
+                      child: const Text('Reject'),
+                    ),
+                    FilledButton(
+                      onPressed: () => _review(context, user, 'approved'),
+                      child: const Text('Approve'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _AdminUsers extends StatelessWidget {

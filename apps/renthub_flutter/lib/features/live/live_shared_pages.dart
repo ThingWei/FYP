@@ -513,6 +513,8 @@ class _LiveNotificationsPageState extends State<LiveNotificationsPage> {
                                       'review' => Icons.star_outline,
                                       'dispute' => Icons.gavel_outlined,
                                       'loyalty' => Icons.card_giftcard_outlined,
+                                      'verification' =>
+                                        Icons.verified_user_outlined,
                                       _ => Icons.receipt_long_outlined,
                                     },
                                     color: AppColors.primaryDark,
@@ -599,6 +601,69 @@ class LiveProfilePage extends StatelessWidget {
                   const Text('Profile and activity are stored in MongoDB.'),
             ),
             ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit profile'),
+              subtitle: Text(profile?.phone.isEmpty ?? true
+                  ? 'Add your phone number'
+                  : profile!.phone),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: profile == null
+                  ? null
+                  : () => Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => _LiveEditProfilePage(profile),
+                        ),
+                      ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.verified_user_outlined),
+              title: const Text('Identity verification'),
+              subtitle: Text(
+                '${profile?.verificationStatus.replaceAll('_', ' ') ?? 'unverified'}'
+                '${profile?.verificationTier == 'none' ? '' : ' | ${profile?.verificationTier}'}',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const _LiveVerificationPage(),
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.location_on_outlined),
+              title: const Text('Saved addresses'),
+              subtitle: Text(
+                profile?.addresses.isEmpty ?? true
+                    ? 'No saved addresses'
+                    : '${profile!.addresses.length} saved | ${profile.addresses.where((item) => item.isDefault).firstOrNull?.label ?? 'No default'}',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const _LiveAddressesPage(),
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: const Text('Application settings'),
+              subtitle: Text(
+                '${profile?.language == 'ms' ? 'Bahasa Melayu' : 'English'} | Notification preferences',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: profile == null
+                  ? null
+                  : () => Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => _LiveSettingsPage(profile),
+                        ),
+                      ),
+            ),
+            ListTile(
               leading: const Icon(Icons.card_giftcard_outlined),
               title: const Text('Loyalty & Referrals'),
               subtitle: Text(
@@ -623,6 +688,473 @@ class LiveProfilePage extends StatelessWidget {
               icon: const Icon(Icons.logout),
               label: const Text('Log Out'),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LiveEditProfilePage extends StatefulWidget {
+  const _LiveEditProfilePage(this.user);
+
+  final User user;
+
+  @override
+  State<_LiveEditProfilePage> createState() => _LiveEditProfilePageState();
+}
+
+class _LiveEditProfilePageState extends State<_LiveEditProfilePage> {
+  final formKey = GlobalKey<FormState>();
+  late final name = TextEditingController(text: widget.user.name);
+  late final phone = TextEditingController(text: widget.user.phone);
+  bool saving = false;
+
+  @override
+  void dispose() {
+    name.dispose();
+    phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    setState(() => saving = true);
+    try {
+      await context.read<LiveRentHubController>().updateProfile(
+            displayName: name.text,
+            phone: phone.text,
+          );
+      if (mounted) Navigator.pop(context);
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Edit Profile')),
+        body: SafeArea(
+          child: Form(
+            key: formKey,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                TextFormField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: 'Display name'),
+                  textInputAction: TextInputAction.next,
+                  validator: (value) => (value?.trim().length ?? 0) < 2
+                      ? 'Enter at least 2 characters'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone number',
+                    hintText: '+60 12-345 6789',
+                  ),
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Email is managed by your sign-in identity and cannot be changed here.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: saving ? null : _save,
+                  child: Text(saving ? 'Saving…' : 'Save Profile'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
+class _LiveAddressesPage extends StatelessWidget {
+  const _LiveAddressesPage();
+
+  Future<void> _persist(
+    BuildContext context,
+    List<UserAddress> addresses,
+  ) async {
+    try {
+      await context.read<LiveRentHubController>().updateAddresses(addresses);
+    } catch (exception) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
+  Future<void> _add(BuildContext context) async {
+    final formKey = GlobalKey<FormState>();
+    final label = TextEditingController(text: 'Home');
+    final line1 = TextEditingController();
+    final city = TextEditingController();
+    final state = TextEditingController(text: 'Selangor');
+    final postcode = TextEditingController();
+    final address = await showDialog<UserAddress>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add Malaysian address'),
+        content: SizedBox(
+          width: 440,
+          child: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final field in [
+                    (label, 'Label', TextInputType.text),
+                    (line1, 'Address line', TextInputType.streetAddress),
+                    (city, 'City', TextInputType.text),
+                    (state, 'State', TextInputType.text),
+                    (postcode, 'Postcode', TextInputType.number),
+                  ]) ...[
+                    TextFormField(
+                      controller: field.$1,
+                      decoration: InputDecoration(labelText: field.$2),
+                      keyboardType: field.$3,
+                      validator: (value) {
+                        if (value?.trim().isEmpty ?? true) {
+                          return '${field.$2} is required';
+                        }
+                        if (field.$2 == 'Postcode' &&
+                            !RegExp(r'^\d{5}$').hasMatch(value!.trim())) {
+                          return 'Enter a 5-digit postcode';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (!(formKey.currentState?.validate() ?? false)) return;
+              Navigator.pop(
+                dialogContext,
+                UserAddress(
+                  label: label.text.trim(),
+                  line1: line1.text.trim(),
+                  city: city.text.trim(),
+                  state: state.text.trim(),
+                  postcode: postcode.text.trim(),
+                ),
+              );
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    for (final controller in [label, line1, city, state, postcode]) {
+      controller.dispose();
+    }
+    if (address == null || !context.mounted) return;
+    final existing = context.read<LiveRentHubController>().profile!.addresses;
+    final added = address.copyWith(isDefault: existing.isEmpty);
+    await _persist(context, [...existing, added]);
+  }
+
+  Future<void> _setDefault(BuildContext context, int index) async {
+    final addresses = context
+        .read<LiveRentHubController>()
+        .profile!
+        .addresses
+        .indexed
+        .map((entry) => entry.$2.copyWith(isDefault: entry.$1 == index))
+        .toList();
+    await _persist(context, addresses);
+  }
+
+  Future<void> _remove(BuildContext context, int index) async {
+    final accepted = await confirmAction(
+      context,
+      title: 'Remove saved address?',
+      message: 'This address will be removed from your RentHub profile.',
+      action: 'Remove',
+      destructive: true,
+    );
+    if (!accepted || !context.mounted) return;
+    final addresses = [
+      ...context.read<LiveRentHubController>().profile!.addresses,
+    ]..removeAt(index);
+    if (addresses.isNotEmpty && !addresses.any((item) => item.isDefault)) {
+      addresses[0] = addresses[0].copyWith(isDefault: true);
+    }
+    await _persist(context, addresses);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final addresses =
+        context.watch<LiveRentHubController>().profile?.addresses ?? const [];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Saved Addresses')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _add(context),
+        icon: const Icon(Icons.add),
+        label: const Text('Add Address'),
+      ),
+      body: SafeArea(
+        child: addresses.isEmpty
+            ? const RentHubFeedbackState(
+                kind: FeedbackKind.empty,
+                title: 'No saved addresses',
+                message: 'Add an address for delivery and service bookings.',
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                itemCount: addresses.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final address = addresses[index];
+                  return Card(
+                    child: ListTile(
+                      leading: Icon(
+                        address.isDefault
+                            ? Icons.home
+                            : Icons.location_on_outlined,
+                      ),
+                      title: Text(address.label),
+                      subtitle: Text(
+                        '${address.line1}\n${address.postcode} ${address.city}, ${address.state}',
+                      ),
+                      isThreeLine: true,
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (action) => action == 'default'
+                            ? _setDefault(context, index)
+                            : _remove(context, index),
+                        itemBuilder: (_) => [
+                          if (!address.isDefault)
+                            const PopupMenuItem(
+                              value: 'default',
+                              child: Text('Set as default'),
+                            ),
+                          const PopupMenuItem(
+                            value: 'remove',
+                            child: Text('Remove'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
+class _LiveSettingsPage extends StatefulWidget {
+  const _LiveSettingsPage(this.user);
+
+  final User user;
+
+  @override
+  State<_LiveSettingsPage> createState() => _LiveSettingsPageState();
+}
+
+class _LiveSettingsPageState extends State<_LiveSettingsPage> {
+  late String language = widget.user.language;
+  late bool push = widget.user.pushNotifications;
+  late bool email = widget.user.emailNotifications;
+  bool saving = false;
+
+  Future<void> _save() async {
+    setState(() => saving = true);
+    try {
+      await context.read<LiveRentHubController>().updateAccountSettings(
+            language: language,
+            pushNotifications: push,
+            emailNotifications: email,
+          );
+      if (mounted) Navigator.pop(context);
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Application Settings')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: language,
+                decoration: const InputDecoration(labelText: 'Language'),
+                items: const [
+                  DropdownMenuItem(value: 'en', child: Text('English')),
+                  DropdownMenuItem(
+                    value: 'ms',
+                    child: Text('Bahasa Melayu'),
+                  ),
+                ],
+                onChanged: (value) => setState(() => language = value ?? 'en'),
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                value: push,
+                title: const Text('Push notifications'),
+                subtitle: const Text('Booking, message and rental updates'),
+                onChanged: (value) => setState(() => push = value),
+              ),
+              SwitchListTile(
+                value: email,
+                title: const Text('Email notifications'),
+                subtitle: const Text('Important account and payment updates'),
+                onChanged: (value) => setState(() => email = value),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: saving ? null : _save,
+                child: Text(saving ? 'Saving…' : 'Save Settings'),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _LiveVerificationPage extends StatefulWidget {
+  const _LiveVerificationPage();
+
+  @override
+  State<_LiveVerificationPage> createState() => _LiveVerificationPageState();
+}
+
+class _LiveVerificationPageState extends State<_LiveVerificationPage> {
+  String documentType = 'mykad';
+  bool submitting = false;
+
+  Future<void> _submit() async {
+    setState(() => submitting = true);
+    try {
+      await context
+          .read<LiveRentHubController>()
+          .submitIdentityVerification(documentType);
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = context.watch<LiveRentHubController>().profile;
+    final status = profile?.verificationStatus ?? 'unverified';
+    final canSubmit = const [
+      'unverified',
+      'rejected',
+      'resubmission_required',
+    ].contains(status);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Identity Verification')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.verified_user_outlined,
+                      size: 48,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(height: 12),
+                    StatusBadge(status.replaceAll('_', ' ')),
+                    if (profile?.verificationTier != 'none') ...[
+                      const SizedBox(height: 8),
+                      Text('${profile?.verificationTier} verification tier'),
+                    ],
+                    if (profile?.verificationReason.isNotEmpty ?? false) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        profile!.verificationReason,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (canSubmit) ...[
+              DropdownButtonFormField<String>(
+                initialValue: documentType,
+                decoration: const InputDecoration(labelText: 'Document type'),
+                items: const [
+                  DropdownMenuItem(value: 'mykad', child: Text('MyKad')),
+                  DropdownMenuItem(value: 'passport', child: Text('Passport')),
+                ],
+                onChanged: (value) =>
+                    setState(() => documentType = value ?? 'mykad'),
+              ),
+              const SizedBox(height: 16),
+              const ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.image_outlined),
+                title: Text('Document image placeholders'),
+                subtitle: Text(
+                  'This development flow stores local placeholder references only. No real identity image is uploaded.',
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: submitting ? null : _submit,
+                icon: const Icon(Icons.upload_file_outlined),
+                label: Text(
+                  submitting ? 'Submitting…' : 'Submit for Review',
+                ),
+              ),
+            ] else if (status == 'pending')
+              const RentHubFeedbackState(
+                kind: FeedbackKind.loading,
+                title: 'Review in progress',
+                message:
+                    'An administrator will review the placeholder OCR result and document references.',
+              )
+            else
+              const RentHubFeedbackState(
+                kind: FeedbackKind.success,
+                title: 'Identity verified',
+                message: 'Your verification badge is active across RentHub.',
+              ),
           ],
         ),
       ),

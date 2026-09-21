@@ -72,8 +72,24 @@ const userSchema = new mongoose.Schema(
         default: 'unverified',
       },
       tier: { type: String, enum: ['none', 'basic', 'enhanced'], default: 'none' },
+      documentType: {
+        type: String,
+        enum: ['mykad', 'passport'],
+        default: undefined,
+      },
+      documentRefs: {
+        type: [String],
+        default: [],
+        validate: {
+          validator: (references) => references.length <= 2,
+          message: 'A maximum of two identity-document references is allowed',
+        },
+      },
+      ocrResult: { type: mongoose.Schema.Types.Mixed, default: {} },
+      reason: { type: String, trim: true, maxlength: 500, default: '' },
       submittedAt: Date,
       reviewedAt: Date,
+      reviewedBy: { type: String, trim: true, default: '' },
     },
     addresses: {
       type: [addressSchema],

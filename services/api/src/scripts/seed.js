@@ -54,7 +54,21 @@ const users = [
     roles: ['renter', 'owner'],
     activeRole: 'renter',
     trustScore: 94,
-    verification: { status: 'pending', tier: 'basic' },
+    verification: {
+      status: 'pending',
+      tier: 'none',
+      documentType: 'mykad',
+      documentRefs: [
+        'local://verification/nur-izzati-mykad-front.jpg',
+        'local://verification/nur-izzati-mykad-back.jpg',
+      ],
+      ocrResult: {
+        status: 'pending_review',
+        nameMatch: 'pending',
+        documentNumber: '******-**-****',
+      },
+      submittedAt: new Date('2026-09-18T04:00:00.000Z'),
+    },
   },
   {
     authId: 'u-admin',

@@ -9,6 +9,8 @@ import {
   publicUserValidation,
   roleValidation,
   targetUserValidation,
+  verificationDecisionValidation,
+  verificationSubmissionValidation,
 } from './user.validation.js';
 
 export const userRouter = Router();
@@ -28,6 +30,13 @@ userRouter.patch(
   roleValidation,
   validate,
   userController.selectRole,
+);
+userRouter.post(
+  '/me/verification',
+  authenticate,
+  verificationSubmissionValidation,
+  validate,
+  userController.submitVerification,
 );
 userRouter.post(
   '/me/blocked-users/:userId',
@@ -56,6 +65,14 @@ userRouter.get(
   listValidation,
   validate,
   userController.list,
+);
+userRouter.patch(
+  '/:userId/verification',
+  authenticate,
+  authorize('admin'),
+  verificationDecisionValidation,
+  validate,
+  userController.reviewVerification,
 );
 userRouter.patch(
   '/:id/status',

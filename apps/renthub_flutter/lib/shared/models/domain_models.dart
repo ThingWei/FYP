@@ -1,5 +1,50 @@
 enum UserRole { renter, owner, admin }
 
+class UserAddress {
+  const UserAddress({
+    required this.label,
+    required this.line1,
+    required this.city,
+    required this.state,
+    required this.postcode,
+    this.line2 = '',
+    this.isDefault = false,
+  });
+
+  final String label, line1, line2, city, state, postcode;
+  final bool isDefault;
+
+  factory UserAddress.fromJson(Map<String, dynamic> json) => UserAddress(
+        label: json['label'] as String,
+        line1: json['line1'] as String,
+        line2: json['line2'] as String? ?? '',
+        city: json['city'] as String,
+        state: json['state'] as String,
+        postcode: json['postcode'] as String,
+        isDefault: json['isDefault'] as bool? ?? false,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'line1': line1,
+        if (line2.isNotEmpty) 'line2': line2,
+        'city': city,
+        'state': state,
+        'postcode': postcode,
+        'isDefault': isDefault,
+      };
+
+  UserAddress copyWith({bool? isDefault}) => UserAddress(
+        label: label,
+        line1: line1,
+        line2: line2,
+        city: city,
+        state: state,
+        postcode: postcode,
+        isDefault: isDefault ?? this.isDefault,
+      );
+}
+
 class User {
   const User({
     required this.id,
@@ -7,20 +52,49 @@ class User {
     required this.name,
     required this.roles,
     this.trustScore = 0,
+    this.phone = '',
+    this.verificationStatus = 'unverified',
+    this.verificationTier = 'none',
+    this.verificationReason = '',
+    this.addresses = const [],
+    this.language = 'en',
+    this.pushNotifications = true,
+    this.emailNotifications = true,
   });
-  final String id, email, name;
+  final String id, email, name, phone;
+  final String verificationStatus, verificationTier, verificationReason;
   final Set<UserRole> roles;
   final double trustScore;
+  final List<UserAddress> addresses;
+  final String language;
+  final bool pushNotifications, emailNotifications;
 
-  factory User.fromJson(Map<String, dynamic> json) => User(
-        id: (json['authId'] ?? json['id'] ?? json['_id']) as String,
-        email: json['email'] as String? ?? '',
-        name: json['displayName'] as String? ?? json['name'] as String,
-        roles: ((json['roles'] as List?) ?? const ['renter'])
-            .map((role) => UserRole.values.byName(role as String))
-            .toSet(),
-        trustScore: (json['trustScore'] as num?)?.toDouble() ?? 0,
-      );
+  factory User.fromJson(Map<String, dynamic> json) {
+    final verification =
+        json['verification'] as Map<String, dynamic>? ?? const {};
+    final settings = json['settings'] as Map<String, dynamic>? ?? const {};
+    return User(
+      id: (json['authId'] ?? json['id'] ?? json['_id']) as String,
+      email: json['email'] as String? ?? '',
+      name: json['displayName'] as String? ?? json['name'] as String,
+      roles: ((json['roles'] as List?) ?? const ['renter'])
+          .map((role) => UserRole.values.byName(role as String))
+          .toSet(),
+      trustScore: (json['trustScore'] as num?)?.toDouble() ?? 0,
+      phone: json['phone'] as String? ?? '',
+      verificationStatus: verification['status'] as String? ?? 'unverified',
+      verificationTier: verification['tier'] as String? ?? 'none',
+      verificationReason: verification['reason'] as String? ?? '',
+      addresses: ((json['addresses'] as List?) ?? const [])
+          .map(
+            (address) => UserAddress.fromJson(address as Map<String, dynamic>),
+          )
+          .toList(),
+      language: settings['language'] as String? ?? 'en',
+      pushNotifications: settings['pushNotifications'] as bool? ?? true,
+      emailNotifications: settings['emailNotifications'] as bool? ?? true,
+    );
+  }
 }
 
 class Listing {
