@@ -299,3 +299,51 @@ test('stores validated availability and excludes conflicting date ranges', async
   assert.equal(details.status, 200);
   assert.equal(details.body.data.unavailableRanges.length, 1);
 });
+
+test('manages active promotions and physical-item bundle offers', async () => {
+  await startOwner();
+  const camera = await activeListing({ publicId: 'l-camera' });
+  await activeListing({
+    publicId: 'l-tripod',
+    title: 'Professional Camera Tripod',
+    dailyPrice: 25,
+  });
+
+  const promoted = await request(app)
+    .put(`/api/v1/listings/${camera.publicId}/promotion`)
+    .set(ownerHeaders)
+    .send({
+      label: 'Production Week Deal',
+      discountPercent: 20,
+      startsAt: '2020-01-01T00:00:00.000Z',
+      endsAt: '2035-01-01T00:00:00.000Z',
+    });
+  assert.equal(promoted.status, 200);
+  assert.equal(promoted.body.data.promotionActive, true);
+  assert.equal(promoted.body.data.effectiveDailyPrice, 68);
+
+  const bundled = await request(app)
+    .put(`/api/v1/listings/${camera.publicId}/bundle`)
+    .set(ownerHeaders)
+    .send({
+      title: 'Camera Production Kit',
+      listingIds: ['l-camera', 'l-tripod'],
+      discountPercent: 10,
+    });
+  assert.equal(bundled.status, 200);
+  assert.deepEqual(bundled.body.data.bundleOffer.listingIds, [
+    'l-camera',
+    'l-tripod',
+  ]);
+
+  const publicListing = await request(app).get('/api/v1/listings/l-camera');
+  assert.equal(publicListing.body.data.promotion.label, 'Production Week Deal');
+  assert.equal(publicListing.body.data.bundleOffer.title, 'Camera Production Kit');
+
+  const cleared = await request(app)
+    .delete(`/api/v1/listings/${camera.publicId}/promotion`)
+    .set(ownerHeaders);
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.data.promotion, undefined);
+  assert.equal(cleared.body.data.effectiveDailyPrice, 85);
+});

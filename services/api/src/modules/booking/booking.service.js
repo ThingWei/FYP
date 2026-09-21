@@ -87,9 +87,23 @@ function bookingDates(listing, input) {
   return { startDate, endDate };
 }
 
+function effectiveDailyPrice(listing) {
+  const promotion = listing.promotion;
+  const now = new Date();
+  if (
+    promotion?.enabled &&
+    promotion.startsAt <= now &&
+    promotion.endsAt >= now
+  ) {
+    return money(listing.dailyPrice * (1 - promotion.discountPercent / 100));
+  }
+  return listing.dailyPrice;
+}
+
 function pricing(listing, startDate, endDate, waiverSelected) {
+  const dailyPrice = effectiveDailyPrice(listing);
   if (listing.listingType === 'service') {
-    const baseAmount = money(listing.dailyPrice);
+    const baseAmount = money(dailyPrice);
     const platformFee = money(baseAmount * 0.05);
     return {
       baseAmount,
@@ -101,7 +115,7 @@ function pricing(listing, startDate, endDate, waiverSelected) {
     };
   }
   const rentalDays = Math.floor((endDate - startDate) / dayMs) + 1;
-  const baseAmount = money(listing.dailyPrice * rentalDays);
+  const baseAmount = money(dailyPrice * rentalDays);
   const damageWaiverFee =
     waiverSelected && listing.damageWaiverAvailable
       ? money(listing.damageWaiverFee)

@@ -161,6 +161,53 @@ export const availabilityValidation = [
   body('bufferHours').optional().isInt({ min: 0, max: 168 }).toInt(),
 ];
 
+export const promotionValidation = [
+  listingId,
+  body().custom((value) => {
+    const allowed = new Set([
+      'enabled',
+      'label',
+      'discountPercent',
+      'startsAt',
+      'endsAt',
+    ]);
+    const unknown = Object.keys(value).filter((field) => !allowed.has(field));
+    if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
+    return true;
+  }),
+  body('enabled').optional().isBoolean().toBoolean(),
+  body('label').trim().isLength({ min: 2, max: 80 }),
+  body('discountPercent').isFloat({ min: 5, max: 80 }).toFloat(),
+  body('startsAt').isISO8601().toDate(),
+  body('endsAt').isISO8601().toDate(),
+  body().custom((value) => {
+    if (new Date(value.startsAt) >= new Date(value.endsAt)) {
+      throw new Error('endsAt must be after startsAt');
+    }
+    return true;
+  }),
+];
+
+export const bundleValidation = [
+  listingId,
+  body().custom((value) => {
+    const allowed = new Set([
+      'active',
+      'title',
+      'listingIds',
+      'discountPercent',
+    ]);
+    const unknown = Object.keys(value).filter((field) => !allowed.has(field));
+    if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
+    return true;
+  }),
+  body('active').optional().isBoolean().toBoolean(),
+  body('title').trim().isLength({ min: 3, max: 100 }),
+  body('listingIds').isArray({ min: 2, max: 5 }),
+  body('listingIds.*').matches(/^l-[a-z\d-]+$/i),
+  body('discountPercent').isFloat({ min: 5, max: 50 }).toFloat(),
+];
+
 export const moderationValidation = [
   listingId,
   body('status').isIn(['active', 'rejected']),

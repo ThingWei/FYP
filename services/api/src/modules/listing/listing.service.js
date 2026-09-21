@@ -3,6 +3,7 @@ import { UserModel } from '../user/user.model.js';
 import {
   LISTING_CATEGORIES,
   LISTING_STATUSES,
+  ListingModel,
 } from './listing.model.js';
 import { listingRepository } from './listing.repository.js';
 
@@ -235,5 +236,74 @@ export const listingService = {
       identity.authId,
       data,
     );
+  },
+
+  async setPromotion(id, input, identity) {
+    const listing = await requireOwnedListing(id, identity);
+    listing.promotion = {
+      enabled: input.enabled ?? true,
+      label: input.label,
+      discountPercent: input.discountPercent,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+    };
+    listing.promoted = input.enabled ?? true;
+    await listing.save();
+    return listing;
+  },
+
+  async clearPromotion(id, identity) {
+    const listing = await requireOwnedListing(id, identity);
+    listing.promotion = undefined;
+    listing.promoted = false;
+    await listing.save();
+    return listing;
+  },
+
+  async setBundle(id, input, identity) {
+    const listing = await requireOwnedListing(id, identity);
+    if (listing.listingType !== 'physical') {
+      throw new AppError(
+        'Only physical items can use bundles',
+        400,
+        'INVALID_BUNDLE_TYPE',
+      );
+    }
+    const listingIds = [...new Set(input.listingIds)];
+    if (!listingIds.includes(listing.publicId)) {
+      throw new AppError(
+        'Bundle must include the selected listing',
+        400,
+        'INVALID_BUNDLE',
+      );
+    }
+    const ownedItems = await ListingModel.find({
+      publicId: { $in: listingIds },
+      ownerId: identity.authId,
+      listingType: 'physical',
+      status: 'active',
+    }).select('publicId');
+    if (ownedItems.length !== listingIds.length) {
+      throw new AppError(
+        'Every bundle item must be an active physical listing owned by you',
+        400,
+        'INVALID_BUNDLE_ITEMS',
+      );
+    }
+    listing.bundleOffer = {
+      active: input.active ?? true,
+      title: input.title,
+      listingIds,
+      discountPercent: input.discountPercent,
+    };
+    await listing.save();
+    return listing;
+  },
+
+  async clearBundle(id, identity) {
+    const listing = await requireOwnedListing(id, identity);
+    listing.bundleOffer = undefined;
+    await listing.save();
+    return listing;
   },
 };

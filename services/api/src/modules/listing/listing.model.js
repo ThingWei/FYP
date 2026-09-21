@@ -31,6 +31,35 @@ const serviceDetailsSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const promotionSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: true },
+    label: { type: String, required: true, trim: true, maxlength: 80 },
+    discountPercent: { type: Number, required: true, min: 5, max: 80 },
+    startsAt: { type: Date, required: true },
+    endsAt: { type: Date, required: true },
+  },
+  { _id: false },
+);
+
+const bundleOfferSchema = new mongoose.Schema(
+  {
+    active: { type: Boolean, default: true },
+    title: { type: String, required: true, trim: true, maxlength: 100 },
+    listingIds: {
+      type: [{ type: String, match: /^l-[a-z0-9-]+$/i }],
+      required: true,
+      validate: {
+        validator: (ids) =>
+          ids.length >= 2 && ids.length <= 5 && new Set(ids).size === ids.length,
+        message: 'A bundle requires 2 to 5 unique listings',
+      },
+    },
+    discountPercent: { type: Number, required: true, min: 5, max: 50 },
+  },
+  { _id: false },
+);
+
 const listingSchema = new mongoose.Schema(
   {
     publicId: {
@@ -81,6 +110,8 @@ const listingSchema = new mongoose.Schema(
     status: { type: String, enum: LISTING_STATUSES, default: 'draft', index: true },
     moderationReason: { type: String, trim: true, maxlength: 500, default: '' },
     promoted: { type: Boolean, default: false },
+    promotion: { type: promotionSchema, default: undefined },
+    bundleOffer: { type: bundleOfferSchema, default: undefined },
   },
   {
     timestamps: true,
@@ -90,6 +121,18 @@ const listingSchema = new mongoose.Schema(
       transform: (_document, value) => {
         value.id = value.publicId;
         value.isService = value.listingType === 'service';
+        const now = Date.now();
+        const promotionActive = Boolean(
+          value.promotion?.enabled &&
+            new Date(value.promotion.startsAt).getTime() <= now &&
+            new Date(value.promotion.endsAt).getTime() >= now,
+        );
+        value.promotionActive = promotionActive;
+        value.effectiveDailyPrice = promotionActive
+          ? Math.round(
+              value.dailyPrice * (1 - value.promotion.discountPercent / 100) * 100,
+            ) / 100
+          : value.dailyPrice;
         delete value._id;
         delete value.__v;
         return value;
@@ -126,6 +169,16 @@ listingSchema.pre('validate', function validateListingType() {
     this.damageWaiverAvailable = false;
     this.damageWaiverFee = 0;
     this.fulfilmentMethods = [];
+  }
+  if (this.promotion?.startsAt >= this.promotion?.endsAt) {
+    this.invalidate('promotion.endsAt', 'Promotion end must be after its start');
+  }
+  if (this.bundleOffer) {
+    if (this.listingType !== 'physical') {
+      this.invalidate('bundleOffer', 'Only physical items can use bundles');
+    } else if (!this.bundleOffer.listingIds.includes(this.publicId)) {
+      this.invalidate('bundleOffer.listingIds', 'Bundle must include this listing');
+    }
   }
 });
 

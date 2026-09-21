@@ -799,12 +799,87 @@ class LiveRentHubController extends ChangeNotifier {
         return listing;
       });
 
+  void _replaceOwnerListing(Listing listing) {
+    final index = ownerListings.indexWhere((item) => item.id == listing.id);
+    if (index >= 0) ownerListings[index] = listing;
+  }
+
+  Future<Listing> updateOwnerListing(
+    String id,
+    Map<String, dynamic> payload,
+  ) =>
+      _perform(() async {
+        var listing = Listing.fromJson(
+          await api.request('PATCH', '/listings/$id', body: payload)
+              as Map<String, dynamic>,
+        );
+        if (listing.status == 'draft') {
+          listing = Listing.fromJson(
+            await api.request('POST', '/listings/$id/submit')
+                as Map<String, dynamic>,
+          );
+        }
+        _replaceOwnerListing(listing);
+        return listing;
+      });
+
+  Future<Map<String, dynamic>> getListingAvailability(String id) async =>
+      await api.request('GET', '/listings/$id/availability')
+          as Map<String, dynamic>;
+
+  Future<void> saveListingAvailability(
+    String id,
+    Map<String, dynamic> payload,
+  ) =>
+      _perform(() async {
+        await api.request('PUT', '/listings/$id/availability', body: payload);
+      });
+
+  Future<void> saveListingPromotion(
+    String id,
+    Map<String, dynamic> payload,
+  ) =>
+      _perform(() async {
+        final listing = Listing.fromJson(
+          await api.request('PUT', '/listings/$id/promotion', body: payload)
+              as Map<String, dynamic>,
+        );
+        _replaceOwnerListing(listing);
+      });
+
+  Future<void> clearListingPromotion(String id) => _perform(() async {
+        final listing = Listing.fromJson(
+          await api.request('DELETE', '/listings/$id/promotion')
+              as Map<String, dynamic>,
+        );
+        _replaceOwnerListing(listing);
+      });
+
+  Future<void> saveListingBundle(
+    String id,
+    Map<String, dynamic> payload,
+  ) =>
+      _perform(() async {
+        final listing = Listing.fromJson(
+          await api.request('PUT', '/listings/$id/bundle', body: payload)
+              as Map<String, dynamic>,
+        );
+        _replaceOwnerListing(listing);
+      });
+
+  Future<void> clearListingBundle(String id) => _perform(() async {
+        final listing = Listing.fromJson(
+          await api.request('DELETE', '/listings/$id/bundle')
+              as Map<String, dynamic>,
+        );
+        _replaceOwnerListing(listing);
+      });
+
   Future<void> deactivateListing(String id) => _perform(() async {
         final listing = Listing.fromJson(
           await api.request('DELETE', '/listings/$id') as Map<String, dynamic>,
         );
-        final index = ownerListings.indexWhere((item) => item.id == id);
-        if (index >= 0) ownerListings[index] = listing;
+        _replaceOwnerListing(listing);
       });
 
   Future<void> changeAccountStatus(

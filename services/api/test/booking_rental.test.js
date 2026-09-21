@@ -196,6 +196,30 @@ test('calculates the authoritative camera total and exposes both participant vie
   assert.equal(adminBookings.body.meta.total, 1);
 });
 
+test('uses an active Owner promotion in authoritative booking pricing', async () => {
+  await ListingModel.updateOne(
+    { publicId: 'l-camera' },
+    {
+      promotion: {
+        enabled: true,
+        label: 'Production Week Deal',
+        discountPercent: 20,
+        startsAt: new Date('2020-01-01T00:00:00.000Z'),
+        endsAt: new Date('2035-01-01T00:00:00.000Z'),
+      },
+      promoted: true,
+    },
+  );
+
+  const response = await createCameraBooking({
+    idempotencyKey: 'checkout:promotion-pricing',
+  });
+
+  assert.equal(response.status, 201);
+  assert.equal(response.body.data.pricing.baseAmount, 204);
+  assert.equal(response.body.data.pricing.total, 519);
+});
+
 test('replays a booking request without duplicating records or side effects', async () => {
   const idempotencyKey = 'checkout:sequential-retry';
   const first = await createCameraBooking({ idempotencyKey });

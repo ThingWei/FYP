@@ -72,11 +72,11 @@ The principal renter/Owner lifecycle above is live. RentHub is not yet fully liv
 
 - Login and registration use the development header identity adapter. Passwords are not authenticated and Auth0/JWT is not integrated.
 - Profile editing, saved addresses, notification preferences, and identity-verification status are now connected to MongoDB in the final live renter and Owner shells. Real document upload remains deferred; the development verification flow stores local placeholder references and OCR-result placeholders.
-- The administrator Verification destination is explicitly deferred in live mode.
+- The administrator Verification destination now reviews MongoDB-backed pending identity submissions and records decisions in notifications and audit logs.
 - The live Reports destination currently covers persistent reported messages, not the full analytics/reporting scope.
 - Platform Settings currently persists loyalty/referral rules only; categories, policies, notification templates, verification thresholds, and content settings remain deferred.
 - Wishlist, listing comparison, advanced discovery/recommendations, and several rich filter behaviors remain in the mock interface rather than the final live shell.
-- Owner availability management, promotion configuration, and bundle-management lifecycle are not connected through the live controller.
+- Owner availability, listing editing/resubmission, promotion configuration, and physical-item bundle management are now connected through the live controller. Bundle checkout remains a future extension; the current renter UI presents the offer on the listing.
 - Evidence and listing images use local placeholder references. Firebase/object storage upload is not integrated.
 - Referral sharing produces a visible local action but does not invoke an operating-system share provider.
 - Maps/geospatial search, Firebase push notifications, real AI/ML inference, and real local smart-contract execution are not part of this verified path.
@@ -100,8 +100,6 @@ The E2E records listed in section C were created after seeding and were not inse
 2. **No persistent local/Atlas environment configured.** There is no `services/api/.env`, Docker is unavailable, and no local `mongod` service was running. The architecture was verified with an ephemeral local MongoDB process.
 3. **Development watcher interrupted the first attempt.** `npm.cmd run dev` watched accessed dependency files and restarted the API during concurrent Flutter requests. Running the API with `npm.cmd start` was stable. This affects the recommended E2E command, not stored data correctness.
 4. **Atlas-specific checks remain unverified.** Cluster reachability, database-user permissions, IP access rules, and Atlas database selection could not be tested without an Atlas URI.
-5. **Profile persistence is supported by the API but not by the final live profile screen.** The profile update in this test used Flutter's real `ApiClient` directly because the live page has no edit action.
-
 The earlier booking-creation idempotency gap was resolved on 20 September 2026. `POST /bookings` now requires a renter-scoped idempotency key, stores a request fingerprint, returns the original booking for a matching retry, and rejects changed input with `IDEMPOTENCY_CONFLICT`. Flutter reuses one checkout key for booking creation and payment authorization. Sequential and concurrent API tests confirm one booking, one thread, and one Owner notification.
 
 No inconsistent booking IDs, stale persisted statuses, duplicate bookings, duplicate payment authorizations, schema errors, or broken live API routes were found in the verified lifecycle.
@@ -110,7 +108,7 @@ No inconsistent booking IDs, stale persisted statuses, duplicate bookings, dupli
 
 - Live write phase: passed.
 - Separate restart/read phase: passed with the same booking ID.
-- `npm.cmd test`: 40/40 passed, including sequential replay, concurrent replay, and changed-request conflict coverage.
+- `npm.cmd test`: 43/43 passed after the Owner operations follow-up.
 - `flutter analyze`: no issues found.
 - `flutter test`: 59 passed, with the two opt-in live E2E phases skipped during the ordinary offline suite.
 - Live renter/Owner web build with `USE_MOCKS=false`: passed.
@@ -120,4 +118,4 @@ The web compiler continues to report the existing upstream Socket.IO WebAssembly
 
 ## H. Next step
 
-The next product implementation should connect Owner availability, promotions, and bundle management to the final live UI. Separately, configure either a persistent local MongoDB instance or an ignored Atlas `MONGODB_URI`, enable a controllable browser, and repeat the write/restart/read scenario manually from the final screens.
+The next product implementation should connect wishlist, comparison, and advanced discovery filters to MongoDB-backed live mode. Separately, configure either a persistent local MongoDB instance or an ignored Atlas `MONGODB_URI`, enable a controllable browser, and repeat the write/restart/read scenario manually from the final screens.

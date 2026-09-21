@@ -4,11 +4,13 @@ import { validate } from '../../middleware/validate.js';
 import { listingController } from './listing.controller.js';
 import {
   availabilityValidation,
+  bundleValidation,
   createListingValidation,
   listingIdValidation,
   listListingsValidation,
   listMineValidation,
   moderationValidation,
+  promotionValidation,
   updateListingValidation,
 } from './listing.validation.js';
 
@@ -65,6 +67,38 @@ listingRouter.get(
   listingIdValidation,
   validate,
   listingController.getAvailability,
+);
+listingRouter.put(
+  '/:id/promotion',
+  authenticate,
+  authorize('owner'),
+  promotionValidation,
+  validate,
+  listingController.setPromotion,
+);
+listingRouter.delete(
+  '/:id/promotion',
+  authenticate,
+  authorize('owner'),
+  listingIdValidation,
+  validate,
+  listingController.clearPromotion,
+);
+listingRouter.put(
+  '/:id/bundle',
+  authenticate,
+  authorize('owner'),
+  bundleValidation,
+  validate,
+  listingController.setBundle,
+);
+listingRouter.delete(
+  '/:id/bundle',
+  authenticate,
+  authorize('owner'),
+  listingIdValidation,
+  validate,
+  listingController.clearBundle,
 );
 listingRouter.post(
   '/:id/submit',

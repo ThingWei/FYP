@@ -273,13 +273,26 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                                     crossAxisAlignment:
                                         WrapCrossAlignment.center,
                                     children: [
+                                      if (listing.promotionActive)
+                                        Text(
+                                          formatMoney(listing.dailyPrice),
+                                          style: const TextStyle(
+                                            color: AppColors.secondaryText,
+                                            decoration:
+                                                TextDecoration.lineThrough,
+                                          ),
+                                        ),
                                       Text(
-                                        '${formatMoney(listing.dailyPrice)} / ${listing.priceUnit}',
+                                        '${formatMoney(listing.displayPrice)} / ${listing.priceUnit}',
                                         style: const TextStyle(
                                           color: AppColors.primaryDark,
                                           fontWeight: FontWeight.w800,
                                         ),
                                       ),
+                                      if (listing.promotionActive)
+                                        StatusBadge(
+                                          '${listing.promotionDiscountPercent.toStringAsFixed(0)}% off',
+                                        ),
                                       if (listing.verified)
                                         const Chip(
                                           avatar: Icon(
@@ -459,8 +472,8 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     final listing = widget.listing;
     final days = end.difference(start).inDays + 1;
     final estimate = listing.isService
-        ? listing.dailyPrice * 1.05
-        : listing.dailyPrice * days +
+        ? listing.displayPrice * 1.05
+        : listing.displayPrice * days +
             listing.securityDeposit +
             (waiver ? listing.damageWaiverFee : 0);
     return Scaffold(
@@ -499,6 +512,39 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               ),
             ),
             const SizedBox(height: 12),
+            if (listing.promotionActive || listing.bundleActive) ...[
+              Card(
+                color: AppColors.blueSurface,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (listing.promotionActive) ...[
+                        Text(
+                          listing.promotionLabel,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        Text(
+                          '${listing.promotionDiscountPercent.toStringAsFixed(0)}% off: ${formatMoney(listing.dailyPrice)} → ${formatMoney(listing.displayPrice)} per ${listing.priceUnit}',
+                        ),
+                      ],
+                      if (listing.bundleActive) ...[
+                        if (listing.promotionActive) const SizedBox(height: 12),
+                        Text(
+                          listing.bundleTitle,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        Text(
+                          '${listing.bundleListingIds.length} items · ${listing.bundleDiscountPercent.toStringAsFixed(0)}% bundle discount',
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),

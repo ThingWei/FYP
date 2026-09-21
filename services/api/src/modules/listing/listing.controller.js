@@ -46,6 +46,28 @@ export const listingController = {
       ),
     ),
   ),
+  setPromotion: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await listingService.setPromotion(
+        req.params.id,
+        bodyData(req),
+        req.user,
+      ),
+    ),
+  ),
+  clearPromotion: asyncHandler(async (req, res) =>
+    ok(res, await listingService.clearPromotion(req.params.id, req.user)),
+  ),
+  setBundle: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await listingService.setBundle(req.params.id, bodyData(req), req.user),
+    ),
+  ),
+  clearBundle: asyncHandler(async (req, res) =>
+    ok(res, await listingService.clearBundle(req.params.id, req.user)),
+  ),
   moderate: asyncHandler(async (req, res) =>
     ok(
       res,

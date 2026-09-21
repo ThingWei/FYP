@@ -118,6 +118,16 @@ class Listing {
     this.damageWaiverFee = 0,
     this.fulfilmentMethods = const [],
     this.serviceDurationMinutes,
+    this.promotionActive = false,
+    this.promotionLabel = '',
+    this.promotionDiscountPercent = 0,
+    this.promotionalPrice,
+    this.promotionStartsAt,
+    this.promotionEndsAt,
+    this.bundleTitle = '',
+    this.bundleListingIds = const [],
+    this.bundleDiscountPercent = 0,
+    this.bundleActive = false,
   });
   final String id, title, category, condition, ownerName, location;
   final String description, status, ownerId, priceUnit;
@@ -127,30 +137,64 @@ class Listing {
   final bool damageWaiverAvailable;
   final List<String> fulfilmentMethods;
   final int? serviceDurationMinutes;
-  factory Listing.fromJson(Map<String, dynamic> j) => Listing(
-        id: j['publicId'] ?? j['id'] ?? j['_id'],
-        title: j['title'],
-        category: j['category'],
-        dailyPrice: (j['dailyPrice'] as num).toDouble(),
-        condition: j['condition'] ?? 'Good',
-        ownerName: j['ownerName'] ?? 'RentHub Owner',
-        location: j['location'] ?? 'Kuala Lumpur',
-        verified: j['verified'] ?? false,
-        isService: j['isService'] ?? false,
-        rating: (j['rating'] as num?)?.toDouble() ?? 4.5,
-        description: j['description'] as String? ?? '',
-        status: j['status'] as String? ?? 'active',
-        ownerId: j['ownerId'] as String? ?? '',
-        priceUnit: j['priceUnit'] as String? ?? 'day',
-        securityDeposit: (j['securityDeposit'] as num?)?.toDouble() ?? 0,
-        damageWaiverAvailable: j['damageWaiverAvailable'] as bool? ?? false,
-        damageWaiverFee: (j['damageWaiverFee'] as num?)?.toDouble() ?? 0,
-        fulfilmentMethods: ((j['fulfilmentMethods'] as List?) ?? const [])
-            .map((item) => item as String)
-            .toList(),
-        serviceDurationMinutes: (j['serviceDetails']
-            as Map<String, dynamic>?)?['durationMinutes'] as int?,
-      );
+  final bool promotionActive, bundleActive;
+  final String promotionLabel, bundleTitle;
+  final double promotionDiscountPercent, bundleDiscountPercent;
+  final double? promotionalPrice;
+  final DateTime? promotionStartsAt, promotionEndsAt;
+  final List<String> bundleListingIds;
+
+  double get displayPrice => promotionalPrice ?? dailyPrice;
+
+  factory Listing.fromJson(Map<String, dynamic> j) {
+    final promotion = j['promotion'] as Map<String, dynamic>?;
+    final bundle = j['bundleOffer'] as Map<String, dynamic>?;
+    final promotionActive = j['promotionActive'] as bool? ?? false;
+    return Listing(
+      id: j['publicId'] ?? j['id'] ?? j['_id'],
+      title: j['title'],
+      category: j['category'],
+      dailyPrice: (j['dailyPrice'] as num).toDouble(),
+      condition: j['condition'] ?? 'Good',
+      ownerName: j['ownerName'] ?? 'RentHub Owner',
+      location: j['location'] ?? 'Kuala Lumpur',
+      verified: j['verified'] ?? false,
+      isService: j['isService'] ?? false,
+      rating: (j['rating'] as num?)?.toDouble() ?? 4.5,
+      description: j['description'] as String? ?? '',
+      status: j['status'] as String? ?? 'active',
+      ownerId: j['ownerId'] as String? ?? '',
+      priceUnit: j['priceUnit'] as String? ?? 'day',
+      securityDeposit: (j['securityDeposit'] as num?)?.toDouble() ?? 0,
+      damageWaiverAvailable: j['damageWaiverAvailable'] as bool? ?? false,
+      damageWaiverFee: (j['damageWaiverFee'] as num?)?.toDouble() ?? 0,
+      fulfilmentMethods: ((j['fulfilmentMethods'] as List?) ?? const [])
+          .map((item) => item as String)
+          .toList(),
+      serviceDurationMinutes: (j['serviceDetails']
+          as Map<String, dynamic>?)?['durationMinutes'] as int?,
+      promotionActive: promotionActive,
+      promotionLabel: promotion?['label'] as String? ?? '',
+      promotionDiscountPercent:
+          (promotion?['discountPercent'] as num?)?.toDouble() ?? 0,
+      promotionalPrice: promotionActive
+          ? (j['effectiveDailyPrice'] as num?)?.toDouble()
+          : null,
+      promotionStartsAt: promotion?['startsAt'] == null
+          ? null
+          : DateTime.parse(promotion!['startsAt'] as String),
+      promotionEndsAt: promotion?['endsAt'] == null
+          ? null
+          : DateTime.parse(promotion!['endsAt'] as String),
+      bundleTitle: bundle?['title'] as String? ?? '',
+      bundleListingIds: ((bundle?['listingIds'] as List?) ?? const [])
+          .map((item) => item as String)
+          .toList(),
+      bundleDiscountPercent:
+          (bundle?['discountPercent'] as num?)?.toDouble() ?? 0,
+      bundleActive: bundle?['active'] as bool? ?? false,
+    );
+  }
 }
 
 class Booking {

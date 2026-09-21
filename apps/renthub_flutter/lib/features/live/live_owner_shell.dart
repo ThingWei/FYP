@@ -389,28 +389,85 @@ class LiveOwnerListingsPage extends StatelessWidget {
                       ),
                       title: Text(listing.title),
                       subtitle: Text(
-                        '${formatMoney(listing.dailyPrice)} · ${listing.status.replaceAll('_', ' ')}',
+                        '${formatMoney(listing.dailyPrice)} · ${listing.status.replaceAll('_', ' ')}'
+                        '${listing.promotionActive ? '\n${listing.promotionLabel} · ${listing.promotionDiscountPercent.toStringAsFixed(0)}% off' : ''}'
+                        '${listing.bundleActive ? '\n${listing.bundleTitle}' : ''}',
                       ),
+                      isThreeLine:
+                          listing.promotionActive || listing.bundleActive,
                       trailing: listing.status == 'inactive'
                           ? const StatusBadge('Inactive')
                           : PopupMenuButton<String>(
                               onSelected: (value) async {
-                                if (value != 'deactivate') return;
-                                final accepted = await confirmAction(
-                                  context,
-                                  title: 'Deactivate listing?',
-                                  message:
-                                      'The listing will no longer appear in renter discovery.',
-                                  action: 'Deactivate',
-                                  destructive: true,
-                                );
-                                if (accepted && context.mounted) {
-                                  await controller
-                                      .deactivateListing(listing.id);
+                                if (value == 'edit') {
+                                  await Navigator.push<void>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => LiveListingForm(
+                                        isService: listing.isService,
+                                        listing: listing,
+                                      ),
+                                    ),
+                                  );
+                                } else if (value == 'availability') {
+                                  await Navigator.push<void>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          LiveAvailabilityPage(listing),
+                                    ),
+                                  );
+                                } else if (value == 'promotion') {
+                                  await Navigator.push<void>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          LivePromotionPage(listing),
+                                    ),
+                                  );
+                                } else if (value == 'bundle') {
+                                  await Navigator.push<void>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => LiveBundlePage(listing),
+                                    ),
+                                  );
+                                } else if (value == 'deactivate') {
+                                  final accepted = await confirmAction(
+                                    context,
+                                    title: 'Deactivate listing?',
+                                    message:
+                                        'The listing will no longer appear in renter discovery.',
+                                    action: 'Deactivate',
+                                    destructive: true,
+                                  );
+                                  if (accepted && context.mounted) {
+                                    await controller
+                                        .deactivateListing(listing.id);
+                                  }
                                 }
                               },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(
+                              itemBuilder: (_) => [
+                                if (listing.status != 'pending_review')
+                                  const PopupMenuItem(
+                                    value: 'edit',
+                                    child: Text('Edit listing'),
+                                  ),
+                                const PopupMenuItem(
+                                  value: 'availability',
+                                  child: Text('Availability'),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'promotion',
+                                  child: Text('Promotion'),
+                                ),
+                                if (!listing.isService &&
+                                    listing.status == 'active')
+                                  const PopupMenuItem(
+                                    value: 'bundle',
+                                    child: Text('Bundle offer'),
+                                  ),
+                                const PopupMenuItem(
                                   value: 'deactivate',
                                   child: Text('Deactivate'),
                                 ),
@@ -426,9 +483,14 @@ class LiveOwnerListingsPage extends StatelessWidget {
 }
 
 class LiveListingForm extends StatefulWidget {
-  const LiveListingForm({super.key, required this.isService});
+  const LiveListingForm({
+    super.key,
+    required this.isService,
+    this.listing,
+  });
 
   final bool isService;
+  final Listing? listing;
 
   @override
   State<LiveListingForm> createState() => _LiveListingFormState();
@@ -436,12 +498,21 @@ class LiveListingForm extends StatefulWidget {
 
 class _LiveListingFormState extends State<LiveListingForm> {
   final formKey = GlobalKey<FormState>();
-  final title = TextEditingController();
-  final description = TextEditingController();
-  final price = TextEditingController();
-  final location = TextEditingController(text: 'Kuala Lumpur');
-  final deposit = TextEditingController(text: '0');
-  final duration = TextEditingController(text: '60');
+  late final title = TextEditingController(text: widget.listing?.title);
+  late final description =
+      TextEditingController(text: widget.listing?.description);
+  late final price = TextEditingController(
+    text: widget.listing?.dailyPrice.toStringAsFixed(2),
+  );
+  late final location = TextEditingController(
+    text: widget.listing?.location ?? 'Kuala Lumpur',
+  );
+  late final deposit = TextEditingController(
+    text: widget.listing?.securityDeposit.toStringAsFixed(2) ?? '0',
+  );
+  late final duration = TextEditingController(
+    text: widget.listing?.serviceDurationMinutes?.toString() ?? '60',
+  );
   String category = RentHubCategories.devices;
   String condition = 'Excellent';
   bool saving = false;
@@ -449,7 +520,12 @@ class _LiveListingFormState extends State<LiveListingForm> {
   @override
   void initState() {
     super.initState();
-    if (widget.isService) category = RentHubCategories.services;
+    if (widget.isService) {
+      category = RentHubCategories.services;
+    } else if (widget.listing != null) {
+      category = widget.listing!.category;
+      condition = widget.listing!.condition;
+    }
   }
 
   @override
@@ -494,9 +570,20 @@ class _LiveListingFormState extends State<LiveListingForm> {
       },
     };
     try {
-      await context.read<LiveRentHubController>().createOwnerListing(payload);
+      if (widget.listing == null) {
+        await context.read<LiveRentHubController>().createOwnerListing(payload);
+      } else {
+        await context
+            .read<LiveRentHubController>()
+            .updateOwnerListing(widget.listing!.id, payload);
+      }
       if (!mounted) return;
-      showMockSuccess(context, 'Listing submitted for moderation');
+      showMockSuccess(
+        context,
+        widget.listing == null
+            ? 'Listing submitted for moderation'
+            : 'Changes submitted for moderation',
+      );
       Navigator.pop(context);
     } catch (exception) {
       if (mounted) {
@@ -511,7 +598,11 @@ class _LiveListingFormState extends State<LiveListingForm> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          title: Text(widget.isService ? 'Create Service' : 'Create Item'),
+          title: Text(
+            widget.listing == null
+                ? (widget.isService ? 'Create Service' : 'Create Item')
+                : 'Edit Listing',
+          ),
         ),
         body: SafeArea(
           child: Form(
@@ -615,7 +706,9 @@ class _LiveListingFormState extends State<LiveListingForm> {
                 ],
                 const SizedBox(height: 20),
                 RentHubActionButton(
-                  label: 'Save & Submit for Review',
+                  label: widget.listing == null
+                      ? 'Save & Submit for Review'
+                      : 'Save Changes & Resubmit',
                   loading: saving,
                   onPressed: saving ? null : _save,
                 ),
@@ -624,6 +717,537 @@ class _LiveListingFormState extends State<LiveListingForm> {
           ),
         ),
       );
+}
+
+class LiveAvailabilityPage extends StatefulWidget {
+  const LiveAvailabilityPage(this.listing, {super.key});
+
+  final Listing listing;
+
+  @override
+  State<LiveAvailabilityPage> createState() => _LiveAvailabilityPageState();
+}
+
+class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
+  final notice = TextEditingController(text: '0');
+  final buffer = TextEditingController(text: '0');
+  List<Map<String, dynamic>> ranges = [];
+  List<Map<String, dynamic>> weeklyHours = [];
+  bool loading = true;
+  bool saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final data = await context
+          .read<LiveRentHubController>()
+          .getListingAvailability(widget.listing.id);
+      ranges = ((data['unavailableRanges'] as List?) ?? const [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      weeklyHours = ((data['weeklyHours'] as List?) ?? const [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      notice.text = '${data['minimumNoticeHours'] ?? 0}';
+      buffer.text = '${data['bufferHours'] ?? 0}';
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    notice.dispose();
+    buffer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addRange() async {
+    final today = DateTime.now();
+    final start = await showDatePicker(
+      context: context,
+      initialDate: today.add(const Duration(days: 1)),
+      firstDate: today,
+      lastDate: today.add(const Duration(days: 730)),
+    );
+    if (start == null || !mounted) return;
+    final lastDay = await showDatePicker(
+      context: context,
+      initialDate: start,
+      firstDate: start,
+      lastDate: start.add(const Duration(days: 365)),
+    );
+    if (lastDay == null || !mounted) return;
+    final reason = TextEditingController();
+    final value = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Block these dates?'),
+        content: TextField(
+          controller: reason,
+          decoration: const InputDecoration(
+            labelText: 'Reason (optional)',
+            hintText: 'Maintenance or personal use',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, reason.text.trim()),
+            child: const Text('Block Dates'),
+          ),
+        ],
+      ),
+    );
+    reason.dispose();
+    if (value == null) return;
+    setState(() {
+      ranges.add({
+        'start': start.toUtc().toIso8601String(),
+        'end': lastDay.add(const Duration(days: 1)).toUtc().toIso8601String(),
+        'reason': value,
+      });
+      ranges.sort(
+        (left, right) => DateTime.parse(left['start'] as String)
+            .compareTo(DateTime.parse(right['start'] as String)),
+      );
+    });
+  }
+
+  Future<void> _removeRange(int index) async {
+    final accepted = await confirmAction(
+      context,
+      title: 'Remove blocked dates?',
+      message: 'Renters will be able to request these dates again.',
+      action: 'Remove',
+      destructive: true,
+    );
+    if (accepted && mounted) setState(() => ranges.removeAt(index));
+  }
+
+  Future<void> _save() async {
+    setState(() => saving = true);
+    try {
+      await context.read<LiveRentHubController>().saveListingAvailability(
+        widget.listing.id,
+        {
+          'unavailableRanges': ranges,
+          'weeklyHours': weeklyHours,
+          'minimumNoticeHours': int.tryParse(notice.text) ?? 0,
+          'bufferHours': int.tryParse(buffer.text) ?? 0,
+        },
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  String _date(String value, {bool exclusiveEnd = false}) {
+    var date = DateTime.parse(value).toLocal();
+    if (exclusiveEnd) date = date.subtract(const Duration(days: 1));
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Manage Availability')),
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.all(16),
+          child: RentHubActionButton(
+            label: 'Save Availability',
+            loading: saving,
+            onPressed: loading || saving ? null : _save,
+          ),
+        ),
+        body: loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Text(widget.listing.title,
+                      style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: notice,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Minimum notice (hours)',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: buffer,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Buffer (hours)',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('Unavailable dates',
+                            style: Theme.of(context).textTheme.titleMedium),
+                      ),
+                      TextButton.icon(
+                        onPressed: _addRange,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Block Dates'),
+                      ),
+                    ],
+                  ),
+                  if (ranges.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('No dates are currently blocked.'),
+                      ),
+                    )
+                  else
+                    for (var index = 0; index < ranges.length; index++)
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.event_busy_outlined),
+                          title: Text(
+                            '${_date(ranges[index]['start'] as String)} - ${_date(ranges[index]['end'] as String, exclusiveEnd: true)}',
+                          ),
+                          subtitle: Text(
+                            (ranges[index]['reason'] as String?)?.isEmpty ??
+                                    true
+                                ? 'Owner unavailable'
+                                : ranges[index]['reason'] as String,
+                          ),
+                          trailing: IconButton(
+                            tooltip: 'Remove blocked dates',
+                            onPressed: () => _removeRange(index),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+      );
+}
+
+class LivePromotionPage extends StatefulWidget {
+  const LivePromotionPage(this.listing, {super.key});
+
+  final Listing listing;
+
+  @override
+  State<LivePromotionPage> createState() => _LivePromotionPageState();
+}
+
+class _LivePromotionPageState extends State<LivePromotionPage> {
+  late final label = TextEditingController(
+    text: widget.listing.promotionLabel.isEmpty
+        ? 'Limited-time deal'
+        : widget.listing.promotionLabel,
+  );
+  late final discount = TextEditingController(
+    text: widget.listing.promotionDiscountPercent == 0
+        ? '10'
+        : widget.listing.promotionDiscountPercent.toStringAsFixed(0),
+  );
+  late DateTime start = widget.listing.promotionStartsAt ?? DateTime.now();
+  late DateTime end = widget.listing.promotionEndsAt ??
+      DateTime.now().add(const Duration(days: 30));
+  bool saving = false;
+
+  @override
+  void dispose() {
+    label.dispose();
+    discount.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pick(bool isStart) async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: isStart ? start : end,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 730)),
+    );
+    if (selected == null) return;
+    setState(() {
+      if (isStart) {
+        start = selected;
+        if (!end.isAfter(start)) end = start.add(const Duration(days: 1));
+      } else {
+        end = selected;
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    final percentage = double.tryParse(discount.text);
+    if (label.text.trim().length < 2 ||
+        percentage == null ||
+        percentage < 5 ||
+        percentage > 80 ||
+        !end.isAfter(start)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Check the promotion details.')),
+      );
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      await context.read<LiveRentHubController>().saveListingPromotion(
+        widget.listing.id,
+        {
+          'enabled': true,
+          'label': label.text.trim(),
+          'discountPercent': percentage,
+          'startsAt': start.toUtc().toIso8601String(),
+          'endsAt': end.add(const Duration(days: 1)).toUtc().toIso8601String(),
+        },
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> _clear() async {
+    final accepted = await confirmAction(
+      context,
+      title: 'Remove promotion?',
+      message: 'Renters will see the regular listing price.',
+      action: 'Remove',
+      destructive: true,
+    );
+    if (!accepted || !mounted) return;
+    await context
+        .read<LiveRentHubController>()
+        .clearListingPromotion(widget.listing.id);
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Promotion')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(widget.listing.title,
+                  style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 16),
+              TextField(
+                controller: label,
+                decoration: const InputDecoration(labelText: 'Promotion label'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: discount,
+                keyboardType: TextInputType.number,
+                decoration:
+                    const InputDecoration(labelText: 'Discount percentage'),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Starts'),
+                subtitle: Text('${start.day}/${start.month}/${start.year}'),
+                trailing: const Icon(Icons.calendar_today_outlined),
+                onTap: () => _pick(true),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Ends'),
+                subtitle: Text('${end.day}/${end.month}/${end.year}'),
+                trailing: const Icon(Icons.calendar_today_outlined),
+                onTap: () => _pick(false),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: saving ? null : _save,
+                child: Text(saving ? 'Saving…' : 'Save Promotion'),
+              ),
+              if (widget.listing.promotionLabel.isNotEmpty)
+                TextButton(
+                  onPressed: saving ? null : _clear,
+                  child: const Text('Remove Promotion'),
+                ),
+            ],
+          ),
+        ),
+      );
+}
+
+class LiveBundlePage extends StatefulWidget {
+  const LiveBundlePage(this.listing, {super.key});
+
+  final Listing listing;
+
+  @override
+  State<LiveBundlePage> createState() => _LiveBundlePageState();
+}
+
+class _LiveBundlePageState extends State<LiveBundlePage> {
+  late final title = TextEditingController(
+    text: widget.listing.bundleTitle.isEmpty
+        ? '${widget.listing.title} Bundle'
+        : widget.listing.bundleTitle,
+  );
+  late final discount = TextEditingController(
+    text: widget.listing.bundleDiscountPercent == 0
+        ? '10'
+        : widget.listing.bundleDiscountPercent.toStringAsFixed(0),
+  );
+  late final selected = widget.listing.bundleListingIds.isEmpty
+      ? <String>{widget.listing.id}
+      : widget.listing.bundleListingIds.toSet();
+  bool saving = false;
+
+  @override
+  void dispose() {
+    title.dispose();
+    discount.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final percentage = double.tryParse(discount.text);
+    if (title.text.trim().length < 3 ||
+        selected.length < 2 ||
+        percentage == null ||
+        percentage < 5 ||
+        percentage > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select at least two items and check the discount.'),
+        ),
+      );
+      return;
+    }
+    setState(() => saving = true);
+    try {
+      await context.read<LiveRentHubController>().saveListingBundle(
+        widget.listing.id,
+        {
+          'active': true,
+          'title': title.text.trim(),
+          'listingIds': selected.toList(),
+          'discountPercent': percentage,
+        },
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> _clear() async {
+    final accepted = await confirmAction(
+      context,
+      title: 'Remove bundle offer?',
+      message: 'The bundle will no longer appear on this listing.',
+      action: 'Remove',
+      destructive: true,
+    );
+    if (!accepted || !mounted) return;
+    await context
+        .read<LiveRentHubController>()
+        .clearListingBundle(widget.listing.id);
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final options = context
+        .watch<LiveRentHubController>()
+        .ownerListings
+        .where((item) => !item.isService && item.status == 'active')
+        .toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Bundle Offer')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            TextField(
+              controller: title,
+              decoration: const InputDecoration(labelText: 'Bundle title'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: discount,
+              keyboardType: TextInputType.number,
+              decoration:
+                  const InputDecoration(labelText: 'Bundle discount (%)'),
+            ),
+            const SizedBox(height: 16),
+            Text('Select 2 to 5 physical listings',
+                style: Theme.of(context).textTheme.titleMedium),
+            for (final item in options)
+              CheckboxListTile(
+                value: selected.contains(item.id),
+                title: Text(item.title),
+                subtitle: Text(formatMoney(item.dailyPrice)),
+                onChanged: item.id == widget.listing.id
+                    ? null
+                    : (value) => setState(() {
+                          if (value == true && selected.length < 5) {
+                            selected.add(item.id);
+                          } else if (value == false) {
+                            selected.remove(item.id);
+                          }
+                        }),
+              ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: saving ? null : _save,
+              child: Text(saving ? 'Saving…' : 'Save Bundle'),
+            ),
+            if (widget.listing.bundleTitle.isNotEmpty)
+              TextButton(
+                onPressed: saving ? null : _clear,
+                child: const Text('Remove Bundle'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class LiveOwnerRequestsPage extends StatelessWidget {
