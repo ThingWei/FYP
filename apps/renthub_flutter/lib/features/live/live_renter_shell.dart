@@ -348,16 +348,30 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                             Container(
                               width: 76,
                               height: 76,
+                              clipBehavior: Clip.antiAlias,
                               decoration: BoxDecoration(
                                 color: AppColors.primaryLight,
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Icon(
-                                listing.isService
-                                    ? Icons.design_services_outlined
-                                    : Icons.inventory_2_outlined,
-                                color: AppColors.primaryDark,
-                              ),
+                              child: listing.images.isEmpty
+                                  ? Icon(
+                                      listing.isService
+                                          ? Icons.design_services_outlined
+                                          : Icons.inventory_2_outlined,
+                                      color: AppColors.primaryDark,
+                                    )
+                                  : Image.network(
+                                      controller.api
+                                          .absoluteUrl(listing.images.first),
+                                      fit: BoxFit.cover,
+                                      semanticLabel: '${listing.title} image',
+                                      errorBuilder: (_, __, ___) => Icon(
+                                        listing.isService
+                                            ? Icons.design_services_outlined
+                                            : Icons.inventory_2_outlined,
+                                        color: AppColors.primaryDark,
+                                      ),
+                                    ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -1153,6 +1167,33 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
+            if (listing.images.isNotEmpty) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Image.network(
+                    context
+                        .read<LiveRentHubController>()
+                        .api
+                        .absoluteUrl(listing.images.first),
+                    fit: BoxFit.cover,
+                    semanticLabel: '${listing.title} image',
+                    errorBuilder: (_, __, ___) => ColoredBox(
+                      color: AppColors.primaryLight,
+                      child: Icon(
+                        listing.isService
+                            ? Icons.design_services_outlined
+                            : Icons.inventory_2_outlined,
+                        size: 56,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1677,20 +1718,33 @@ class _RenterRentalActions extends StatelessWidget {
                 context,
                 title: 'Submit item return?',
                 message:
-                    'A local evidence placeholder and the current condition will be recorded.',
+                    'Select a condition photo after confirming. The file will be stored privately with the rental.',
                 action: 'Submit Return',
               );
               if (accepted && context.mounted) {
-                await _action(
-                  context,
-                  'return',
-                  {
-                    'condition': 'Good',
-                    'notes': 'Returned through the live Flutter flow.',
-                    'evidence': ['local://return/flutter-evidence.jpg'],
-                  },
-                  'Return evidence submitted',
-                );
+                try {
+                  final evidence = await context
+                      .read<LiveRentHubController>()
+                      .pickAndUpload(purpose: 'return_evidence');
+                  if (evidence != null && context.mounted) {
+                    await _action(
+                      context,
+                      'return',
+                      {
+                        'condition': 'Good',
+                        'notes': 'Returned through the live Flutter flow.',
+                        'evidence': [evidence],
+                      },
+                      'Return evidence submitted',
+                    );
+                  }
+                } catch (exception) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(exception.toString())),
+                    );
+                  }
+                }
               }
             },
             child: const Text('Submit Return'),

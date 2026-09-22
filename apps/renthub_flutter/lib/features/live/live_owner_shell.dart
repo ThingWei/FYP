@@ -516,10 +516,42 @@ class _LiveListingFormState extends State<LiveListingForm> {
   String category = RentHubCategories.devices;
   String condition = 'Excellent';
   bool saving = false;
+  late final List<String> images;
+
+  Future<void> _addImage() async {
+    if (images.length >= 10) return;
+    try {
+      final reference =
+          await context.read<LiveRentHubController>().pickAndUpload(
+                purpose: 'listing_image',
+                publicUrl: true,
+              );
+      if (reference != null && mounted) setState(() => images.add(reference));
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
+  Future<void> _removeImage(int index) async {
+    final reference = images[index];
+    try {
+      await context.read<LiveRentHubController>().deleteUpload(reference);
+      if (mounted) setState(() => images.remove(reference));
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    images = [...?widget.listing?.images];
     if (widget.isService) {
       category = RentHubCategories.services;
     } else if (widget.listing != null) {
@@ -552,6 +584,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       'state': location.text.toLowerCase().contains('selangor')
           ? 'Selangor'
           : 'Kuala Lumpur',
+      if (images.isNotEmpty) 'images': images,
       if (widget.isService) ...{
         'priceUnit': 'package',
         'serviceDetails': {
@@ -622,6 +655,53 @@ class _LiveListingFormState extends State<LiveListingForm> {
                   controller: description,
                   maxLines: 4,
                   decoration: const InputDecoration(labelText: 'Description'),
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Listing images',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            Text('${images.length}/10'),
+                            IconButton(
+                              tooltip: 'Upload listing image',
+                              onPressed: saving || images.length >= 10
+                                  ? null
+                                  : _addImage,
+                              icon: const Icon(
+                                  Icons.add_photo_alternate_outlined),
+                            ),
+                          ],
+                        ),
+                        const Text(
+                          'JPEG, PNG, or WebP. Uploaded images are public after the listing is published.',
+                          style: TextStyle(color: AppColors.secondaryText),
+                        ),
+                        for (var index = 0; index < images.length; index++)
+                          ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.image_outlined),
+                            title: Text('Image ${index + 1}'),
+                            trailing: IconButton(
+                              tooltip: 'Remove image',
+                              onPressed:
+                                  saving ? null : () => _removeImage(index),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 if (!widget.isService)
@@ -1463,17 +1543,34 @@ class _OwnerRentalCard extends StatelessWidget {
       );
     } else if (rental.status == 'scheduled') {
       action = FilledButton(
-        onPressed: () => rental.listingType == 'service'
-            ? _run(context, 'start-service')
-            : _run(
+        onPressed: () async {
+          if (rental.listingType == 'service') {
+            await _run(context, 'start-service');
+            return;
+          }
+          try {
+            final evidence = await context
+                .read<LiveRentHubController>()
+                .pickAndUpload(purpose: 'handover_evidence');
+            if (evidence != null && context.mounted) {
+              await _run(
                 context,
                 'handover',
-                body: const {
+                body: {
                   'condition': 'Excellent',
                   'notes': 'Confirmed through the live Owner interface.',
-                  'evidence': ['local://handover/flutter-evidence.jpg'],
+                  'evidence': [evidence],
                 },
-              ),
+              );
+            }
+          } catch (exception) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(exception.toString())),
+              );
+            }
+          }
+        },
         child: Text(rental.listingType == 'service'
             ? 'Start Service'
             : 'Confirm Handover'),

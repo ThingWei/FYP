@@ -8,6 +8,7 @@ import { ThreadModel } from '../communication/thread.model.js';
 import { RentalModel } from '../rental/rental.model.js';
 import { awardRentalCompletion } from '../loyalty/loyalty.service.js';
 import { UserModel } from '../user/user.model.js';
+import { uploadService } from '../upload/upload.service.js';
 import { disputeRepository } from './dispute.repository.js';
 
 function publicId(prefix) {
@@ -77,6 +78,7 @@ async function notifyBoth(dispute, payload) {
 export const disputeService = {
   async create(input, identity) {
     const raiser = await activeUser(identity);
+    await uploadService.assertOwnedReferences(identity, input.evidence, ['dispute_evidence']);
     const rental = await RentalModel.findOne({ publicId: input.rentalId });
     if (!rental) throw new AppError('Rental not found', 404, 'NOT_FOUND');
     const role = participantRole(rental, identity.authId);
@@ -170,6 +172,7 @@ export const disputeService = {
 
   async respond(id, input, identity) {
     await activeUser(identity);
+    await uploadService.assertOwnedReferences(identity, input.evidence, ['dispute_evidence']);
     const dispute = await disputeRepository.findById(id);
     if (!dispute) throw new AppError('Dispute not found', 404, 'NOT_FOUND');
     ensureParticipant(dispute, identity);
@@ -210,6 +213,7 @@ export const disputeService = {
 
   async createClaim(id, input, identity) {
     await activeUser(identity, 'owner');
+    await uploadService.assertOwnedReferences(identity, input.evidence, ['claim_evidence']);
     const dispute = await disputeRepository.findById(id);
     if (!dispute || dispute.respondentId !== identity.authId && dispute.raisedById !== identity.authId) {
       throw new AppError('Dispute not found', 404, 'NOT_FOUND');

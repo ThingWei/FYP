@@ -2,6 +2,7 @@ import { AppError } from '../../core/errors.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { AvailabilityModel } from '../listing/availability.model.js';
 import { notifyUser } from '../communication/notification.service.js';
+import { uploadService } from '../upload/upload.service.js';
 import {
   captureBookingPayment,
   recordPhysicalSettlement,
@@ -137,6 +138,7 @@ export const rentalService = {
 
   async confirmHandover(id, input, identity) {
     const rental = await ownedRental(id, identity, 'owner');
+    await uploadService.assertOwnedReferences(identity, input.evidence, ['handover_evidence']);
     if (rental.listingType !== 'physical' || rental.status !== 'scheduled') {
       throw new AppError('Handover is unavailable', 409, 'INVALID_RENTAL_STATE');
     }
@@ -259,6 +261,7 @@ export const rentalService = {
 
   async submitReturn(id, input, identity) {
     const rental = await ownedRental(id, identity, 'renter');
+    await uploadService.assertOwnedReferences(identity, input.evidence, ['return_evidence']);
     if (rental.listingType !== 'physical' || rental.status !== 'active') {
       throw new AppError('Return cannot be submitted', 409, 'INVALID_RENTAL_STATE');
     }

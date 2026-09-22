@@ -5,6 +5,7 @@ import { notifyUser } from '../communication/notification.service.js';
 import { ListingModel } from '../listing/listing.model.js';
 import { ACCOUNT_STATUSES, USER_ROLES } from './user.model.js';
 import { userRepository } from './user.repository.js';
+import { uploadService } from '../upload/upload.service.js';
 
 function preferredRole(roles) {
   return roles.includes('renter') ? 'renter' : roles[0];
@@ -61,6 +62,8 @@ export const userService = {
       );
     }
     user.roles = data.roles;
+    user.email = data.email;
+    user.displayName = data.displayName;
     if (!user.roles.includes(user.activeRole)) {
       user.activeRole = preferredRole(data.roles);
     }
@@ -73,6 +76,9 @@ export const userService = {
 
   async updateMe(identity, input) {
     const user = await requireCurrentUser(identity);
+    if (input.avatarUrl?.startsWith('/api/v1/uploads/')) {
+      await uploadService.assertOwnedReferences(identity, [input.avatarUrl], ['avatar']);
+    }
     const allowed = {
       ...(input.displayName !== undefined && { displayName: input.displayName }),
       ...(input.phone !== undefined && { phone: input.phone }),
@@ -97,6 +103,11 @@ export const userService = {
 
   async submitVerification(identity, input) {
     const user = await requireCurrentUser(identity);
+    await uploadService.assertOwnedReferences(
+      identity,
+      input.documentRefs,
+      ['verification_document'],
+    );
     if (user.verification.status === 'pending') {
       throw new AppError(
         'Identity verification is already pending',

@@ -4,6 +4,7 @@ import {
   LISTING_STATUSES,
   LISTING_TYPES,
 } from './listing.model.js';
+import { isUploadReference } from '../../core/uploadReference.js';
 
 const editableFields = new Set([
   'title',
@@ -75,7 +76,11 @@ const listingFields = [
   body('location').optional().trim().isLength({ min: 2, max: 160 }),
   body('state').optional().trim().isLength({ max: 80 }),
   body('images').optional().isArray({ max: 10 }),
-  body('images.*').optional().trim().isLength({ min: 1, max: 500 }),
+  body('images.*')
+    .optional()
+    .trim()
+    .custom((value) => isUploadReference(value, { publicOnly: true }))
+    .withMessage('Each image must reference a public upload'),
 ];
 
 export const createListingValidation = [

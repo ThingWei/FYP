@@ -1,4 +1,5 @@
 import '../core/config/backend_mode.dart';
+import '../core/auth/auth0_gateway.dart';
 import '../core/network/api_client.dart';
 import '../core/network/session_identity.dart';
 import '../modules/user/repositories/auth_repository.dart';
@@ -23,19 +24,47 @@ class AppDependencies {
   final LoyaltyRepository loyaltyRepository;
   factory AppDependencies.create() {
     final session = SessionIdentity();
+    const auth0Domain = String.fromEnvironment('AUTH0_DOMAIN');
+    const auth0ClientId = String.fromEnvironment('AUTH0_CLIENT_ID');
+    const auth0Audience = String.fromEnvironment('AUTH0_AUDIENCE');
+    const auth0CallbackUrl = String.fromEnvironment('AUTH0_CALLBACK_URL');
+    final auth0Enabled = !BackendMode.useMocks &&
+        auth0Domain.isNotEmpty &&
+        auth0ClientId.isNotEmpty &&
+        auth0Audience.isNotEmpty &&
+        auth0CallbackUrl.isNotEmpty;
+    final auth0Gateway = auth0Enabled
+        ? Auth0Gateway(
+            domain: auth0Domain,
+            clientId: auth0ClientId,
+            audience: auth0Audience,
+            callbackUrl: auth0CallbackUrl,
+          )
+        : null;
+    if (auth0Gateway != null) {
+      session.configureTokenRefresh(auth0Gateway.token);
+    }
     final api = ApiClient(
       const String.fromEnvironment(
         'API_BASE_URL',
         defaultValue: 'http://localhost:3000/api/v1',
       ),
-      headersProvider: () async => session.mockHeaders,
+      tokenProvider: session.token,
+      headersProvider: () async =>
+          auth0Enabled ? const {} : session.mockHeaders,
     );
     return AppDependencies(
       api,
       session,
       BackendMode.useMocks
           ? MockAuthRepository()
-          : LiveAuthRepository(api, session),
+          : auth0Enabled
+              ? Auth0AuthRepository(
+                  api,
+                  session,
+                  auth0Gateway!,
+                )
+              : LiveAuthRepository(api, session),
       BackendMode.useMocks
           ? MockListingRepository()
           : LiveListingRepository(api),

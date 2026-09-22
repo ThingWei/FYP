@@ -2,9 +2,11 @@ import 'dart:async';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/session_identity.dart';
+import '../../../core/auth/auth0_gateway.dart';
 import '../../../shared/models/domain_models.dart';
 
 abstract interface class AuthRepository {
+  bool get usesExternalProvider;
   Future<User> login(String email, String password, UserRole role);
   Future<User> register(
     String name,
@@ -17,6 +19,8 @@ abstract interface class AuthRepository {
 }
 
 class MockAuthRepository implements AuthRepository {
+  @override
+  bool get usesExternalProvider => false;
   User _user(String email, UserRole role) => User(
         id: 'demo-user',
         email: email,
@@ -48,6 +52,9 @@ class LiveAuthRepository implements AuthRepository {
 
   final ApiClient api;
   final SessionIdentity session;
+
+  @override
+  bool get usesExternalProvider => false;
 
   static const _accounts =
       <String, ({String id, String name, Set<UserRole> roles})>{
@@ -137,4 +144,75 @@ class LiveAuthRepository implements AuthRepository {
 
   @override
   Future<void> logout() async => session.clear();
+}
+
+class Auth0AuthRepository implements AuthRepository {
+  Auth0AuthRepository(this.api, this.session, this.gateway);
+
+  final ApiClient api;
+  final SessionIdentity session;
+  final Auth0Gateway gateway;
+
+  @override
+  bool get usesExternalProvider => true;
+
+  Future<User> _authenticate(UserRole requestedRole,
+      {bool signUp = false}) async {
+    final auth0Session = await gateway.login(signUp: signUp);
+    session.setAccessToken(auth0Session.accessToken);
+    try {
+      final user = User.fromJson(
+        await api.request('POST', '/users/session') as Map<String, dynamic>,
+      );
+      if (!user.roles.contains(requestedRole)) {
+        throw ApiException(
+          403,
+          'This Auth0 account does not have the ${requestedRole.name} role.',
+          code: 'ROLE_NOT_ASSIGNED',
+        );
+      }
+      session.set(
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        assignedRoles: user.roles,
+      );
+      return user;
+    } catch (_) {
+      session.clear();
+      rethrow;
+    }
+  }
+
+  @override
+  Future<User> login(String email, String password, UserRole role) =>
+      _authenticate(role);
+
+  @override
+  Future<User> register(
+    String name,
+    String email,
+    String password,
+    UserRole role,
+  ) =>
+      _authenticate(role, signUp: true);
+
+  @override
+  void selectRole(UserRole role) {
+    if (!session.roles.contains(role)) return;
+    unawaited(api.request(
+      'PATCH',
+      '/users/me/active-role',
+      body: {'role': role.name},
+    ));
+  }
+
+  @override
+  Future<void> logout() async {
+    try {
+      await gateway.logout();
+    } finally {
+      session.clear();
+    }
+  }
 }

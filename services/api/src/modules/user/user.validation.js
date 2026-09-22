@@ -4,6 +4,7 @@ import {
   USER_ROLES,
   VERIFICATION_STATUSES,
 } from './user.model.js';
+import { isUploadReference } from '../../core/uploadReference.js';
 
 const userId = param('id')
   .trim()
@@ -23,8 +24,13 @@ export const profileValidation = [
   body('avatarUrl')
     .optional()
     .trim()
-    .custom((value) => value === '' || URL.canParse(value))
-    .withMessage('avatarUrl must be empty or a valid URL'),
+    .custom(
+      (value) =>
+        value === '' ||
+        URL.canParse(value) ||
+        isUploadReference(value, { publicOnly: true }),
+    )
+    .withMessage('avatarUrl must be empty, a valid URL, or a public upload'),
   body('addresses').optional().isArray({ max: 10 }),
   body('addresses.*.label').optional().trim().notEmpty().isLength({ max: 40 }),
   body('addresses.*.line1').optional().trim().notEmpty().isLength({ max: 120 }),
@@ -55,8 +61,8 @@ export const verificationSubmissionValidation = [
   body('documentRefs').isArray({ min: 1, max: 2 }),
   body('documentRefs.*')
     .trim()
-    .matches(/^local:\/\/[a-z\d/_-]+\.(?:jpg|jpeg|png)$/i)
-    .withMessage('Only local placeholder image references are supported'),
+    .custom((value) => isUploadReference(value))
+    .withMessage('Each document must reference an uploaded image'),
 ];
 
 export const targetUserValidation = [

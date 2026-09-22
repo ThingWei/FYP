@@ -7,6 +7,7 @@ import {
   ListingModel,
 } from './listing.model.js';
 import { listingRepository } from './listing.repository.js';
+import { uploadService } from '../upload/upload.service.js';
 
 function pageOptions(query) {
   return {
@@ -145,6 +146,7 @@ export const listingService = {
 
   async create(input, identity) {
     const owner = await requireOwner(identity);
+    await uploadService.assertOwnedReferences(identity, input.images, ['listing_image']);
     return listingRepository.create({
       ...listingInput(input),
       ownerId: owner.authId,
@@ -181,6 +183,7 @@ export const listingService = {
 
   async update(id, input, identity) {
     const listing = await requireOwnedListing(id, identity);
+    await uploadService.assertOwnedReferences(identity, input.images, ['listing_image']);
     if (listing.status === 'pending_review') {
       throw new AppError(
         'A listing cannot be edited while under review',

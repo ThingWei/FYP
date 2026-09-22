@@ -129,6 +129,7 @@ class Listing {
     this.bundleListingIds = const [],
     this.bundleDiscountPercent = 0,
     this.bundleActive = false,
+    this.images = const [],
   });
   final String id, title, category, condition, ownerName, location;
   final String description, status, ownerId, priceUnit;
@@ -144,6 +145,7 @@ class Listing {
   final double? promotionalPrice;
   final DateTime? promotionStartsAt, promotionEndsAt;
   final List<String> bundleListingIds;
+  final List<String> images;
 
   double get displayPrice => promotionalPrice ?? dailyPrice;
 
@@ -195,6 +197,9 @@ class Listing {
       bundleDiscountPercent:
           (bundle?['discountPercent'] as num?)?.toDouble() ?? 0,
       bundleActive: bundle?['active'] as bool? ?? false,
+      images: ((j['images'] as List?) ?? const [])
+          .map((item) => item as String)
+          .toList(),
     );
   }
 }

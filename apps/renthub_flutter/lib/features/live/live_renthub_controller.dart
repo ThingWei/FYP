@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/idempotency_key.dart';
@@ -50,6 +51,42 @@ class LiveRentHubController extends ChangeNotifier {
   List<Map<String, dynamic>> adminRewardLedger = [];
   List<Map<String, dynamic>> adminReferrals = [];
 
+  Future<String?> pickAndUpload({
+    required String purpose,
+    bool allowPdf = false,
+    bool publicUrl = false,
+  }) async {
+    final file = await FilePicker.pickFile(
+      type: FileType.custom,
+      allowedExtensions: [
+        'jpg',
+        'jpeg',
+        'png',
+        'webp',
+        if (allowPdf) 'pdf',
+      ],
+    );
+    if (file == null) return null;
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) throw ApiException(400, 'The selected file is empty.');
+    final uploaded = await _perform(
+      () => api.uploadFile(
+        '/uploads',
+        bytes: bytes,
+        filename: file.name,
+        purpose: purpose,
+      ),
+    );
+    return uploaded[publicUrl ? 'contentUrl' : 'reference'] as String;
+  }
+
+  Future<void> deleteUpload(String reference) async {
+    final match =
+        RegExp(r'UPL-[A-Z0-9]+', caseSensitive: false).firstMatch(reference);
+    if (match == null) return;
+    await api.request('DELETE', '/uploads/${match.group(0)}');
+  }
+
   Future<T> _perform<T>(Future<T> Function() operation) async {
     loading = true;
     error = null;
@@ -85,7 +122,7 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/users/me/comparison'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
-        _connectRealtime(profile!.id);
+        await _connectRealtime(profile!.id);
         listings = _models(results[1], Listing.fromJson);
         bookings = _models(results[2], Booking.fromJson);
         rentals = _models(results[3], Rental.fromJson);
@@ -112,7 +149,7 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/rewards/summary'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
-        _connectRealtime(profile!.id);
+        await _connectRealtime(profile!.id);
         ownerListings = _models(results[1], Listing.fromJson);
         bookings = _models(results[2], Booking.fromJson);
         rentals = _models(results[3], Rental.fromJson);
@@ -330,21 +367,18 @@ class LiveRentHubController extends ChangeNotifier {
         );
       });
 
-  Future<void> submitIdentityVerification(String documentType) =>
+  Future<void> submitIdentityVerification(
+    String documentType,
+    List<String> documentRefs,
+  ) =>
       _perform(() async {
-        final references = documentType == 'mykad'
-            ? [
-                'local://verification/mykad-front.jpg',
-                'local://verification/mykad-back.jpg',
-              ]
-            : ['local://verification/passport-photo-page.jpg'];
         profile = User.fromJson(
           await api.request(
             'POST',
             '/users/me/verification',
             body: {
               'documentType': documentType,
-              'documentRefs': references,
+              'documentRefs': documentRefs,
             },
           ) as Map<String, dynamic>,
         );
@@ -557,12 +591,17 @@ class LiveRentHubController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _connectRealtime(String userId) {
+  Future<void> _connectRealtime(String userId) async {
     if (_socketUserId == userId) return;
     _socketSubscription?.cancel();
     _socket?.dispose();
     _socketUserId = userId;
-    _socket = SocketService(socketUrl, userId: userId)..initializeListeners();
+    final token = await api.authenticationToken();
+    _socket = SocketService(
+      socketUrl,
+      userId: token == null ? userId : null,
+      token: token,
+    )..initializeListeners();
     _socketSubscription = _socket!.messages.listen((event) {
       if (event is! Map) return;
       final message = Message.fromJson(Map<String, dynamic>.from(event));

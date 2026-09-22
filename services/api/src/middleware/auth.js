@@ -4,6 +4,34 @@ import { AppError } from '../core/errors.js';
 
 let jwks;
 
+export function rolesFromClaim(value) {
+  const candidates = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[ ,]+/)
+      : [];
+  return [...new Set(candidates.map((role) => role.trim()).filter(Boolean))];
+}
+
+export function identityFromPayload(payload) {
+  if (typeof payload.sub !== 'string' || !payload.sub) {
+    throw new AppError('Invalid access token subject', 401, 'UNAUTHENTICATED');
+  }
+  return {
+    id: payload.sub,
+    authId: payload.sub,
+    email:
+      typeof payload[env.authEmailClaim] === 'string'
+        ? payload[env.authEmailClaim]
+        : undefined,
+    displayName:
+      typeof payload[env.authNameClaim] === 'string'
+        ? payload[env.authNameClaim]
+        : undefined,
+    roles: rolesFromClaim(payload[env.authRolesClaim]),
+  };
+}
+
 function mockIdentity(req) {
   const authId = req.header('x-user-id') ?? 'u-dual';
   return {
@@ -34,13 +62,7 @@ export async function authenticate(req, _res, next) {
       issuer,
       audience: env.authAudience,
     });
-    req.user = {
-      id: payload.sub,
-      authId: payload.sub,
-      email: payload.email,
-      displayName: payload.name,
-      roles: payload['https://renthub/roles'] ?? [],
-    };
+    req.user = identityFromPayload(payload);
     next();
   } catch (error) {
     next(

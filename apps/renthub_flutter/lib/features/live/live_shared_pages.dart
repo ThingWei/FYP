@@ -1054,13 +1054,54 @@ class _LiveVerificationPage extends StatefulWidget {
 class _LiveVerificationPageState extends State<_LiveVerificationPage> {
   String documentType = 'mykad';
   bool submitting = false;
+  final List<String> documentRefs = [];
+
+  int get requiredDocuments => documentType == 'mykad' ? 2 : 1;
+
+  Future<void> _pickDocument() async {
+    if (documentRefs.length >= requiredDocuments) return;
+    try {
+      final reference = await context
+          .read<LiveRentHubController>()
+          .pickAndUpload(purpose: 'verification_document');
+      if (reference != null && mounted) {
+        setState(() => documentRefs.add(reference));
+      }
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
+  Future<void> _removeDocument(int index) async {
+    final reference = documentRefs[index];
+    try {
+      await context.read<LiveRentHubController>().deleteUpload(reference);
+      if (mounted) setState(() => documentRefs.remove(reference));
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
 
   Future<void> _submit() async {
+    if (documentRefs.length != requiredDocuments) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                'Upload $requiredDocuments document image${requiredDocuments == 1 ? '' : 's'} first.')),
+      );
+      return;
+    }
     setState(() => submitting = true);
     try {
       await context
           .read<LiveRentHubController>()
-          .submitIdentityVerification(documentType);
+          .submitIdentityVerification(documentType, documentRefs);
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1122,21 +1163,46 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
                   DropdownMenuItem(value: 'mykad', child: Text('MyKad')),
                   DropdownMenuItem(value: 'passport', child: Text('Passport')),
                 ],
-                onChanged: (value) =>
-                    setState(() => documentType = value ?? 'mykad'),
+                onChanged: (value) => setState(() {
+                  documentType = value ?? 'mykad';
+                  documentRefs.clear();
+                }),
               ),
               const SizedBox(height: 16),
-              const ListTile(
+              ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.image_outlined),
-                title: Text('Document image placeholders'),
-                subtitle: Text(
-                  'This development flow stores local placeholder references only. No real identity image is uploaded.',
+                leading: const Icon(Icons.image_outlined),
+                title: Text(
+                  '${documentRefs.length} of $requiredDocuments document images uploaded',
                 ),
+                subtitle: const Text(
+                  'JPEG, PNG, or WebP. Files are private and available only to you and administrators.',
+                ),
+                trailing: documentRefs.length < requiredDocuments
+                    ? IconButton(
+                        tooltip: 'Upload document image',
+                        onPressed: submitting ? null : _pickDocument,
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                      )
+                    : const Icon(Icons.check_circle, color: AppColors.success),
               ),
+              for (var index = 0; index < documentRefs.length; index++)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.lock_outline),
+                  title: Text('Document ${index + 1}'),
+                  trailing: IconButton(
+                    tooltip: 'Remove document',
+                    onPressed: submitting ? null : () => _removeDocument(index),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: submitting ? null : _submit,
+                onPressed:
+                    submitting || documentRefs.length != requiredDocuments
+                        ? null
+                        : _submit,
                 icon: const Icon(Icons.upload_file_outlined),
                 label: Text(
                   submitting ? 'Submitting…' : 'Submit for Review',
@@ -1147,7 +1213,7 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
                 kind: FeedbackKind.loading,
                 title: 'Review in progress',
                 message:
-                    'An administrator will review the placeholder OCR result and document references.',
+                    'An administrator will review the submitted document images and verification details.',
               )
             else
               const RentHubFeedbackState(

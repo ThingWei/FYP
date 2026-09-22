@@ -16,6 +16,7 @@ import { reviewModule } from './modules/review/index.js';
 import { disputeModule } from './modules/dispute/index.js';
 import { loyaltyModule } from './modules/loyalty/index.js';
 import { adminModule } from './modules/admin/index.js';
+import { uploadModule } from './modules/upload/index.js';
 
 export const app = express();
 app.use(
@@ -48,6 +49,7 @@ for (const [path, module] of Object.entries({
   disputes: disputeModule,
   rewards: loyaltyModule,
   admin: adminModule,
+  uploads: uploadModule,
 })) {
   api.use(`/${path}`, module.router);
 }

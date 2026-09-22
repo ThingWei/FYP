@@ -102,7 +102,10 @@ void main() {
       pushNotifications: false,
       emailNotifications: true,
     );
-    await controller.submitIdentityVerification('mykad');
+    await controller.submitIdentityVerification('mykad', const [
+      'upload://UPL-FRONT',
+      'upload://UPL-BACK',
+    ]);
 
     expect(api.calls.map((call) => '${call.$1} ${call.$2}'), [
       'PATCH /users/me',

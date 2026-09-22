@@ -1,5 +1,6 @@
 import { body, param, query } from 'express-validator';
 import { RENTAL_STATUSES } from './rental.model.js';
+import { isUploadReference } from '../../core/uploadReference.js';
 
 const rentalId = param('id')
   .trim()
@@ -12,7 +13,10 @@ const evidenceFields = [
   body('condition').trim().isLength({ min: 2, max: 120 }),
   body('notes').optional().trim().isLength({ max: 1000 }),
   body('evidence').isArray({ min: 1, max: 10 }),
-  body('evidence.*').trim().isLength({ min: 1, max: 500 }),
+  body('evidence.*')
+    .trim()
+    .custom((value) => isUploadReference(value))
+    .withMessage('Each item must reference an uploaded evidence file'),
 ];
 
 export const rentalIdValidation = [rentalId];

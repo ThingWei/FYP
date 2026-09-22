@@ -5,8 +5,16 @@ class SessionIdentity {
   String? email;
   String? displayName;
   Set<UserRole> roles = {};
+  String? accessToken;
+  Future<String?> Function()? _tokenRefresher;
 
   bool get active => userId != null;
+
+  Future<String?> token() async {
+    if (accessToken == null || _tokenRefresher == null) return accessToken;
+    accessToken = await _tokenRefresher!();
+    return accessToken;
+  }
 
   Map<String, String> get mockHeaders => active
       ? {
@@ -29,10 +37,17 @@ class SessionIdentity {
     roles = {...assignedRoles};
   }
 
+  void setAccessToken(String token) => accessToken = token;
+
+  void configureTokenRefresh(Future<String?> Function() refresher) {
+    _tokenRefresher = refresher;
+  }
+
   void clear() {
     userId = null;
     email = null;
     displayName = null;
     roles = {};
+    accessToken = null;
   }
 }

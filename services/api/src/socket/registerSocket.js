@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { env } from '../config/env.js';
+import { identityFromPayload } from '../middleware/auth.js';
 import { ThreadModel } from '../modules/communication/thread.model.js';
 import { setSocketServer } from './eventBus.js';
 
@@ -27,10 +28,7 @@ export function registerSocket(io) {
         issuer,
         audience: env.authAudience,
       });
-      if (typeof payload.sub !== 'string') {
-        return next(new Error('Invalid access token'));
-      }
-      socket.data.userId = payload.sub;
+      socket.data.userId = identityFromPayload(payload).authId;
       return next();
     } catch {
       return next(new Error('Invalid access token'));

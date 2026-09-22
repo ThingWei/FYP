@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/domain_models.dart';
 import '../../../shared/widgets/account_components.dart';
-import '../../../shared/widgets/renthub_components.dart';
 import '../controllers/auth_controller.dart';
 import 'forgot_password_screen.dart';
 import 'register_screen.dart';
@@ -38,8 +37,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (!formKey.currentState!.validate()) return;
     final controller = context.read<AuthController>();
+    if (!controller.usesExternalProvider && !formKey.currentState!.validate()) {
+      return;
+    }
     await controller.login(email.text.trim(), password.text);
     if (mounted && controller.authenticated) widget.onAuthenticated?.call();
   }
@@ -158,13 +159,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 18),
                       RentHubActionButton(
-                        label: 'Continue with Auth0',
+                        label: controller.usesExternalProvider
+                            ? 'Continue with Auth0'
+                            : 'Start Development Session',
                         icon: Icons.account_circle_outlined,
                         style: RentHubButtonStyle.secondary,
-                        onPressed: () => showMockSuccess(
-                          context,
-                          'Auth0 is simulated in this prototype',
-                        ),
+                        onPressed: _login,
                       ),
                       const SizedBox(height: 16),
                       Wrap(
@@ -185,8 +185,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ] else ...[
                       const SizedBox(height: 12),
-                      const Text(
-                        'Prototype authentication only. Administrative actions create local audit entries.',
+                      Text(
+                        controller.usesExternalProvider
+                            ? 'Authentication is handled by Auth0 Universal Login.'
+                            : 'Development authentication is active. Administrative actions create audit entries.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: AppColors.secondaryText,

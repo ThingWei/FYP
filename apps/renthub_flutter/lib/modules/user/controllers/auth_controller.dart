@@ -8,6 +8,7 @@ class AuthController extends LoadableController {
   User? user;
   UserRole selectedRole = UserRole.renter;
   bool get authenticated => user != null;
+  bool get usesExternalProvider => repository.usesExternalProvider;
   void selectRole(UserRole role) {
     selectedRole = role;
     repository.selectRole(role);

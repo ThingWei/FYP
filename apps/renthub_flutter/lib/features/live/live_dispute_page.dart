@@ -27,7 +27,38 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   final description = TextEditingController();
   final response = TextEditingController();
   late String category;
-  bool attachEvidence = false;
+  final List<String> evidenceRefs = [];
+
+  Future<void> pickEvidence() async {
+    try {
+      final reference =
+          await context.read<LiveRentHubController>().pickAndUpload(
+                purpose: 'dispute_evidence',
+                allowPdf: true,
+              );
+      if (reference != null && mounted) {
+        setState(() => evidenceRefs.add(reference));
+      }
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
+  Future<void> removeEvidence(int index) async {
+    final reference = evidenceRefs[index];
+    try {
+      await context.read<LiveRentHubController>().deleteUpload(reference);
+      if (mounted) setState(() => evidenceRefs.remove(reference));
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
 
   List<String> get categories => widget.rental.listingType == 'physical'
       ? const [
@@ -75,10 +106,9 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             category: category,
             summary: summary.text,
             description: description.text,
-            evidence: attachEvidence
-                ? ['local://disputes/flutter-evidence.jpg']
-                : const [],
+            evidence: evidenceRefs,
           );
+      evidenceRefs.clear();
       if (mounted) showMockSuccess(context, 'Dispute submitted for review');
     } catch (exception) {
       if (mounted) {
@@ -99,11 +129,10 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
       await context.read<LiveRentHubController>().respondToDispute(
             dispute,
             response.text,
-            evidence: attachEvidence
-                ? ['local://disputes/response-evidence.jpg']
-                : const [],
+            evidence: evidenceRefs,
           );
       response.clear();
+      evidenceRefs.clear();
       if (mounted) showMockSuccess(context, 'Response added to the case');
     } catch (exception) {
       if (mounted) {
@@ -146,7 +175,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'A repair quotation placeholder will be attached. This does not submit a claim to a real insurer.',
+                  'After continuing, select a repair quotation or evidence file for administrator review.',
                   style: TextStyle(color: AppColors.secondaryText),
                 ),
               ),
@@ -172,11 +201,26 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
         details.text.trim().length >= 20 &&
         mounted) {
       try {
-        await context.read<LiveRentHubController>().submitClaim(
+        final controller = context.read<LiveRentHubController>();
+        final evidence = await controller.pickAndUpload(
+          purpose: 'claim_evidence',
+          allowPdf: true,
+        );
+        if (evidence == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Select an evidence file to submit the claim.'),
+              ),
+            );
+          }
+          return;
+        }
+        await controller.submitClaim(
           dispute: dispute,
           description: details.text,
           amount: parsed,
-          evidence: const ['local://claims/repair-quotation.pdf'],
+          evidence: [evidence],
         );
         if (mounted) showMockSuccess(context, 'Insurance claim submitted');
       } catch (exception) {
@@ -259,15 +303,29 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                   ? 'Enter at least 20 characters'
                   : null,
             ),
-            CheckboxListTile(
+            ListTile(
               contentPadding: EdgeInsets.zero,
-              value: attachEvidence,
-              onChanged: (value) =>
-                  setState(() => attachEvidence = value ?? false),
-              title: const Text('Attach evidence placeholder'),
+              leading: const Icon(Icons.attach_file),
+              title: Text('${evidenceRefs.length} evidence files uploaded'),
               subtitle:
-                  const Text('Photo/document upload is simulated locally.'),
+                  const Text('JPEG, PNG, WebP, or PDF; maximum 10 files.'),
+              trailing: IconButton(
+                tooltip: 'Upload evidence',
+                onPressed: evidenceRefs.length >= 10 ? null : pickEvidence,
+                icon: const Icon(Icons.upload_file_outlined),
+              ),
             ),
+            for (var index = 0; index < evidenceRefs.length; index++)
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.lock_outline),
+                title: Text('Evidence ${index + 1}'),
+                trailing: IconButton(
+                  tooltip: 'Remove evidence',
+                  onPressed: () => removeEvidence(index),
+                  icon: const Icon(Icons.close),
+                ),
+              ),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: loading ? null : create,
@@ -353,6 +411,12 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               decoration: const InputDecoration(
                 labelText: 'Add information or a response',
               ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: evidenceRefs.length >= 10 ? null : pickEvidence,
+              icon: const Icon(Icons.attach_file),
+              label: Text('Attach evidence (${evidenceRefs.length})'),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(

@@ -6,13 +6,14 @@ import {
   PHYSICAL_DISPUTE_CATEGORIES,
   SERVICE_DISPUTE_CATEGORIES,
 } from './dispute.model.js';
+import { isUploadReference } from '../../core/uploadReference.js';
 
 const disputeId = param('id').trim().matches(/^RH-DSP-[A-Z0-9]+$/);
 const claimId = param('claimId').trim().matches(/^RH-CLM-[A-Z0-9]+$/);
 const evidence = body('evidence')
   .optional()
   .isArray({ max: 10 })
-  .custom((items) => items.every((item) => typeof item === 'string' && item.length <= 500));
+  .custom((items) => items.every((item) => isUploadReference(item)));
 const pagination = [
   query('page').optional().isInt({ min: 1 }),
   query('limit').optional().isInt({ min: 1, max: 100 }),
@@ -49,7 +50,7 @@ export const claimCreateValidation = [
   body('amountRequested').isFloat({ min: 0.01 }).toFloat(),
   body('evidence')
     .isArray({ min: 1, max: 10 })
-    .custom((items) => items.every((item) => typeof item === 'string' && item.length <= 500)),
+    .custom((items) => items.every((item) => isUploadReference(item))),
 ];
 
 export const claimListValidation = [
