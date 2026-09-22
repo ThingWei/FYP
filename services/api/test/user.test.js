@@ -178,6 +178,19 @@ test('validates profile updates and role switching', async () => {
     .send({ role: 'owner' });
   assert.equal(switched.status, 200);
   assert.equal(switched.body.data.activeRole, 'owner');
+
+  const refreshedIdentity = identity({
+    email: 'alex.updated@renthub.my',
+    name: 'Auth0 Profile Name',
+    roles: 'renter,owner',
+  });
+  await request(app).post('/api/v1/users/session').set(refreshedIdentity);
+  const refreshed = await request(app)
+    .get('/api/v1/users/me')
+    .set(refreshedIdentity);
+  assert.equal(refreshed.status, 200);
+  assert.equal(refreshed.body.data.email, 'alex.updated@renthub.my');
+  assert.equal(refreshed.body.data.displayName, 'Alex T.');
 });
 
 test('submits and reviews identity verification with audit and notification', async () => {

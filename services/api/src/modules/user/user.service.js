@@ -63,7 +63,6 @@ export const userService = {
     }
     user.roles = data.roles;
     user.email = data.email;
-    user.displayName = data.displayName;
     if (!user.roles.includes(user.activeRole)) {
       user.activeRole = preferredRole(data.roles);
     }

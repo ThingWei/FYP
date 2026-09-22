@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renthub_flutter/core/config/backend_mode.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
@@ -6,6 +9,10 @@ import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
 
 const _phase = String.fromEnvironment('LIVE_E2E_PHASE');
+const _runId = String.fromEnvironment(
+  'LIVE_E2E_RUN_ID',
+  defaultValue: 'local',
+);
 const _baseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'http://localhost:3000/api/v1',
@@ -17,20 +24,36 @@ const _socketUrl = String.fromEnvironment(
 
 const _ownerId = 'u-e2e-owner';
 const _renterId = 'u-e2e-renter';
-const _listingTitle = 'RentHub E2E Persistence Drill';
-const _messageText = 'E2E persistence message 2026-09-18';
+const _listingTitle = 'RentHub E2E Persistence Drill $_runId';
+const _messageText = 'E2E persistence message $_runId';
 const _persistedRenterName = 'E2E Renter Persisted';
 
+String? _token(String name) {
+  final value = Platform.environment[name]?.trim();
+  return value == null || value.isEmpty ? null : value;
+}
+
+final _ownerToken = _token('RENTHUB_E2E_OWNER_TOKEN');
+final _renterToken = _token('RENTHUB_E2E_RENTER_TOKEN');
+final _adminToken = _token('RENTHUB_E2E_ADMIN_TOKEN');
+
+final _probePng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+);
+
 class _LiveClient {
-  _LiveClient() {
+  _LiveClient(this.bearerToken) {
     api = ApiClient(
       _baseUrl,
-      headersProvider: () async => session.mockHeaders,
+      tokenProvider: bearerToken == null ? null : () async => bearerToken,
+      headersProvider:
+          bearerToken == null ? () async => session.mockHeaders : null,
     );
     controller = LiveRentHubController(api, socketUrl: _socketUrl);
   }
 
   final SessionIdentity session = SessionIdentity();
+  final String? bearerToken;
   late final ApiClient api;
   late final LiveRentHubController controller;
 
@@ -40,13 +63,25 @@ class _LiveClient {
     required String name,
     required UserRole role,
   }) async {
-    session.set(
-      id: id,
-      email: email,
-      name: name,
-      assignedRoles: {role},
-    );
+    if (bearerToken == null) {
+      session.set(
+        id: id,
+        email: email,
+        name: name,
+        assignedRoles: {role},
+      );
+    }
     await api.request('POST', '/users/session');
+  }
+
+  Future<String> upload(String purpose, {bool publicUrl = false}) async {
+    final result = await api.uploadFile(
+      '/uploads',
+      bytes: _probePng,
+      filename: '$purpose-$_runId.png',
+      purpose: purpose,
+    );
+    return result[publicUrl ? 'contentUrl' : 'reference'] as String;
   }
 
   void dispose() => controller.dispose();
@@ -58,9 +93,9 @@ void main() {
     () async {
       expect(BackendMode.useMocks, isFalse);
 
-      final owner = _LiveClient();
-      final renter = _LiveClient();
-      final admin = _LiveClient();
+      final owner = _LiveClient(_ownerToken);
+      final renter = _LiveClient(_renterToken);
+      final admin = _LiveClient(_adminToken);
       addTearDown(owner.dispose);
       addTearDown(renter.dispose);
       addTearDown(admin.dispose);
@@ -85,6 +120,10 @@ void main() {
       );
 
       await owner.controller.loadOwner();
+      final listingImage = await owner.upload(
+        'listing_image',
+        publicUrl: true,
+      );
       final listing = await owner.controller.createOwnerListing({
         'title': _listingTitle,
         'description':
@@ -99,7 +138,7 @@ void main() {
         'fulfilmentMethods': ['pickup'],
         'location': 'Petaling Jaya, Selangor',
         'state': 'Selangor',
-        'images': ['local://e2e/persistence-drill.jpg'],
+        'images': [listingImage],
       });
       expect(listing.status, 'pending_review');
 
@@ -116,7 +155,7 @@ void main() {
       final visibleListing = renter.controller.listings.firstWhere(
         (item) => item.id == listing.id,
       );
-      final checkoutKey = 'checkout:e2e:${listing.id}';
+      final checkoutKey = 'checkout:e2e:$_runId:${listing.id}';
       final booking = await renter.controller.createAndAuthorizeBooking(
         listing: visibleListing,
         start: DateTime.utc(2030, 9, 20),
@@ -158,6 +197,7 @@ void main() {
       var rental = owner.controller.rentals.firstWhere(
         (item) => item.bookingId == booking.id,
       );
+      final handoverEvidence = await owner.upload('handover_evidence');
       await owner.controller.runRentalAction(
         rental,
         'handover',
@@ -165,7 +205,7 @@ void main() {
         body: {
           'condition': 'Excellent',
           'notes': 'E2E handover recorded from the live Flutter controller.',
-          'evidence': ['local://e2e/handover-drill.jpg'],
+          'evidence': [handoverEvidence],
         },
       );
 
@@ -178,13 +218,14 @@ void main() {
         (item) => item.bookingId == booking.id,
       );
       await renter.controller.sendMessage(conversation.id, _messageText);
+      final returnEvidence = await renter.upload('return_evidence');
       await renter.controller.runRentalAction(
         rental,
         'return',
         body: {
           'condition': 'Excellent',
           'notes': 'Returned during the E2E persistence verification.',
-          'evidence': ['local://e2e/return-drill.jpg'],
+          'evidence': [returnEvidence],
         },
       );
 
@@ -260,9 +301,9 @@ void main() {
     () async {
       expect(BackendMode.useMocks, isFalse);
 
-      final owner = _LiveClient();
-      final renter = _LiveClient();
-      final admin = _LiveClient();
+      final owner = _LiveClient(_ownerToken);
+      final renter = _LiveClient(_renterToken);
+      final admin = _LiveClient(_adminToken);
       addTearDown(owner.dispose);
       addTearDown(renter.dispose);
       addTearDown(admin.dispose);

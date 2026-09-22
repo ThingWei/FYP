@@ -48,6 +48,8 @@ flutter run -d chrome --web-port 3001 -t lib/main_admin.dart --dart-define=USE_M
 
 For Auth0 bearer authentication, Firebase Storage uploads, required Auth0 claims, and Windows callback configuration, see [Backend Phase 12](docs/BACKEND_PHASE_12_RESULT.md).
 
+For the real Atlas/Auth0/Firebase preflight and restart-safe production E2E drill, see [Backend Phase 13](docs/BACKEND_PHASE_13_RUNBOOK.md).
+
 The seeded prototype accounts accept any password of at least six characters:
 
 - `renter@renthub.my`

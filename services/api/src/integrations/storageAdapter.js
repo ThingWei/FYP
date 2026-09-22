@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
@@ -64,5 +64,49 @@ export const storageAdapter = {
     await unlink(localPath(storagePath)).catch((error) => {
       if (error.code !== 'ENOENT') throw error;
     });
+  },
+
+  async verify({ writeProbe = false } = {}) {
+    if (env.storageMode === 'firebase') {
+      const activeBucket = bucket();
+      await activeBucket.getMetadata();
+      if (writeProbe) {
+        const probePath = `private/readiness/${randomUUID()}.txt`;
+        const file = activeBucket.file(probePath);
+        try {
+          await file.save(Buffer.from('RentHub storage readiness probe'), {
+            resumable: false,
+            metadata: {
+              contentType: 'text/plain',
+              cacheControl: 'private,no-store',
+            },
+          });
+        } finally {
+          await file.delete({ ignoreNotFound: true });
+        }
+      }
+      return {
+        provider: 'firebase',
+        bucket: env.firebaseStorageBucket,
+        writeProbe,
+      };
+    }
+
+    const root = path.resolve(env.uploadDirectory);
+    await mkdir(root, { recursive: true });
+    if (writeProbe) {
+      const probePath = localPath(`private/readiness/${randomUUID()}.txt`);
+      await mkdir(path.dirname(probePath), { recursive: true });
+      try {
+        await writeFile(probePath, 'RentHub storage readiness probe', {
+          flag: 'wx',
+        });
+      } finally {
+        await unlink(probePath).catch((error) => {
+          if (error.code !== 'ENOENT') throw error;
+        });
+      }
+    }
+    return { provider: 'local', directory: root, writeProbe };
   },
 };
