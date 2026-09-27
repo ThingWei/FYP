@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import mongoose from 'mongoose';
 import { AppError } from '../../core/errors.js';
+import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { ListingModel } from '../listing/listing.model.js';
 import { RentalModel } from '../rental/rental.model.js';
 import {
@@ -312,6 +313,12 @@ export const bookingService = {
         booking.publicId,
       );
       booking.status = 'approved';
+      const agreement = booking.listingType === 'physical'
+        ? await blockchainAdapter.createAgreement({
+            rentalAmount: booking.pricing.baseAmount,
+            depositAmount: booking.pricing.securityDeposit,
+          })
+        : undefined;
       await RentalModel.create({
         publicId: rentalId(booking.startDate),
         bookingId: booking.publicId,
@@ -322,6 +329,11 @@ export const bookingService = {
         startDate: booking.startDate,
         endDate: booking.endDate,
         status: 'scheduled',
+        ...(agreement && {
+          contractAddress: agreement.contractAddress,
+          transactionHash: agreement.deploymentTransactionHash,
+          blockchain: agreement,
+        }),
       });
     } else {
       booking.status = 'rejected';
@@ -365,10 +377,21 @@ export const bookingService = {
     booking.cancelledAt = new Date();
     await voidBookingPayment(booking);
     await booking.save();
-    await RentalModel.findOneAndUpdate(
-      { bookingId: booking.publicId, status: 'scheduled' },
-      { status: 'cancelled' },
-    );
+    const rental = await RentalModel.findOne({
+      bookingId: booking.publicId,
+      status: 'scheduled',
+    });
+    if (rental) {
+      if (rental.listingType === 'physical') {
+        const result = await blockchainAdapter.cancel(
+          rental.blockchain?.contractAddress || rental.contractAddress,
+        );
+        rental.blockchain = { ...rental.blockchain?.toObject?.(), ...result };
+        rental.transactionHash = result.lastTransactionHash ?? rental.transactionHash;
+      }
+      rental.status = 'cancelled';
+      await rental.save();
+    }
     await notifyUser({
       userId: booking.ownerId,
       category: 'booking',

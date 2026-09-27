@@ -391,10 +391,12 @@ class LiveOwnerListingsPage extends StatelessWidget {
                       subtitle: Text(
                         '${formatMoney(listing.dailyPrice)} · ${listing.status.replaceAll('_', ' ')}'
                         '${listing.promotionActive ? '\n${listing.promotionLabel} · ${listing.promotionDiscountPercent.toStringAsFixed(0)}% off' : ''}'
-                        '${listing.bundleActive ? '\n${listing.bundleTitle}' : ''}',
+                        '${listing.bundleActive ? '\n${listing.bundleTitle}' : ''}'
+                        '${listing.itemVerificationOutcome.isNotEmpty ? '\nAI image check: ${listing.itemVerificationOutcome.replaceAll('_', ' ')}' : ''}',
                       ),
-                      isThreeLine:
-                          listing.promotionActive || listing.bundleActive,
+                      isThreeLine: listing.promotionActive ||
+                          listing.bundleActive ||
+                          listing.itemVerificationOutcome.isNotEmpty,
                       trailing: listing.status == 'inactive'
                           ? const StatusBadge('Inactive')
                           : PopupMenuButton<String>(
@@ -516,7 +518,40 @@ class _LiveListingFormState extends State<LiveListingForm> {
   String category = RentHubCategories.devices;
   String condition = 'Excellent';
   bool saving = false;
+  bool suggestingPrice = false;
+  Map<String, dynamic>? priceRecommendation;
   late final List<String> images;
+
+  Future<void> _suggestPrice() async {
+    final currentPrice = double.tryParse(price.text);
+    if (currentPrice == null || currentPrice <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Enter a current comparison price first.')),
+      );
+      return;
+    }
+    setState(() => suggestingPrice = true);
+    try {
+      final suggestion =
+          await context.read<LiveRentHubController>().getPriceRecommendation(
+                category: category,
+                condition: condition,
+                state: location.text.toLowerCase().contains('selangor')
+                    ? 'Selangor'
+                    : 'Kuala Lumpur',
+                fallbackComparablePrice: currentPrice,
+              );
+      if (mounted) setState(() => priceRecommendation = suggestion);
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => suggestingPrice = false);
+    }
+  }
 
   Future<void> _addImage() async {
     if (images.length >= 10) return;
@@ -573,6 +608,14 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   Future<void> _save() async {
     if (!formKey.currentState!.validate() || saving) return;
+    if (!widget.isService && images.length < 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Upload at least three item images for verification.'),
+        ),
+      );
+      return;
+    }
     setState(() => saving = true);
     final payload = <String, dynamic>{
       'title': title.text.trim(),
@@ -683,7 +726,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                           ],
                         ),
                         const Text(
-                          'JPEG, PNG, or WebP. Uploaded images are public after the listing is published.',
+                          'JPEG, PNG, or WebP. Physical items need at least three views for AI-assisted verification.',
                           style: TextStyle(color: AppColors.secondaryText),
                         ),
                         for (var index = 0; index < images.length; index++)
@@ -734,6 +777,51 @@ class _LiveListingFormState extends State<LiveListingForm> {
                       ? null
                       : 'Enter a valid price',
                 ),
+                if (!widget.isService) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: suggestingPrice ? null : _suggestPrice,
+                    icon: const Icon(Icons.auto_awesome_outlined),
+                    label: Text(suggestingPrice
+                        ? 'Checking model…'
+                        : 'Get AI price suggestion'),
+                  ),
+                  if (priceRecommendation != null) ...[
+                    const SizedBox(height: 8),
+                    Card(
+                      color: AppColors.blueSurface,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: priceRecommendation!['available'] == true
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Suggested ${formatMoney((priceRecommendation!['suggested_daily_price'] as num).toDouble())} per day',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Range ${formatMoney((priceRecommendation!['lower_bound'] as num).toDouble())}–${formatMoney((priceRecommendation!['upper_bound'] as num).toDouble())}',
+                                  ),
+                                  TextButton(
+                                    onPressed: () => setState(() {
+                                      price.text = (priceRecommendation![
+                                              'suggested_daily_price'] as num)
+                                          .toStringAsFixed(2);
+                                    }),
+                                    child: const Text('Use suggested price'),
+                                  ),
+                                ],
+                              )
+                            : const Text(
+                                'The trained pricing artifact is unavailable. Your entered price is unchanged.',
+                              ),
+                      ),
+                    ),
+                  ],
+                ],
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: location,
@@ -1651,6 +1739,11 @@ class _OwnerRentalCard extends StatelessWidget {
               ],
             ),
             Text('Booking ${rental.bookingId}'),
+            if (rental.listingType == 'physical')
+              Text(
+                'Local agreement: ${rental.blockchainStatus}',
+                style: const TextStyle(color: AppColors.secondaryText),
+              ),
             if (action != null || disputeAction != null) ...[
               const SizedBox(height: 10),
               Wrap(

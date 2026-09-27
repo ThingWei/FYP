@@ -130,6 +130,10 @@ class Listing {
     this.bundleDiscountPercent = 0,
     this.bundleActive = false,
     this.images = const [],
+    this.recommendationReason = '',
+    this.recommendationScore,
+    this.itemVerificationOutcome = '',
+    this.itemVerificationReasons = const [],
   });
   final String id, title, category, condition, ownerName, location;
   final String description, status, ownerId, priceUnit;
@@ -146,6 +150,9 @@ class Listing {
   final DateTime? promotionStartsAt, promotionEndsAt;
   final List<String> bundleListingIds;
   final List<String> images;
+  final String recommendationReason, itemVerificationOutcome;
+  final double? recommendationScore;
+  final List<String> itemVerificationReasons;
 
   double get displayPrice => promotionalPrice ?? dailyPrice;
 
@@ -153,6 +160,10 @@ class Listing {
     final promotion = j['promotion'] as Map<String, dynamic>?;
     final bundle = j['bundleOffer'] as Map<String, dynamic>?;
     final promotionActive = j['promotionActive'] as bool? ?? false;
+    final recommendation =
+        j['recommendation'] as Map<String, dynamic>? ?? const {};
+    final verification =
+        j['itemVerification'] as Map<String, dynamic>? ?? const {};
     return Listing(
       id: j['publicId'] ?? j['id'] ?? j['_id'],
       title: j['title'],
@@ -200,6 +211,11 @@ class Listing {
       images: ((j['images'] as List?) ?? const [])
           .map((item) => item as String)
           .toList(),
+      recommendationReason: recommendation['reason'] as String? ?? '',
+      recommendationScore: (recommendation['score'] as num?)?.toDouble(),
+      itemVerificationOutcome: verification['outcome'] as String? ?? '',
+      itemVerificationReasons:
+          (verification['reasons'] as List? ?? const []).cast<String>(),
     );
   }
 }
@@ -274,29 +290,43 @@ class Rental {
     this.start,
     this.end,
     this.extensionStatus = 'none',
+    this.blockchainStatus = 'unavailable',
+    this.contractAddress = '',
+    this.blockchainTransactionHash = '',
   });
   final String id, status, bookingId, listingId, listingType, renterId, ownerId;
   final DateTime? start, end;
   final String extensionStatus;
+  final String blockchainStatus, contractAddress, blockchainTransactionHash;
 
-  factory Rental.fromJson(Map<String, dynamic> json) => Rental(
-        (json['publicId'] ?? json['id'] ?? json['_id']) as String,
-        json['status'] as String,
-        bookingId: json['bookingId'] as String? ?? '',
-        listingId: json['listingId'] as String? ?? '',
-        listingType: json['listingType'] as String? ?? 'physical',
-        renterId: json['renterId'] as String? ?? '',
-        ownerId: json['ownerId'] as String? ?? '',
-        start: json['startDate'] == null
-            ? null
-            : DateTime.parse(json['startDate'] as String),
-        end: json['endDate'] == null
-            ? null
-            : DateTime.parse(json['endDate'] as String),
-        extensionStatus: (json['extension'] as Map<String, dynamic>?)?['status']
-                as String? ??
-            'none',
-      );
+  factory Rental.fromJson(Map<String, dynamic> json) {
+    final blockchain = json['blockchain'] as Map<String, dynamic>? ?? const {};
+    return Rental(
+      (json['publicId'] ?? json['id'] ?? json['_id']) as String,
+      json['status'] as String,
+      bookingId: json['bookingId'] as String? ?? '',
+      listingId: json['listingId'] as String? ?? '',
+      listingType: json['listingType'] as String? ?? 'physical',
+      renterId: json['renterId'] as String? ?? '',
+      ownerId: json['ownerId'] as String? ?? '',
+      start: json['startDate'] == null
+          ? null
+          : DateTime.parse(json['startDate'] as String),
+      end: json['endDate'] == null
+          ? null
+          : DateTime.parse(json['endDate'] as String),
+      extensionStatus:
+          (json['extension'] as Map<String, dynamic>?)?['status'] as String? ??
+              'none',
+      blockchainStatus: blockchain['status'] as String? ?? 'unavailable',
+      contractAddress: blockchain['contractAddress'] as String? ??
+          json['contractAddress'] as String? ??
+          '',
+      blockchainTransactionHash: blockchain['lastTransactionHash'] as String? ??
+          json['transactionHash'] as String? ??
+          '',
+    );
+  }
 }
 
 class Transaction {
@@ -471,7 +501,8 @@ class Dispute {
     this.outcome,
     this.renterAmount = 0,
     this.ownerAmount = 0,
-    this.mockBlockchainReference,
+    this.blockchainReference,
+    this.blockchainStatus = 'unavailable',
   });
 
   final String id, status, reason, rentalId, bookingId, listingId;
@@ -479,7 +510,8 @@ class Dispute {
   final List<String> evidence;
   final String raisedByName, respondentName, adminNote;
   final List<DisputeResponse> responses;
-  final String? outcome, mockBlockchainReference;
+  final String? outcome, blockchainReference;
+  final String blockchainStatus;
   final double renterAmount, ownerAmount;
 
   bool get closed => status == 'resolved' || status == 'dismissed';
@@ -507,7 +539,9 @@ class Dispute {
       outcome: resolution['outcome'] as String?,
       renterAmount: (resolution['renterAmount'] as num?)?.toDouble() ?? 0,
       ownerAmount: (resolution['ownerAmount'] as num?)?.toDouble() ?? 0,
-      mockBlockchainReference: resolution['mockBlockchainReference'] as String?,
+      blockchainReference: resolution['blockchainReference'] as String?,
+      blockchainStatus:
+          resolution['blockchainStatus'] as String? ?? 'unavailable',
     );
   }
 }

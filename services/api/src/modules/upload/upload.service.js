@@ -51,6 +51,26 @@ async function participantMayRead(identity, reference) {
 }
 
 export const uploadService = {
+  async readOwnedReferences(identity, references, purposes) {
+    const stored = (references ?? []).filter(
+      (item) => item.startsWith('upload://') || item.startsWith('/api/v1/uploads/'),
+    );
+    if (!stored.length) return [];
+    await this.assertOwnedReferences(identity, stored, purposes);
+    const ids = stored.map((reference) => reference.match(/UPL-[A-Z0-9]+/i)[0]);
+    const assets = await UploadAssetModel.find({ publicId: { $in: ids } });
+    const byId = new Map(assets.map((asset) => [asset.publicId, asset]));
+    return Promise.all(ids.map(async (id) => {
+      const asset = byId.get(id);
+      const buffer = await storageAdapter.download(asset.storagePath);
+      return {
+        content_base64: buffer.toString('base64'),
+        content_type: asset.contentType,
+        filename: asset.originalName,
+      };
+    }));
+  },
+
   async assertOwnedReferences(identity, references, purposes) {
     const stored = (references ?? []).filter(
       (item) => item.startsWith('upload://') || item.startsWith('/api/v1/uploads/'),

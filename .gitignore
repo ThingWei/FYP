@@ -10,6 +10,9 @@
 **/.data/
 **/*.pyc
 services/ai/models/*.pt
+services/ai/models/*.pkl
+services/ai/models/*.joblib
+services/ai/data/generated/
 services/ai/uploads/
 blockchain/ignition/deployments/
-
+services\api\.env.example

@@ -13,10 +13,10 @@ RentHub is a multi-category rental marketplace monorepo. The Flutter client is t
 ## Quick start
 
 1. Copy each `.env.example` to `.env`.
-2. Run `docker compose up -d mongodb ganache`.
+2. Run `docker compose up -d mongodb ganache ai api` for the complete backend.
 3. In `services/api`, run `npm install`, `npm run seed`, then `npm run dev`.
 4. In `services/ai`, create a virtual environment, run `pip install -r requirements.txt`, then `uvicorn app.main:app --reload --port 8001`.
-5. In `apps/renthub_flutter`, run `flutter pub get` and `flutter run --dart-define=USE_MOCKS=true`.
+5. In `apps/renthub_flutter`, run `flutter pub get` and `flutter run --dart-define=USE_MOCKS=false`.
 
 Mock mode is the Flutter default, so the UI can run without the other services. See `docs/architecture.md` for boundaries and extension points.
 
@@ -58,5 +58,7 @@ The seeded prototype accounts accept any password of at least six characters:
 - `demo@renthub.my` for role switching
 - `admin@renthub.my` in the administrator portal
 
-Live mode persists users, listings, bookings, rentals, payments, messages, notifications, reviews, disputes, damage-waiver claims, loyalty accounts, reward ledgers, referrals, configurable loyalty rules, and administrator audit entries in MongoDB. Payments, booking-discount rewards, and dispute allocations remain simulated and use server-calculated or administrator-recorded amounts; no real financial or blockchain transfer is claimed.
+Live mode persists users, listings, bookings, rentals, payments, messages, notifications, reviews, disputes, damage-waiver claims, loyalty accounts, reward ledgers, referrals, configurable loyalty rules, AI evidence, local contract references, and administrator audit entries in MongoDB. Payment-provider transfers and dispute allocations remain simulated. Ganache transactions are local prototype records only and never represent real currency.
+
+The recommendation endpoint works without a trained artifact by naming its content/rating fallback. Pricing, YOLO item classification, and EfficientNet risk scoring report themselves unavailable until their training scripts produce evaluated artifacts. See `services/ai/README.md` and `blockchain/README.md`.
 

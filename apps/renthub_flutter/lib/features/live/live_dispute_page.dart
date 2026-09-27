@@ -373,9 +373,9 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                     Text(
                       'Simulated allocation — Renter ${formatMoney(dispute.renterAmount)}, Owner ${formatMoney(dispute.ownerAmount)}',
                     ),
-                    if (dispute.mockBlockchainReference != null)
+                    if (dispute.blockchainReference != null)
                       Text(
-                        dispute.mockBlockchainReference!,
+                        'Local blockchain: ${dispute.blockchainStatus} · ${dispute.blockchainReference!}',
                         style: const TextStyle(color: AppColors.secondaryText),
                       ),
                   ],

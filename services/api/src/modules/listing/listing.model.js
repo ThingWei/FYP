@@ -113,6 +113,8 @@ const listingSchema = new mongoose.Schema(
     promoted: { type: Boolean, default: false },
     promotion: { type: promotionSchema, default: undefined },
     bundleOffer: { type: bundleOfferSchema, default: undefined },
+    itemVerification: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    priceRecommendation: { type: mongoose.Schema.Types.Mixed, default: undefined },
   },
   {
     timestamps: true,

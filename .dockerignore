@@ -1,0 +1,13 @@
+.git
+**/node_modules
+**/.dart_tool
+**/build
+**/.data
+**/__pycache__
+**/.pytest_cache
+**/coverage
+**/.env
+services/ai/models
+services/ai/data/generated
+blockchain/artifacts
+blockchain/cache

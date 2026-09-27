@@ -25,6 +25,7 @@ class LiveRentHubController extends ChangeNotifier {
   String? error;
   User? profile;
   List<Listing> listings = [];
+  List<Listing> recommendedListings = [];
   List<Listing> savedListings = [];
   List<Listing> comparisonListings = [];
   List<Listing> ownerListings = [];
@@ -120,6 +121,7 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/rewards/summary'),
           api.request('GET', '/users/me/saved-listings'),
           api.request('GET', '/users/me/comparison'),
+          api.request('GET', '/listings/recommended?limit=10'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         await _connectRealtime(profile!.id);
@@ -133,6 +135,7 @@ class LiveRentHubController extends ChangeNotifier {
         loyalty = Reward.fromJson(results[8] as Map<String, dynamic>);
         savedListings = _models(results[9], Listing.fromJson);
         comparisonListings = _models(results[10], Listing.fromJson);
+        recommendedListings = _models(results[11], Listing.fromJson);
       });
 
   Future<void> loadOwner() => _perform(() async {
@@ -472,6 +475,9 @@ class LiveRentHubController extends ChangeNotifier {
                     start: item.start,
                     end: item.end,
                     extensionStatus: item.extensionStatus,
+                    blockchainStatus: item.blockchainStatus,
+                    contractAddress: item.contractAddress,
+                    blockchainTransactionHash: item.blockchainTransactionHash,
                   )
                 : item)
             .toList();
@@ -940,6 +946,32 @@ class LiveRentHubController extends ChangeNotifier {
         notifyListeners();
         return listing;
       });
+
+  Future<Map<String, dynamic>> getPriceRecommendation({
+    required String category,
+    required String condition,
+    required String state,
+    required double fallbackComparablePrice,
+  }) =>
+      _perform(() async => await api.request(
+            'POST',
+            '/listings/price-recommendation',
+            body: {
+              'itemProfile': {
+                'category': category,
+                'subcategory': 'General',
+                'condition': condition,
+                'brand': 'Unknown',
+                'state': state,
+                'item_age_years': 1,
+              },
+              'fallbackComparablePrice': fallbackComparablePrice,
+              'supplyDemandRatio': 1,
+              'seasonalDayFactor': 1,
+              'rentalDurationDays': 1,
+              'ownerAverageRating': 0,
+            },
+          ) as Map<String, dynamic>);
 
   void _replaceOwnerListing(Listing listing) {
     final index = ownerListings.indexWhere((item) => item.id == listing.id);

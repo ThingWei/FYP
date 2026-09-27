@@ -6,6 +6,12 @@ import { listingService } from './listing.service.js';
 const bodyData = (req) => matchedData(req, { locations: ['body'] });
 
 export const listingController = {
+  recommended: asyncHandler(async (req, res) =>
+    ok(res, await listingService.recommended(req.user, req.query)),
+  ),
+  recommendPrice: asyncHandler(async (req, res) =>
+    ok(res, await listingService.recommendPrice(bodyData(req), req.user)),
+  ),
   list: asyncHandler(async (req, res) => {
     const result = await listingService.list(req.query);
     return ok(res, result.items, result.meta);

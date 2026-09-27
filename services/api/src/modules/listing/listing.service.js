@@ -1,5 +1,9 @@
 import { AppError } from '../../core/errors.js';
+import { env } from '../../config/env.js';
+import { aiClient } from '../../integrations/aiClient.js';
 import { PlatformSettingModel } from '../admin/platformSetting.model.js';
+import { BookingModel } from '../booking/booking.model.js';
+import { ReviewModel } from '../review/review.model.js';
 import { UserModel } from '../user/user.model.js';
 import {
   LISTING_CATEGORIES,
@@ -74,6 +78,118 @@ async function requireOwnedListing(id, identity) {
 }
 
 export const listingService = {
+  async recommended(identity, query) {
+    const user = await UserModel.findOne({ authId: identity.authId });
+    if (!user || !user.roles.includes('renter')) {
+      throw new AppError('Renter role is required', 403, 'FORBIDDEN');
+    }
+    const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 30);
+    const [candidates, bookings, reviews] = await Promise.all([
+      ListingModel.find({ status: 'active', ownerId: { $ne: identity.authId } })
+        .sort({ promoted: -1, rating: -1, createdAt: -1 })
+        .limit(200),
+      BookingModel.find({})
+        .select('renterId listingId status')
+        .limit(5000)
+        .lean(),
+      ReviewModel.find({ authorRole: 'renter', status: 'published' })
+        .select('authorId listingId overallRating')
+        .limit(5000)
+        .lean(),
+    ]);
+    const interactionMap = new Map();
+    for (const listingId of user.savedListingIds) {
+      interactionMap.set(`${identity.authId}:${listingId}`, {
+        userId: identity.authId,
+        itemId: listingId,
+        rating: 4,
+      });
+    }
+    for (const booking of bookings) {
+      interactionMap.set(`${booking.renterId}:${booking.listingId}`, {
+        userId: booking.renterId,
+        itemId: booking.listingId,
+        rating: booking.status === 'completed' ? 4.5 : 4.2,
+      });
+    }
+    for (const review of reviews) {
+      interactionMap.set(`${review.authorId}:${review.listingId}`, {
+        userId: review.authorId,
+        itemId: review.listingId,
+        rating: review.overallRating,
+      });
+    }
+    const recommendations = await aiClient.recommendItems({
+      user_id: identity.authId,
+      limit,
+      candidates: candidates.map((item) => ({
+        item_id: item.publicId,
+        title: item.title,
+        category: item.category,
+        description: item.description,
+        location: item.location,
+        condition: item.condition ?? '',
+        price: item.dailyPrice,
+        rating: item.rating,
+        popularity: item.reviewCount + (item.promoted ? 5 : 0),
+        available: true,
+      })),
+      interactions: [...interactionMap.values()].map((interaction) => ({
+        user_id: interaction.userId,
+        item_id: interaction.itemId,
+        rating: interaction.rating,
+      })),
+      context: {},
+    });
+    if (!Array.isArray(recommendations) || !recommendations.length) {
+      return candidates.slice(0, limit).map((item) => ({
+        ...item.toJSON(),
+        recommendation: {
+          available: false,
+          reason: 'AI ranking is unavailable; marketplace ordering is shown',
+        },
+      }));
+    }
+    const byId = new Map(candidates.map((item) => [item.publicId, item]));
+    return recommendations.flatMap((recommendation) => {
+      const item = byId.get(recommendation.item_id);
+      return item ? [{ ...item.toJSON(), recommendation }] : [];
+    });
+  },
+
+  async recommendPrice(input, identity) {
+    const owner = await requireOwner(identity);
+    const profile = input.itemProfile;
+    const similarFilter = {
+      status: 'active',
+      category: profile.category,
+      listingType: 'physical',
+      ...(profile.state && { state: profile.state }),
+    };
+    const [similar, completed] = await Promise.all([
+      ListingModel.aggregate([
+        { $match: similarFilter },
+        { $group: { _id: null, average: { $avg: '$dailyPrice' }, count: { $sum: 1 } } },
+      ]),
+      BookingModel.aggregate([
+        { $match: { listingType: 'physical', status: 'completed' } },
+        { $group: { _id: null, average: { $avg: '$pricing.baseAmount' }, count: { $sum: 1 } } },
+      ]),
+    ]);
+    const similarAverage = similar[0]?.average ?? input.fallbackComparablePrice;
+    const historicalAverage = completed[0]?.average ?? input.fallbackComparablePrice;
+    return aiClient.recommendPrice({
+      item_profile: profile,
+      similar_active_average: similarAverage,
+      historical_completed_average: historicalAverage,
+      supply_demand_ratio: input.supplyDemandRatio ?? 1,
+      seasonal_day_factor: input.seasonalDayFactor ?? 1,
+      rental_duration_days: input.rentalDurationDays ?? 1,
+      owner_trust_score: owner.trustScore,
+      owner_average_rating: input.ownerAverageRating ?? 0,
+    });
+  },
+
   async list(query) {
     const { page, limit } = pageOptions(query);
     const filter = {};
@@ -208,6 +324,36 @@ export const listingService = {
         409,
         'INVALID_LISTING_STATE',
       );
+    }
+    if (listing.listingType === 'physical' && listing.images.length < 3) {
+      throw new AppError(
+        'At least three item images are required before submission',
+        400,
+        'ITEM_IMAGES_REQUIRED',
+      );
+    }
+    if (listing.listingType === 'physical') {
+      const images = await uploadService.readOwnedReferences(
+        identity,
+        listing.images,
+        ['listing_image'],
+      );
+      listing.itemVerification = await aiClient.verifyItem({
+        images,
+        category: listing.category,
+        listingType: listing.listingType,
+      });
+      if (
+        env.aiEnforcementMode === 'strict' &&
+        listing.itemVerification.outcome !== 'approved'
+      ) {
+        throw new AppError(
+          'Item verification must pass before submission',
+          409,
+          'ITEM_VERIFICATION_REQUIRED',
+          listing.itemVerification,
+        );
+      }
     }
     listing.status = 'pending_review';
     listing.moderationReason = '';

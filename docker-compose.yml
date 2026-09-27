@@ -10,13 +10,19 @@ services:
   ai:
     build: ./services/ai
     ports: ["8001:8001"]
+    volumes: ["./services/ai/models:/app/models:ro"]
   api:
-    build: ./services/api
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
     environment:
       MONGODB_URI: mongodb://mongodb:27017/renthub
       AI_SERVICE_URL: http://ai:8001
+      BLOCKCHAIN_MODE: ganache
+      GANACHE_RPC_URL: http://ganache:8545
+      RENTAL_CONTRACT_ARTIFACT: /blockchain-artifacts/contracts/RentalAgreement.sol/RentalAgreement.json
     ports: ["3000:3000"]
-    depends_on: [mongodb, ai]
+    depends_on: [mongodb, ganache, ai]
 volumes:
   mongo_data:
 

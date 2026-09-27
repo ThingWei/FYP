@@ -50,9 +50,15 @@ contract RentalAgreement {
 
     function openDispute() external onlyParty { require(state == State.Active, 'Not active'); state = State.Disputed; emit StateChanged(state); }
 
-    function resolve(uint256 renterShare, string calldata reference) external onlyBackend {
+    function dismissDispute() external onlyBackend {
+        require(state == State.Disputed, 'Not disputed');
+        state = State.Active;
+        emit StateChanged(state);
+    }
+
+    function resolve(uint256 renterShare, string calldata resolutionRef) external onlyBackend {
         require(state == State.Disputed, 'Not disputed'); require(renterShare <= address(this).balance, 'Invalid share');
-        state = State.Resolved; resolutionReference = reference; uint256 ownerShare = address(this).balance - renterShare;
+        state = State.Resolved; resolutionReference = resolutionRef; uint256 ownerShare = address(this).balance - renterShare;
         if (ownerShare > 0) payable(owner).transfer(ownerShare); if (renterShare > 0) payable(renter).transfer(renterShare); emit StateChanged(state);
     }
 }

@@ -21,6 +21,13 @@ export const env = {
   firebaseStorageBucket: process.env.FIREBASE_STORAGE_BUCKET,
   maxUploadBytes: integer(process.env.MAX_UPLOAD_BYTES, 10 * 1024 * 1024),
   aiUrl: process.env.AI_SERVICE_URL ?? 'http://localhost:8001',
+  aiTimeoutMs: integer(process.env.AI_TIMEOUT_MS, 5000),
+  aiEnforcementMode: process.env.AI_ENFORCEMENT_MODE ?? 'advisory',
+  blockchainMode: process.env.BLOCKCHAIN_MODE ?? 'disabled',
+  ganacheRpcUrl: process.env.GANACHE_RPC_URL ?? 'http://localhost:8545',
+  rentalContractArtifact:
+    process.env.RENTAL_CONTRACT_ARTIFACT ??
+    '../../blockchain/artifacts/contracts/RentalAgreement.sol/RentalAgreement.json',
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:8080')
     .split(',')
     .map((origin) => origin.trim())
@@ -31,6 +38,9 @@ export function validateEnv(config = env) {
   const errors = [];
   const storageMode = config.storageMode ?? 'local';
   const maxUploadBytes = config.maxUploadBytes ?? 10 * 1024 * 1024;
+  const aiTimeoutMs = config.aiTimeoutMs ?? 5000;
+  const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
+  const blockchainMode = config.blockchainMode ?? 'disabled';
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     errors.push('PORT must be an integer between 1 and 65535');
   }
@@ -55,6 +65,15 @@ export function validateEnv(config = env) {
   }
   if (storageMode === 'firebase' && !config.firebaseStorageBucket) {
     errors.push('FIREBASE_STORAGE_BUCKET is required for Firebase storage');
+  }
+  if (!Number.isInteger(aiTimeoutMs) || aiTimeoutMs < 500) {
+    errors.push('AI_TIMEOUT_MS must be an integer of at least 500');
+  }
+  if (!['advisory', 'strict'].includes(aiEnforcementMode)) {
+    errors.push('AI_ENFORCEMENT_MODE must be advisory or strict');
+  }
+  if (!['disabled', 'ganache'].includes(blockchainMode)) {
+    errors.push('BLOCKCHAIN_MODE must be disabled or ganache');
   }
   if (config.nodeEnv === 'production' && storageMode !== 'firebase') {
     errors.push('STORAGE_MODE=firebase is required in production');

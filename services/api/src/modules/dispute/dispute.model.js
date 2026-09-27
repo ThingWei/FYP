@@ -56,7 +56,12 @@ const resolutionSchema = new mongoose.Schema(
     notes: { type: String, trim: true, maxlength: 2000 },
     resolvedBy: String,
     resolvedAt: Date,
-    mockBlockchainReference: String,
+    blockchainReference: String,
+    blockchainStatus: {
+      type: String,
+      enum: ['unavailable', 'confirmed', 'failed'],
+    },
+    localBlockchainPrototype: { type: Boolean, default: true },
     simulatedSettlement: { type: Boolean, default: true },
   },
   { _id: false },

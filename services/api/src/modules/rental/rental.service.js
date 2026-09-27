@@ -1,4 +1,5 @@
 import { AppError } from '../../core/errors.js';
+import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { AvailabilityModel } from '../listing/availability.model.js';
 import { notifyUser } from '../communication/notification.service.js';
@@ -304,6 +305,12 @@ export const rentalService = {
       depositDeduction: input.depositDeduction,
       confirmedAt: new Date(),
     };
+    const chainResult = await blockchainAdapter.complete(
+      rental.blockchain?.contractAddress || rental.contractAddress,
+      input.depositDeduction,
+    );
+    rental.blockchain = { ...rental.blockchain?.toObject?.(), ...chainResult };
+    rental.transactionHash = chainResult.lastTransactionHash ?? rental.transactionHash;
     await recordPhysicalSettlement(booking, input.depositDeduction);
     const completedRental = await complete(rental, booking);
     await notifyUser({

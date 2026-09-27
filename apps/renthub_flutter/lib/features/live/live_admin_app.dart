@@ -405,7 +405,7 @@ class _AdminVerification extends StatelessWidget {
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           Text(
-                            '${verification['documentType'] ?? 'Document'} | ${references.length} placeholder image(s)',
+                            '${verification['documentType'] ?? 'Document'} | ${references.length} protected image(s)',
                           ),
                         ],
                       ),
@@ -415,8 +415,15 @@ class _AdminVerification extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'OCR: ${ocr['status'] ?? 'pending'} | Name match: ${ocr['nameMatch'] ?? 'pending'}',
+                  'Automated check: ${ocr['outcome'] ?? 'unavailable'} | Confidence: ${(((ocr['confidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%',
                 ),
+                if ((ocr['reasons'] as List? ?? const []).isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    (ocr['reasons'] as List).join(' · '),
+                    style: const TextStyle(color: AppColors.secondaryText),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 for (final reference in references)
                   Text(reference, style: Theme.of(context).textTheme.bodySmall),
@@ -601,8 +608,10 @@ class _AdminListings extends StatelessWidget {
           child: ListTile(
             title: Text(listing.title),
             subtitle: Text(
-              '${listing.ownerName} · ${formatMoney(listing.dailyPrice)} · ${listing.listingTypeLabel}',
+              '${listing.ownerName} · ${formatMoney(listing.dailyPrice)} · ${listing.listingTypeLabel}'
+              '${listing.itemVerificationOutcome.isNotEmpty ? '\nAI image check: ${listing.itemVerificationOutcome.replaceAll('_', ' ')}' : ''}',
             ),
+            isThreeLine: listing.itemVerificationOutcome.isNotEmpty,
             trailing: listing.status == 'pending_review'
                 ? Wrap(
                     spacing: 8,

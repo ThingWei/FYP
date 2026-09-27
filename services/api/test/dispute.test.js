@@ -225,10 +225,11 @@ test('handles responses, damage claims and simulated admin resolution', async ()
   assert.equal(resolved.status, 200, JSON.stringify(resolved.body));
   assert.equal(resolved.body.data.status, 'resolved');
   assert.equal(resolved.body.data.resolution.simulatedSettlement, true);
-  assert.match(
-    resolved.body.data.resolution.mockBlockchainReference,
-    /^MOCK-CHAIN-RH-DSP-/,
+  assert.equal(
+    resolved.body.data.resolution.blockchainReference,
+    'BLOCKCHAIN_UNAVAILABLE',
   );
+  assert.equal(resolved.body.data.resolution.blockchainStatus, 'unavailable');
   assert.equal(await adminModule.Model.countDocuments(), 3);
   const hiddenAudit = await request(app).get('/api/v1/admin').set(renter);
   assert.equal(hiddenAudit.status, 403);

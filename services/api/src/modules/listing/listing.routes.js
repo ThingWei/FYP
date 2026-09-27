@@ -10,11 +10,30 @@ import {
   listListingsValidation,
   listMineValidation,
   moderationValidation,
+  priceRecommendationValidation,
   promotionValidation,
+  recommendationValidation,
   updateListingValidation,
 } from './listing.validation.js';
 
 export const listingRouter = Router();
+
+listingRouter.get(
+  '/recommended',
+  authenticate,
+  authorize('renter'),
+  recommendationValidation,
+  validate,
+  listingController.recommended,
+);
+listingRouter.post(
+  '/price-recommendation',
+  authenticate,
+  authorize('owner'),
+  priceRecommendationValidation,
+  validate,
+  listingController.recommendPrice,
+);
 
 listingRouter.get(
   '/',

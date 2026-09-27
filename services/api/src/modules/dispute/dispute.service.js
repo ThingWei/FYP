@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { AppError } from '../../core/errors.js';
+import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { adminModule } from '../admin/index.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { MessageModel } from '../communication/message.model.js';
@@ -118,6 +119,14 @@ export const disputeService = {
     });
     rental.status = 'disputed';
     booking.status = 'disputed';
+    if (rental.listingType === 'physical') {
+      const chainResult = await blockchainAdapter.openDispute(
+        rental.blockchain?.contractAddress || rental.contractAddress,
+        role,
+      );
+      rental.blockchain = { ...rental.blockchain?.toObject?.(), ...chainResult };
+      rental.transactionHash = chainResult.lastTransactionHash ?? rental.transactionHash;
+    }
     await Promise.all([rental.save(), booking.save()]);
     await notifyUser({
       userId: respondentId,
@@ -341,6 +350,20 @@ export const disputeService = {
       throw new AppError('Resolution allocations exceed the booking total', 400, 'INVALID_AMOUNT');
     }
     dispute.status = input.outcome === 'dismissed' ? 'dismissed' : 'resolved';
+    let chainResult;
+    if (dispute.listingType === 'physical') {
+      chainResult = input.outcome === 'dismissed'
+        ? await blockchainAdapter.dismissDispute(
+            rental.blockchain?.contractAddress || rental.contractAddress,
+          )
+        : await blockchainAdapter.resolve(
+            rental.blockchain?.contractAddress || rental.contractAddress,
+            renterAmount,
+            dispute.publicId,
+          );
+      rental.blockchain = { ...rental.blockchain?.toObject?.(), ...chainResult };
+      rental.transactionHash = chainResult.lastTransactionHash ?? rental.transactionHash;
+    }
     dispute.resolution = {
       outcome: input.outcome,
       renterAmount,
@@ -350,7 +373,10 @@ export const disputeService = {
       resolvedAt: new Date(),
       simulatedSettlement: true,
       ...(dispute.listingType === 'physical' && {
-        mockBlockchainReference: `MOCK-CHAIN-${dispute.publicId}`,
+        blockchainReference:
+          chainResult?.lastTransactionHash ?? 'BLOCKCHAIN_UNAVAILABLE',
+        blockchainStatus: chainResult?.status ?? 'unavailable',
+        localBlockchainPrototype: true,
       }),
     };
     if (input.outcome === 'dismissed') {

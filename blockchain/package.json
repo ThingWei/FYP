@@ -1,7 +1,15 @@
 {
   "name": "renthub-blockchain",
   "private": true,
-  "scripts": { "compile": "hardhat compile", "test": "hardhat test", "deploy:ganache": "hardhat run scripts/deploy.js --network ganache" },
-  "devDependencies": { "@nomicfoundation/hardhat-toolbox": "^5.0.0", "hardhat": "^2.22.17" }
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node:ganache": "ganache --server.port 8545 --wallet.deterministic --chain.chainId 1337",
+    "deploy:ganache": "hardhat run scripts/deploy.js --network ganache"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "ganache": "^7.9.2",
+    "hardhat": "^2.22.17"
+  }
 }
-

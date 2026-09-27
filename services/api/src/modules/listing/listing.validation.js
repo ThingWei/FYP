@@ -152,6 +152,50 @@ export const listMineValidation = [
   query('status').optional().isIn(LISTING_STATUSES),
 ];
 
+export const recommendationValidation = [
+  query('limit').optional().isInt({ min: 1, max: 30 }).toInt(),
+];
+
+export const priceRecommendationValidation = [
+  body('itemProfile').isObject(),
+  body('itemProfile.category').isIn(LISTING_CATEGORIES),
+  body('itemProfile.subcategory').optional().trim().isLength({ max: 100 }),
+  body('itemProfile.condition')
+    .isIn(['Fair', 'Good', 'Very good', 'Excellent', 'Like New']),
+  body('itemProfile.brand').optional().trim().isLength({ max: 100 }),
+  body('itemProfile.state').optional().trim().isLength({ max: 80 }),
+  body('itemProfile.item_age_years')
+    .optional()
+    .isFloat({ min: 0, max: 100 })
+    .toFloat(),
+  body('fallbackComparablePrice')
+    .isFloat({ min: 1, max: 1_000_000 })
+    .toFloat(),
+  body('supplyDemandRatio')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0.1, max: 10 })
+    .toFloat(),
+  body('seasonalDayFactor')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0.1, max: 10 })
+    .toFloat(),
+  body('rentalDurationDays')
+    .optional({ values: 'falsy' })
+    .isInt({ min: 1, max: 365 })
+    .toInt(),
+  body('ownerAverageRating')
+    .optional({ values: 'falsy' })
+    .isFloat({ min: 0, max: 5 })
+    .toFloat(),
+  body().custom((value) => {
+    value.supplyDemandRatio ??= 1;
+    value.seasonalDayFactor ??= 1;
+    value.rentalDurationDays ??= 1;
+    value.ownerAverageRating ??= 0;
+    return true;
+  }),
+];
+
 export const availabilityValidation = [
   listingId,
   body('unavailableRanges').optional().isArray({ max: 100 }),

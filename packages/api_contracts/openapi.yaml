@@ -15,6 +15,14 @@ paths:
     post:
       security: [{ bearerAuth: [] }]
       responses: { '201': { description: Listing created } }
+  /listings/recommended:
+    get:
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Personalized hybrid-ranked listings or an explicitly labelled fallback } }
+  /listings/price-recommendation:
+    post:
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Artifact-backed XGBoost price recommendation or unavailable state } }
   /bookings:
     post:
       security: [{ bearerAuth: [] }]

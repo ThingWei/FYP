@@ -6,6 +6,7 @@ import { ListingModel } from '../listing/listing.model.js';
 import { ACCOUNT_STATUSES, USER_ROLES } from './user.model.js';
 import { userRepository } from './user.repository.js';
 import { uploadService } from '../upload/upload.service.js';
+import { aiClient } from '../../integrations/aiClient.js';
 
 function preferredRole(roles) {
   return roles.includes('renter') ? 'renter' : roles[0];
@@ -121,16 +122,22 @@ export const userService = {
         'ALREADY_VERIFIED',
       );
     }
+    const images = await uploadService.readOwnedReferences(
+      identity,
+      input.documentRefs,
+      ['verification_document'],
+    );
+    const analysis = await aiClient.verifyDocument({
+      images,
+      documentType: input.documentType,
+      profileName: user.displayName,
+    });
     user.verification = {
       status: 'pending',
       tier: 'none',
       documentType: input.documentType,
       documentRefs: input.documentRefs,
-      ocrResult: {
-        status: 'pending_review',
-        nameMatch: 'pending',
-        documentNumber: '******-**-****',
-      },
+      ocrResult: analysis,
       reason: '',
       submittedAt: new Date(),
       reviewedAt: undefined,
@@ -164,10 +171,12 @@ export const userService = {
     user.verification.reviewedAt = new Date();
     user.verification.reviewedBy = identity.authId;
     user.verification.ocrResult = {
-      status: 'reviewed',
-      nameMatch: 'matched',
-      documentNumber: '******-**-****',
-      confidence: 0.94,
+      ...(user.verification.ocrResult ?? {}),
+      administratorReview: {
+        status: input.status,
+        reviewedBy: identity.authId,
+        reviewedAt: new Date(),
+      },
     };
     await user.save();
     if (user.roles.includes('owner')) {

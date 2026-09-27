@@ -196,7 +196,10 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
-    var listings = (results ?? controller.listings)
+    var listings = (results ??
+            (widget.featuredOnly && controller.recommendedListings.isNotEmpty
+                ? controller.recommendedListings
+                : controller.listings))
         .where((listing) => listing.status == 'active')
         .toList();
     if (widget.featuredOnly && listings.length > 6) {
@@ -311,6 +314,13 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
             const SizedBox(height: 16),
             if (searching) const LinearProgressIndicator(),
             if (searching) const SizedBox(height: 8),
+            if (widget.featuredOnly)
+              Text(
+                controller.recommendedListings.isEmpty
+                    ? 'Marketplace highlights'
+                    : 'Recommended for you',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             Text(
               '${listings.length} listing${listings.length == 1 ? '' : 's'}',
               style: const TextStyle(color: AppColors.secondaryText),
@@ -1556,6 +1566,13 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                           if (rental != null) ...[
                             const Divider(height: 22),
                             Text('Rental/order status: ${rental.status}'),
+                            if (rental.listingType == 'physical')
+                              Text(
+                                'Local agreement: ${rental.blockchainStatus}',
+                                style: const TextStyle(
+                                  color: AppColors.secondaryText,
+                                ),
+                              ),
                             const SizedBox(height: 8),
                             _RenterRentalActions(rental: rental),
                           ],

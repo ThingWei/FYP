@@ -124,6 +124,14 @@ void main() {
         'listing_image',
         publicUrl: true,
       );
+      final listingImageTwo = await owner.upload(
+        'listing_image',
+        publicUrl: true,
+      );
+      final listingImageThree = await owner.upload(
+        'listing_image',
+        publicUrl: true,
+      );
       final listing = await owner.controller.createOwnerListing({
         'title': _listingTitle,
         'description':
@@ -138,7 +146,7 @@ void main() {
         'fulfilmentMethods': ['pickup'],
         'location': 'Petaling Jaya, Selangor',
         'state': 'Selangor',
-        'images': [listingImage],
+        'images': [listingImage, listingImageTwo, listingImageThree],
       });
       expect(listing.status, 'pending_review');
 

@@ -43,6 +43,11 @@ const cameraInput = {
   fulfilmentMethods: ['pickup', 'owner_delivery'],
   location: 'Bukit Bintang, Kuala Lumpur',
   state: 'Kuala Lumpur',
+  images: [
+    'local://listing/camera-front.jpg',
+    'local://listing/camera-back.jpg',
+    'local://listing/camera-side.jpg',
+  ],
 };
 
 async function startOwner() {
