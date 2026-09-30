@@ -1,16 +1,35 @@
-# renthub_flutter
+# RentHub Flutter application
 
-A new Flutter project.
+The renter and Owner interfaces are mobile-first. The Windows runner is useful
+for local development only; Firebase Cloud Messaging is intentionally disabled
+on Windows.
 
-## Getting Started
+## Android and iOS Firebase setup
 
-This project is a starting point for a Flutter application.
+The repository currently contains Web and Windows runners. Generate the missing
+mobile runners before configuring Firebase:
 
-A few resources to get you started if this is your first Flutter project:
+```powershell
+flutter create --platforms=android .
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+Generate/configure iOS on macOS, then use the FlutterFire CLI from this folder:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```powershell
+flutterfire configure --platforms=android,ios
+```
+
+This creates the native `google-services.json` and
+`GoogleService-Info.plist` integration. Do not commit private server service
+account credentials. Start the mobile application with the live backend and
+Firebase enabled:
+
+```powershell
+flutter run --dart-define=USE_MOCKS=false `
+  --dart-define=FIREBASE_ENABLED=true `
+  --dart-define=API_BASE_URL=http://YOUR-LAN-IP:3000/api/v1 `
+  --dart-define=SOCKET_URL=http://YOUR-LAN-IP:3000
+```
+
+For iOS, also enable Push Notifications and Background Modes → Remote
+notifications in Xcode and upload the APNs key in Firebase Console.

@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../core/config/backend_mode.dart';
+import '../core/notifications/push_notification_service.dart';
+import '../features/live/live_renthub_controller.dart';
+import '../features/live/live_shared_pages.dart';
 import '../features/live/live_owner_shell.dart';
 import '../features/live/live_renter_shell.dart';
 import '../features/owner/owner_app.dart';
@@ -25,13 +30,64 @@ class RentHubApp extends StatefulWidget {
 enum _EntryStage { splash, onboarding, application }
 
 class _RentHubAppState extends State<RentHubApp> {
+  final messengerKey = GlobalKey<ScaffoldMessengerState>();
+  final navigatorKey = GlobalKey<NavigatorState>();
+  StreamSubscription<PushNotificationEvent>? pushSubscription;
   late _EntryStage stage = (widget.showIntroduction ?? true)
       ? _EntryStage.splash
       : _EntryStage.application;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      PushNotificationService push;
+      try {
+        push = context.read<PushNotificationService>();
+      } on ProviderNotFoundException {
+        return;
+      }
+      pushSubscription = push.events.listen(_handlePush);
+      final initial = push.takeInitialEvent();
+      if (initial != null) _handlePush(initial);
+    });
+  }
+
+  void _handlePush(PushNotificationEvent event) {
+    if (!mounted) return;
+    final auth = context.read<AuthController>();
+    if (auth.authenticated && !BackendMode.useMocks) {
+      unawaited(_refreshNotifications());
+      if (event.openedFromNotification) {
+        navigatorKey.currentState?.push<void>(
+          MaterialPageRoute(builder: (_) => const LiveNotificationsPage()),
+        );
+      }
+    }
+    messengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Text('${event.title}: ${event.body}'),
+      ),
+    );
+  }
+
+  Future<void> _refreshNotifications() async {
+    try {
+      await context.read<LiveRentHubController>().loadNotifications();
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    pushSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => MaterialApp(
         title: 'RentHub',
+        navigatorKey: navigatorKey,
+        scaffoldMessengerKey: messengerKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         builder: (context, child) => ColoredBox(

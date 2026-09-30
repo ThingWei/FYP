@@ -7,16 +7,19 @@ import 'package:file_picker/file_picker.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/idempotency_key.dart';
 import '../../core/network/socket_service.dart';
+import '../../core/notifications/push_notification_service.dart';
 import '../../shared/models/domain_models.dart';
 
 class LiveRentHubController extends ChangeNotifier {
   LiveRentHubController(
     this.api, {
     this.socketUrl = 'http://localhost:3000',
+    this.pushNotifications,
   });
 
   final ApiClient api;
   final String socketUrl;
+  final PushNotificationService? pushNotifications;
   final _realtimeMessages = StreamController<Message>.broadcast();
   SocketService? _socket;
   StreamSubscription<dynamic>? _socketSubscription;
@@ -460,6 +463,14 @@ class LiveRentHubController extends ChangeNotifier {
             },
           ) as Map<String, dynamic>,
         );
+        final service = this.pushNotifications;
+        if (service != null) {
+          if (pushNotifications) {
+            await service.enableForCurrentUser();
+          } else {
+            await service.disableForCurrentUser();
+          }
+        }
       });
 
   Future<void> deactivateAccount(String reason) => _perform(() async {
@@ -473,6 +484,7 @@ class LiveRentHubController extends ChangeNotifier {
         _socket?.dispose();
         _socket = null;
         _socketUserId = null;
+        pushNotifications?.forgetCurrentUser();
         profile = null;
       });
 

@@ -2,6 +2,7 @@ import '../core/config/backend_mode.dart';
 import '../core/auth/auth0_gateway.dart';
 import '../core/network/api_client.dart';
 import '../core/network/session_identity.dart';
+import '../core/notifications/push_notification_service.dart';
 import '../modules/user/repositories/auth_repository.dart';
 import '../modules/listing/repositories/listing_repository.dart';
 import '../modules/booking/repositories/booking_repository.dart';
@@ -15,6 +16,7 @@ class AppDependencies {
     this.listingRepository,
     this.bookingRepository,
     this.loyaltyRepository,
+    this.pushNotifications,
   );
   final ApiClient api;
   final SessionIdentity session;
@@ -22,6 +24,7 @@ class AppDependencies {
   final ListingRepository listingRepository;
   final BookingRepository bookingRepository;
   final LoyaltyRepository loyaltyRepository;
+  final PushNotificationService pushNotifications;
   factory AppDependencies.create() {
     final session = SessionIdentity();
     const auth0Domain = String.fromEnvironment('AUTH0_DOMAIN');
@@ -53,6 +56,7 @@ class AppDependencies {
       headersProvider: () async =>
           auth0Enabled ? const {} : session.mockHeaders,
     );
+    final pushNotifications = PushNotificationService(api);
     return AppDependencies(
       api,
       session,
@@ -74,6 +78,7 @@ class AppDependencies {
       BackendMode.useMocks
           ? MockLoyaltyRepository()
           : LiveLoyaltyRepository(api),
+      pushNotifications,
     );
   }
 }

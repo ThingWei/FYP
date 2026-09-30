@@ -4,6 +4,8 @@ import { validate } from '../../middleware/validate.js';
 import { communicationController } from './communication.controller.js';
 import {
   bookingThreadValidation,
+  deviceIdValidation,
+  deviceRegistrationValidation,
   markReadValidation,
   notificationIdValidation,
   notificationsValidation,
@@ -24,6 +26,22 @@ communicationRouter.get(
   paginationValidation,
   validate,
   communicationController.listThreads,
+);
+communicationRouter.get(
+  '/push/devices',
+  communicationController.listPushDevices,
+);
+communicationRouter.post(
+  '/push/devices',
+  deviceRegistrationValidation,
+  validate,
+  communicationController.registerPushDevice,
+);
+communicationRouter.delete(
+  '/push/devices/:deviceId',
+  deviceIdValidation,
+  validate,
+  communicationController.removePushDevice,
 );
 communicationRouter.post(
   '/threads/from-booking/:bookingId',

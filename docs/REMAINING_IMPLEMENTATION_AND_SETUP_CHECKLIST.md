@@ -164,17 +164,20 @@ Expected runtime paths are listed in `services/ai/.env.example` and
 
 - [ ] Real payment-provider authorization, capture, refund, payout, and webhook
   reconciliation are not implemented; payments remain simulated.
-- [ ] Firebase Cloud Messaging push delivery is the next integration phase;
-  current notifications are MongoDB/Socket.IO application notifications.
+- [ ] Firebase Cloud Messaging production activation remains pending. The code
+  integration is present, while MongoDB/Socket.IO remains the source of truth.
   - [ ] Create the Firebase project and register Android, iOS, and Web apps used
     by the final demonstration targets.
+  - [ ] Choose the final Android application ID and iOS bundle ID, then generate
+    the missing runners. Android can be generated on Windows; iOS configuration
+    and builds require macOS/Xcode.
   - [ ] Configure FlutterFire files locally and server credentials through
     environment/workload identity; do not commit service-account secrets.
-  - [ ] Add device-token registration, refresh, sign-out removal, and stale-token
+  - [x] Add device-token registration, refresh, sign-out removal, and stale-token
     cleanup endpoints backed by MongoDB.
-  - [ ] Add the API delivery adapter with retry/error handling while retaining
+  - [x] Add the API delivery adapter with error isolation while retaining
     MongoDB notifications as the source of truth.
-  - [ ] Add Flutter permission prompts plus foreground, background, and tapped
+  - [x] Add Flutter permission prompts plus foreground, background, and tapped
     notification handling.
   - [ ] Verify booking, message, rental, dispute, and account notifications on a
     real device/browser end to end.

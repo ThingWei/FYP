@@ -12,6 +12,8 @@ dependencies:
   go_router: ^14.6.3
   file_picker: ^13.1.0
   crypto: ^3.0.7
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
 dev_dependencies:
   flutter_test: { sdk: flutter }
   flutter_lints: ^5.0.0

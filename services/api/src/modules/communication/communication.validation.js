@@ -1,6 +1,7 @@
 import { body, param, query } from 'express-validator';
 import { MESSAGE_REPORT_REASONS } from './messageReport.model.js';
 import { NOTIFICATION_CATEGORIES } from './notification.model.js';
+import { PUSH_PLATFORMS } from './deviceRegistration.model.js';
 
 const threadId = param('threadId')
   .matches(/^THR-[A-Z0-9-]+$/i)
@@ -72,4 +73,24 @@ export const notificationsValidation = [
 
 export const notificationIdValidation = [
   param('notificationId').matches(/^NTF-[A-Z0-9-]+$/i),
+];
+
+export const deviceRegistrationValidation = [
+  body().custom((value) => {
+    const allowed = new Set(['deviceId', 'deviceName', 'platform', 'token']);
+    const unknown = Object.keys(value).filter((field) => !allowed.has(field));
+    if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
+    return true;
+  }),
+  body('deviceId').trim().isLength({ min: 8, max: 120 }),
+  body('deviceName').optional().trim().isLength({ max: 120 }),
+  body('platform').isIn(PUSH_PLATFORMS),
+  body('token').trim().isLength({ min: 20, max: 4096 }),
+];
+
+export const deviceIdValidation = [
+  param('deviceId')
+    .trim()
+    .isLength({ min: 8, max: 120 })
+    .matches(/^[a-zA-Z0-9._:-]+$/),
 ];

@@ -5,6 +5,7 @@ import { BookingModel } from '../booking/booking.model.js';
 import { UserModel } from '../user/user.model.js';
 import { communicationRepository } from './communication.repository.js';
 import { ensureBookingThread, notifyUser } from './notification.service.js';
+import { DeviceRegistrationModel } from './deviceRegistration.model.js';
 
 function publicId(prefix) {
   const suffix = new mongoose.Types.ObjectId().toString().slice(-10).toUpperCase();
@@ -40,6 +41,47 @@ async function participantThread(threadId, identity) {
 }
 
 export const communicationService = {
+  async listPushDevices(identity) {
+    await requireActiveUser(identity);
+    return DeviceRegistrationModel.find({ userId: identity.authId }).sort({
+      lastSeenAt: -1,
+    });
+  },
+
+  async registerPushDevice(identity, input) {
+    await requireActiveUser(identity);
+    await DeviceRegistrationModel.deleteMany({
+      token: input.token,
+      $or: [
+        { userId: { $ne: identity.authId } },
+        { deviceId: { $ne: input.deviceId } },
+      ],
+    });
+    return DeviceRegistrationModel.findOneAndUpdate(
+      { userId: identity.authId, deviceId: input.deviceId },
+      {
+        $set: {
+          token: input.token,
+          platform: input.platform,
+          deviceName: input.deviceName ?? '',
+          enabled: true,
+          lastSeenAt: new Date(),
+          lastError: '',
+          failureCount: 0,
+        },
+      },
+      { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true },
+    );
+  },
+
+  async removePushDevice(identity, deviceId) {
+    await requireActiveUser(identity);
+    const result = await DeviceRegistrationModel.deleteOne({
+      userId: identity.authId,
+      deviceId,
+    });
+    return { deviceId, removed: Boolean(result.deletedCount) };
+  },
   async fromBooking(bookingId, identity) {
     await requireActiveUser(identity);
     const booking = await BookingModel.findOne({

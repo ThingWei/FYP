@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { AppError } from '../../core/errors.js';
 import { adminModule } from '../admin/index.js';
 import { notifyUser } from '../communication/notification.service.js';
+import { DeviceRegistrationModel } from '../communication/deviceRegistration.model.js';
 import { ListingModel } from '../listing/listing.model.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { RentalModel } from '../rental/rental.model.js';
@@ -151,6 +152,7 @@ export const userService = {
         { ownerId: user.authId, status: { $in: ['active', 'pending_review'] } },
         { status: 'inactive' },
       ),
+      DeviceRegistrationModel.deleteMany({ userId: user.authId }),
       adminModule.service.create({
         actorId: user.authId,
         action: 'account.self_deactivated',
@@ -456,10 +458,16 @@ export const userService = {
     if (status !== 'active') user.accessRevokedAt = now;
     await user.save();
     if (status !== 'active') {
-      await ListingModel.updateMany(
-        { ownerId: user.authId, status: { $in: ['active', 'pending_review'] } },
-        { status: 'inactive' },
-      );
+      await Promise.all([
+        ListingModel.updateMany(
+          {
+            ownerId: user.authId,
+            status: { $in: ['active', 'pending_review'] },
+          },
+          { status: 'inactive' },
+        ),
+        DeviceRegistrationModel.deleteMany({ userId: user.authId }),
+      ]);
       disconnectUser(user.authId);
     }
     await Promise.all([

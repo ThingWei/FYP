@@ -9,6 +9,8 @@
 **/coverage/
 **/.data/
 **/*.pyc
+**/firebase-adminsdk-*.json
+**/service-account*.json
 services/ai/models/*.pt
 services/ai/models/*.pkl
 services/ai/models/*.joblib

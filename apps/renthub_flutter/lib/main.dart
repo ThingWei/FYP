@@ -8,15 +8,24 @@ import 'modules/listing/controllers/listing_controller.dart';
 import 'modules/booking/controllers/booking_controller.dart';
 import 'modules/loyalty/controllers/loyalty_controller.dart';
 import 'features/live/live_renthub_controller.dart';
+import 'core/notifications/push_notification_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   final dependencies = AppDependencies.create();
+  await dependencies.pushNotifications.initialize();
   runApp(
     MultiProvider(
       providers: [
         Provider.value(value: dependencies),
+        Provider<PushNotificationService>.value(
+          value: dependencies.pushNotifications,
+        ),
         ChangeNotifierProvider(
-          create: (_) => AuthController(dependencies.authRepository),
+          create: (_) => AuthController(
+            dependencies.authRepository,
+            pushNotifications: dependencies.pushNotifications,
+          ),
         ),
         ChangeNotifierProvider(
           create: (_) =>
@@ -36,6 +45,7 @@ void main() {
         ChangeNotifierProvider(
           create: (_) => LiveRentHubController(
             dependencies.api,
+            pushNotifications: dependencies.pushNotifications,
             socketUrl: const String.fromEnvironment(
               'SOCKET_URL',
               defaultValue: 'http://localhost:3000',

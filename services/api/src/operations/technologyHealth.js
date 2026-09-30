@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { aiClient } from '../integrations/aiClient.js';
 import { blockchainAdapter } from '../integrations/blockchainAdapter.js';
 import { storageAdapter } from '../integrations/storageAdapter.js';
+import { pushDelivery } from '../integrations/pushDelivery.js';
 import { BookingModel } from '../modules/booking/booking.model.js';
 import { RentalModel } from '../modules/rental/rental.model.js';
 import { lifecycleSchedulerStatus } from './lifecycleJobs.js';
@@ -56,6 +57,7 @@ export async function technologyHealth() {
     storage,
     ai,
     blockchain,
+    pushNotifications: pushDelivery.status(),
     lifecycle: {
       status: scheduler.enabled
         ? scheduler.lastError

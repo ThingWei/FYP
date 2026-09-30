@@ -12,6 +12,7 @@ import { ListingModel } from '../src/modules/listing/listing.model.js';
 import { MessageModel } from '../src/modules/communication/message.model.js';
 import { MessageReportModel } from '../src/modules/communication/messageReport.model.js';
 import { NotificationModel } from '../src/modules/communication/notification.model.js';
+import { DeviceRegistrationModel } from '../src/modules/communication/deviceRegistration.model.js';
 import { ThreadModel } from '../src/modules/communication/thread.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
 
@@ -75,6 +76,7 @@ before(async () => {
     MessageModel.init(),
     MessageReportModel.init(),
     NotificationModel.init(),
+    DeviceRegistrationModel.init(),
   ]);
 });
 
@@ -87,12 +89,70 @@ beforeEach(async () => {
     MessageModel.deleteMany({}),
     MessageReportModel.deleteMany({}),
     NotificationModel.deleteMany({}),
+    DeviceRegistrationModel.deleteMany({}),
   ]);
 });
 
 after(async () => {
   await disconnectDatabase();
   await mongodb.stop();
+});
+
+test('registers, rotates, lists, and removes an isolated push device', async () => {
+  await request(app).post('/api/v1/users/session').set(renter);
+  await request(app).post('/api/v1/users/session').set(outsider);
+  const firstToken = `fcm-${'a'.repeat(80)}`;
+  const secondToken = `fcm-${'b'.repeat(80)}`;
+
+  const registered = await request(app)
+    .post('/api/v1/messages/push/devices')
+    .set(renter)
+    .send({
+      deviceId: 'device-renter-phone',
+      deviceName: 'Alex Android',
+      platform: 'android',
+      token: firstToken,
+    });
+  assert.equal(registered.status, 200);
+  assert.equal(registered.body.data.deviceId, 'device-renter-phone');
+  assert.equal(registered.body.data.token, undefined);
+
+  const rotated = await request(app)
+    .post('/api/v1/messages/push/devices')
+    .set(renter)
+    .send({
+      deviceId: 'device-renter-phone',
+      deviceName: 'Alex Android',
+      platform: 'android',
+      token: secondToken,
+    });
+  assert.equal(rotated.status, 200);
+  assert.equal(
+    await DeviceRegistrationModel.countDocuments({ userId: 'u-renter' }),
+    1,
+  );
+  const stored = await DeviceRegistrationModel.findOne({
+    userId: 'u-renter',
+  }).select('+token');
+  assert.equal(stored.token, secondToken);
+
+  const ownerDevices = await request(app)
+    .get('/api/v1/messages/push/devices')
+    .set(renter);
+  assert.equal(ownerDevices.status, 200);
+  assert.equal(ownerDevices.body.data.length, 1);
+  assert.equal(ownerDevices.body.data[0].token, undefined);
+  const otherDevices = await request(app)
+    .get('/api/v1/messages/push/devices')
+    .set(outsider);
+  assert.deepEqual(otherDevices.body.data, []);
+
+  const removed = await request(app)
+    .delete('/api/v1/messages/push/devices/device-renter-phone')
+    .set(renter);
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body.data.removed, true);
+  assert.equal(await DeviceRegistrationModel.countDocuments(), 0);
 });
 
 test('creates a booking-linked participant conversation and notification', async () => {

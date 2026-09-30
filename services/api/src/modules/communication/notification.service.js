@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { emitNotification } from '../../socket/eventBus.js';
 import { communicationRepository } from './communication.repository.js';
+import { pushDelivery } from '../../integrations/pushDelivery.js';
 
 function publicId(prefix) {
   const suffix = new mongoose.Types.ObjectId().toString().slice(-10).toUpperCase();
@@ -21,17 +22,21 @@ export async function notifyUser({
   entityId,
   dedupeKey,
 }) {
-  const notification = await communicationRepository.createNotification({
-    publicId: publicId('NTF'),
-    userId,
-    category,
-    type,
-    title,
-    body,
-    entityType,
-    entityId,
-    dedupeKey,
-  });
-  emitNotification(notification.toJSON());
+  const { notification, created } =
+    await communicationRepository.createNotification({
+      publicId: publicId('NTF'),
+      userId,
+      category,
+      type,
+      title,
+      body,
+      entityType,
+      entityId,
+      dedupeKey,
+    });
+  if (created) {
+    emitNotification(notification.toJSON());
+    await pushDelivery.send(notification);
+  }
   return notification;
 }

@@ -4,6 +4,27 @@ import { created, ok } from '../../core/respond.js';
 import { communicationService } from './communication.service.js';
 
 export const communicationController = {
+  listPushDevices: asyncHandler(async (req, res) =>
+    ok(res, await communicationService.listPushDevices(req.user)),
+  ),
+  registerPushDevice: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await communicationService.registerPushDevice(
+        req.user,
+        matchedData(req, { locations: ['body'] }),
+      ),
+    ),
+  ),
+  removePushDevice: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await communicationService.removePushDevice(
+        req.user,
+        req.params.deviceId,
+      ),
+    ),
+  ),
   fromBooking: asyncHandler(async (req, res) =>
     ok(
       res,

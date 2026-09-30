@@ -24,6 +24,9 @@ export const env = {
   storageMode: process.env.STORAGE_MODE ?? 'local',
   uploadDirectory: process.env.UPLOAD_DIRECTORY ?? '.data/uploads',
   firebaseStorageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  fcmMode: process.env.FCM_MODE ?? 'disabled',
+  firebaseProjectId: process.env.FIREBASE_PROJECT_ID,
+  webAppUrl: process.env.WEB_APP_URL,
   maxUploadBytes: integer(process.env.MAX_UPLOAD_BYTES, 10 * 1024 * 1024),
   aiUrl: process.env.AI_SERVICE_URL ?? 'http://localhost:8001',
   aiTimeoutMs: integer(process.env.AI_TIMEOUT_MS, 5000),
@@ -53,6 +56,7 @@ export const env = {
 export function validateEnv(config = env) {
   const errors = [];
   const storageMode = config.storageMode ?? 'local';
+  const fcmMode = config.fcmMode ?? 'disabled';
   const maxUploadBytes = config.maxUploadBytes ?? 10 * 1024 * 1024;
   const aiTimeoutMs = config.aiTimeoutMs ?? 5000;
   const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
@@ -85,6 +89,12 @@ export function validateEnv(config = env) {
   }
   if (storageMode === 'firebase' && !config.firebaseStorageBucket) {
     errors.push('FIREBASE_STORAGE_BUCKET is required for Firebase storage');
+  }
+  if (!['disabled', 'firebase'].includes(fcmMode)) {
+    errors.push('FCM_MODE must be either disabled or firebase');
+  }
+  if (fcmMode === 'firebase' && !config.firebaseProjectId) {
+    errors.push('FIREBASE_PROJECT_ID is required when FCM_MODE=firebase');
   }
   if (!Number.isInteger(aiTimeoutMs) || aiTimeoutMs < 500) {
     errors.push('AI_TIMEOUT_MS must be an integer of at least 500');

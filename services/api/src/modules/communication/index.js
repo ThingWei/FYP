@@ -4,6 +4,7 @@ import { MessageModel } from './message.model.js';
 import { MessageReportModel } from './messageReport.model.js';
 import { NotificationModel } from './notification.model.js';
 import { ThreadModel } from './thread.model.js';
+import { DeviceRegistrationModel } from './deviceRegistration.model.js';
 
 export const communicationModule = {
   router: communicationRouter,
@@ -12,5 +13,6 @@ export const communicationModule = {
   MessageReportModel,
   NotificationModel,
   ThreadModel,
+  DeviceRegistrationModel,
 };
 

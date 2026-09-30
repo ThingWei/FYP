@@ -27,6 +27,26 @@ paths:
     post:
       security: [{ bearerAuth: [] }]
       responses: { '201': { description: Booking created } }
+  /messages/push/devices:
+    get:
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Current user's registered push devices } }
+    post:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PushDeviceRequest' }
+      responses:
+        '200': { description: Device token registered or rotated }
+        '422': { description: Invalid device registration }
+  /messages/push/devices/{deviceId}:
+    delete:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string } }
+      responses: { '200': { description: Device registration removed } }
   /users/me/deactivate:
     post:
       security: [{ bearerAuth: [] }]
@@ -107,6 +127,15 @@ components:
       type: object
       required: [email, password]
       properties: { email: { type: string, format: email }, password: { type: string, minLength: 8 } }
+    PushDeviceRequest:
+      type: object
+      required: [deviceId, platform, token]
+      additionalProperties: false
+      properties:
+        deviceId: { type: string, minLength: 8, maxLength: 120 }
+        deviceName: { type: string, maxLength: 120 }
+        platform: { type: string, enum: [android, ios, macos, web] }
+        token: { type: string, minLength: 20, maxLength: 4096 }
     AccountDeactivationRequest:
       type: object
       required: [confirmation, reason]

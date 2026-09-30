@@ -77,14 +77,22 @@ export const communicationRepository = {
     ]),
   findReportById: (reportId) =>
     MessageReportModel.findOne({ publicId: reportId }),
-  createNotification: (data) =>
-    data.dedupeKey
-      ? NotificationModel.findOneAndUpdate(
-          { dedupeKey: data.dedupeKey },
-          { $setOnInsert: data },
-          { upsert: true, new: true, setDefaultsOnInsert: true },
-        )
-      : NotificationModel.create(data),
+  async createNotification(data) {
+    try {
+      return {
+        notification: await NotificationModel.create(data),
+        created: true,
+      };
+    } catch (error) {
+      if (error?.code !== 11000 || !data.dedupeKey) throw error;
+      return {
+        notification: await NotificationModel.findOne({
+          dedupeKey: data.dedupeKey,
+        }),
+        created: false,
+      };
+    }
+  },
   listNotifications: (filter, page, limit) =>
     Promise.all([
       NotificationModel.find(filter)
