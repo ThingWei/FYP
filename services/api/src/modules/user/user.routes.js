@@ -4,6 +4,7 @@ import { validate } from '../../middleware/validate.js';
 import { userController } from './user.controller.js';
 import {
   accountStatusValidation,
+  accountDeactivationValidation,
   comparisonValidation,
   listValidation,
   profileValidation,
@@ -19,6 +20,13 @@ export const userRouter = Router();
 
 userRouter.post('/session', authenticate, userController.startSession);
 userRouter.get('/me', authenticate, userController.me);
+userRouter.post(
+  '/me/deactivate',
+  authenticate,
+  accountDeactivationValidation,
+  validate,
+  userController.deactivateMe,
+);
 userRouter.patch(
   '/me',
   authenticate,

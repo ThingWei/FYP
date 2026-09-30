@@ -111,6 +111,20 @@ export const accountStatusValidation = [
   body('reason').optional().trim().isLength({ max: 500 }),
 ];
 
+export const accountDeactivationValidation = [
+  body('confirmation')
+    .equals('true')
+    .withMessage('Account deactivation must be confirmed')
+    .toBoolean(),
+  body('reason').trim().isLength({ min: 5, max: 500 }),
+  body().custom((value) => {
+    const allowed = new Set(['confirmation', 'reason']);
+    const unknown = Object.keys(value).filter((field) => !allowed.has(field));
+    if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
+    return true;
+  }),
+];
+
 export const verificationDecisionValidation = [
   ...targetUserValidation,
   body('status').isIn(

@@ -372,6 +372,128 @@ test('allows only an admin to list and restrict accounts with a reason', async (
   assert.equal(suspended.body.data.accountStatus, 'suspended');
 });
 
+test('deactivates an account, revokes access, and allows audited reactivation', async () => {
+  const owner = identity({
+    id: 'u-deactivation-owner',
+    email: 'leaving-owner@renthub.my',
+    name: 'Leaving Owner',
+    roles: 'renter,owner',
+  });
+  const admin = identity({
+    id: 'u-admin',
+    email: 'admin@renthub.my',
+    name: 'Admin Farah',
+    roles: 'admin',
+  });
+  await request(app).post('/api/v1/users/session').set(owner);
+  await request(app).post('/api/v1/users/session').set(admin);
+  await ListingModel.create({
+    publicId: 'l-deactivation-test',
+    ownerId: 'u-deactivation-owner',
+    ownerName: 'Leaving Owner',
+    title: 'Deactivation Test Camera',
+    category: 'Devices',
+    listingType: 'physical',
+    dailyPrice: 50,
+    condition: 'Good',
+    fulfilmentMethods: ['pickup'],
+    location: 'Petaling Jaya, Selangor',
+    status: 'active',
+  });
+
+  const invalid = await request(app)
+    .post('/api/v1/users/me/deactivate')
+    .set(owner)
+    .send({ confirmation: false, reason: 'Taking a break' });
+  assert.equal(invalid.status, 422);
+  assert.equal(invalid.body.error.code, 'VALIDATION_ERROR');
+
+  const deactivated = await request(app)
+    .post('/api/v1/users/me/deactivate')
+    .set(owner)
+    .send({ confirmation: true, reason: 'Taking a long break' });
+  assert.equal(deactivated.status, 200);
+  assert.equal(deactivated.body.data.accountStatus, 'deactivated');
+  assert.ok(deactivated.body.data.deactivatedAt);
+
+  const stored = await UserModel.findOne({
+    authId: 'u-deactivation-owner',
+  }).lean();
+  assert.equal(stored.accountStatus, 'deactivated');
+  assert.ok(stored.accessRevokedAt);
+  assert.equal(
+    (await ListingModel.findOne({ publicId: 'l-deactivation-test' }).lean())
+      .status,
+    'inactive',
+  );
+  const denied = await request(app).get('/api/v1/users/me').set(owner);
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, 'ACCOUNT_RESTRICTED');
+
+  const reactivated = await request(app)
+    .patch(`/api/v1/users/${stored._id}/status`)
+    .set(admin)
+    .send({ status: 'active' });
+  assert.equal(reactivated.status, 200);
+  assert.equal(reactivated.body.data.accountStatus, 'active');
+  assert.ok(reactivated.body.data.reactivatedAt);
+
+  const newSession = await request(app)
+    .post('/api/v1/users/session')
+    .set(owner);
+  assert.equal(newSession.status, 200);
+  assert.equal(
+    await adminModule.Model.countDocuments({
+      targetId: 'u-deactivation-owner',
+      action: { $in: ['account.self_deactivated', 'account.active'] },
+    }),
+    2,
+  );
+});
+
+test('blocks deactivation while an account has an open booking', async () => {
+  const renter = identity({
+    id: 'u-obligated-renter',
+    email: 'obligated@renthub.my',
+    name: 'Obligated Renter',
+  });
+  await request(app).post('/api/v1/users/session').set(renter);
+  await BookingModel.create({
+    publicId: 'RH-BKG-2026-DEACT',
+    listingId: 'l-obligation-test',
+    listingTitle: 'Open Booking Item',
+    listingType: 'physical',
+    renterId: 'u-obligated-renter',
+    renterName: 'Obligated Renter',
+    ownerId: 'u-another-owner',
+    startDate: new Date('2026-10-10T00:00:00Z'),
+    endDate: new Date('2026-10-11T00:00:00Z'),
+    fulfilmentMethod: 'pickup',
+    pricing: {
+      baseAmount: 50,
+      securityDeposit: 20,
+      damageWaiverFee: 0,
+      platformFee: 5,
+      total: 75,
+      currency: 'MYR',
+    },
+    status: 'pending',
+  });
+
+  const response = await request(app)
+    .post('/api/v1/users/me/deactivate')
+    .set(renter)
+    .send({ confirmation: true, reason: 'No longer needed' });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'ACCOUNT_HAS_OPEN_OBLIGATIONS');
+  assert.equal(
+    (await UserModel.findOne({ authId: 'u-obligated-renter' }).lean())
+      .accountStatus,
+    'active',
+  );
+  await BookingModel.deleteOne({ publicId: 'RH-BKG-2026-DEACT' });
+});
+
 test('returns only safe fields from a public profile', async () => {
   const headers = identity({
     id: 'u-owner',

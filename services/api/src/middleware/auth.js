@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
+import { UserModel } from '../modules/user/user.model.js';
 
 let jwks;
 
@@ -29,6 +30,8 @@ export function identityFromPayload(payload) {
         ? payload[env.authNameClaim]
         : undefined,
     roles: rolesFromClaim(payload[env.authRolesClaim]),
+    issuedAt:
+      typeof payload.iat === 'number' ? new Date(payload.iat * 1000) : undefined,
   };
 }
 
@@ -46,10 +49,39 @@ function mockIdentity(req) {
   };
 }
 
+export async function assertAccountAccess(identity) {
+  const user = await UserModel.findOne({ authId: identity.authId })
+    .select('accountStatus accessRevokedAt')
+    .lean();
+  // A profile does not exist until the first /users/session call.
+  if (!user) return;
+  if (user.accountStatus !== 'active') {
+    throw new AppError(
+      `Account is ${user.accountStatus}`,
+      403,
+      'ACCOUNT_RESTRICTED',
+    );
+  }
+  if (
+    identity.issuedAt &&
+    user.accessRevokedAt &&
+    // JWT iat has one-second precision. Allow a genuinely new token minted in
+    // the revocation second instead of trapping an immediate re-login.
+    identity.issuedAt.getTime() + 1000 <= user.accessRevokedAt.getTime()
+  ) {
+    throw new AppError(
+      'This session has been revoked. Sign in again.',
+      401,
+      'SESSION_REVOKED',
+    );
+  }
+}
+
 export async function authenticate(req, _res, next) {
   try {
     if (env.authMode === 'mock') {
       req.user = mockIdentity(req);
+      await assertAccountAccess(req.user);
       return next();
     }
     const token = req.header('authorization')?.replace(/^Bearer /, '');
@@ -63,6 +95,7 @@ export async function authenticate(req, _res, next) {
       audience: env.authAudience,
     });
     req.user = identityFromPayload(payload);
+    await assertAccountAccess(req.user);
     next();
   } catch (error) {
     next(

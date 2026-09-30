@@ -26,3 +26,7 @@ export function emitNotification(notification) {
     ?.to(`user:${notification.userId}`)
     .emit(events.notificationNew, notification);
 }
+
+export function disconnectUser(userId) {
+  socketServer?.in(`user:${userId}`).disconnectSockets(true);
+}

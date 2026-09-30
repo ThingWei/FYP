@@ -3,10 +3,31 @@ import { AppError } from '../../core/errors.js';
 import { adminModule } from '../admin/index.js';
 import { notifyUser } from '../communication/notification.service.js';
 import { ListingModel } from '../listing/listing.model.js';
+import { BookingModel } from '../booking/booking.model.js';
+import { RentalModel } from '../rental/rental.model.js';
+import { DisputeModel } from '../dispute/dispute.model.js';
 import { ACCOUNT_STATUSES, USER_ROLES } from './user.model.js';
 import { userRepository } from './user.repository.js';
 import { uploadService } from '../upload/upload.service.js';
 import { aiClient } from '../../integrations/aiClient.js';
+import { disconnectUser } from '../../socket/eventBus.js';
+
+const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
+const OPEN_RENTAL_STATUSES = [
+  'scheduled',
+  'active',
+  'overdue',
+  'return_submitted',
+  'completion_pending',
+  'disputed',
+];
+const OPEN_DISPUTE_STATUSES = [
+  'open',
+  'awaiting_response',
+  'under_review',
+  'more_evidence_required',
+  'escalated',
+];
 
 function preferredRole(roles) {
   return roles.includes('renter') ? 'renter' : roles[0];
@@ -73,6 +94,78 @@ export const userService = {
   },
 
   getMe: requireCurrentUser,
+
+  async deactivateMe(identity, reason) {
+    const user = await requireCurrentUser(identity);
+    const participant = {
+      $or: [{ renterId: user.authId }, { ownerId: user.authId }],
+    };
+    const disputeParticipant = {
+      $or: [{ raisedById: user.authId }, { respondentId: user.authId }],
+    };
+    const [openBookings, openRentals, openDisputes] = await Promise.all([
+      BookingModel.countDocuments({
+        ...participant,
+        status: { $in: OPEN_BOOKING_STATUSES },
+      }),
+      RentalModel.countDocuments({
+        ...participant,
+        status: { $in: OPEN_RENTAL_STATUSES },
+      }),
+      DisputeModel.countDocuments({
+        ...disputeParticipant,
+        status: { $in: OPEN_DISPUTE_STATUSES },
+      }),
+    ]);
+    if (openBookings || openRentals || openDisputes) {
+      throw new AppError(
+        'Resolve active bookings, rentals, and disputes before deactivating your account.',
+        409,
+        'ACCOUNT_HAS_OPEN_OBLIGATIONS',
+      );
+    }
+    if (
+      user.roles.includes('admin') &&
+      (await user.constructor.countDocuments({
+        roles: 'admin',
+        accountStatus: 'active',
+      })) <= 1
+    ) {
+      throw new AppError(
+        'The final active administrator cannot deactivate their account.',
+        409,
+        'LAST_ACTIVE_ADMIN',
+      );
+    }
+    const now = new Date();
+    user.accountStatus = 'deactivated';
+    user.accountStatusReason = reason.trim();
+    user.accountStatusChangedAt = now;
+    user.accountStatusChangedBy = user.authId;
+    user.deactivatedAt = now;
+    user.deactivatedBy = user.authId;
+    user.accessRevokedAt = now;
+    await user.save();
+    await Promise.all([
+      ListingModel.updateMany(
+        { ownerId: user.authId, status: { $in: ['active', 'pending_review'] } },
+        { status: 'inactive' },
+      ),
+      adminModule.service.create({
+        actorId: user.authId,
+        action: 'account.self_deactivated',
+        targetType: 'user',
+        targetId: user.authId,
+        metadata: { reason: user.accountStatusReason },
+        createdBy: user.authId,
+      }),
+    ]);
+    disconnectUser(user.authId);
+    return {
+      accountStatus: user.accountStatus,
+      deactivatedAt: user.deactivatedAt,
+    };
+  },
 
   async updateMe(identity, input) {
     const user = await requireCurrentUser(identity);
@@ -316,7 +409,7 @@ export const userService = {
     return { items, meta: { page, limit, total } };
   },
 
-  async changeAccountStatus(id, status, reason) {
+  async changeAccountStatus(id, status, reason, identity) {
     if (!mongoose.isValidObjectId(id)) {
       throw new AppError('Invalid user identifier', 400, 'INVALID_ID');
     }
@@ -326,11 +419,71 @@ export const userService = {
     if (status !== 'active' && !reason?.trim()) {
       throw new AppError('A reason is required', 400, 'REASON_REQUIRED');
     }
-    const user = await userRepository.updateById(id, {
-      accountStatus: status,
-      accountStatusReason: status === 'active' ? '' : reason.trim(),
-    });
+    const user = await userRepository.findById(id);
     if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
+    if (status !== 'active' && user.authId === identity.authId) {
+      throw new AppError(
+        'Administrators cannot restrict their own account from this screen.',
+        409,
+        'SELF_RESTRICTION_NOT_ALLOWED',
+      );
+    }
+    if (
+      status !== 'active' &&
+      user.roles.includes('admin') &&
+      (await user.constructor.countDocuments({
+        roles: 'admin',
+        accountStatus: 'active',
+      })) <= 1
+    ) {
+      throw new AppError(
+        'The final active administrator cannot be restricted.',
+        409,
+        'LAST_ACTIVE_ADMIN',
+      );
+    }
+    const previousStatus = user.accountStatus;
+    const now = new Date();
+    user.accountStatus = status;
+    user.accountStatusReason = status === 'active' ? '' : reason.trim();
+    user.accountStatusChangedAt = now;
+    user.accountStatusChangedBy = identity.authId;
+    if (status === 'active') user.reactivatedAt = now;
+    if (status === 'deactivated') {
+      user.deactivatedAt = now;
+      user.deactivatedBy = identity.authId;
+    }
+    if (status !== 'active') user.accessRevokedAt = now;
+    await user.save();
+    if (status !== 'active') {
+      await ListingModel.updateMany(
+        { ownerId: user.authId, status: { $in: ['active', 'pending_review'] } },
+        { status: 'inactive' },
+      );
+      disconnectUser(user.authId);
+    }
+    await Promise.all([
+      adminModule.service.create({
+        actorId: identity.authId,
+        action: `account.${status}`,
+        targetType: 'user',
+        targetId: user.authId,
+        metadata: { previousStatus, reason: user.accountStatusReason },
+        createdBy: identity.authId,
+      }),
+      notifyUser({
+        userId: user.authId,
+        category: 'account',
+        type: `account_${status}`,
+        title: status === 'active' ? 'Account reactivated' : `Account ${status}`,
+        body:
+          status === 'active'
+            ? 'Your RentHub account is active again. Please sign in with a new session.'
+            : user.accountStatusReason,
+        entityType: 'user',
+        entityId: user.authId,
+      }),
+    ]);
     return user;
   },
 };

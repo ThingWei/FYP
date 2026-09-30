@@ -13,6 +13,13 @@ export const userController = {
     ok(res, await userService.getMe(req.user)),
   ),
 
+  deactivateMe: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await userService.deactivateMe(req.user, matchedData(req).reason),
+    ),
+  ),
+
   updateMe: asyncHandler(async (req, res) =>
     ok(res, await userService.updateMe(req.user, matchedData(req))),
   ),
@@ -86,6 +93,7 @@ export const userController = {
         req.params.id,
         req.body.status,
         req.body.reason,
+        req.user,
       ),
     ),
   ),

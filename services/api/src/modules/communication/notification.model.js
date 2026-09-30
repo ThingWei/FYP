@@ -9,6 +9,7 @@ export const NOTIFICATION_CATEGORIES = [
   'dispute',
   'loyalty',
   'verification',
+  'account',
 ];
 
 const notificationSchema = new mongoose.Schema(

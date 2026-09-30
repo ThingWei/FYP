@@ -1,7 +1,12 @@
 import mongoose from 'mongoose';
 
 export const USER_ROLES = ['renter', 'owner', 'admin'];
-export const ACCOUNT_STATUSES = ['active', 'suspended', 'banned'];
+export const ACCOUNT_STATUSES = [
+  'active',
+  'deactivated',
+  'suspended',
+  'banned',
+];
 export const VERIFICATION_STATUSES = [
   'unverified',
   'pending',
@@ -65,6 +70,12 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
     accountStatusReason: { type: String, trim: true, maxlength: 500, default: '' },
+    accountStatusChangedAt: Date,
+    accountStatusChangedBy: { type: String, trim: true, default: '' },
+    deactivatedAt: Date,
+    deactivatedBy: { type: String, trim: true, default: '' },
+    reactivatedAt: Date,
+    accessRevokedAt: Date,
     verification: {
       status: {
         type: String,

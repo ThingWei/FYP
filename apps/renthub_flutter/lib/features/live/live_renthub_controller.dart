@@ -462,6 +462,20 @@ class LiveRentHubController extends ChangeNotifier {
         );
       });
 
+  Future<void> deactivateAccount(String reason) => _perform(() async {
+        await api.request(
+          'POST',
+          '/users/me/deactivate',
+          body: {'confirmation': true, 'reason': reason.trim()},
+        );
+        await _socketSubscription?.cancel();
+        _socketSubscription = null;
+        _socket?.dispose();
+        _socket = null;
+        _socketUserId = null;
+        profile = null;
+      });
+
   Future<void> submitIdentityVerification(
     String documentType,
     List<String> documentRefs,

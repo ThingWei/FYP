@@ -99,7 +99,12 @@ real credentials stored outside source control.
 - [ ] Run login and role-access checks with real short-lived Auth0 tokens.
 - [ ] Resolve the product decision on Google/social login; it is not currently
   implemented.
-- [ ] Account deactivation and session/device management remain unimplemented.
+- [x] Self-service account deactivation, immediate API/Socket.IO access
+  revocation, listing hiding, administrator reactivation, and audit logging are
+  implemented.
+- [ ] Multi-device session inventory and selective per-device revocation remain
+  unimplemented. Auth0 access-token lifetime and refresh-token rotation still
+  need to be configured in the real tenant.
 
 ## Firebase Storage setup
 
@@ -159,8 +164,20 @@ Expected runtime paths are listed in `services/ai/.env.example` and
 
 - [ ] Real payment-provider authorization, capture, refund, payout, and webhook
   reconciliation are not implemented; payments remain simulated.
-- [ ] Firebase Cloud Messaging push delivery is not implemented; current
-  notifications are MongoDB/Socket.IO application notifications.
+- [ ] Firebase Cloud Messaging push delivery is the next integration phase;
+  current notifications are MongoDB/Socket.IO application notifications.
+  - [ ] Create the Firebase project and register Android, iOS, and Web apps used
+    by the final demonstration targets.
+  - [ ] Configure FlutterFire files locally and server credentials through
+    environment/workload identity; do not commit service-account secrets.
+  - [ ] Add device-token registration, refresh, sign-out removal, and stale-token
+    cleanup endpoints backed by MongoDB.
+  - [ ] Add the API delivery adapter with retry/error handling while retaining
+    MongoDB notifications as the source of truth.
+  - [ ] Add Flutter permission prompts plus foreground, background, and tapped
+    notification handling.
+  - [ ] Verify booking, message, rental, dispute, and account notifications on a
+    real device/browser end to end.
 - [ ] Image messages and location-pin messages are not implemented.
 - [ ] Google Maps/geospatial search is still deferred.
 - [ ] Cross-Owner multi-item checkout/bundles are not implemented. Existing

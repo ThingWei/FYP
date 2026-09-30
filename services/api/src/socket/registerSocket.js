@@ -1,6 +1,9 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { env } from '../config/env.js';
-import { identityFromPayload } from '../middleware/auth.js';
+import {
+  assertAccountAccess,
+  identityFromPayload,
+} from '../middleware/auth.js';
 import { ThreadModel } from '../modules/communication/thread.model.js';
 import { setSocketServer } from './eventBus.js';
 
@@ -12,10 +15,12 @@ export function registerSocket(io) {
     try {
       if (env.authMode === 'mock') {
         const candidate = socket.handshake.auth?.userId;
-        socket.data.userId =
+        const authId =
           typeof candidate === 'string' && candidate.length <= 120
             ? candidate
             : 'u-dual';
+        await assertAccountAccess({ authId });
+        socket.data.userId = authId;
         return next();
       }
       const token = socket.handshake.auth?.token;
@@ -28,7 +33,9 @@ export function registerSocket(io) {
         issuer,
         audience: env.authAudience,
       });
-      socket.data.userId = identityFromPayload(payload).authId;
+      const identity = identityFromPayload(payload);
+      await assertAccountAccess(identity);
+      socket.data.userId = identity.authId;
       return next();
     } catch {
       return next(new Error('Invalid access token'));

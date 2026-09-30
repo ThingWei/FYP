@@ -150,6 +150,26 @@ void main() {
     );
   });
 
+  test('account deactivation sends explicit confirmation and clears profile',
+      () async {
+    final api = RecordingAccountApiClient([
+      {'accountStatus': 'deactivated'},
+    ]);
+    final controller = LiveRentHubController(api)
+      ..profile = User.fromJson(userJson());
+    addTearDown(controller.dispose);
+
+    await controller.deactivateAccount('Taking a long break');
+
+    expect(api.calls.single.$1, 'POST');
+    expect(api.calls.single.$2, '/users/me/deactivate');
+    expect(api.calls.single.$3, {
+      'confirmation': true,
+      'reason': 'Taking a long break',
+    });
+    expect(controller.profile, isNull);
+  });
+
   testWidgets('final live profile edits and persists the display name',
       (tester) async {
     final api = RecordingAccountApiClient([userJson(name: 'Alex Updated')]);

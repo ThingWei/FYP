@@ -583,6 +583,50 @@ class _AdminVerification extends StatelessWidget {
 class _AdminUsers extends StatelessWidget {
   const _AdminUsers();
 
+  Future<void> _reactivate(
+    BuildContext context,
+    Map<String, dynamic> user,
+  ) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Reactivate ${user['displayName']}?'),
+        content: const Text(
+          'The user can sign in again with a new session. Listings hidden '
+          'during the restriction remain inactive for a manual review.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Reactivate'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await context.read<LiveRentHubController>().changeAccountStatus(
+            user['_id'] as String,
+            'active',
+            '',
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Account reactivated.')),
+        );
+      }
+    } catch (exception) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
   Future<void> _restrict(
     BuildContext context,
     Map<String, dynamic> user,
@@ -635,6 +679,7 @@ class _AdminUsers extends StatelessWidget {
       itemBuilder: (context, index) {
         final user = data.users[index];
         final status = user['accountStatus'] as String? ?? 'active';
+        final statusReason = user['accountStatusReason'] as String? ?? '';
         return Card(
           child: ListTile(
             leading: CircleAvatar(
@@ -642,7 +687,8 @@ class _AdminUsers extends StatelessWidget {
             ),
             title: Text(user['displayName'] as String),
             subtitle: Text(
-              '${(user['roles'] as List).join(', ')} · ${user['email']}',
+              '${(user['roles'] as List).join(', ')} · ${user['email']}'
+              '${statusReason.isEmpty ? '' : '\nReason: $statusReason'}',
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -654,6 +700,11 @@ class _AdminUsers extends StatelessWidget {
                   OutlinedButton(
                     onPressed: () => _restrict(context, user),
                     child: const Text('Suspend'),
+                  ),
+                if (status != 'active')
+                  FilledButton(
+                    onPressed: () => _reactivate(context, user),
+                    child: const Text('Reactivate'),
                   ),
               ],
             ),

@@ -27,6 +27,31 @@ paths:
     post:
       security: [{ bearerAuth: [] }]
       responses: { '201': { description: Booking created } }
+  /users/me/deactivate:
+    post:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccountDeactivationRequest' }
+      responses:
+        '200': { description: Account deactivated and active sessions revoked }
+        '400': { description: Confirmation or reason is invalid }
+        '409': { description: Open obligations or final administrator safeguard }
+  /users/{userId}/status:
+    patch:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: userId, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccountStatusRequest' }
+      responses:
+        '200': { description: Account status updated with an audit record }
+        '403': { description: Administrator role required }
   /admin/reporting/reports:
     get:
       security: [{ bearerAuth: [] }]
@@ -82,6 +107,21 @@ components:
       type: object
       required: [email, password]
       properties: { email: { type: string, format: email }, password: { type: string, minLength: 8 } }
+    AccountDeactivationRequest:
+      type: object
+      required: [confirmation, reason]
+      additionalProperties: false
+      properties:
+        confirmation: { type: boolean, enum: [true] }
+        reason: { type: string, minLength: 5, maxLength: 500 }
+    AccountStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, deactivated, suspended, banned]
+        reason: { type: string, maxLength: 500 }
     AdminReportGenerationRequest:
       type: object
       required: [reportType]

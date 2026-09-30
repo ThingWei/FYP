@@ -24,7 +24,10 @@ class AuthController extends LoadableController {
             await repository.register(name, email, password, selectedRole),
       );
   Future<void> logout() => run(() async {
-        await repository.logout();
-        user = null;
+        try {
+          await repository.logout();
+        } finally {
+          user = null;
+        }
       });
 }

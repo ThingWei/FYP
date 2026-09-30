@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../modules/user/controllers/auth_controller.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
@@ -981,6 +982,7 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
   late bool push = widget.user.pushNotifications;
   late bool email = widget.user.emailNotifications;
   bool saving = false;
+  bool deactivating = false;
 
   Future<void> _save() async {
     setState(() => saving = true);
@@ -998,6 +1000,89 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
       }
     } finally {
       if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> _deactivate() async {
+    final reason = TextEditingController();
+    var confirmed = false;
+    final accepted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          icon: const Icon(Icons.person_off_outlined, color: AppColors.error),
+          title: const Text('Deactivate your account?'),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'You will be signed out, your active listings will be hidden, '
+                  'and new access will be blocked. An administrator can reactivate '
+                  'the account later.',
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: reason,
+                  minLines: 2,
+                  maxLines: 4,
+                  maxLength: 500,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Reason for leaving',
+                    hintText: 'At least 5 characters',
+                  ),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: confirmed,
+                  title: const Text(
+                    'I understand that I will lose access immediately.',
+                  ),
+                  onChanged: (value) =>
+                      setDialogState(() => confirmed = value ?? false),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Keep Account'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+              onPressed: confirmed && reason.text.trim().length >= 5
+                  ? () => Navigator.pop(dialogContext, true)
+                  : null,
+              child: const Text('Deactivate Account'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted != true || !mounted) {
+      reason.dispose();
+      return;
+    }
+    setState(() => deactivating = true);
+    try {
+      await context
+          .read<LiveRentHubController>()
+          .deactivateAccount(reason.text);
+      if (mounted) await context.read<AuthController>().logout();
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(exception.toString())),
+        );
+      }
+    } finally {
+      reason.dispose();
+      if (mounted) setState(() => deactivating = false);
     }
   }
 
@@ -1037,6 +1122,46 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
               FilledButton(
                 onPressed: saving ? null : _save,
                 child: Text(saving ? 'Saving…' : 'Save Settings'),
+              ),
+              const SizedBox(height: 32),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withValues(alpha: .05),
+                  border: Border.all(
+                    color: AppColors.error.withValues(alpha: .25),
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Deactivate account',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: AppColors.error,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Account access is disabled immediately. You cannot '
+                      'deactivate while a booking, rental, or dispute is open.',
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.error,
+                        side: const BorderSide(color: AppColors.error),
+                      ),
+                      onPressed: deactivating ? null : _deactivate,
+                      icon: const Icon(Icons.person_off_outlined),
+                      label: Text(
+                        deactivating ? 'Deactivating…' : 'Deactivate Account',
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
