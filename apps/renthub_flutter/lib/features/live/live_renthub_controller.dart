@@ -49,6 +49,7 @@ class LiveRentHubController extends ChangeNotifier {
   Reward? loyalty;
   Map<String, dynamic> loyaltyConfig = {};
   Map<String, dynamic> platformSettings = {};
+  Map<String, dynamic> technologyHealth = {};
   List<Map<String, dynamic>> adminRewardLedger = [];
   List<Map<String, dynamic>> adminReferrals = [];
 
@@ -182,6 +183,7 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/rewards/admin/referrals'),
           api.request('GET', '/admin/reports'),
           api.request('GET', '/admin/settings'),
+          api.request('GET', '/admin/technology-health'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         users = (results[1] as List).cast<Map<String, dynamic>>();
@@ -199,6 +201,17 @@ class LiveRentHubController extends ChangeNotifier {
         adminReferrals = (results[13] as List).cast<Map<String, dynamic>>();
         moderationReports = (results[14] as List).cast<Map<String, dynamic>>();
         platformSettings = results[15] as Map<String, dynamic>;
+        technologyHealth = results[16] as Map<String, dynamic>;
+      });
+
+  Future<void> runLifecycleAutomation() => _perform(() async {
+        await api.request('POST', '/admin/lifecycle/run');
+        technologyHealth = await api.request(
+          'GET',
+          '/admin/technology-health',
+        ) as Map<String, dynamic>;
+        auditLogs = (await api.request('GET', '/admin') as List)
+            .cast<Map<String, dynamic>>();
       });
 
   Future<List<Listing>> discoverListings(

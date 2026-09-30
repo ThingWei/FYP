@@ -5,6 +5,11 @@ const integer = (value, fallback) => {
   return Number.isInteger(parsed) ? parsed : Number.NaN;
 };
 
+const boolean = (value, fallback) => {
+  if (value === undefined) return fallback;
+  return String(value).toLowerCase() === 'true';
+};
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 3000),
@@ -28,6 +33,17 @@ export const env = {
   rentalContractArtifact:
     process.env.RENTAL_CONTRACT_ARTIFACT ??
     '../../blockchain/artifacts/contracts/RentalAgreement.sol/RentalAgreement.json',
+  lifecycleJobsEnabled: boolean(process.env.LIFECYCLE_JOBS_ENABLED, true),
+  lifecycleJobIntervalMs: integer(
+    process.env.LIFECYCLE_JOB_INTERVAL_MS,
+    15 * 60 * 1000,
+  ),
+  pendingBookingExpiryMinutes: integer(
+    process.env.PENDING_BOOKING_EXPIRY_MINUTES,
+    60,
+  ),
+  lifecycleReminderHours: integer(process.env.LIFECYCLE_REMINDER_HOURS, 24),
+  overdueGraceHours: integer(process.env.OVERDUE_GRACE_HOURS, 0),
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:8080')
     .split(',')
     .map((origin) => origin.trim())
@@ -41,6 +57,10 @@ export function validateEnv(config = env) {
   const aiTimeoutMs = config.aiTimeoutMs ?? 5000;
   const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
   const blockchainMode = config.blockchainMode ?? 'disabled';
+  const lifecycleJobIntervalMs = config.lifecycleJobIntervalMs ?? 15 * 60 * 1000;
+  const pendingBookingExpiryMinutes = config.pendingBookingExpiryMinutes ?? 60;
+  const lifecycleReminderHours = config.lifecycleReminderHours ?? 24;
+  const overdueGraceHours = config.overdueGraceHours ?? 0;
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     errors.push('PORT must be an integer between 1 and 65535');
   }
@@ -74,6 +94,18 @@ export function validateEnv(config = env) {
   }
   if (!['disabled', 'ganache'].includes(blockchainMode)) {
     errors.push('BLOCKCHAIN_MODE must be disabled or ganache');
+  }
+  if (!Number.isInteger(lifecycleJobIntervalMs) || lifecycleJobIntervalMs < 10_000) {
+    errors.push('LIFECYCLE_JOB_INTERVAL_MS must be an integer of at least 10000');
+  }
+  if (!Number.isInteger(pendingBookingExpiryMinutes) || pendingBookingExpiryMinutes < 5) {
+    errors.push('PENDING_BOOKING_EXPIRY_MINUTES must be an integer of at least 5');
+  }
+  if (!Number.isInteger(lifecycleReminderHours) || lifecycleReminderHours < 1) {
+    errors.push('LIFECYCLE_REMINDER_HOURS must be an integer of at least 1');
+  }
+  if (!Number.isInteger(overdueGraceHours) || overdueGraceHours < 0) {
+    errors.push('OVERDUE_GRACE_HOURS must be a non-negative integer');
   }
   if (config.nodeEnv === 'production' && storageMode !== 'firebase') {
     errors.push('STORAGE_MODE=firebase is required in production');

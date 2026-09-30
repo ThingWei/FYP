@@ -159,8 +159,9 @@ class LiveOwnerDashboard extends StatelessWidget {
     final controller = context.watch<LiveRentHubController>();
     final pending =
         controller.bookings.where((item) => item.status == 'pending').length;
-    final active =
-        controller.rentals.where((item) => item.status == 'active').length;
+    final active = controller.rentals
+        .where((item) => ['active', 'overdue'].contains(item.status))
+        .length;
     return Scaffold(
       appBar: AppBar(
         title: const RentHubLogo(),

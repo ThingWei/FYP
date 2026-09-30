@@ -52,3 +52,15 @@ outside Docker Compose and can be enabled with `BLOCKCHAIN_MODE=ganache`.
 - Python: not executed on this workstation because no Python or Docker runtime
   is installed. Runtime outputs therefore remain unavailable until the documented
   environment setup and training commands are completed.
+
+## Lifecycle automation and health follow-up
+
+On 30 September 2026, the API gained configurable lifecycle automation for
+unpaid booking expiry, start/return reminders, overdue physical rentals, and
+service completion reminders. Automated notifications use durable deduplication
+keys. Administrators can inspect MongoDB, authentication, storage, AI,
+blockchain, scheduler state, and operational counts in the live dashboard and
+can trigger a guarded manual lifecycle run.
+
+The environment and unfinished-work audit is maintained in
+`REMAINING_IMPLEMENTATION_AND_SETUP_CHECKLIST.md`.

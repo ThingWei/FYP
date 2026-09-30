@@ -42,6 +42,7 @@ const notificationSchema = new mongoose.Schema(
       required: true,
     },
     entityId: { type: String, required: true, trim: true, index: true },
+    dedupeKey: { type: String, trim: true, maxlength: 180 },
     readAt: Date,
   },
   {
@@ -60,6 +61,10 @@ const notificationSchema = new mongoose.Schema(
 );
 
 notificationSchema.index({ userId: 1, createdAt: -1 });
+notificationSchema.index(
+  { dedupeKey: 1 },
+  { unique: true, sparse: true, name: 'unique_notification_dedupe_key' },
+);
 
 export const NotificationModel =
   mongoose.models.Notification ??

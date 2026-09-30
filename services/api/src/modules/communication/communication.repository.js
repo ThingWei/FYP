@@ -77,7 +77,14 @@ export const communicationRepository = {
     ]),
   findReportById: (reportId) =>
     MessageReportModel.findOne({ publicId: reportId }),
-  createNotification: (data) => NotificationModel.create(data),
+  createNotification: (data) =>
+    data.dedupeKey
+      ? NotificationModel.findOneAndUpdate(
+          { dedupeKey: data.dedupeKey },
+          { $setOnInsert: data },
+          { upsert: true, new: true, setDefaultsOnInsert: true },
+        )
+      : NotificationModel.create(data),
   listNotifications: (filter, page, limit) =>
     Promise.all([
       NotificationModel.find(filter)

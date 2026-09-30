@@ -19,6 +19,7 @@ export async function notifyUser({
   body,
   entityType,
   entityId,
+  dedupeKey,
 }) {
   const notification = await communicationRepository.createNotification({
     publicId: publicId('NTF'),
@@ -29,6 +30,7 @@ export async function notifyUser({
     body,
     entityType,
     entityId,
+    dedupeKey,
   });
   emitNotification(notification.toJSON());
   return notification;

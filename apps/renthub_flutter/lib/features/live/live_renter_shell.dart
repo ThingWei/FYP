@@ -1692,7 +1692,8 @@ class _RenterRentalActions extends StatelessWidget {
         ],
       );
     }
-    if (rental.listingType == 'physical' && rental.status == 'active') {
+    if (rental.listingType == 'physical' &&
+        ['active', 'overdue'].contains(rental.status)) {
       return Wrap(
         spacing: 8,
         runSpacing: 8,

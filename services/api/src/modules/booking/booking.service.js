@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import mongoose from 'mongoose';
+import { env } from '../../config/env.js';
 import { AppError } from '../../core/errors.js';
 import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { ListingModel } from '../listing/listing.model.js';
@@ -209,6 +210,9 @@ export const bookingService = {
         renterNote: input.renterNote ?? '',
         pricing: pricing(listing, startDate, endDate, waiverSelected),
         status: 'pending',
+        expiresAt: new Date(
+          Date.now() + env.pendingBookingExpiryMinutes * 60 * 1000,
+        ),
       });
     } catch (error) {
       if (error?.code !== 11000) throw error;

@@ -192,7 +192,10 @@ export const rentalService = {
 
   async requestExtension(id, input, identity) {
     const rental = await ownedRental(id, identity, 'renter');
-    if (rental.listingType !== 'physical' || rental.status !== 'active') {
+    if (
+      rental.listingType !== 'physical' ||
+      !['active', 'overdue'].includes(rental.status)
+    ) {
       throw new AppError('Extension is unavailable', 409, 'INVALID_RENTAL_STATE');
     }
     if (rental.extension.status === 'pending') {
@@ -240,6 +243,9 @@ export const rentalService = {
       const booking = await linkedBooking(rental);
       booking.endDate = rental.endDate;
       await booking.save();
+      if (rental.status === 'overdue' && rental.endDate > new Date()) {
+        rental.status = 'active';
+      }
     }
     rental.extension.status = input.status;
     rental.extension.ownerReason = input.reason?.trim() ?? '';
@@ -263,7 +269,10 @@ export const rentalService = {
   async submitReturn(id, input, identity) {
     const rental = await ownedRental(id, identity, 'renter');
     await uploadService.assertOwnedReferences(identity, input.evidence, ['return_evidence']);
-    if (rental.listingType !== 'physical' || rental.status !== 'active') {
+    if (
+      rental.listingType !== 'physical' ||
+      !['active', 'overdue'].includes(rental.status)
+    ) {
       throw new AppError('Return cannot be submitted', 409, 'INVALID_RENTAL_STATE');
     }
     rental.returnSubmission = {

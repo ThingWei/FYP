@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 export const RENTAL_STATUSES = [
   'scheduled',
   'active',
+  'overdue',
   'return_submitted',
   'completion_pending',
   'completed',
@@ -65,6 +66,14 @@ const rentalSchema = new mongoose.Schema(
     serviceDeliveredAt: Date,
     serviceCompletedAt: Date,
     extension: { type: extensionSchema, default: () => ({ status: 'none' }) },
+    automation: {
+      startReminderSentAt: Date,
+      dueReminderSentAt: Date,
+      overdueNotifiedAt: Date,
+      serviceDueReminderSentAt: Date,
+      completionReminderSentAt: Date,
+      lastProcessedAt: Date,
+    },
     contractAddress: String,
     transactionHash: String,
     blockchain: {

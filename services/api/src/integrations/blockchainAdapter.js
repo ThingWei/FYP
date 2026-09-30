@@ -74,6 +74,40 @@ async function confirmedTransaction(transaction) {
 }
 
 export const blockchainAdapter = {
+  async health() {
+    if (env.blockchainMode !== 'ganache') {
+      return {
+        mode: env.blockchainMode,
+        status: 'disabled',
+        network: 'ganache-local',
+      };
+    }
+    try {
+      const chain = await runtime();
+      const [network, blockNumber, definition] = await Promise.all([
+        chain.provider.getNetwork(),
+        chain.provider.getBlockNumber(),
+        artifact(),
+      ]);
+      return {
+        mode: 'ganache',
+        status: 'up',
+        network: 'ganache-local',
+        chainId: network.chainId.toString(),
+        blockNumber,
+        contractArtifact: Boolean(definition.abi && definition.bytecode),
+      };
+    } catch (error) {
+      runtimePromise = undefined;
+      return {
+        mode: 'ganache',
+        status: 'down',
+        network: 'ganache-local',
+        error: error.shortMessage ?? error.message,
+      };
+    }
+  },
+
   async createAgreement({ rentalAmount, depositAmount }) {
     return execute('create_and_sign', async (chain) => {
       const definition = await artifact();

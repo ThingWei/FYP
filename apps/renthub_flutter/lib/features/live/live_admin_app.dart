@@ -230,7 +230,131 @@ class _AdminDashboard extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 24),
+          const _TechnologyHealthPanel(),
         ],
+      ),
+    );
+  }
+}
+
+class _TechnologyHealthPanel extends StatelessWidget {
+  const _TechnologyHealthPanel();
+
+  String _label(String value) => value
+      .replaceAll('_', ' ')
+      .split(' ')
+      .map((word) =>
+          word.isEmpty ? word : '${word[0].toUpperCase()}${word.substring(1)}')
+      .join(' ');
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<LiveRentHubController>();
+    final health = controller.technologyHealth;
+    final components =
+        (health['components'] as Map<String, dynamic>?) ?? const {};
+    final counts =
+        (health['operationalCounts'] as Map<String, dynamic>?) ?? const {};
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Technology health',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        health.isEmpty
+                            ? 'Health data is unavailable.'
+                            : 'Overall: ${_label('${health['status']}')}',
+                        style: const TextStyle(
+                          color: AppColors.secondaryText,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: controller.loading
+                      ? null
+                      : () async {
+                          try {
+                            await controller.runLifecycleAutomation();
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Lifecycle automation completed.',
+                                ),
+                              ),
+                            );
+                          } catch (_) {}
+                        },
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Run lifecycle now'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                for (final entry in components.entries)
+                  Builder(
+                    builder: (context) {
+                      final detail = entry.value as Map<String, dynamic>;
+                      final status = '${detail['status'] ?? 'unknown'}';
+                      final subtitle = switch (entry.key) {
+                        'database' => '${detail['state'] ?? ''}',
+                        'authentication' => '${detail['mode'] ?? ''}',
+                        'storage' => '${detail['provider'] ?? ''}',
+                        'ai' => '${detail['model_mode'] ?? ''}',
+                        'blockchain' => '${detail['mode'] ?? ''}',
+                        'lifecycle' => detail['lastCompletedAt'] == null
+                            ? 'Not run yet'
+                            : 'Last run ${detail['lastCompletedAt']}',
+                        _ => '',
+                      };
+                      return SizedBox(
+                        width: 190,
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            side: const BorderSide(color: AppColors.border),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          title: Text(_label(entry.key)),
+                          subtitle: Text(subtitle),
+                          trailing: StatusBadge(_label(status)),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+            if (counts.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Expired bookings: ${counts['expiredBookings'] ?? 0}  |  '
+                'Overdue rentals: ${counts['overdueRentals'] ?? 0}  |  '
+                'Pending unpaid: ${counts['pendingUnpaidBookings'] ?? 0}',
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

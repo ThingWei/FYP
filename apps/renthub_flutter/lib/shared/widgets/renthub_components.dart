@@ -38,7 +38,10 @@ class StatusBadge extends StatelessWidget {
         ? AppColors.success
         : value.contains('reject') ||
                 value.contains('dispute') ||
-                value.contains('suspend')
+                value.contains('suspend') ||
+                value.contains('overdue') ||
+                value.contains('expired') ||
+                value.contains('down')
             ? AppColors.error
             : AppColors.warning;
     return Container(

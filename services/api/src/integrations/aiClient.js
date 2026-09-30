@@ -30,6 +30,22 @@ const unavailableVerification = (reason) => ({
 });
 
 export const aiClient = {
+  async health() {
+    try {
+      const response = await client.get('/health');
+      return {
+        ...response.data,
+        serviceStatus: response.data.status,
+        status: response.data.status === 'ok' ? 'up' : 'degraded',
+      };
+    } catch (error) {
+      return {
+        status: 'down',
+        error: error.response?.data?.detail ?? error.message,
+      };
+    }
+  },
+
   async verifyDocument({ images, documentType, profileName }) {
     if (!images?.length) {
       return unavailableVerification('No stored document bytes were available for analysis');

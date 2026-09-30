@@ -15,6 +15,11 @@ import {
   REPORT_TARGET_TYPES,
 } from './moderationReport.model.js';
 import { PlatformSettingModel } from './platformSetting.model.js';
+import {
+  lifecycleSchedulerStatus,
+  runLifecycleJobs,
+} from '../../operations/lifecycleJobs.js';
+import { technologyHealth } from '../../operations/technologyHealth.js';
 
 const auditSchema = new mongoose.Schema(
   {
@@ -279,6 +284,25 @@ router.post(
   ),
 );
 router.use(authenticate, authorize('admin'));
+router.get(
+  '/technology-health',
+  asyncHandler(async (_req, res) => ok(res, await technologyHealth())),
+);
+router.post(
+  '/lifecycle/run',
+  asyncHandler(async (req, res) => {
+    const result = await runLifecycleJobs();
+    await repository.create({
+      actorId: req.user.authId,
+      action: 'lifecycle.manual_run',
+      targetType: 'lifecycle_automation',
+      targetId: 'scheduler',
+      metadata: { result, scheduler: lifecycleSchedulerStatus() },
+      createdBy: req.user.authId,
+    });
+    return ok(res, { result, scheduler: lifecycleSchedulerStatus() });
+  }),
+);
 router.get(
   '/reports',
   reportsValidation,
