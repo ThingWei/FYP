@@ -21,9 +21,17 @@ values are recorded here.
 - [x] Added AI artifact visibility to the FastAPI health response.
 - [x] Added environment settings for interval, expiry, reminder, and grace
   periods to `services/api/.env.example`.
-- [x] Added automated lifecycle and administrator health tests; the complete API suite passes 56/56
-  when run with isolated test auth and local storage.
+- [x] Added automated lifecycle, administrator health, and reporting tests; the
+  complete API suite passes 58/58 when run with isolated test auth and local
+  storage.
 - [x] Dart static analysis of `lib/` passes with no issues.
+- [x] Added persistent daily/weekly/monthly administrator report schedules.
+- [x] Added manual and scheduled CSV generation for platform summaries,
+  bookings, payments, users, listings, and disputes.
+- [x] Added authenticated CSV downloads, audit entries, duplicate-run locking,
+  formula-injection protection, and a 10,000-row export cap.
+- [x] Added the reporting endpoints and request contracts to the shared OpenAPI
+  document.
 
 ## Immediate local setup still required
 
@@ -157,8 +165,8 @@ Expected runtime paths are listed in `services/ai/.env.example` and
 - [ ] Google Maps/geospatial search is still deferred.
 - [ ] Cross-Owner multi-item checkout/bundles are not implemented. Existing
   bundle metadata supports only the simpler same-Owner presentation.
-- [ ] Advanced scheduled administrator reports and data exports are not
-  implemented.
+- [x] Internal scheduled administrator reports and CSV exports are implemented.
+  Email delivery remains dependent on a future email-provider integration.
 - [ ] The expanded searchable/category-specific guide remains a basic help page.
 - [ ] Production monitoring, alerting, centralized logs, rate limiting policy,
   TLS/domain configuration, CI/CD, and disaster-recovery drills still need an
@@ -170,8 +178,11 @@ Expected runtime paths are listed in `services/ai/.env.example` and
 - [ ] Run the Phase 13 write/restart/read E2E drill.
 - [ ] Run Python tests and capture model metrics after installing Python.
 - [ ] Repeat Hardhat and Ganache smoke tests with the final environment.
-- [ ] Run full Flutter tests and both web builds after repairing the local Flutter
-  wrapper/SDK lock issue observed in this session. Direct Dart analysis passed.
+- [x] Full Flutter tests pass with 72 tests and two existing environment-dependent
+  skips. The administrator web build also passes; the existing Socket.IO WASM
+  advisory and Cupertino-font warning remain non-blocking.
+- [ ] Rebuild the renter/Owner web entry point after the final external-provider
+  configuration is available.
 - [ ] Perform a manual browser pass at 1440x900 and 1024px for the admin health
   panel, and at 390px/360px for overdue actions and status badges.
 - [ ] Verify all three interfaces with real authentication and persisted data,

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
@@ -46,6 +47,8 @@ class LiveRentHubController extends ChangeNotifier {
   List<Map<String, dynamic>> messageReports = [];
   List<Map<String, dynamic>> moderationReports = [];
   List<Map<String, dynamic>> auditLogs = [];
+  List<Map<String, dynamic>> generatedReports = [];
+  List<Map<String, dynamic>> reportSchedules = [];
   Reward? loyalty;
   Map<String, dynamic> loyaltyConfig = {};
   Map<String, dynamic> platformSettings = {};
@@ -184,6 +187,8 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/admin/reports'),
           api.request('GET', '/admin/settings'),
           api.request('GET', '/admin/technology-health'),
+          api.request('GET', '/admin/reporting/schedules'),
+          api.request('GET', '/admin/reporting/reports'),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         users = (results[1] as List).cast<Map<String, dynamic>>();
@@ -202,6 +207,8 @@ class LiveRentHubController extends ChangeNotifier {
         moderationReports = (results[14] as List).cast<Map<String, dynamic>>();
         platformSettings = results[15] as Map<String, dynamic>;
         technologyHealth = results[16] as Map<String, dynamic>;
+        reportSchedules = (results[17] as List).cast<Map<String, dynamic>>();
+        generatedReports = (results[18] as List).cast<Map<String, dynamic>>();
       });
 
   Future<void> runLifecycleAutomation() => _perform(() async {
@@ -212,6 +219,78 @@ class LiveRentHubController extends ChangeNotifier {
         ) as Map<String, dynamic>;
         auditLogs = (await api.request('GET', '/admin') as List)
             .cast<Map<String, dynamic>>();
+      });
+
+  Future<void> generateAdminReport({
+    required String reportType,
+    required int rangeDays,
+  }) =>
+      _perform(() async {
+        final report = await api.request(
+          'POST',
+          '/admin/reporting/reports',
+          body: {'reportType': reportType, 'rangeDays': rangeDays},
+        ) as Map<String, dynamic>;
+        generatedReports.insert(0, report);
+        auditLogs = (await api.request('GET', '/admin') as List)
+            .cast<Map<String, dynamic>>();
+      });
+
+  Future<void> createReportSchedule({
+    required String name,
+    required String reportType,
+    required String cadence,
+    required int rangeDays,
+  }) =>
+      _perform(() async {
+        final schedule = await api.request(
+          'POST',
+          '/admin/reporting/schedules',
+          body: {
+            'name': name,
+            'reportType': reportType,
+            'cadence': cadence,
+            'rangeDays': rangeDays,
+          },
+        ) as Map<String, dynamic>;
+        reportSchedules.insert(0, schedule);
+      });
+
+  Future<void> setReportScheduleEnabled(
+    Map<String, dynamic> schedule,
+    bool enabled,
+  ) =>
+      _perform(() async {
+        final id = (schedule['publicId'] ?? schedule['id']) as String;
+        final updated = await api.request(
+          'PATCH',
+          '/admin/reporting/schedules/$id',
+          body: {'enabled': enabled},
+        ) as Map<String, dynamic>;
+        final index = reportSchedules.indexWhere(
+          (item) => (item['publicId'] ?? item['id']) == id,
+        );
+        if (index >= 0) reportSchedules[index] = updated;
+      });
+
+  Future<bool> downloadAdminReport(Map<String, dynamic> report) =>
+      _perform(() async {
+        final id = (report['publicId'] ?? report['id']) as String;
+        final payload = await api.request(
+          'GET',
+          '/admin/reporting/reports/$id/download',
+        ) as Map<String, dynamic>;
+        final saved = await FilePicker.saveFile(
+          fileName: payload['fileName'] as String,
+          bytes: Uint8List.fromList(
+            utf8.encode(payload['content'] as String),
+          ),
+          mimeType: payload['mimeType'] as String,
+          type: FileType.custom,
+          allowedExtensions: const ['csv'],
+          dialogTitle: 'Save RentHub report',
+        );
+        return saved != null;
       });
 
   Future<List<Listing>> discoverListings(

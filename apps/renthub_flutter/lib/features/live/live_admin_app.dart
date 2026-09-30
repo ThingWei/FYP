@@ -1329,6 +1329,321 @@ class _AdminDisputesClaims extends StatelessWidget {
   }
 }
 
+class _AdminReportingPanel extends StatelessWidget {
+  const _AdminReportingPanel();
+
+  static const reportTypes = {
+    'platform_summary': 'Platform summary',
+    'bookings': 'Bookings',
+    'payments': 'Payments',
+    'users': 'Users',
+    'listings': 'Listings',
+    'disputes': 'Disputes',
+  };
+
+  void _showError(BuildContext context, Object exception) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(exception.toString())),
+    );
+  }
+
+  Future<void> _generate(BuildContext context) async {
+    var reportType = 'platform_summary';
+    var rangeDays = 30;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Generate CSV report'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: reportType,
+                  decoration: const InputDecoration(labelText: 'Report type'),
+                  items: [
+                    for (final entry in reportTypes.entries)
+                      DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      ),
+                  ],
+                  onChanged: (value) => setDialogState(
+                    () => reportType = value ?? reportType,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  initialValue: rangeDays,
+                  decoration: const InputDecoration(labelText: 'Date range'),
+                  items: const [
+                    DropdownMenuItem(value: 7, child: Text('Last 7 days')),
+                    DropdownMenuItem(value: 30, child: Text('Last 30 days')),
+                    DropdownMenuItem(value: 90, child: Text('Last 90 days')),
+                    DropdownMenuItem(value: 365, child: Text('Last 365 days')),
+                  ],
+                  onChanged: (value) => setDialogState(
+                    () => rangeDays = value ?? rangeDays,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Generate'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await context.read<LiveRentHubController>().generateAdminReport(
+            reportType: reportType,
+            rangeDays: rangeDays,
+          );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('CSV report generated.')),
+      );
+    } catch (exception) {
+      if (context.mounted) _showError(context, exception);
+    }
+  }
+
+  Future<void> _schedule(BuildContext context) async {
+    final name = TextEditingController(text: 'Monthly platform summary');
+    var reportType = 'platform_summary';
+    var cadence = 'monthly';
+    var rangeDays = 30;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Create report schedule'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: reportType,
+                    decoration: const InputDecoration(labelText: 'Report type'),
+                    items: [
+                      for (final entry in reportTypes.entries)
+                        DropdownMenuItem(
+                          value: entry.key,
+                          child: Text(entry.value),
+                        ),
+                    ],
+                    onChanged: (value) => setDialogState(
+                      () => reportType = value ?? reportType,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: cadence,
+                    decoration: const InputDecoration(labelText: 'Frequency'),
+                    items: const [
+                      DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                      DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
+                      DropdownMenuItem(
+                          value: 'monthly', child: Text('Monthly')),
+                    ],
+                    onChanged: (value) => setDialogState(
+                      () => cadence = value ?? cadence,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    initialValue: rangeDays,
+                    decoration:
+                        const InputDecoration(labelText: 'Included date range'),
+                    items: const [
+                      DropdownMenuItem(value: 7, child: Text('Last 7 days')),
+                      DropdownMenuItem(value: 30, child: Text('Last 30 days')),
+                      DropdownMenuItem(value: 90, child: Text('Last 90 days')),
+                      DropdownMenuItem(
+                          value: 365, child: Text('Last 365 days')),
+                    ],
+                    onChanged: (value) => setDialogState(
+                      () => rangeDays = value ?? rangeDays,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                name.text.trim().length >= 3,
+              ),
+              child: const Text('Create Schedule'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted == true && context.mounted) {
+      try {
+        await context.read<LiveRentHubController>().createReportSchedule(
+              name: name.text.trim(),
+              reportType: reportType,
+              cadence: cadence,
+              rangeDays: rangeDays,
+            );
+      } catch (exception) {
+        if (context.mounted) _showError(context, exception);
+      }
+    }
+    name.dispose();
+  }
+
+  Future<void> _download(
+    BuildContext context,
+    Map<String, dynamic> report,
+  ) async {
+    try {
+      final saved = await context
+          .read<LiveRentHubController>()
+          .downloadAdminReport(report);
+      if (saved && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report saved.')),
+        );
+      }
+    } catch (exception) {
+      if (context.mounted) _showError(context, exception);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = context.watch<LiveRentHubController>();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Operational reports',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const Text(
+                    'Generate auditable CSV exports or automate recurring snapshots.',
+                    style: TextStyle(color: AppColors.secondaryText),
+                  ),
+                ],
+              ),
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: data.loading ? null : () => _schedule(context),
+                  icon: const Icon(Icons.schedule),
+                  label: const Text('New Schedule'),
+                ),
+                FilledButton.icon(
+                  onPressed: data.loading ? null : () => _generate(context),
+                  icon: const Icon(Icons.add_chart),
+                  label: const Text('Generate CSV'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text('Schedules', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        if (data.reportSchedules.isEmpty)
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.schedule_outlined),
+              title: Text('No report schedules'),
+              subtitle: Text('Create a daily, weekly, or monthly schedule.'),
+            ),
+          ),
+        for (final schedule in data.reportSchedules)
+          Card(
+            child: SwitchListTile(
+              value: schedule['enabled'] as bool? ?? false,
+              onChanged: data.loading
+                  ? null
+                  : (value) async {
+                      try {
+                        await context
+                            .read<LiveRentHubController>()
+                            .setReportScheduleEnabled(schedule, value);
+                      } catch (exception) {
+                        if (context.mounted) _showError(context, exception);
+                      }
+                    },
+              title: Text(schedule['name'] as String),
+              subtitle: Text(
+                '${reportTypes[schedule['reportType']] ?? schedule['reportType']} | '
+                '${schedule['cadence']} | Next: ${schedule['nextRunAt']}',
+              ),
+              secondary: const Icon(Icons.event_repeat_outlined),
+            ),
+          ),
+        const SizedBox(height: 20),
+        Text('Generated files', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        if (data.generatedReports.isEmpty)
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.description_outlined),
+              title: Text('No generated reports'),
+              subtitle: Text('Generate a CSV to make it available here.'),
+            ),
+          ),
+        for (final report in data.generatedReports.take(20))
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.table_view_outlined),
+              title: Text(report['fileName'] as String),
+              subtitle: Text(
+                '${report['rowCount']} rows | ${report['generationKind']} | '
+                '${report['createdAt']}',
+              ),
+              trailing: OutlinedButton.icon(
+                onPressed:
+                    data.loading ? null : () => _download(context, report),
+                icon: const Icon(Icons.download),
+                label: const Text('Download'),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _AdminMessageReports extends StatelessWidget {
   const _AdminMessageReports();
 
@@ -1393,16 +1708,11 @@ class _AdminMessageReports extends StatelessWidget {
     final data = context.watch<LiveRentHubController>();
     final moderationReports = data.moderationReports;
     final messageReports = data.messageReports;
-    if (moderationReports.isEmpty && messageReports.isEmpty) {
-      return const RentHubFeedbackState(
-        kind: FeedbackKind.empty,
-        title: 'No reports',
-        message: 'User, listing, review, and message reports will appear here.',
-      );
-    }
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
+        const _AdminReportingPanel(),
+        const SizedBox(height: 32),
         Text('Safety reports',
             style: Theme.of(context).textTheme.headlineSmall),
         const Text(
@@ -1410,6 +1720,16 @@ class _AdminMessageReports extends StatelessWidget {
           style: TextStyle(color: AppColors.secondaryText),
         ),
         const SizedBox(height: 16),
+        if (moderationReports.isEmpty && messageReports.isEmpty)
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.verified_user_outlined),
+              title: Text('No safety reports'),
+              subtitle: Text(
+                'User, listing, review, and message reports will appear here.',
+              ),
+            ),
+          ),
         for (final report in moderationReports) ...[
           Card(
             child: Padding(

@@ -64,3 +64,10 @@ can trigger a guarded manual lifecycle run.
 
 The environment and unfinished-work audit is maintained in
 `REMAINING_IMPLEMENTATION_AND_SETUP_CHECKLIST.md`.
+
+The administrator Reports page now also supports persistent daily, weekly, and
+monthly schedules plus manual CSV generation for platform summaries, bookings,
+payments, users, listings, and disputes. Generated files remain available in
+MongoDB for authenticated administrator download. The background worker uses a
+schedule lock and deterministic generation key to prevent duplicate scheduled
+reports across repeated runs.

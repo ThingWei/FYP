@@ -27,6 +27,53 @@ paths:
     post:
       security: [{ bearerAuth: [] }]
       responses: { '201': { description: Booking created } }
+  /admin/reporting/reports:
+    get:
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Generated report metadata } }
+    post:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminReportGenerationRequest' }
+      responses:
+        '200': { description: CSV report generated }
+        '403': { description: Administrator role required }
+  /admin/reporting/reports/{reportId}/download:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: reportId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Authenticated CSV file payload }
+        '404': { description: Report not found }
+  /admin/reporting/schedules:
+    get:
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Report schedules } }
+    post:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminReportScheduleRequest' }
+      responses: { '200': { description: Report schedule created } }
+  /admin/reporting/schedules/{scheduleId}:
+    patch:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: scheduleId, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminReportScheduleUpdate' }
+      responses:
+        '200': { description: Report schedule updated }
+        '404': { description: Report schedule not found }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -35,4 +82,36 @@ components:
       type: object
       required: [email, password]
       properties: { email: { type: string, format: email }, password: { type: string, minLength: 8 } }
+    AdminReportGenerationRequest:
+      type: object
+      required: [reportType]
+      properties:
+        reportType:
+          type: string
+          enum: [platform_summary, bookings, payments, users, listings, disputes]
+        rangeDays: { type: integer, minimum: 1, maximum: 365, default: 30 }
+    AdminReportScheduleRequest:
+      type: object
+      required: [name, reportType, cadence]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 120 }
+        reportType:
+          type: string
+          enum: [platform_summary, bookings, payments, users, listings, disputes]
+        cadence: { type: string, enum: [daily, weekly, monthly] }
+        rangeDays: { type: integer, minimum: 1, maximum: 365, default: 30 }
+        enabled: { type: boolean, default: true }
+        nextRunAt: { type: string, format: date-time }
+    AdminReportScheduleUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 3, maxLength: 120 }
+        reportType:
+          type: string
+          enum: [platform_summary, bookings, payments, users, listings, disputes]
+        cadence: { type: string, enum: [daily, weekly, monthly] }
+        rangeDays: { type: integer, minimum: 1, maximum: 365 }
+        enabled: { type: boolean }
+        nextRunAt: { type: string, format: date-time }
 

@@ -16,6 +16,16 @@ import {
 } from './moderationReport.model.js';
 import { PlatformSettingModel } from './platformSetting.model.js';
 import {
+  ADMIN_REPORT_TYPES,
+  GeneratedReportModel,
+  REPORT_CADENCES,
+  ReportScheduleModel,
+} from './report.model.js';
+import {
+  adminReportService,
+  generateAdminReport,
+} from './report.service.js';
+import {
   lifecycleSchedulerStatus,
   runLifecycleJobs,
 } from '../../operations/lifecycleJobs.js';
@@ -262,6 +272,48 @@ const settingsValidation = [
   ]),
   body('categories.*.active').optional().isBoolean().toBoolean(),
 ];
+const reportGenerationValidation = [
+  body('reportType').isIn(ADMIN_REPORT_TYPES),
+  body('rangeDays').optional().isInt({ min: 1, max: 365 }).toInt(),
+];
+const reportScheduleValidation = [
+  body('name').trim().isLength({ min: 3, max: 120 }),
+  body('reportType').isIn(ADMIN_REPORT_TYPES),
+  body('cadence').isIn(REPORT_CADENCES),
+  body('rangeDays').optional().isInt({ min: 1, max: 365 }).toInt(),
+  body('enabled').optional().isBoolean().toBoolean(),
+  body('nextRunAt').optional().isISO8601().toDate(),
+];
+const reportScheduleUpdateValidation = [
+  param('scheduleId').matches(/^RPT-SCH-[A-F0-9]+$/i),
+  body('name').optional().trim().isLength({ min: 3, max: 120 }),
+  body('reportType').optional().isIn(ADMIN_REPORT_TYPES),
+  body('cadence').optional().isIn(REPORT_CADENCES),
+  body('rangeDays').optional().isInt({ min: 1, max: 365 }).toInt(),
+  body('enabled').optional().isBoolean().toBoolean(),
+  body('nextRunAt').optional().isISO8601().toDate(),
+  body().custom((value) => {
+    const allowed = [
+      'name',
+      'reportType',
+      'cadence',
+      'rangeDays',
+      'enabled',
+      'nextRunAt',
+    ];
+    const keys = Object.keys(value);
+    if (!keys.some((key) => allowed.includes(key))) {
+      throw new Error('At least one change is required');
+    }
+    if (keys.some((key) => !allowed.includes(key))) {
+      throw new Error('Request contains unsupported schedule fields');
+    }
+    return true;
+  }),
+];
+const generatedReportValidation = [
+  param('reportId').matches(/^RPT-GEN-[A-F0-9]+$/i),
+];
 
 router.post(
   '/reports',
@@ -301,6 +353,102 @@ router.post(
       createdBy: req.user.authId,
     });
     return ok(res, { result, scheduler: lifecycleSchedulerStatus() });
+  }),
+);
+router.get(
+  '/reporting/reports',
+  asyncHandler(async (_req, res) =>
+    ok(res, await adminReportService.listReports()),
+  ),
+);
+router.post(
+  '/reporting/reports',
+  reportGenerationValidation,
+  validate,
+  asyncHandler(async (req, res) => {
+    const input = matchedData(req, { locations: ['body'] });
+    const report = await generateAdminReport({
+      reportType: input.reportType,
+      rangeDays: input.rangeDays ?? 30,
+      createdBy: req.user.authId,
+    });
+    await repository.create({
+      actorId: req.user.authId,
+      action: 'report.generated',
+      targetType: 'generated_report',
+      targetId: report.publicId,
+      metadata: {
+        reportType: report.reportType,
+        rangeDays: input.rangeDays ?? 30,
+        rowCount: report.rowCount,
+      },
+      createdBy: req.user.authId,
+    });
+    return ok(res, report);
+  }),
+);
+router.get(
+  '/reporting/reports/:reportId/download',
+  generatedReportValidation,
+  validate,
+  asyncHandler(async (req, res) => {
+    const report = await adminReportService.download(req.params.reportId);
+    if (!report) throw new AppError('Generated report not found', 404, 'NOT_FOUND');
+    return ok(res, {
+      fileName: report.fileName,
+      mimeType: report.mimeType,
+      content: report.content,
+    });
+  }),
+);
+router.get(
+  '/reporting/schedules',
+  asyncHandler(async (_req, res) =>
+    ok(res, await adminReportService.listSchedules()),
+  ),
+);
+router.post(
+  '/reporting/schedules',
+  reportScheduleValidation,
+  validate,
+  asyncHandler(async (req, res) => {
+    const schedule = await adminReportService.createSchedule(
+      matchedData(req, { locations: ['body'] }),
+      req.user,
+    );
+    await repository.create({
+      actorId: req.user.authId,
+      action: 'report_schedule.created',
+      targetType: 'report_schedule',
+      targetId: schedule.publicId,
+      metadata: { reportType: schedule.reportType, cadence: schedule.cadence },
+      createdBy: req.user.authId,
+    });
+    return ok(res, schedule);
+  }),
+);
+router.patch(
+  '/reporting/schedules/:scheduleId',
+  reportScheduleUpdateValidation,
+  validate,
+  asyncHandler(async (req, res) => {
+    const input = matchedData(req, { locations: ['body'] });
+    delete input[''];
+    const schedule = await adminReportService.updateSchedule(
+      req.params.scheduleId,
+      input,
+      req.user,
+    );
+    if (!schedule) throw new AppError('Report schedule not found', 404, 'NOT_FOUND');
+    await repository.create({
+      actorId: req.user.authId,
+      action: 'report_schedule.updated',
+      targetType: 'report_schedule',
+      targetId: schedule.publicId,
+      metadata: { changedFields: Object.keys(req.body) },
+      createdBy: req.user.authId,
+    });
+    return ok(res, schedule);
   }),
 );
 router.get(
@@ -365,6 +513,8 @@ export const adminModule = {
   Model,
   ModerationReportModel,
   PlatformSettingModel,
+  GeneratedReportModel,
+  ReportScheduleModel,
   repository,
   service,
   router,

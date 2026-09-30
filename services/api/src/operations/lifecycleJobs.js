@@ -3,6 +3,7 @@ import { BookingModel } from '../modules/booking/booking.model.js';
 import { notifyUser } from '../modules/communication/notification.service.js';
 import { voidBookingPayment } from '../modules/payment/payment.service.js';
 import { RentalModel } from '../modules/rental/rental.model.js';
+import { runDueReportSchedules } from '../modules/admin/report.service.js';
 
 const state = {
   enabled: env.lifecycleJobsEnabled,
@@ -261,13 +262,21 @@ export async function runLifecycleJobs({
   state.lastRunAt = now;
   state.lastError = '';
   try {
-    const [expiredBookings, startReminders, dueReminders, overdueRentals, serviceReminders] =
+    const [
+      expiredBookings,
+      startReminders,
+      dueReminders,
+      overdueRentals,
+      serviceReminders,
+      scheduledReports,
+    ] =
       await Promise.all([
         expirePendingBookings(now, expiryMinutes),
         sendStartReminders(now, reminderHours),
         sendPhysicalDueReminders(now, reminderHours),
         markOverdueRentals(now, graceHours),
         sendServiceReminders(now, reminderHours),
+        runDueReportSchedules(now),
       ]);
     state.lastResult = {
       expiredBookings,
@@ -275,6 +284,7 @@ export async function runLifecycleJobs({
       dueReminders,
       overdueRentals,
       serviceReminders,
+      scheduledReports,
     };
     state.lastCompletedAt = new Date();
     return state.lastResult;
