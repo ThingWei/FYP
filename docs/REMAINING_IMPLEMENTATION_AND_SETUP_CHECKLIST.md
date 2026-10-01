@@ -1,6 +1,6 @@
 # RentHub remaining implementation and setup checklist
 
-Last verified: 30 September 2026
+Last verified: 1 October 2026
 
 This checklist separates code that exists from external services, credentials,
 model artifacts, and production checks that still have to be supplied. No secret
@@ -32,6 +32,14 @@ values are recorded here.
   formula-injection protection, and a 10,000-row export cap.
 - [x] Added the reporting endpoints and request contracts to the shared OpenAPI
   document.
+- [x] Replaced the live forgot/change-password simulation with Auth0
+  database-connection reset-email requests while retaining the offline mock
+  demonstration.
+- [x] Added a Security-page inventory for registered notification devices with
+  user-scoped removal. This is intentionally labelled separately from Auth0
+  login-session revocation.
+- [x] Added entity-aware push tap routing for conversations, bookings, rentals,
+  payments, disputes, and loyalty activity, with a notification-centre fallback.
 
 ## Immediate local setup still required
 
@@ -91,6 +99,8 @@ real credentials stored outside source control.
 ## Auth0 setup
 
 - [ ] Replace the placeholder Auth0 issuer/tenant value.
+- [ ] Set Flutter `AUTH0_DATABASE_CONNECTION` to the enabled Auth0 database
+  connection name and verify password-reset email delivery.
 - [ ] Verify the API audience, RS256 signing, role claim, email claim, and name
   claim against the actual tenant.
 - [ ] Register the Flutter Web callback/logout/origin URLs for ports 8080 and
@@ -179,6 +189,8 @@ Expected runtime paths are listed in `services/ai/.env.example` and
     MongoDB notifications as the source of truth.
   - [x] Add Flutter permission prompts plus foreground, background, and tapped
     notification handling.
+  - [x] Add a user-visible registered-device list/removal flow and entity-aware
+    notification tap routing.
   - [ ] Verify booking, message, rental, dispute, and account notifications on a
     real device/browser end to end.
 - [ ] Image messages and location-pin messages are not implemented.
@@ -198,7 +210,7 @@ Expected runtime paths are listed in `services/ai/.env.example` and
 - [ ] Run the Phase 13 write/restart/read E2E drill.
 - [ ] Run Python tests and capture model metrics after installing Python.
 - [ ] Repeat Hardhat and Ganache smoke tests with the final environment.
-- [x] Full Flutter tests pass with 72 tests and two existing environment-dependent
+- [x] Full Flutter tests pass with 74 tests and two existing environment-dependent
   skips. The administrator web build also passes; the existing Socket.IO WASM
   advisory and Cupertino-font warning remain non-blocking.
 - [ ] Rebuild the renter/Owner web entry point after the final external-provider

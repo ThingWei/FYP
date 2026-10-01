@@ -18,6 +18,7 @@ class Auth0Gateway {
     required this.clientId,
     required this.audience,
     required this.callbackUrl,
+    required this.databaseConnection,
   }) : domain = domain
             .replaceFirst(RegExp(r'^https?://'), '')
             .replaceFirst(RegExp(r'/$'), '');
@@ -26,6 +27,7 @@ class Auth0Gateway {
   final String clientId;
   final String audience;
   final String callbackUrl;
+  final String databaseConnection;
   String? _accessToken;
   String? _refreshToken;
   DateTime? _expiresAt;
@@ -171,6 +173,28 @@ class Auth0Gateway {
       'refresh_token': _refreshToken,
     }));
     return _accessToken;
+  }
+
+  Future<void> requestPasswordReset(String email) async {
+    final response = await http.post(
+      Uri.https(domain, '/dbconnections/change_password'),
+      headers: {'content-type': 'application/json'},
+      body: jsonEncode({
+        'client_id': clientId,
+        'email': email,
+        'connection': databaseConnection,
+      }),
+    );
+    if (response.statusCode >= 400) {
+      String message = 'Auth0 could not send the password reset email.';
+      try {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        message = payload['error_description'] as String? ??
+            payload['message'] as String? ??
+            message;
+      } catch (_) {}
+      throw StateError(message);
+    }
   }
 
   Future<void> logout() async {

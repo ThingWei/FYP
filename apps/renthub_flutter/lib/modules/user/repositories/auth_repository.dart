@@ -15,6 +15,7 @@ abstract interface class AuthRepository {
     UserRole role,
   );
   Future<void> logout();
+  Future<void> requestPasswordReset(String email);
   void selectRole(UserRole role);
 }
 
@@ -42,6 +43,11 @@ class MockAuthRepository implements AuthRepository {
       User(id: 'demo-user', email: e, name: n, roles: {r});
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<void> requestPasswordReset(String email) async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
 
   @override
   void selectRole(UserRole role) {}
@@ -144,6 +150,13 @@ class LiveAuthRepository implements AuthRepository {
 
   @override
   Future<void> logout() async => session.clear();
+
+  @override
+  Future<void> requestPasswordReset(String email) async {
+    throw StateError(
+      'Password reset is available when RentHub is connected to Auth0.',
+    );
+  }
 }
 
 class Auth0AuthRepository implements AuthRepository {
@@ -215,4 +228,8 @@ class Auth0AuthRepository implements AuthRepository {
       session.clear();
     }
   }
+
+  @override
+  Future<void> requestPasswordReset(String email) =>
+      gateway.requestPasswordReset(email);
 }

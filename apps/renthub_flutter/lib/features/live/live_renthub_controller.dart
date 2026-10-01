@@ -38,6 +38,7 @@ class LiveRentHubController extends ChangeNotifier {
   List<Rental> rentals = [];
   List<Conversation> conversations = [];
   List<RentHubNotification> notifications = [];
+  List<Map<String, dynamic>> notificationDevices = [];
   List<Transaction> transactions = [];
   List<Review> reviews = [];
   List<Review> receivedReviews = [];
@@ -1027,6 +1028,22 @@ class LiveRentHubController extends ChangeNotifier {
         notifications = _models(
           await api.request('GET', '/messages/notifications$suffix'),
           RentHubNotification.fromJson,
+        );
+      });
+
+  Future<void> loadNotificationDevices() => _perform(() async {
+        notificationDevices = (await api.request(
+          'GET',
+          '/messages/push/devices',
+        ) as List)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+      });
+
+  Future<void> removeNotificationDevice(String deviceId) => _perform(() async {
+        await api.request('DELETE', '/messages/push/devices/$deviceId');
+        notificationDevices.removeWhere(
+          (item) => item['deviceId'] == deviceId,
         );
       });
 

@@ -31,6 +31,10 @@ class AppDependencies {
     const auth0ClientId = String.fromEnvironment('AUTH0_CLIENT_ID');
     const auth0Audience = String.fromEnvironment('AUTH0_AUDIENCE');
     const auth0CallbackUrl = String.fromEnvironment('AUTH0_CALLBACK_URL');
+    const auth0DatabaseConnection = String.fromEnvironment(
+      'AUTH0_DATABASE_CONNECTION',
+      defaultValue: 'Username-Password-Authentication',
+    );
     final auth0Enabled = !BackendMode.useMocks &&
         auth0Domain.isNotEmpty &&
         auth0ClientId.isNotEmpty &&
@@ -42,6 +46,7 @@ class AppDependencies {
             clientId: auth0ClientId,
             audience: auth0Audience,
             callbackUrl: auth0CallbackUrl,
+            databaseConnection: auth0DatabaseConnection,
           )
         : null;
     if (auth0Gateway != null) {

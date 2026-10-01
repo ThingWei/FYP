@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/account_components.dart';
+import '../controllers/auth_controller.dart';
 
 enum _ResetStep { email, code, password, success }
 
@@ -20,6 +22,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final confirmPassword = TextEditingController();
   _ResetStep step = _ResetStep.email;
   bool loading = false;
+  bool externalEmailSent = false;
   String? error;
 
   @override
@@ -37,6 +40,25 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       loading = true;
       error = null;
     });
+    AuthController? auth;
+    try {
+      auth = context.read<AuthController>();
+    } on ProviderNotFoundException {
+      // Standalone widget previews continue to use the local prototype flow.
+    }
+    if (step == _ResetStep.email && (auth?.usesExternalProvider ?? false)) {
+      await auth!.requestPasswordReset(email.text.trim());
+      if (!mounted) return;
+      setState(() {
+        loading = false;
+        error = auth!.error;
+        if (error == null) {
+          externalEmailSent = true;
+          step = _ResetStep.success;
+        }
+      });
+      return;
+    }
     await Future<void>.delayed(const Duration(milliseconds: 450));
     if (!mounted) return;
     if (step == _ResetStep.code && code.text != '123456') {
@@ -61,8 +83,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ? RentHubFeedbackState(
                     key: const ValueKey('success'),
                     kind: FeedbackKind.success,
-                    title: 'Password Updated',
-                    message: 'Your mock password has been reset successfully.',
+                    title: externalEmailSent
+                        ? 'Check Your Email'
+                        : 'Password Updated',
+                    message: externalEmailSent
+                        ? 'Auth0 sent password-reset instructions to ${email.text}. Follow the secure link to choose a new password.'
+                        : 'Your mock password has been reset successfully.',
                     actionLabel: 'Return to Login',
                     onAction: () => Navigator.pop(context),
                   )

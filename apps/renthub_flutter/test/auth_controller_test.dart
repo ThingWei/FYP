@@ -9,4 +9,11 @@ void main() {
     expect(controller.authenticated, isTrue);
     expect(controller.error, isNull);
   });
+
+  test('mock password reset completes without authenticating', () async {
+    final controller = AuthController(MockAuthRepository());
+    await controller.requestPasswordReset('demo@renthub.my');
+    expect(controller.authenticated, isFalse);
+    expect(controller.error, isNull);
+  });
 }

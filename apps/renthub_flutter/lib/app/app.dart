@@ -9,6 +9,8 @@ import '../features/live/live_renthub_controller.dart';
 import '../features/live/live_shared_pages.dart';
 import '../features/live/live_owner_shell.dart';
 import '../features/live/live_renter_shell.dart';
+import '../features/live/live_dispute_page.dart';
+import '../features/live/live_loyalty_page.dart';
 import '../features/owner/owner_app.dart';
 import '../features/onboarding/onboarding_flow.dart';
 import '../features/renter/renter_app.dart';
@@ -59,8 +61,15 @@ class _RentHubAppState extends State<RentHubApp> {
     if (auth.authenticated && !BackendMode.useMocks) {
       unawaited(_refreshNotifications());
       if (event.openedFromNotification) {
+        final controller = context.read<LiveRentHubController>();
         navigatorKey.currentState?.push<void>(
-          MaterialPageRoute(builder: (_) => const LiveNotificationsPage()),
+          MaterialPageRoute(
+            builder: (_) => _pushDestination(
+              event,
+              auth.selectedRole,
+              controller,
+            ),
+          ),
         );
       }
     }
@@ -69,6 +78,44 @@ class _RentHubAppState extends State<RentHubApp> {
         content: Text('${event.title}: ${event.body}'),
       ),
     );
+  }
+
+  Widget _pushDestination(
+    PushNotificationEvent event,
+    UserRole role,
+    LiveRentHubController controller,
+  ) {
+    final type = event.data['entityType']?.toString() ?? '';
+    final id = event.data['entityId']?.toString() ?? '';
+    if (type == 'thread') {
+      final matches = controller.conversations.where((item) => item.id == id);
+      return matches.isEmpty
+          ? const LiveMessagesPage()
+          : LiveChatPage(conversation: matches.first);
+    }
+    if (type == 'booking' || type == 'rental' || type == 'payment') {
+      return role == UserRole.owner
+          ? const LiveOwnerRequestsPage()
+          : const LiveRenterBookingsPage();
+    }
+    if (type == 'dispute') {
+      final disputes = controller.disputes.where((item) => item.id == id);
+      if (disputes.isNotEmpty) {
+        final rentals = controller.rentals.where(
+          (item) => item.id == disputes.first.rentalId,
+        );
+        if (rentals.isNotEmpty) {
+          return LiveDisputePage(
+            rental: rentals.first,
+            owner: role == UserRole.owner,
+          );
+        }
+      }
+    }
+    if (type == 'reward' || type == 'referral') {
+      return const LiveLoyaltyPage();
+    }
+    return const LiveNotificationsPage();
   }
 
   Future<void> _refreshNotifications() async {

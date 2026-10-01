@@ -79,6 +79,8 @@ class PushNotificationService {
   Stream<PushNotificationEvent> get events => _events.stream;
   bool get available => _initialized;
 
+  Future<String> currentDeviceId() => _loadDeviceId();
+
   String? get _platform {
     if (kIsWeb) return 'web';
     return switch (defaultTargetPlatform) {

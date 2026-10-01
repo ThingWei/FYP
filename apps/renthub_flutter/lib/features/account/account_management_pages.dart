@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../core/config/backend_mode.dart';
+import '../../core/notifications/push_notification_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
+import '../live/live_renthub_controller.dart';
+import '../../modules/user/controllers/auth_controller.dart';
 import '../renter/discovery/controllers/renter_prototype_state.dart';
 
 class HelpSupportPage extends StatelessWidget {
@@ -410,8 +415,89 @@ class SecurityPage extends StatefulWidget {
 
 class _SecurityPageState extends State<SecurityPage> {
   bool loginAlerts = true;
+  String? currentDeviceId;
+  bool liveControllerAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDevices());
+  }
+
+  Future<void> _loadDevices() async {
+    if (BackendMode.useMocks) return;
+    try {
+      final controller = context.read<LiveRentHubController>();
+      final push = context.read<PushNotificationService>();
+      final deviceId = await push.currentDeviceId();
+      await controller.loadNotificationDevices();
+      if (mounted) {
+        setState(() {
+          currentDeviceId = deviceId;
+          liveControllerAvailable = true;
+        });
+      }
+    } on ProviderNotFoundException {
+      // Standalone prototype previews intentionally have no live dependencies.
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load devices: $exception')),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeDevice(Map<String, dynamic> device) async {
+    final id = device['deviceId'] as String? ?? '';
+    final isCurrent = id == currentDeviceId;
+    final accepted = await confirmAction(
+      context,
+      title: isCurrent ? 'Remove this device?' : 'Remove notification device?',
+      message: isCurrent
+          ? 'Push notifications will stop on this device until they are enabled again.'
+          : 'Push notifications will stop on ${device['deviceName'] ?? 'this device'}.',
+      action: 'Remove',
+      destructive: true,
+    );
+    if (!accepted || !mounted) return;
+    try {
+      await context.read<LiveRentHubController>().removeNotificationDevice(id);
+      if (mounted) showMockSuccess(context, 'Notification device removed');
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
 
   Future<void> _changePassword() async {
+    AuthController? auth;
+    try {
+      auth = context.read<AuthController>();
+    } on ProviderNotFoundException {
+      // Standalone prototype previews keep the local password dialog.
+    }
+    if (auth?.usesExternalProvider ?? false) {
+      final email = auth!.user?.email ?? '';
+      final accepted = await confirmAction(
+        context,
+        title: 'Send password-reset email?',
+        message: 'Auth0 will send secure reset instructions to $email.',
+        action: 'Send Email',
+      );
+      if (!accepted || !mounted) return;
+      await auth.requestPasswordReset(email);
+      if (!mounted) return;
+      if (auth.error == null) {
+        showMockSuccess(context, 'Password-reset email sent');
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(auth.error!)));
+      }
+      return;
+    }
     final formKey = GlobalKey<FormState>();
     final password = TextEditingController();
     final saved = await showDialog<bool>(
@@ -492,10 +578,103 @@ class _SecurityPageState extends State<SecurityPage> {
                   trailing: StatusBadge('Active'),
                 ),
               ),
+              if (liveControllerAvailable) ...[
+                const SizedBox(height: 12),
+                _LiveNotificationDevices(
+                  currentDeviceId: currentDeviceId,
+                  onRemove: _removeDevice,
+                  onRefresh: _loadDevices,
+                ),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'Removing a notification device stops push delivery only. Auth0 login-session revocation is managed separately by the identity provider.',
+                style: TextStyle(color: AppColors.secondaryText, fontSize: 12),
+              ),
             ],
           ),
         ),
       );
+}
+
+class _LiveNotificationDevices extends StatelessWidget {
+  const _LiveNotificationDevices({
+    required this.currentDeviceId,
+    required this.onRemove,
+    required this.onRefresh,
+  });
+
+  final String? currentDeviceId;
+  final Future<void> Function(Map<String, dynamic>) onRemove;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<LiveRentHubController>();
+    final devices = controller.notificationDevices;
+    return AccountCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Notification devices',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh devices',
+                onPressed: controller.loading ? null : onRefresh,
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+          if (devices.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'No device is registered for push notifications.',
+                style: TextStyle(color: AppColors.secondaryText),
+              ),
+            ),
+          for (final device in devices)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                switch (device['platform']) {
+                  'web' => Icons.language,
+                  'ios' || 'macos' => Icons.phone_iphone,
+                  _ => Icons.phone_android_outlined,
+                },
+              ),
+              title: Text(
+                (device['deviceName'] as String?)?.trim().isNotEmpty ?? false
+                    ? device['deviceName'] as String
+                    : '${device['platform'] ?? 'Unknown'} device',
+              ),
+              subtitle: Text(
+                device['deviceId'] == currentDeviceId
+                    ? 'This device · Push enabled'
+                    : 'Last active ${_displayDate(device['lastSeenAt'])}',
+              ),
+              trailing: IconButton(
+                tooltip: 'Remove device',
+                onPressed: () => onRemove(device),
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _displayDate(dynamic value) {
+    final date = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
+    if (date == null) return 'unknown';
+    return '${date.day}/${date.month}/${date.year}';
+  }
 }
 
 class BlockedOwnersPage extends StatefulWidget {

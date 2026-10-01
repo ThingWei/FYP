@@ -63,10 +63,13 @@ flutter run -d chrome --web-port 8080 `
   --dart-define=AUTH0_DOMAIN=YOUR_TENANT.auth0.com `
   --dart-define=AUTH0_CLIENT_ID=YOUR_CLIENT_ID `
   --dart-define=AUTH0_AUDIENCE=https://api.renthub.my `
+  --dart-define=AUTH0_DATABASE_CONNECTION=Username-Password-Authentication `
   --dart-define=AUTH0_CALLBACK_URL=http://localhost:8080
 ```
 
 Register `http://localhost:8080` as an Allowed Callback URL, Allowed Logout URL, and Allowed Web Origin.
+`AUTH0_DATABASE_CONNECTION` must match the enabled Auth0 database connection;
+RentHub uses it to request password-reset emails without handling passwords.
 
 For Windows, create an Auth0 Native application and use a fixed loopback callback:
 

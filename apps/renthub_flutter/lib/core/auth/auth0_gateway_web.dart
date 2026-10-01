@@ -1,5 +1,8 @@
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 
 @JS('auth0.createAuth0Client')
 external JSPromise<JSObject> _createAuth0Client(JSAny? options);
@@ -11,16 +14,20 @@ class Auth0Session {
 
 class Auth0Gateway {
   Auth0Gateway({
-    required this.domain,
+    required String domain,
     required this.clientId,
     required this.audience,
     required this.callbackUrl,
-  });
+    required this.databaseConnection,
+  }) : domain = domain
+            .replaceFirst(RegExp(r'^https?://'), '')
+            .replaceFirst(RegExp(r'/$'), '');
 
   final String domain;
   final String clientId;
   final String audience;
   final String callbackUrl;
+  final String databaseConnection;
   JSObject? _client;
 
   Future<JSObject> _initialize() async {
@@ -72,6 +79,28 @@ class Auth0Gateway {
         )
         .toDart;
     return result.toDart;
+  }
+
+  Future<void> requestPasswordReset(String email) async {
+    final response = await http.post(
+      Uri.https(domain, '/dbconnections/change_password'),
+      headers: {'content-type': 'application/json'},
+      body: jsonEncode({
+        'client_id': clientId,
+        'email': email,
+        'connection': databaseConnection,
+      }),
+    );
+    if (response.statusCode >= 400) {
+      String message = 'Auth0 could not send the password reset email.';
+      try {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        message = payload['error_description'] as String? ??
+            payload['message'] as String? ??
+            message;
+      } catch (_) {}
+      throw StateError(message);
+    }
   }
 
   Future<void> logout() async {
