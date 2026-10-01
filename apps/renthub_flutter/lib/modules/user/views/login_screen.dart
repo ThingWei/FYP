@@ -108,9 +108,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       obscure: true,
                       textInputAction: TextInputAction.done,
                       autofillHints: const [AutofillHints.password],
-                      validator: (value) => (value?.length ?? 0) >= 6
+                      validator: (value) => (value?.length ?? 0) >= 8
                           ? null
-                          : 'Password must be at least 6 characters',
+                          : 'Password must be at least 8 characters',
                       onFieldSubmitted: (_) => _login(),
                     ),
                     Align(

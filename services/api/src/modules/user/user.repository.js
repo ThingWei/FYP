@@ -7,6 +7,9 @@ const publicFields =
 export const userRepository = {
   findByAuthId: (authId) => UserModel.findOne({ authId }),
 
+  findByEmailWithPassword: (email) =>
+    UserModel.findOne({ email: email.toLowerCase() }).select('+passwordHash'),
+
   findById(id) {
     const identifiers = [{ authId: id }];
     if (mongoose.isValidObjectId(id)) identifiers.push({ _id: id });

@@ -57,6 +57,8 @@ async function setupConversation() {
       startDate: '2026-11-20',
       endDate: '2026-11-22',
       fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
     });
   assert.equal(booking.status, 201, JSON.stringify(booking.body));
   const thread = await ThreadModel.findOne({

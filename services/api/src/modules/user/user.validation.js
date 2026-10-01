@@ -11,6 +11,26 @@ const userId = param('id')
   .matches(/^(?:[a-f\d]{24}|u-[a-z\d-]+)$/i)
   .withMessage('Invalid user identifier');
 
+const email = () => body('email').trim().isEmail().normalizeEmail();
+const password = () =>
+  body('password')
+    .isString()
+    .isLength({ min: 8, max: 128 })
+    .withMessage('Password must contain between 8 and 128 characters');
+
+export const localLoginValidation = [
+  email(),
+  password(),
+  body('role').isIn(USER_ROLES),
+];
+
+export const localRegistrationValidation = [
+  body('displayName').trim().isLength({ min: 2, max: 80 }),
+  email(),
+  password(),
+  body('role').isIn(['renter', 'owner']),
+];
+
 export const profileValidation = [
   body().custom((value) => {
     const fields = ['displayName', 'phone', 'avatarUrl', 'addresses', 'settings'];

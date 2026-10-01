@@ -17,6 +17,8 @@ export const createBookingValidation = [
       'serviceVenue',
       'damageWaiverSelected',
       'renterNote',
+      'agreementAccepted',
+      'agreementVersion',
     ]);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
@@ -33,6 +35,12 @@ export const createBookingValidation = [
   body('serviceVenue').optional().trim().isLength({ min: 2, max: 240 }),
   body('damageWaiverSelected').optional().isBoolean().toBoolean(),
   body('renterNote').optional().trim().isLength({ max: 1000 }),
+  body('agreementAccepted')
+    .custom((value) => value === true)
+    .withMessage('The rental agreement must be accepted'),
+  body('agreementVersion')
+    .equals('renthub-booking-v1')
+    .withMessage('The rental agreement version is no longer supported'),
   body().custom((value) => {
     if (new Date(value.endDate) < new Date(value.startDate)) {
       throw new Error('endDate must not be before startDate');

@@ -15,6 +15,16 @@ import { BOOKING_STATUSES } from './booking.model.js';
 import { bookingRepository } from './booking.repository.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
+export const bookingAgreementVersion = 'renthub-booking-v1';
+const bookingAgreementTerms = [
+  'I confirm that the listing, booking dates, fulfilment method, and charges shown are correct.',
+  'For physical items, I will take reasonable care of the item, document its condition, and return it on time.',
+  'The Owner may approve or reject this pending request. Payment is authorized before approval and follows RentHub cancellation and dispute rules.',
+  'After the Owner approves a physical-item booking, RentHub records the rental state on the configured blockchain network.',
+].join('\n');
+export const bookingAgreementTermsHash = createHash('sha256')
+  .update(bookingAgreementTerms)
+  .digest('hex');
 
 function money(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -208,6 +218,11 @@ export const bookingService = {
         serviceVenue: input.serviceVenue,
         damageWaiverSelected: waiverSelected,
         renterNote: input.renterNote ?? '',
+        agreement: {
+          version: bookingAgreementVersion,
+          termsHash: bookingAgreementTermsHash,
+          acceptedAt: new Date(),
+        },
         pricing: pricing(listing, startDate, endDate, waiverSelected),
         status: 'pending',
         expiresAt: new Date(

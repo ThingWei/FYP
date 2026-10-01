@@ -53,7 +53,8 @@ For Auth0 bearer authentication, Firebase Storage uploads, required Auth0 claims
 
 For the real Atlas/Auth0/Firebase preflight and restart-safe production E2E drill, see [Backend Phase 13](docs/BACKEND_PHASE_13_RUNBOOK.md).
 
-The seeded prototype accounts accept any password of at least six characters:
+The seeded local accounts use the password `RentHub123!` (rerun the seed
+command after pulling authentication changes):
 
 - `renter@renthub.my`
 - `owner@renthub.my`

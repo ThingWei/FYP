@@ -116,6 +116,7 @@ void main() {
       start: DateTime.utc(2026, 9, 20),
       end: DateTime.utc(2026, 9, 22),
       paymentMethod: 'card',
+      agreementAccepted: true,
       idempotencyKey: 'checkout:test-attempt-123',
     );
 
@@ -130,6 +131,7 @@ void main() {
     final paymentBody = api.calls[1].$3 as Map<String, dynamic>;
     final bookingBody = api.calls[0].$3 as Map<String, dynamic>;
     expect(bookingBody['idempotencyKey'], 'checkout:test-attempt-123');
+    expect(bookingBody['agreementAccepted'], isTrue);
     expect(paymentBody['idempotencyKey'], bookingBody['idempotencyKey']);
     expect(paymentBody.containsKey('amount'), isFalse);
     expect(booking.paymentStatus, 'authorized');

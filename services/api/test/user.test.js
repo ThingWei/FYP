@@ -29,6 +29,7 @@ import {
   RewardLedgerModel,
 } from '../src/modules/loyalty/loyalty.model.js';
 import { adminModule } from '../src/modules/admin/index.js';
+import { hashPassword } from '../src/core/password.js';
 
 let mongodb;
 const runFile = promisify(execFile);
@@ -87,6 +88,34 @@ test('starts a session and creates a role-aware MongoDB profile', async () => {
   assert.equal(stored.email, 'renter@renthub.my');
 });
 
+test('local login accepts the stored password and rejects a wrong password', async () => {
+  await UserModel.create({
+    authId: 'u-password-test',
+    email: 'password-test@renthub.my',
+    displayName: 'Password Test',
+    passwordHash: await hashPassword('Correct123!'),
+    roles: ['renter'],
+    activeRole: 'renter',
+  });
+
+  const accepted = await request(app).post('/api/v1/users/local-login').send({
+    email: 'password-test@renthub.my',
+    password: 'Correct123!',
+    role: 'renter',
+  });
+  const rejected = await request(app).post('/api/v1/users/local-login').send({
+    email: 'password-test@renthub.my',
+    password: 'Wrong123!',
+    role: 'renter',
+  });
+
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.data.authId, 'u-password-test');
+  assert.equal(accepted.body.data.passwordHash, undefined);
+  assert.equal(rejected.status, 401);
+  assert.equal(rejected.body.error.code, 'INVALID_CREDENTIALS');
+});
+
 test('readiness reports MongoDB and the seed script is idempotent', async () => {
   const ready = await request(app).get('/api/v1/ready');
   assert.equal(ready.status, 200);
@@ -97,6 +126,15 @@ test('readiness reports MongoDB and the seed script is idempotent', async () => 
   };
   await runFile(process.execPath, [seedScript], options);
   await runFile(process.execPath, [seedScript], options);
+
+  const seededLogin = await request(app)
+    .post('/api/v1/users/local-login')
+    .send({
+      email: 'renter@renthub.my',
+      password: 'RentHub123!',
+      role: 'renter',
+    });
+  assert.equal(seededLogin.status, 200);
 
   assert.equal(await UserModel.countDocuments(), 5);
   assert.equal(await ListingModel.countDocuments(), 13);

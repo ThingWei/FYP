@@ -68,6 +68,11 @@ const bookingSchema = new mongoose.Schema(
     paymentAuthorizationId: { type: String, trim: true, default: '' },
     status: { type: String, enum: BOOKING_STATUSES, default: 'pending', index: true },
     renterNote: { type: String, trim: true, maxlength: 1000, default: '' },
+    agreement: {
+      version: { type: String, trim: true },
+      termsHash: { type: String, trim: true },
+      acceptedAt: Date,
+    },
     ownerDecisionReason: { type: String, trim: true, maxlength: 500, default: '' },
     cancellationReason: { type: String, trim: true, maxlength: 500, default: '' },
     decidedAt: Date,

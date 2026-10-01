@@ -7,6 +7,8 @@ import {
   accountDeactivationValidation,
   comparisonValidation,
   listValidation,
+  localLoginValidation,
+  localRegistrationValidation,
   profileValidation,
   publicUserValidation,
   roleValidation,
@@ -18,6 +20,18 @@ import {
 
 export const userRouter = Router();
 
+userRouter.post(
+  '/local-login',
+  localLoginValidation,
+  validate,
+  userController.localLogin,
+);
+userRouter.post(
+  '/local-register',
+  localRegistrationValidation,
+  validate,
+  userController.localRegister,
+);
 userRouter.post('/session', authenticate, userController.startSession);
 userRouter.get('/me', authenticate, userController.me);
 userRouter.post(

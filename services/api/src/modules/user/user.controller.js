@@ -4,6 +4,11 @@ import { created, ok } from '../../core/respond.js';
 import { userService } from './user.service.js';
 
 export const userController = {
+  localLogin: asyncHandler(async (req, res) =>
+    ok(res, await userService.localLogin(matchedData(req)))),
+  localRegister: asyncHandler(async (req, res) =>
+    created(res, await userService.localRegister(matchedData(req)))),
+
   startSession: asyncHandler(async (req, res) => {
     const result = await userService.startSession(req.user);
     return result.created ? created(res, result.user) : ok(res, result.user);

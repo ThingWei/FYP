@@ -43,6 +43,8 @@ class LiveBookingRepository implements BookingRepository {
       'idempotencyKey': newCheckoutIdempotencyKey(),
       'startDate': start.toUtc().toIso8601String(),
       'endDate': end.toUtc().toIso8601String(),
+      'agreementAccepted': true,
+      'agreementVersion': 'renthub-booking-v1',
       if (isService)
         'serviceVenue': listing['location'] ?? 'To be confirmed'
       else

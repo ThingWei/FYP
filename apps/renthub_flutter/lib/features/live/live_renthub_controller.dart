@@ -756,6 +756,7 @@ class LiveRentHubController extends ChangeNotifier {
     String serviceVenue = 'To be confirmed',
     bool damageWaiverSelected = false,
     String renterNote = '',
+    required bool agreementAccepted,
     String? idempotencyKey,
   }) =>
       _perform(() async {
@@ -773,6 +774,8 @@ class LiveRentHubController extends ChangeNotifier {
             if (!listing.isService)
               'damageWaiverSelected': damageWaiverSelected,
             if (renterNote.trim().isNotEmpty) 'renterNote': renterNote.trim(),
+            'agreementAccepted': agreementAccepted,
+            'agreementVersion': 'renthub-booking-v1',
           },
         ) as Map<String, dynamic>;
         var booking = Booking.fromJson(bookingData);

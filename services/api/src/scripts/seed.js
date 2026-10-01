@@ -1,6 +1,10 @@
 import { connectDatabase, disconnectDatabase } from '../config/database.js';
 import { validateEnv } from '../config/env.js';
 import { BookingModel } from '../modules/booking/booking.model.js';
+import {
+  bookingAgreementTermsHash,
+  bookingAgreementVersion,
+} from '../modules/booking/booking.service.js';
 import { MessageModel } from '../modules/communication/message.model.js';
 import { MessageReportModel } from '../modules/communication/messageReport.model.js';
 import { NotificationModel } from '../modules/communication/notification.model.js';
@@ -18,6 +22,7 @@ import {
   RewardLedgerModel,
 } from '../modules/loyalty/loyalty.model.js';
 import { UserModel } from '../modules/user/user.model.js';
+import { hashPassword } from '../core/password.js';
 
 const users = [
   {
@@ -840,11 +845,12 @@ const messageReports = [
 try {
   validateEnv();
   await connectDatabase();
+  const seededPasswordHash = await hashPassword('RentHub123!');
   await UserModel.bulkWrite(
     users.map((user) => ({
       updateOne: {
         filter: { authId: user.authId },
-        update: { $set: user },
+        update: { $set: { ...user, passwordHash: seededPasswordHash } },
         upsert: true,
       },
     })),
@@ -871,7 +877,16 @@ try {
     bookings.map((booking) => ({
       updateOne: {
         filter: { publicId: booking.publicId },
-        update: { $set: booking },
+        update: {
+          $set: {
+            ...booking,
+            agreement: {
+              version: bookingAgreementVersion,
+              termsHash: bookingAgreementTermsHash,
+              acceptedAt: booking.createdAt ?? new Date(),
+            },
+          },
+        },
         upsert: true,
       },
     })),

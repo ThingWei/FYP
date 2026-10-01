@@ -12,6 +12,8 @@ import { userRepository } from './user.repository.js';
 import { uploadService } from '../upload/upload.service.js';
 import { aiClient } from '../../integrations/aiClient.js';
 import { disconnectUser } from '../../socket/eventBus.js';
+import { env } from '../../config/env.js';
+import { hashPassword, verifyPassword } from '../../core/password.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -66,6 +68,64 @@ async function requireCurrentUser(identity) {
 }
 
 export const userService = {
+  async localLogin({ email, password, role }) {
+    if (env.authMode !== 'mock') {
+      throw new AppError('Local login is disabled', 404, 'NOT_FOUND');
+    }
+    const user = await userRepository.findByEmailWithPassword(email);
+    const valid = user?.passwordHash
+      ? await verifyPassword(password, user.passwordHash)
+      : false;
+    if (!user || !valid) {
+      throw new AppError(
+        'Incorrect email or password',
+        401,
+        'INVALID_CREDENTIALS',
+      );
+    }
+    if (user.accountStatus !== 'active') {
+      throw new AppError(
+        `Account is ${user.accountStatus}`,
+        403,
+        'ACCOUNT_RESTRICTED',
+      );
+    }
+    if (!user.roles.includes(role)) {
+      throw new AppError(
+        `This account does not have the ${role} role`,
+        403,
+        'FORBIDDEN',
+      );
+    }
+    user.activeRole = role;
+    user.lastLoginAt = new Date();
+    await user.save();
+    return user;
+  },
+
+  async localRegister({ displayName, email, password, role }) {
+    if (env.authMode !== 'mock') {
+      throw new AppError('Local registration is disabled', 404, 'NOT_FOUND');
+    }
+    if (await userRepository.findByEmailWithPassword(email)) {
+      throw new AppError(
+        'An account with this email already exists',
+        409,
+        'DUPLICATE_RECORD',
+      );
+    }
+    const suffix = new mongoose.Types.ObjectId().toString();
+    return userRepository.create({
+      authId: `u-${suffix}`,
+      email,
+      passwordHash: await hashPassword(password),
+      displayName,
+      roles: [role],
+      activeRole: role,
+      lastLoginAt: new Date(),
+    });
+  },
+
   async startSession(identity) {
     const data = identityData(identity);
     let user = await userRepository.findByAuthId(data.authId);

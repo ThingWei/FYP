@@ -246,10 +246,14 @@ class Booking {
     this.total = 0,
     this.fulfilmentMethod,
     this.serviceVenue,
+    this.agreementVersion = '',
+    this.agreementAcceptedAt,
   });
   final String id, listingId, status;
   final String listingTitle, listingType, renterName, ownerId, paymentStatus;
   final String? fulfilmentMethod, serviceVenue;
+  final String agreementVersion;
+  final DateTime? agreementAcceptedAt;
   final double total;
   final DateTime start, end;
 
@@ -270,6 +274,16 @@ class Booking {
             0,
         fulfilmentMethod: json['fulfilmentMethod'] as String?,
         serviceVenue: json['serviceVenue'] as String?,
+        agreementVersion: (json['agreement']
+                as Map<String, dynamic>?)?['version'] as String? ??
+            '',
+        agreementAcceptedAt:
+            (json['agreement'] as Map<String, dynamic>?)?['acceptedAt'] == null
+                ? null
+                : DateTime.parse(
+                    (json['agreement'] as Map<String, dynamic>)['acceptedAt']
+                        as String,
+                  ),
       );
 
   Booking copyWith({String? status}) => Booking(
@@ -286,6 +300,8 @@ class Booking {
         total: total,
         fulfilmentMethod: fulfilmentMethod,
         serviceVenue: serviceVenue,
+        agreementVersion: agreementVersion,
+        agreementAcceptedAt: agreementAcceptedAt,
       );
 }
 
@@ -304,11 +320,19 @@ class Rental {
     this.blockchainStatus = 'unavailable',
     this.contractAddress = '',
     this.blockchainTransactionHash = '',
+    this.blockchainDeploymentHash = '',
+    this.blockchainState = '',
+    this.blockchainNetwork = '',
+    this.blockchainSignatureHashes = const [],
+    this.blockchainError = '',
   });
   final String id, status, bookingId, listingId, listingType, renterId, ownerId;
   final DateTime? start, end;
   final String extensionStatus;
   final String blockchainStatus, contractAddress, blockchainTransactionHash;
+  final String blockchainDeploymentHash, blockchainState, blockchainNetwork;
+  final List<String> blockchainSignatureHashes;
+  final String blockchainError;
 
   factory Rental.fromJson(Map<String, dynamic> json) {
     final blockchain = json['blockchain'] as Map<String, dynamic>? ?? const {};
@@ -336,6 +360,14 @@ class Rental {
       blockchainTransactionHash: blockchain['lastTransactionHash'] as String? ??
           json['transactionHash'] as String? ??
           '',
+      blockchainDeploymentHash:
+          blockchain['deploymentTransactionHash'] as String? ?? '',
+      blockchainState: blockchain['contractState'] as String? ?? '',
+      blockchainNetwork: blockchain['network'] as String? ?? '',
+      blockchainSignatureHashes:
+          (blockchain['signatureTransactionHashes'] as List? ?? const [])
+              .cast<String>(),
+      blockchainError: blockchain['error'] as String? ?? '',
     );
   }
 }

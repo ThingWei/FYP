@@ -12,10 +12,14 @@ class AuthApiClient extends ApiClient {
   final dynamic response;
   final Object? failure;
   int calls = 0;
+  String? lastPath;
+  Object? lastBody;
 
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     calls += 1;
+    lastPath = path;
+    lastBody = body;
     if (failure != null) throw failure!;
     return response;
   }
@@ -44,6 +48,15 @@ void main() {
     expect(session.mockHeaders['x-user-id'], 'u-renter');
     expect(session.mockHeaders['x-user-roles'], 'renter');
     expect(api.calls, 1);
+    expect(api.lastPath, '/users/local-login');
+    expect(
+      api.lastBody,
+      {
+        'email': 'renter@renthub.my',
+        'password': 'password',
+        'role': 'renter',
+      },
+    );
   });
 
   test('live session is restored and revalidated with the API', () async {

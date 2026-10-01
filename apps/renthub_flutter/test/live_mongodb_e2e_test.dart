@@ -169,6 +169,7 @@ void main() {
         start: DateTime.utc(2030, 9, 20),
         end: DateTime.utc(2030, 9, 21),
         paymentMethod: 'card',
+        agreementAccepted: true,
         fulfilmentMethod: 'pickup',
         renterNote: 'Live MongoDB persistence verification',
         idempotencyKey: checkoutKey,

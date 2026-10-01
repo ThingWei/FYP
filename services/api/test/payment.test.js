@@ -65,6 +65,8 @@ async function setupBooking() {
       endDate: '2026-11-22',
       fulfilmentMethod: 'pickup',
       damageWaiverSelected: true,
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
     });
 }
 

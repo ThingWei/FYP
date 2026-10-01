@@ -65,52 +65,6 @@ class LiveAuthRepository implements AuthRepository {
   @override
   bool get usesExternalProvider => false;
 
-  static const _accounts =
-      <String, ({String id, String name, Set<UserRole> roles})>{
-    'renter@renthub.my': (
-      id: 'u-renter',
-      name: 'Alex Tan',
-      roles: {UserRole.renter},
-    ),
-    'owner@renthub.my': (
-      id: 'u-owner',
-      name: 'Sarah J.',
-      roles: {UserRole.owner},
-    ),
-    'aina@renthub.my': (
-      id: 'u-aina',
-      name: 'Aina Rahman',
-      roles: {UserRole.owner},
-    ),
-    'demo@renthub.my': (
-      id: 'u-dual',
-      name: 'Nur Izzati',
-      roles: {UserRole.renter, UserRole.owner},
-    ),
-    'admin@renthub.my': (
-      id: 'u-admin',
-      name: 'Admin Farah',
-      roles: {UserRole.admin},
-    ),
-  };
-
-  void _prepareIdentity(String email, UserRole requestedRole, {String? name}) {
-    final normalized = email.toLowerCase();
-    final known = _accounts[normalized];
-    final roles = known?.roles ?? {requestedRole};
-    if (!roles.contains(requestedRole)) {
-      throw ApiException(
-          403, 'This account does not have the ${requestedRole.name} role');
-    }
-    session.set(
-      id: known?.id ?? 'u-local-${normalized.hashCode.abs()}',
-      email: normalized,
-      name: known?.name ?? name ?? normalized.split('@').first,
-      assignedRoles: roles,
-      selectedRole: requestedRole,
-    );
-  }
-
   Future<void> _remember(User user, {UserRole? selectedRole}) async {
     session.set(
       id: user.id,
@@ -147,9 +101,16 @@ class LiveAuthRepository implements AuthRepository {
 
   @override
   Future<User> login(String email, String password, UserRole role) async {
-    _prepareIdentity(email, role);
     try {
-      final data = await api.request('POST', '/users/session');
+      final data = await api.request(
+        'POST',
+        '/users/local-login',
+        body: {
+          'email': email.trim().toLowerCase(),
+          'password': password,
+          'role': role.name,
+        },
+      );
       final user = User.fromJson(data as Map<String, dynamic>);
       await _remember(user, selectedRole: role);
       return user;
@@ -166,9 +127,17 @@ class LiveAuthRepository implements AuthRepository {
     String password,
     UserRole role,
   ) async {
-    _prepareIdentity(email, role, name: name);
     try {
-      final data = await api.request('POST', '/users/session');
+      final data = await api.request(
+        'POST',
+        '/users/local-register',
+        body: {
+          'displayName': name.trim(),
+          'email': email.trim().toLowerCase(),
+          'password': password,
+          'role': role.name,
+        },
+      );
       final user = User.fromJson(data as Map<String, dynamic>);
       await _remember(user, selectedRole: role);
       return user;

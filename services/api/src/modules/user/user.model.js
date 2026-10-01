@@ -44,6 +44,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Email is invalid'],
     },
+    passwordHash: { type: String, select: false },
     displayName: {
       type: String,
       required: true,
@@ -134,7 +135,16 @@ const userSchema = new mongoose.Schema(
     },
     lastLoginAt: Date,
   },
-  { timestamps: true, strict: 'throw' },
+  {
+    timestamps: true,
+    strict: 'throw',
+    toJSON: {
+      transform: (_document, value) => {
+        delete value.passwordHash;
+        return value;
+      },
+    },
+  },
 );
 
 userSchema.pre('validate', function validateActiveRole() {

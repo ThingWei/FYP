@@ -8,6 +8,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_agreement.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_shared_pages.dart';
@@ -881,6 +882,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   String paymentMethod = 'card';
   String fulfilmentMethod = 'pickup';
   bool waiver = false;
+  bool agreementAccepted = false;
   final venue = TextEditingController(text: 'Kuala Lumpur');
   final note = TextEditingController();
   bool submitting = false;
@@ -1052,6 +1054,12 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
 
   Future<void> _submit() async {
     if (submitting || end.isBefore(start)) return;
+    if (!agreementAccepted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Review and accept the agreement first.')),
+      );
+      return;
+    }
     if (widget.listing.isService && venue.text.trim().length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter the service venue.')),
@@ -1087,6 +1095,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 serviceVenue: venue.text.trim(),
                 damageWaiverSelected: waiver,
                 renterNote: note.text,
+                agreementAccepted: agreementAccepted,
                 idempotencyKey: checkoutIdempotencyKey,
               );
       if (!mounted) return;
@@ -1168,9 +1177,11 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.all(16),
         child: RentHubActionButton(
-          label: 'Request & Authorize',
+          label: agreementAccepted
+              ? 'Request & Authorize'
+              : 'Accept Agreement to Continue',
           loading: submitting,
-          onPressed: submitting ? null : _submit,
+          onPressed: submitting || !agreementAccepted ? null : _submit,
         ),
       ),
       body: SafeArea(
@@ -1433,6 +1444,43 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.gavel_outlined),
+                    title: const Text('Booking agreement'),
+                    subtitle: const Text(
+                      'Review the terms before sending this request.',
+                    ),
+                    trailing: TextButton(
+                      onPressed: () => showAgreementTerms(
+                        context,
+                        listingTitle: listing.title,
+                        dateRange: formatDateRange(start, end),
+                        total: 'Estimated total: ${formatMoney(estimate)}',
+                      ),
+                      child: const Text('Review'),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  CheckboxListTile(
+                    value: agreementAccepted,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text(
+                      'I have reviewed and accept the RentHub booking agreement.',
+                    ),
+                    subtitle: const Text('Version: RentHub Booking v1'),
+                    onChanged: submitting
+                        ? null
+                        : (value) => setState(
+                              () => agreementAccepted = value ?? false,
+                            ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -1567,11 +1615,27 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                             const Divider(height: 22),
                             Text('Rental/order status: ${rental.status}'),
                             if (rental.listingType == 'physical')
-                              Text(
-                                'Local agreement: ${rental.blockchainStatus}',
-                                style: const TextStyle(
-                                  color: AppColors.secondaryText,
-                                ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Digital agreement: ${rental.blockchainStatus}',
+                                      style: const TextStyle(
+                                        color: AppColors.secondaryText,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton.icon(
+                                    onPressed: () => showBlockchainAgreement(
+                                      context,
+                                      rental,
+                                      booking: booking,
+                                    ),
+                                    icon:
+                                        const Icon(Icons.receipt_long_outlined),
+                                    label: const Text('View'),
+                                  ),
+                                ],
                               ),
                             const SizedBox(height: 8),
                             _RenterRentalActions(rental: rental),

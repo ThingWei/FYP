@@ -8,6 +8,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_agreement.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_shared_pages.dart';
@@ -1438,7 +1439,9 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                 decoration: const InputDecoration(labelText: 'Reason'),
               )
             : Text(
-                'Confirm ${booking.listingTitle}. The payment will be captured at handover or service start.',
+                booking.listingType == 'physical'
+                    ? 'Confirm ${booking.listingTitle}. Approval creates and signs the local blockchain rental agreement. Payment will be captured at handover.'
+                    : 'Confirm ${booking.listingTitle}. Payment will be captured when the service starts.',
               ),
         actions: [
           TextButton(
@@ -1741,9 +1744,20 @@ class _OwnerRentalCard extends StatelessWidget {
             ),
             Text('Booking ${rental.bookingId}'),
             if (rental.listingType == 'physical')
-              Text(
-                'Local agreement: ${rental.blockchainStatus}',
-                style: const TextStyle(color: AppColors.secondaryText),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Digital agreement: ${rental.blockchainStatus}',
+                      style: const TextStyle(color: AppColors.secondaryText),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => showBlockchainAgreement(context, rental),
+                    icon: const Icon(Icons.receipt_long_outlined),
+                    label: const Text('View'),
+                  ),
+                ],
               ),
             if (action != null || disputeAction != null) ...[
               const SizedBox(height: 10),

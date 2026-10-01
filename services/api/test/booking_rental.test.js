@@ -107,6 +107,8 @@ async function createCameraBooking({ idempotencyKey } = {}) {
       endDate: '2026-09-22T00:00:00.000Z',
       fulfilmentMethod: 'pickup',
       damageWaiverSelected: true,
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
     });
 }
 
@@ -177,6 +179,11 @@ test('calculates the authoritative camera total and exposes both participant vie
   assert.equal(response.body.data.pricing.damageWaiverFee, 15);
   assert.equal(response.body.data.pricing.total, 570);
   assert.equal(response.body.data.status, 'pending');
+  assert.equal(
+    response.body.data.agreement.version,
+    'renthub-booking-v1',
+  );
+  assert.ok(response.body.data.agreement.acceptedAt);
 
   const renterBookings = await request(app)
     .get('/api/v1/bookings/mine?status=pending')
@@ -194,6 +201,22 @@ test('calculates the authoritative camera total and exposes both participant vie
   assert.equal(adminBookings.body.data.length, 1);
   assert.equal(adminBookings.body.data[0].id, response.body.data.id);
   assert.equal(adminBookings.body.meta.total, 1);
+});
+
+test('requires the current booking agreement before creating a request', async () => {
+  const response = await request(app)
+    .post('/api/v1/bookings')
+    .set(renter)
+    .send({
+      listingId: 'l-camera',
+      idempotencyKey: 'booking-test:missing-agreement',
+      startDate: '2026-09-20T00:00:00.000Z',
+      endDate: '2026-09-22T00:00:00.000Z',
+      fulfilmentMethod: 'pickup',
+    });
+
+  assert.equal(response.status, 422);
+  assert.equal(await BookingModel.countDocuments(), 0);
 });
 
 test('uses an active Owner promotion in authoritative booking pricing', async () => {
@@ -267,6 +290,8 @@ test('rejects reuse of a booking idempotency key for changed input', async () =>
       endDate: '2026-09-23T00:00:00.000Z',
       fulfilmentMethod: 'pickup',
       damageWaiverSelected: true,
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
     });
 
   assert.equal(first.status, 201);
@@ -408,6 +433,8 @@ test('locks approved dates against another booking', async () => {
       startDate: '2026-09-22T00:00:00.000Z',
       endDate: '2026-09-23T00:00:00.000Z',
       fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
     });
 
   assert.equal(conflict.status, 409);
@@ -424,6 +451,8 @@ test('runs service approval, delivery and renter completion lifecycle', async ()
       startDate: '2026-10-03T14:00:00.000Z',
       endDate: '2026-10-03T14:00:00.000Z',
       serviceVenue: 'Glasshouse Seputeh, Kuala Lumpur',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
     });
   assert.equal(created.status, 201);
   assert.match(created.body.data.id, /^RH-SVC-2026-/);
