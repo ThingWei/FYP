@@ -143,29 +143,30 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: _login,
                     ),
                     if (!widget.administrator) ...[
-                      const SizedBox(height: 18),
-                      const Row(
-                        children: [
-                          Expanded(child: Divider()),
-                          Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12),
-                            child: Text(
-                              'or',
-                              style: TextStyle(color: AppColors.secondaryText),
+                      if (controller.usesExternalProvider) ...[
+                        const SizedBox(height: 18),
+                        const Row(
+                          children: [
+                            Expanded(child: Divider()),
+                            Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 12),
+                              child: Text(
+                                'or',
+                                style:
+                                    TextStyle(color: AppColors.secondaryText),
+                              ),
                             ),
-                          ),
-                          Expanded(child: Divider()),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      RentHubActionButton(
-                        label: controller.usesExternalProvider
-                            ? 'Continue with Auth0'
-                            : 'Start Development Session',
-                        icon: Icons.account_circle_outlined,
-                        style: RentHubButtonStyle.secondary,
-                        onPressed: _login,
-                      ),
+                            Expanded(child: Divider()),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        RentHubActionButton(
+                          label: 'Continue with Auth0',
+                          icon: Icons.account_circle_outlined,
+                          style: RentHubButtonStyle.secondary,
+                          onPressed: _login,
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       Wrap(
                         alignment: WrapAlignment.center,

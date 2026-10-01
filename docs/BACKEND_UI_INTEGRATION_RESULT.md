@@ -2,7 +2,9 @@
 
 ## Result
 
-The final Flutter interfaces can now run in either local mock mode or live MongoDB-backed mode. Mock mode remains the default for offline demonstrations. Set `USE_MOCKS=false` to use the Express API and MongoDB.
+The final Flutter interfaces can run in either live MongoDB-backed mode or an
+explicit local mock mode. Live Express/MongoDB repositories are now the default;
+set `USE_MOCKS=true` only for isolated offline UI previews and tests.
 
 ## Live renter flow
 

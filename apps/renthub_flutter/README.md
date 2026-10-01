@@ -27,8 +27,7 @@ account credentials. Start the mobile application with the live backend and
 Firebase enabled:
 
 ```powershell
-flutter run --dart-define=USE_MOCKS=false `
-  --dart-define=FIREBASE_ENABLED=true `
+flutter run --dart-define=FIREBASE_ENABLED=true `
   --dart-define=API_BASE_URL=http://YOUR-LAN-IP:3000/api/v1 `
   --dart-define=SOCKET_URL=http://YOUR-LAN-IP:3000
 ```

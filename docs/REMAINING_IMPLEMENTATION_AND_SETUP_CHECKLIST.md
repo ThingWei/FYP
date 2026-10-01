@@ -74,8 +74,11 @@ were not printed. It is not currently usable:
   `docker compose up -d mongodb`. Docker is not installed on this workstation.
 - [ ] From `services/api`, run `npm.cmd run seed`, then `npm.cmd run dev`.
 - [ ] Confirm `GET http://localhost:3000/api/v1/ready` returns HTTP 200.
-- [ ] Launch Flutter with `USE_MOCKS=false`, `API_BASE_URL`, and `SOCKET_URL` as
-  documented in the root README.
+- [x] Make live Express/MongoDB repositories the Flutter default. Normal
+  `flutter run` no longer needs `USE_MOCKS=false`; `USE_MOCKS=true` is retained
+  only as an explicit UI-preview/test override.
+- [ ] Launch Flutter with the appropriate mobile `API_BASE_URL` and `SOCKET_URL`
+  as documented in the root README.
 
 Do not copy `.env.example` over the existing `.env` without first preserving any
 real credentials stored outside source control.

@@ -16,9 +16,12 @@ RentHub is a multi-category rental marketplace monorepo. The Flutter client is t
 2. Run `docker compose up -d mongodb ganache ai api` for the complete backend.
 3. In `services/api`, run `npm install`, `npm run seed`, then `npm run dev`.
 4. In `services/ai`, create a virtual environment, run `pip install -r requirements.txt`, then `uvicorn app.main:app --reload --port 8001`.
-5. In `apps/renthub_flutter`, run `flutter pub get` and `flutter run --dart-define=USE_MOCKS=false`.
+5. In `apps/renthub_flutter`, run `flutter pub get` and `flutter run`.
 
-Mock mode is the Flutter default, so the UI can run without the other services. See `docs/architecture.md` for boundaries and extension points.
+The Flutter application defaults to the live Express/MongoDB repositories. Mock
+mode is available only when explicitly launched with `--dart-define=USE_MOCKS=true`
+for isolated UI previews and tests. See `docs/architecture.md` for boundaries and
+extension points.
 
 ## Run with the MongoDB backend
 
@@ -36,14 +39,14 @@ Run the renter and owner application on the CORS-enabled port:
 
 ```powershell
 cd apps/renthub_flutter
-flutter run -d chrome --web-port 8080 --dart-define=USE_MOCKS=false --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
+flutter run -d chrome --web-port 8080 --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
 ```
 
 Run the separate administrator portal:
 
 ```powershell
 cd apps/renthub_flutter
-flutter run -d chrome --web-port 3001 -t lib/main_admin.dart --dart-define=USE_MOCKS=false --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
+flutter run -d chrome --web-port 3001 -t lib/main_admin.dart --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
 ```
 
 For Auth0 bearer authentication, Firebase Storage uploads, required Auth0 claims, and Windows callback configuration, see [Backend Phase 12](docs/BACKEND_PHASE_12_RESULT.md).
