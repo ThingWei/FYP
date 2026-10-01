@@ -11,6 +11,7 @@ import {
   disconnectDatabase,
 } from '../src/config/database.js';
 import { UserModel } from '../src/modules/user/user.model.js';
+import { PasswordResetModel } from '../src/modules/user/passwordReset.model.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
 import { BookingModel } from '../src/modules/booking/booking.model.js';
 import { MessageModel } from '../src/modules/communication/message.model.js';
@@ -30,6 +31,8 @@ import {
 } from '../src/modules/loyalty/loyalty.model.js';
 import { adminModule } from '../src/modules/admin/index.js';
 import { hashPassword } from '../src/core/password.js';
+import { emailClient } from '../src/integrations/emailClient.js';
+import { env } from '../src/config/env.js';
 
 let mongodb;
 const runFile = promisify(execFile);
@@ -54,6 +57,7 @@ before(async () => {
   await connectDatabase(mongodb.getUri());
   await Promise.all([
     UserModel.init(),
+    PasswordResetModel.init(),
     ListingModel.init(),
     NotificationModel.init(),
     adminModule.Model.init(),
@@ -63,6 +67,7 @@ before(async () => {
 beforeEach(async () => {
   await Promise.all([
     UserModel.deleteMany({}),
+    PasswordResetModel.deleteMany({}),
     ListingModel.deleteMany({}),
     NotificationModel.deleteMany({}),
     adminModule.Model.deleteMany({}),
@@ -114,6 +119,91 @@ test('local login accepts the stored password and rejects a wrong password', asy
   assert.equal(accepted.body.data.passwordHash, undefined);
   assert.equal(rejected.status, 401);
   assert.equal(rejected.body.error.code, 'INVALID_CREDENTIALS');
+});
+
+test('emails a one-time code and changes a local account password', async () => {
+  await UserModel.create({
+    authId: 'u-reset-test',
+    email: 'reset-test@renthub.my',
+    displayName: 'Reset Test',
+    passwordHash: await hashPassword('OldPassword123!'),
+    roles: ['renter'],
+    activeRole: 'renter',
+  });
+  const original = {
+    emailMode: env.emailMode,
+    resendApiKey: env.resendApiKey,
+    emailFrom: env.emailFrom,
+    passwordResetSecret: env.passwordResetSecret,
+    send: emailClient.sendPasswordResetCode,
+  };
+  let deliveredCode;
+  env.emailMode = 'resend';
+  env.resendApiKey = 'test-api-key';
+  env.emailFrom = 'RentHub <test@renthub.my>';
+  env.passwordResetSecret = 'test-password-reset-secret-32-characters';
+  emailClient.sendPasswordResetCode = async ({ code }) => {
+    deliveredCode = code;
+    return { id: 'email-test' };
+  };
+  try {
+    const requested = await request(app)
+      .post('/api/v1/users/local-password-reset/request')
+      .send({ email: 'reset-test@renthub.my' });
+    assert.equal(requested.status, 200);
+    assert.match(deliveredCode, /^\d{6}$/);
+
+    const wrong = await request(app)
+      .post('/api/v1/users/local-password-reset/confirm')
+      .send({
+        email: 'reset-test@renthub.my',
+        code: deliveredCode === '000000' ? '000001' : '000000',
+        password: 'NewPassword123!',
+      });
+    assert.equal(wrong.status, 400);
+    assert.equal(wrong.body.error.code, 'INVALID_RESET_CODE');
+
+    const confirmed = await request(app)
+      .post('/api/v1/users/local-password-reset/confirm')
+      .send({
+        email: 'reset-test@renthub.my',
+        code: deliveredCode,
+        password: 'NewPassword123!',
+      });
+    assert.equal(confirmed.status, 200);
+
+    const oldLogin = await request(app)
+      .post('/api/v1/users/local-login')
+      .send({
+        email: 'reset-test@renthub.my',
+        password: 'OldPassword123!',
+        role: 'renter',
+      });
+    const newLogin = await request(app)
+      .post('/api/v1/users/local-login')
+      .send({
+        email: 'reset-test@renthub.my',
+        password: 'NewPassword123!',
+        role: 'renter',
+      });
+    assert.equal(oldLogin.status, 401);
+    assert.equal(newLogin.status, 200);
+
+    const reused = await request(app)
+      .post('/api/v1/users/local-password-reset/confirm')
+      .send({
+        email: 'reset-test@renthub.my',
+        code: deliveredCode,
+        password: 'AnotherPassword123!',
+      });
+    assert.equal(reused.status, 400);
+  } finally {
+    env.emailMode = original.emailMode;
+    env.resendApiKey = original.resendApiKey;
+    env.emailFrom = original.emailFrom;
+    env.passwordResetSecret = original.passwordResetSecret;
+    emailClient.sendPasswordResetCode = original.send;
+  }
 });
 
 test('readiness reports MongoDB and the seed script is idempotent', async () => {

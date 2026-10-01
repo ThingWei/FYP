@@ -21,8 +21,8 @@ values are recorded here.
 - [x] Added AI artifact visibility to the FastAPI health response.
 - [x] Added environment settings for interval, expiry, reminder, and grace
   periods to `services/api/.env.example`.
-- [x] Added automated lifecycle, administrator health, and reporting tests; the
-  complete API suite passes 58/58 when run with isolated test auth and local
+- [x] Added automated lifecycle, administrator health, reporting, and password-
+  reset tests; the complete API suite passes 65/65 with isolated test auth and local
   storage.
 - [x] Dart static analysis of `lib/` passes with no issues.
 - [x] Added persistent daily/weekly/monthly administrator report schedules.
@@ -32,9 +32,10 @@ values are recorded here.
   formula-injection protection, and a 10,000-row export cap.
 - [x] Added the reporting endpoints and request contracts to the shared OpenAPI
   document.
-- [x] Replaced the live forgot/change-password simulation with Auth0
-  database-connection reset-email requests while retaining the offline mock
-  demonstration.
+- [x] Replaced the live forgot/change-password simulation. Auth0 accounts use
+  Auth0 reset links; local MongoDB accounts use expiring, single-use codes sent
+  through Nodemailer SMTP or Resend, with hashed storage, cooldown, attempt
+  limits, and generic account-discovery-safe responses.
 - [x] Added a Security-page inventory for registered notification devices with
   user-scoped removal. This is intentionally labelled separately from Auth0
   login-session revocation.
@@ -59,6 +60,14 @@ were not printed. It is not currently usable:
   NODE_ENV=development
   MONGODB_URI=mongodb://localhost:27017/renthub
   AUTH_MODE=mock
+  EMAIL_MODE=smtp
+  EMAIL_FROM=RentHub <your.personal@gmail.com>
+  SMTP_HOST=smtp.gmail.com
+  SMTP_PORT=587
+  SMTP_SECURE=false
+  SMTP_USERNAME=your.personal@gmail.com
+  SMTP_PASSWORD=your-google-app-password-without-spaces
+  PASSWORD_RESET_SECRET=replace-with-at-least-32-random-characters
   STORAGE_MODE=local
   UPLOAD_DIRECTORY=.data/uploads
   AI_SERVICE_URL=http://localhost:8001
@@ -76,6 +85,9 @@ were not printed. It is not currently usable:
   `docker compose up -d mongodb`. Docker is not installed on this workstation.
 - [ ] From `services/api`, run `npm.cmd run seed`, then `npm.cmd run dev`.
 - [ ] Confirm `GET http://localhost:3000/api/v1/ready` returns HTTP 200.
+- [ ] Enable two-step verification for the sender Google account, create an App
+  Password, and send a password-reset code to a real test account. Keep the App
+  Password and reset secret only in the ignored `.env`.
 - [x] Make live Express/MongoDB repositories the Flutter default. Normal
   `flutter run` no longer needs `USE_MOCKS=false`; `USE_MOCKS=true` is retained
   only as an explicit UI-preview/test override.

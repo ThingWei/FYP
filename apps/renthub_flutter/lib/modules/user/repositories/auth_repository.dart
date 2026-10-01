@@ -17,6 +17,11 @@ abstract interface class AuthRepository {
   );
   Future<void> logout();
   Future<void> requestPasswordReset(String email);
+  Future<void> confirmPasswordReset(
+    String email,
+    String code,
+    String password,
+  );
   void selectRole(UserRole role);
 }
 
@@ -49,6 +54,15 @@ class MockAuthRepository implements AuthRepository {
 
   @override
   Future<void> requestPasswordReset(String email) async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+
+  @override
+  Future<void> confirmPasswordReset(
+    String email,
+    String code,
+    String password,
+  ) async {
     await Future<void>.delayed(const Duration(milliseconds: 300));
   }
 
@@ -167,8 +181,27 @@ class LiveAuthRepository implements AuthRepository {
 
   @override
   Future<void> requestPasswordReset(String email) async {
-    throw StateError(
-      'Password reset is available when RentHub is connected to Auth0.',
+    await api.request(
+      'POST',
+      '/users/local-password-reset/request',
+      body: {'email': email.trim().toLowerCase()},
+    );
+  }
+
+  @override
+  Future<void> confirmPasswordReset(
+    String email,
+    String code,
+    String password,
+  ) async {
+    await api.request(
+      'POST',
+      '/users/local-password-reset/confirm',
+      body: {
+        'email': email.trim().toLowerCase(),
+        'code': code.trim(),
+        'password': password,
+      },
     );
   }
 }
@@ -271,4 +304,12 @@ class Auth0AuthRepository implements AuthRepository {
   @override
   Future<void> requestPasswordReset(String email) =>
       gateway.requestPasswordReset(email);
+
+  @override
+  Future<void> confirmPasswordReset(
+    String email,
+    String code,
+    String password,
+  ) =>
+      throw UnsupportedError('Auth0 completes password resets by email link.');
 }

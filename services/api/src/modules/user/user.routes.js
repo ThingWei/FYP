@@ -9,6 +9,8 @@ import {
   listValidation,
   localLoginValidation,
   localRegistrationValidation,
+  passwordResetConfirmationValidation,
+  passwordResetRequestValidation,
   profileValidation,
   publicUserValidation,
   roleValidation,
@@ -31,6 +33,18 @@ userRouter.post(
   localRegistrationValidation,
   validate,
   userController.localRegister,
+);
+userRouter.post(
+  '/local-password-reset/request',
+  passwordResetRequestValidation,
+  validate,
+  userController.requestLocalPasswordReset,
+);
+userRouter.post(
+  '/local-password-reset/confirm',
+  passwordResetConfirmationValidation,
+  validate,
+  userController.confirmLocalPasswordReset,
 );
 userRouter.post('/session', authenticate, userController.startSession);
 userRouter.get('/me', authenticate, userController.me);

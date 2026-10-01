@@ -1440,7 +1440,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
               )
             : Text(
                 booking.listingType == 'physical'
-                    ? 'Confirm ${booking.listingTitle}. Approval creates and signs the local blockchain rental agreement. Payment will be captured at handover.'
+                    ? 'Confirm ${booking.listingTitle}. Approval creates the protected rental agreement. Payment will be captured at handover.'
                     : 'Confirm ${booking.listingTitle}. Payment will be captured when the service starts.',
               ),
         actions: [
@@ -1748,14 +1748,14 @@ class _OwnerRentalCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      'Digital agreement: ${rental.blockchainStatus}',
+                      'Rental agreement: ${agreementStatusLabel(rental)}',
                       style: const TextStyle(color: AppColors.secondaryText),
                     ),
                   ),
                   TextButton.icon(
                     onPressed: () => showBlockchainAgreement(context, rental),
                     icon: const Icon(Icons.receipt_long_outlined),
-                    label: const Text('View'),
+                    label: const Text('View agreement'),
                   ),
                 ],
               ),

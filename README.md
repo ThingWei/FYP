@@ -23,6 +23,50 @@ mode is available only when explicitly launched with `--dart-define=USE_MOCKS=tr
 for isolated UI previews and tests. See `docs/architecture.md` for boundaries and
 extension points.
 
+### Combined Windows launcher
+
+After MongoDB is running and the API `.env` is configured, the Flutter launcher
+starts the local Ganache blockchain, FastAPI AI service, Express API, and Flutter
+application together. Ganache is started when `BLOCKCHAIN_MODE=ganache`:
+
+```powershell
+cd apps\renthub_flutter
+.\run-renthub.ps1
+```
+
+The AI service uses `services\ai\.venv\Scripts\python.exe`; activating the
+virtual environment manually is not required. Use `-Device chrome`, `-Admin`,
+`-CheckOnly`, `-SkipAi`, or `-SkipBlockchain` when needed. Services already
+running on their configured ports are reused and left running. Processes created
+by the launcher are stopped when Flutter exits. Local blockchain state persists
+under `blockchain\.data\ganache`. Launcher logs are stored in each service's
+`.data\logs` directory.
+
+### Password-reset email
+
+Local MongoDB accounts can use Nodemailer with Gmail SMTP to deliver single-use
+six-digit reset codes. Enable Google two-step verification, create an App
+Password for RentHub, and add these values to `services\api\.env`:
+
+```dotenv
+EMAIL_MODE=smtp
+EMAIL_FROM=RentHub <your.personal@gmail.com>
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USERNAME=your.personal@gmail.com
+SMTP_PASSWORD=your-16-character-google-app-password
+PASSWORD_RESET_SECRET=replace-with-a-random-secret-of-at-least-32-characters
+PASSWORD_RESET_TTL_MINUTES=10
+PASSWORD_RESET_COOLDOWN_SECONDS=60
+PASSWORD_RESET_MAX_ATTEMPTS=5
+```
+
+Use the Google App Password without spaces, never the normal Gmail password.
+The SMTP password and reset secret must not be committed. Restart the API after
+changing `.env`. `EMAIL_MODE=resend` remains supported for a verified Resend
+sender, while Auth0 accounts continue to use Auth0's hosted reset email.
+
 ## Run with the MongoDB backend
 
 Start MongoDB and the API first:

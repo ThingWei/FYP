@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../core/errors.js';
 import { adminModule } from '../admin/index.js';
 import { notifyUser } from '../communication/notification.service.js';
@@ -7,13 +8,15 @@ import { ListingModel } from '../listing/listing.model.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { RentalModel } from '../rental/rental.model.js';
 import { DisputeModel } from '../dispute/dispute.model.js';
-import { ACCOUNT_STATUSES, USER_ROLES } from './user.model.js';
+import { ACCOUNT_STATUSES, USER_ROLES, UserModel } from './user.model.js';
+import { PasswordResetModel } from './passwordReset.model.js';
 import { userRepository } from './user.repository.js';
 import { uploadService } from '../upload/upload.service.js';
 import { aiClient } from '../../integrations/aiClient.js';
 import { disconnectUser } from '../../socket/eventBus.js';
 import { env } from '../../config/env.js';
 import { hashPassword, verifyPassword } from '../../core/password.js';
+import { emailClient } from '../../integrations/emailClient.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -34,6 +37,34 @@ const OPEN_DISPUTE_STATUSES = [
 
 function preferredRole(roles) {
   return roles.includes('renter') ? 'renter' : roles[0];
+}
+
+const passwordResetResponse = () => ({
+  message: 'If an eligible account exists, a reset code has been sent.',
+  expiresInMinutes: env.passwordResetTtlMinutes,
+});
+
+function resetCodeHash(email, code) {
+  return createHmac('sha256', env.passwordResetSecret)
+    .update(`${email}:${code}`)
+    .digest('hex');
+}
+
+function resetCodeMatches(actual, expected) {
+  const actualBuffer = Buffer.from(actual, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  );
+}
+
+function invalidResetCode() {
+  return new AppError(
+    'The reset code is invalid or has expired. Request a new code and try again.',
+    400,
+    'INVALID_RESET_CODE',
+  );
 }
 
 function identityData(identity) {
@@ -124,6 +155,101 @@ export const userService = {
       activeRole: role,
       lastLoginAt: new Date(),
     });
+  },
+
+  async requestLocalPasswordReset({ email }) {
+    if (env.authMode !== 'mock') {
+      throw new AppError('Local password reset is disabled', 404, 'NOT_FOUND');
+    }
+    try {
+      emailClient.assertConfigured();
+    } catch {
+      throw new AppError(
+        'Password-reset email is temporarily unavailable. Please contact support.',
+        503,
+        'EMAIL_NOT_CONFIGURED',
+      );
+    }
+    const normalizedEmail = email.toLowerCase();
+    const cooldownStartedAt = new Date(
+      Date.now() - env.passwordResetCooldownSeconds * 1000,
+    );
+    const recent = await PasswordResetModel.exists({
+      email: normalizedEmail,
+      consumedAt: null,
+      createdAt: { $gte: cooldownStartedAt },
+    });
+    if (recent) return passwordResetResponse();
+
+    const user = await userRepository.findByEmailWithPassword(normalizedEmail);
+    if (!user || !user.passwordHash || user.accountStatus !== 'active') {
+      return passwordResetResponse();
+    }
+
+    const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
+    await PasswordResetModel.deleteMany({ email: normalizedEmail });
+    const reset = await PasswordResetModel.create({
+      userId: user._id,
+      email: normalizedEmail,
+      codeHash: resetCodeHash(normalizedEmail, code),
+      expiresAt: new Date(
+        Date.now() + env.passwordResetTtlMinutes * 60 * 1000,
+      ),
+    });
+    try {
+      await emailClient.sendPasswordResetCode({
+        email: normalizedEmail,
+        displayName: user.displayName,
+        code,
+      });
+    } catch (error) {
+      await PasswordResetModel.deleteOne({ _id: reset._id });
+      console.error('Password-reset email provider rejected the request:', error.message);
+      throw new AppError(
+        'The password-reset email could not be sent. Please try again later.',
+        502,
+        'EMAIL_DELIVERY_FAILED',
+      );
+    }
+    return passwordResetResponse();
+  },
+
+  async confirmLocalPasswordReset({ email, code, password }) {
+    if (env.authMode !== 'mock') {
+      throw new AppError('Local password reset is disabled', 404, 'NOT_FOUND');
+    }
+    if (!env.passwordResetSecret) throw invalidResetCode();
+    const normalizedEmail = email.toLowerCase();
+    const reset = await PasswordResetModel.findOne({
+      email: normalizedEmail,
+      consumedAt: null,
+      expiresAt: { $gt: new Date() },
+      attempts: { $lt: env.passwordResetMaxAttempts },
+    })
+      .sort({ createdAt: -1 })
+      .select('+codeHash');
+    if (!reset) throw invalidResetCode();
+
+    reset.attempts += 1;
+    await reset.save();
+    const suppliedHash = resetCodeHash(normalizedEmail, code);
+    if (!resetCodeMatches(suppliedHash, reset.codeHash)) {
+      throw invalidResetCode();
+    }
+
+    const claimed = await PasswordResetModel.findOneAndUpdate(
+      { _id: reset._id, consumedAt: null },
+      { consumedAt: new Date() },
+      { new: true },
+    );
+    if (!claimed) throw invalidResetCode();
+    const user = await UserModel.findById(reset.userId).select('+passwordHash');
+    if (!user || user.accountStatus !== 'active') throw invalidResetCode();
+    user.passwordHash = await hashPassword(password);
+    user.accessRevokedAt = new Date();
+    await user.save();
+    await PasswordResetModel.deleteMany({ userId: user._id });
+    return { message: 'Your password has been updated. You can now sign in.' };
   },
 
   async startSession(identity) {

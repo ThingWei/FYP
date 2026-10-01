@@ -1619,7 +1619,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      'Digital agreement: ${rental.blockchainStatus}',
+                                      'Rental agreement: ${agreementStatusLabel(rental)}',
                                       style: const TextStyle(
                                         color: AppColors.secondaryText,
                                       ),
@@ -1633,7 +1633,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                                     ),
                                     icon:
                                         const Icon(Icons.receipt_long_outlined),
-                                    label: const Text('View'),
+                                    label: const Text('View agreement'),
                                   ),
                                 ],
                               ),

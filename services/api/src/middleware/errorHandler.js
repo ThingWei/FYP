@@ -1,3 +1,5 @@
+import { AppError } from '../core/errors.js';
+
 export const notFound = (req, _res, next) =>
   next(
     Object.assign(new Error(`Route not found: ${req.method} ${req.path}`), {
@@ -31,7 +33,7 @@ export const errorHandler = (error, _req, res, _next) => {
 
   if (status >= 500) {
     console.error(error);
-    message = 'Unexpected server error';
+    if (!(error instanceof AppError)) message = 'Unexpected server error';
   }
 
   res.status(status).json({

@@ -31,6 +31,17 @@ export const localRegistrationValidation = [
   body('role').isIn(['renter', 'owner']),
 ];
 
+export const passwordResetRequestValidation = [email()];
+
+export const passwordResetConfirmationValidation = [
+  email(),
+  body('code')
+    .trim()
+    .matches(/^\d{6}$/)
+    .withMessage('Reset code must contain 6 digits'),
+  password(),
+];
+
 export const profileValidation = [
   body().custom((value) => {
     const fields = ['displayName', 'phone', 'avatarUrl', 'addresses', 'settings'];

@@ -8,7 +8,9 @@ import '../controllers/auth_controller.dart';
 enum _ResetStep { email, code, password, success }
 
 class ForgotPasswordScreen extends StatefulWidget {
-  const ForgotPasswordScreen({super.key});
+  const ForgotPasswordScreen({super.key, this.initialEmail = ''});
+
+  final String initialEmail;
 
   @override
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
@@ -16,7 +18,7 @@ class ForgotPasswordScreen extends StatefulWidget {
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final formKey = GlobalKey<FormState>();
-  final email = TextEditingController();
+  late final TextEditingController email;
   final code = TextEditingController();
   final password = TextEditingController();
   final confirmPassword = TextEditingController();
@@ -24,6 +26,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   bool loading = false;
   bool externalEmailSent = false;
   String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    email = TextEditingController(text: widget.initialEmail);
+  }
 
   @override
   void dispose() {
@@ -40,31 +48,32 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       loading = true;
       error = null;
     });
-    AuthController? auth;
-    try {
-      auth = context.read<AuthController>();
-    } on ProviderNotFoundException {
-      // Standalone widget previews continue to use the local prototype flow.
-    }
-    if (step == _ResetStep.email && (auth?.usesExternalProvider ?? false)) {
-      await auth!.requestPasswordReset(email.text.trim());
+    final auth = context.read<AuthController>();
+    if (step == _ResetStep.email) {
+      await auth.requestPasswordReset(email.text.trim());
       if (!mounted) return;
       setState(() {
         loading = false;
-        error = auth!.error;
+        error = auth.error;
         if (error == null) {
-          externalEmailSent = true;
-          step = _ResetStep.success;
+          externalEmailSent = auth.usesExternalProvider;
+          step =
+              auth.usesExternalProvider ? _ResetStep.success : _ResetStep.code;
         }
       });
       return;
     }
-    await Future<void>.delayed(const Duration(milliseconds: 450));
-    if (!mounted) return;
-    if (step == _ResetStep.code && code.text != '123456') {
+    if (step == _ResetStep.password) {
+      await auth.confirmPasswordReset(
+        email.text.trim(),
+        code.text.trim(),
+        password.text,
+      );
+      if (!mounted) return;
       setState(() {
         loading = false;
-        error = 'Use mock code 123456 to continue.';
+        error = auth.error;
+        if (error == null) step = _ResetStep.success;
       });
       return;
     }
@@ -88,7 +97,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                         : 'Password Updated',
                     message: externalEmailSent
                         ? 'Auth0 sent password-reset instructions to ${email.text}. Follow the secure link to choose a new password.'
-                        : 'Your mock password has been reset successfully.',
+                        : 'Your password has been reset successfully. You can now sign in with the new password.',
                     actionLabel: 'Return to Login',
                     onAction: () => Navigator.pop(context),
                   )
@@ -142,13 +151,21 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           TextButton(
                             onPressed: loading
                                 ? null
-                                : () =>
+                                : () async {
+                                    final auth = context.read<AuthController>();
+                                    await auth.requestPasswordReset(
+                                      email.text.trim(),
+                                    );
+                                    if (!context.mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content:
-                                            Text('A new mock code was sent.'),
+                                      SnackBar(
+                                        content: Text(
+                                          auth.error ??
+                                              'If the account is eligible, a reset code has been sent.',
+                                        ),
                                       ),
-                                    ),
+                                    );
+                                  },
                             child: const Text('Resend code'),
                           )
                         else
@@ -182,14 +199,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         _ResetStep.email =>
           'Enter the email associated with your account and we’ll send a reset code.',
         _ResetStep.code =>
-          'Enter the six-digit code sent to ${email.text}. For this prototype, use 123456.',
+          'Enter the six-digit code sent to ${email.text}. The code expires shortly and can only be used once.',
         _ResetStep.password =>
           'Choose a strong password with at least eight characters.',
         _ResetStep.success => '',
       };
 
   String get _buttonLabel => switch (step) {
-        _ResetStep.email => 'Send Reset Link',
+        _ResetStep.email => 'Send Reset Email',
         _ResetStep.code => 'Verify Code',
         _ResetStep.password => 'Update Password',
         _ResetStep.success => 'Return to Login',

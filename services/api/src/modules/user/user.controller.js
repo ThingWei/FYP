@@ -8,6 +8,10 @@ export const userController = {
     ok(res, await userService.localLogin(matchedData(req)))),
   localRegister: asyncHandler(async (req, res) =>
     created(res, await userService.localRegister(matchedData(req)))),
+  requestLocalPasswordReset: asyncHandler(async (req, res) =>
+    ok(res, await userService.requestLocalPasswordReset(matchedData(req)))),
+  confirmLocalPasswordReset: asyncHandler(async (req, res) =>
+    ok(res, await userService.confirmLocalPasswordReset(matchedData(req)))),
 
   startSession: asyncHandler(async (req, res) => {
     const result = await userService.startSession(req.user);

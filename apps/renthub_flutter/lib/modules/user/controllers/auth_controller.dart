@@ -54,6 +54,12 @@ class AuthController extends LoadableController {
       });
   Future<void> requestPasswordReset(String email) =>
       run(() => repository.requestPasswordReset(email));
+  Future<void> confirmPasswordReset(
+    String email,
+    String code,
+    String password,
+  ) =>
+      run(() => repository.confirmPasswordReset(email, code, password));
   Future<void> logout() => run(() async {
         try {
           await pushNotifications?.disableForCurrentUser();

@@ -8,6 +8,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../live/live_renthub_controller.dart';
 import '../../modules/user/controllers/auth_controller.dart';
+import '../../modules/user/views/forgot_password_screen.dart';
 import '../renter/discovery/controllers/renter_prototype_state.dart';
 
 class HelpSupportPage extends StatelessWidget {
@@ -473,69 +474,15 @@ class _SecurityPageState extends State<SecurityPage> {
   }
 
   Future<void> _changePassword() async {
-    AuthController? auth;
-    try {
-      auth = context.read<AuthController>();
-    } on ProviderNotFoundException {
-      // Standalone prototype previews keep the local password dialog.
-    }
-    if (auth?.usesExternalProvider ?? false) {
-      final email = auth!.user?.email ?? '';
-      final accepted = await confirmAction(
-        context,
-        title: 'Send password-reset email?',
-        message: 'Auth0 will send secure reset instructions to $email.',
-        action: 'Send Email',
-      );
-      if (!accepted || !mounted) return;
-      await auth.requestPasswordReset(email);
-      if (!mounted) return;
-      if (auth.error == null) {
-        showMockSuccess(context, 'Password-reset email sent');
-      } else {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(auth.error!)));
-      }
-      return;
-    }
-    final formKey = GlobalKey<FormState>();
-    final password = TextEditingController();
-    final saved = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('Change prototype password'),
-            content: Form(
-              key: formKey,
-              child: TextFormField(
-                controller: password,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'New password'),
-                validator: (value) => (value?.length ?? 0) < 8
-                    ? 'Use at least 8 characters'
-                    : null,
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  if (formKey.currentState!.validate()) {
-                    Navigator.pop(dialogContext, true);
-                  }
-                },
-                child: const Text('Save'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    password.dispose();
-    if (saved && mounted) {
-      showMockSuccess(context, 'Prototype password updated');
-    }
+    final auth = context.read<AuthController>();
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(
+          initialEmail: auth.user?.email ?? '',
+        ),
+      ),
+    );
   }
 
   @override

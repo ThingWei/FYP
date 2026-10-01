@@ -9,6 +9,26 @@ paths:
     post:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } } }
       responses: { '200': { description: Authenticated }, '401': { description: Invalid credentials } }
+  /users/local-password-reset/request:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetRequest' }
+      responses:
+        '200': { description: Generic password-reset email response }
+        '503': { description: Reset-email provider is not configured }
+  /users/local-password-reset/confirm:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetConfirmation' }
+      responses:
+        '200': { description: Password updated and reset code consumed }
+        '400': { description: Reset code is invalid, expired, or exhausted }
   /listings:
     get:
       responses: { '200': { description: Paginated listings } }
@@ -127,6 +147,20 @@ components:
       type: object
       required: [email, password]
       properties: { email: { type: string, format: email }, password: { type: string, minLength: 8 } }
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+    PasswordResetConfirmation:
+      type: object
+      required: [email, code, password]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+        code: { type: string, pattern: '^\d{6}$' }
+        password: { type: string, minLength: 8, maxLength: 128 }
     PushDeviceRequest:
       type: object
       required: [deviceId, platform, token]

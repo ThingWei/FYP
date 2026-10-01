@@ -21,6 +21,24 @@ export const env = {
     process.env.AUTH0_ROLES_CLAIM ?? 'https://renthub/roles',
   authEmailClaim: process.env.AUTH0_EMAIL_CLAIM ?? 'email',
   authNameClaim: process.env.AUTH0_NAME_CLAIM ?? 'name',
+  emailMode: process.env.EMAIL_MODE ?? 'disabled',
+  resendApiKey: process.env.RESEND_API_KEY,
+  emailFrom: process.env.EMAIL_FROM,
+  smtpHost: process.env.SMTP_HOST ?? 'smtp.gmail.com',
+  smtpPort: integer(process.env.SMTP_PORT, 587),
+  smtpSecure: boolean(process.env.SMTP_SECURE, false),
+  smtpUsername: process.env.SMTP_USERNAME,
+  smtpPassword: process.env.SMTP_PASSWORD,
+  passwordResetSecret: process.env.PASSWORD_RESET_SECRET,
+  passwordResetTtlMinutes: integer(process.env.PASSWORD_RESET_TTL_MINUTES, 10),
+  passwordResetCooldownSeconds: integer(
+    process.env.PASSWORD_RESET_COOLDOWN_SECONDS,
+    60,
+  ),
+  passwordResetMaxAttempts: integer(
+    process.env.PASSWORD_RESET_MAX_ATTEMPTS,
+    5,
+  ),
   storageMode: process.env.STORAGE_MODE ?? 'local',
   uploadDirectory: process.env.UPLOAD_DIRECTORY ?? '.data/uploads',
   firebaseStorageBucket: process.env.FIREBASE_STORAGE_BUCKET,
@@ -61,6 +79,10 @@ export function validateEnv(config = env) {
   const aiTimeoutMs = config.aiTimeoutMs ?? 5000;
   const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
   const blockchainMode = config.blockchainMode ?? 'disabled';
+  const emailMode = config.emailMode ?? 'disabled';
+  const passwordResetTtlMinutes = config.passwordResetTtlMinutes ?? 10;
+  const passwordResetCooldownSeconds = config.passwordResetCooldownSeconds ?? 60;
+  const passwordResetMaxAttempts = config.passwordResetMaxAttempts ?? 5;
   const lifecycleJobIntervalMs = config.lifecycleJobIntervalMs ?? 15 * 60 * 1000;
   const pendingBookingExpiryMinutes = config.pendingBookingExpiryMinutes ?? 60;
   const lifecycleReminderHours = config.lifecycleReminderHours ?? 24;
@@ -80,6 +102,35 @@ export function validateEnv(config = env) {
   if (config.authMode === 'auth0') {
     if (!config.authIssuer) errors.push('AUTH0_ISSUER_BASE_URL is required');
     if (!config.authAudience) errors.push('AUTH0_AUDIENCE is required');
+  }
+  if (!['disabled', 'resend', 'smtp'].includes(emailMode)) {
+    errors.push('EMAIL_MODE must be disabled, resend, or smtp');
+  }
+  if (emailMode !== 'disabled') {
+    if (!config.emailFrom) errors.push('EMAIL_FROM is required');
+    if (!config.passwordResetSecret || config.passwordResetSecret.length < 32) {
+      errors.push('PASSWORD_RESET_SECRET must contain at least 32 characters');
+    }
+  }
+  if (emailMode === 'resend' && !config.resendApiKey) {
+    errors.push('RESEND_API_KEY is required');
+  }
+  if (emailMode === 'smtp') {
+    if (!config.smtpHost) errors.push('SMTP_HOST is required');
+    if (!Number.isInteger(config.smtpPort) || config.smtpPort < 1 || config.smtpPort > 65535) {
+      errors.push('SMTP_PORT must be an integer between 1 and 65535');
+    }
+    if (!config.smtpUsername) errors.push('SMTP_USERNAME is required');
+    if (!config.smtpPassword) errors.push('SMTP_PASSWORD is required');
+  }
+  if (!Number.isInteger(passwordResetTtlMinutes) || passwordResetTtlMinutes < 5 || passwordResetTtlMinutes > 60) {
+    errors.push('PASSWORD_RESET_TTL_MINUTES must be an integer from 5 to 60');
+  }
+  if (!Number.isInteger(passwordResetCooldownSeconds) || passwordResetCooldownSeconds < 30) {
+    errors.push('PASSWORD_RESET_COOLDOWN_SECONDS must be an integer of at least 30');
+  }
+  if (!Number.isInteger(passwordResetMaxAttempts) || passwordResetMaxAttempts < 3 || passwordResetMaxAttempts > 10) {
+    errors.push('PASSWORD_RESET_MAX_ATTEMPTS must be an integer from 3 to 10');
   }
   if (!['local', 'firebase'].includes(storageMode)) {
     errors.push('STORAGE_MODE must be either local or firebase');

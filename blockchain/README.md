@@ -18,6 +18,11 @@ API loads the generated ABI/bytecode and deploys one agreement per approved
 physical booking. It records deployment/signature hashes, completes on return,
 cancels with the booking, and opens/resolves/dismisses disputes on-chain.
 
+On Windows, `apps/renthub_flutter/run-renthub.ps1` performs the compile when
+needed, starts Ganache before the API, verifies its JSON-RPC endpoint, and keeps
+chain state under `blockchain/.data/ganache`. A separately started Ganache node
+is detected and reused.
+
 The first Ganache account acts as the prototype backend custodian and accounts
 two and three act as the renter and Owner. Identity-to-wallet ownership and a
 non-custodial signing experience remain out of scope for this local prototype.
