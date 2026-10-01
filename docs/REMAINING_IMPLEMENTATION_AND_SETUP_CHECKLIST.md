@@ -166,11 +166,11 @@ Expected runtime paths are listed in `services/ai/.env.example` and
   reconciliation are not implemented; payments remain simulated.
 - [ ] Firebase Cloud Messaging production activation remains pending. The code
   integration is present, while MongoDB/Socket.IO remains the source of truth.
-  - [ ] Create the Firebase project and register Android, iOS, and Web apps used
-    by the final demonstration targets.
-  - [ ] Choose the final Android application ID and iOS bundle ID, then generate
-    the missing runners. Android can be generated on Windows; iOS configuration
-    and builds require macOS/Xcode.
+  - [ ] Create the Firebase project and register the Android app as
+    `com.weith.renthub`.
+  - [x] Generate the Android runner with application ID `com.weith.renthub`.
+  - [ ] Choose the final iOS bundle ID and generate/configure its runner on
+    macOS with Xcode.
   - [ ] Configure FlutterFire files locally and server credentials through
     environment/workload identity; do not commit service-account secrets.
   - [x] Add device-token registration, refresh, sign-out removal, and stale-token

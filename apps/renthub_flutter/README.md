@@ -6,17 +6,19 @@ on Windows.
 
 ## Android and iOS Firebase setup
 
-The repository currently contains Web and Windows runners. Generate the missing
-mobile runners before configuring Firebase:
+The Android runner uses application ID `com.weith.renthub`. Register that exact
+identifier in Firebase, then run FlutterFire configuration from this folder:
 
 ```powershell
-flutter create --platforms=android .
+flutterfire configure --platforms=android
 ```
 
-Generate/configure iOS on macOS, then use the FlutterFire CLI from this folder:
+Generate and configure the iOS runner later on macOS after choosing its final
+bundle ID:
 
 ```powershell
-flutterfire configure --platforms=android,ios
+flutter create --platforms=ios .
+flutterfire configure --platforms=ios
 ```
 
 This creates the native `google-services.json` and
@@ -31,5 +33,5 @@ flutter run --dart-define=USE_MOCKS=false `
   --dart-define=SOCKET_URL=http://YOUR-LAN-IP:3000
 ```
 
-For iOS, also enable Push Notifications and Background Modes → Remote
+For iOS, also enable Push Notifications and Background Modes -> Remote
 notifications in Xcode and upload the APNs key in Firebase Console.
