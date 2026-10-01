@@ -1,0 +1,9 @@
+{
+  "dataset": "deterministic-synthetic-v1",
+  "rows": 5000,
+  "testRows": 1000,
+  "mae": 4.372198680906295,
+  "rmse": 6.572687208886728,
+  "r2": 0.9849508419029924,
+  "seed": 42
+}

@@ -32,6 +32,15 @@ Widget _profileApp(AuthController auth) => ChangeNotifierProvider.value(
     );
 
 void main() {
+  testWidgets('login does not prefill credentials', (tester) async {
+    await tester.pumpWidget(_withAuth(const LoginScreen()));
+
+    final fields = tester.widgetList<TextFormField>(find.byType(TextFormField));
+    expect(fields, hasLength(2));
+    expect(fields.every((field) => field.controller?.text.isEmpty ?? true),
+        isTrue);
+  });
+
   testWidgets('login links open registration and reset flows', (tester) async {
     await tester.pumpWidget(_withAuth(const LoginScreen()));
 

@@ -1,0 +1,8 @@
+{
+  "dataset": "deterministic-synthetic-v1",
+  "ratings": 3360,
+  "testRatings": 672,
+  "rmse": 0.9120933748371041,
+  "mae": 0.7377467417829464,
+  "seed": 42
+}

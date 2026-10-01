@@ -40,6 +40,8 @@ values are recorded here.
   login-session revocation.
 - [x] Added entity-aware push tap routing for conversations, bookings, rentals,
   payments, disputes, and loyalty activity, with a notification-centre fallback.
+- [x] Removed prefilled login credentials and added restart-persistent,
+  role-aware development sessions that are revalidated through `/users/me`.
 
 ## Immediate local setup still required
 
@@ -133,13 +135,13 @@ real credentials stored outside source control.
 
 ## AI / machine-learning / image-processing setup
 
-The API and UI integrations exist, but the runtime and trained artifacts do not.
-The Python launcher is present, but it reports that no Python interpreter is
-installed. Docker is also unavailable. All five expected model locations were
-empty during this check.
+The API and UI integrations exist. A Python 3.11 virtual environment and the
+required packages are installed in `services/ai/.venv`, but the trained model
+artifacts are not present. Docker remains optional for this local workflow.
 
-- [ ] Install Python 3.11 and create a virtual environment in `services/ai`.
-- [ ] Install `services/ai/requirements.txt` and start FastAPI on port 8001.
+- [x] Install Python 3.11 and create a virtual environment in `services/ai`.
+- [x] Install `services/ai/requirements.txt`.
+- [ ] Start FastAPI on port 8001 and confirm its health endpoint.
 - [ ] Generate and review the XGBoost price artifact and Surprise SVD artifact:
 
   ```powershell

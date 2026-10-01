@@ -1,5 +1,13 @@
 enum UserRole { renter, owner, admin }
 
+UserRole? _userRoleFromJson(dynamic value) {
+  if (value is! String) return null;
+  for (final role in UserRole.values) {
+    if (role.name == value) return role;
+  }
+  return null;
+}
+
 class UserAddress {
   const UserAddress({
     required this.label,
@@ -51,6 +59,7 @@ class User {
     required this.email,
     required this.name,
     required this.roles,
+    this.activeRole,
     this.trustScore = 0,
     this.phone = '',
     this.verificationStatus = 'unverified',
@@ -64,6 +73,7 @@ class User {
   final String id, email, name, phone;
   final String verificationStatus, verificationTier, verificationReason;
   final Set<UserRole> roles;
+  final UserRole? activeRole;
   final double trustScore;
   final List<UserAddress> addresses;
   final String language;
@@ -80,6 +90,7 @@ class User {
       roles: ((json['roles'] as List?) ?? const ['renter'])
           .map((role) => UserRole.values.byName(role as String))
           .toSet(),
+      activeRole: _userRoleFromJson(json['activeRole']),
       trustScore: (json['trustScore'] as num?)?.toDouble() ?? 0,
       phone: json['phone'] as String? ?? '',
       verificationStatus: verification['status'] as String? ?? 'unverified',

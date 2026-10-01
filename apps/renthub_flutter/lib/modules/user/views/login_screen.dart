@@ -13,12 +13,10 @@ class LoginScreen extends StatefulWidget {
     super.key,
     this.onAuthenticated,
     this.administrator = false,
-    this.initialEmail = 'demo@renthub.my',
   });
 
   final VoidCallback? onAuthenticated;
   final bool administrator;
-  final String initialEmail;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -26,8 +24,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final formKey = GlobalKey<FormState>();
-  late final email = TextEditingController(text: widget.initialEmail);
-  final password = TextEditingController(text: 'password');
+  final email = TextEditingController();
+  final password = TextEditingController();
 
   @override
   void dispose() {

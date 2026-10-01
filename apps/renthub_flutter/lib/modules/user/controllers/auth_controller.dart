@@ -11,6 +11,28 @@ class AuthController extends LoadableController {
   UserRole selectedRole = UserRole.renter;
   bool get authenticated => user != null;
   bool get usesExternalProvider => repository.usesExternalProvider;
+
+  Future<void> restoreSession({Set<UserRole>? allowedRoles}) => run(() async {
+        final restoredUser = await repository.restoreSession();
+        if (restoredUser == null) return;
+        final permittedRoles = allowedRoles == null
+            ? restoredUser.roles
+            : restoredUser.roles.intersection(allowedRoles);
+        if (permittedRoles.isEmpty) {
+          await repository.logout();
+          return;
+        }
+        user = restoredUser;
+        final restoredRole = restoredUser.activeRole;
+        selectedRole =
+            restoredRole != null && permittedRoles.contains(restoredRole)
+                ? restoredRole
+                : permittedRoles.first;
+        if (selectedRole != restoredRole) repository.selectRole(selectedRole);
+        if (user?.pushNotifications ?? false) {
+          await pushNotifications?.enableForCurrentUser();
+        }
+      });
   void selectRole(UserRole role) {
     selectedRole = role;
     repository.selectRole(role);

@@ -21,10 +21,7 @@ class LiveAdminApp extends StatelessWidget {
         home: Consumer<AuthController>(
           builder: (context, auth, _) => auth.authenticated
               ? const LiveAdminShell()
-              : const LoginScreen(
-                  administrator: true,
-                  initialEmail: 'admin@renthub.my',
-                ),
+              : const LoginScreen(administrator: true),
         ),
       );
 }

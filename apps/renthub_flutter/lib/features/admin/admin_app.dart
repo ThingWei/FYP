@@ -30,7 +30,6 @@ class AdminLogin extends StatelessWidget {
         child: Builder(
           builder: (context) => LoginScreen(
             administrator: true,
-            initialEmail: 'admin@renthub.my',
             onAuthenticated: () => Navigator.pushReplacement<void, void>(
               context,
               MaterialPageRoute(builder: (_) => const AdminShell()),

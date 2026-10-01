@@ -7,6 +7,7 @@ import '../../../shared/models/domain_models.dart';
 
 abstract interface class AuthRepository {
   bool get usesExternalProvider;
+  Future<User?> restoreSession();
   Future<User> login(String email, String password, UserRole role);
   Future<User> register(
     String name,
@@ -22,6 +23,8 @@ abstract interface class AuthRepository {
 class MockAuthRepository implements AuthRepository {
   @override
   bool get usesExternalProvider => false;
+  @override
+  Future<User?> restoreSession() async => null;
   User _user(String email, UserRole role) => User(
         id: 'demo-user',
         email: email,
@@ -104,7 +107,42 @@ class LiveAuthRepository implements AuthRepository {
       email: normalized,
       name: known?.name ?? name ?? normalized.split('@').first,
       assignedRoles: roles,
+      selectedRole: requestedRole,
     );
+  }
+
+  Future<void> _remember(User user, {UserRole? selectedRole}) async {
+    session.set(
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      assignedRoles: user.roles,
+      selectedRole: selectedRole ?? user.activeRole,
+    );
+    await session.persist();
+  }
+
+  @override
+  Future<User?> restoreSession() async {
+    if (!await session.restorePersisted()) return null;
+    try {
+      final user = User.fromJson(
+        await api.request('GET', '/users/me') as Map<String, dynamic>,
+      );
+      await _remember(user,
+          selectedRole: user.activeRole ?? session.activeRole);
+      return user;
+    } on ApiException catch (error) {
+      if (error.status == 401 || error.status == 403 || error.status == 404) {
+        await session.clearPersisted();
+      } else {
+        session.clear();
+      }
+      return null;
+    } catch (_) {
+      session.clear();
+      return null;
+    }
   }
 
   @override
@@ -112,9 +150,11 @@ class LiveAuthRepository implements AuthRepository {
     _prepareIdentity(email, role);
     try {
       final data = await api.request('POST', '/users/session');
-      return User.fromJson(data as Map<String, dynamic>);
+      final user = User.fromJson(data as Map<String, dynamic>);
+      await _remember(user, selectedRole: role);
+      return user;
     } catch (_) {
-      session.clear();
+      await session.clearPersisted();
       rethrow;
     }
   }
@@ -129,9 +169,11 @@ class LiveAuthRepository implements AuthRepository {
     _prepareIdentity(email, role, name: name);
     try {
       final data = await api.request('POST', '/users/session');
-      return User.fromJson(data as Map<String, dynamic>);
+      final user = User.fromJson(data as Map<String, dynamic>);
+      await _remember(user, selectedRole: role);
+      return user;
     } catch (_) {
-      session.clear();
+      await session.clearPersisted();
       rethrow;
     }
   }
@@ -140,16 +182,19 @@ class LiveAuthRepository implements AuthRepository {
   void selectRole(UserRole role) {
     if (!session.active || !session.roles.contains(role)) return;
     unawaited(
-      api.request(
-        'PATCH',
-        '/users/me/active-role',
-        body: {'role': role.name},
-      ),
+      Future.wait([
+        api.request(
+          'PATCH',
+          '/users/me/active-role',
+          body: {'role': role.name},
+        ),
+        session.setActiveRole(role),
+      ]),
     );
   }
 
   @override
-  Future<void> logout() async => session.clear();
+  Future<void> logout() => session.clearPersisted();
 
   @override
   Future<void> requestPasswordReset(String email) async {
@@ -169,6 +214,33 @@ class Auth0AuthRepository implements AuthRepository {
   @override
   bool get usesExternalProvider => true;
 
+  Future<void> _remember(User user, {UserRole? selectedRole}) async {
+    session.set(
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      assignedRoles: user.roles,
+      selectedRole: selectedRole ?? user.activeRole,
+    );
+  }
+
+  @override
+  Future<User?> restoreSession() async {
+    try {
+      final token = await gateway.token();
+      if (token == null || token.isEmpty) return null;
+      session.setAccessToken(token);
+      final user = User.fromJson(
+        await api.request('POST', '/users/session') as Map<String, dynamic>,
+      );
+      await _remember(user);
+      return user;
+    } catch (_) {
+      session.clear();
+      return null;
+    }
+  }
+
   Future<User> _authenticate(UserRole requestedRole,
       {bool signUp = false}) async {
     final auth0Session = await gateway.login(signUp: signUp);
@@ -184,12 +256,7 @@ class Auth0AuthRepository implements AuthRepository {
           code: 'ROLE_NOT_ASSIGNED',
         );
       }
-      session.set(
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        assignedRoles: user.roles,
-      );
+      await _remember(user, selectedRole: requestedRole);
       return user;
     } catch (_) {
       session.clear();
@@ -213,11 +280,14 @@ class Auth0AuthRepository implements AuthRepository {
   @override
   void selectRole(UserRole role) {
     if (!session.roles.contains(role)) return;
-    unawaited(api.request(
-      'PATCH',
-      '/users/me/active-role',
-      body: {'role': role.name},
-    ));
+    unawaited(Future.wait([
+      api.request(
+        'PATCH',
+        '/users/me/active-role',
+        body: {'role': role.name},
+      ),
+      session.setActiveRole(role, persistSession: false),
+    ]));
   }
 
   @override
@@ -225,7 +295,7 @@ class Auth0AuthRepository implements AuthRepository {
     try {
       await gateway.logout();
     } finally {
-      session.clear();
+      await session.clearPersisted();
     }
   }
 

@@ -9,11 +9,19 @@ import 'modules/booking/controllers/booking_controller.dart';
 import 'modules/loyalty/controllers/loyalty_controller.dart';
 import 'features/live/live_renthub_controller.dart';
 import 'core/notifications/push_notification_service.dart';
+import 'shared/models/domain_models.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final dependencies = AppDependencies.create();
   await dependencies.pushNotifications.initialize();
+  final authController = AuthController(
+    dependencies.authRepository,
+    pushNotifications: dependencies.pushNotifications,
+  );
+  await authController.restoreSession(
+    allowedRoles: const {UserRole.renter, UserRole.owner},
+  );
   runApp(
     MultiProvider(
       providers: [
@@ -21,12 +29,7 @@ Future<void> main() async {
         Provider<PushNotificationService>.value(
           value: dependencies.pushNotifications,
         ),
-        ChangeNotifierProvider(
-          create: (_) => AuthController(
-            dependencies.authRepository,
-            pushNotifications: dependencies.pushNotifications,
-          ),
-        ),
+        ChangeNotifierProvider.value(value: authController),
         ChangeNotifierProvider(
           create: (_) =>
               ListingController(dependencies.listingRepository)..load(),
