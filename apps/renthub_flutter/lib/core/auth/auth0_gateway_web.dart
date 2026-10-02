@@ -47,7 +47,10 @@ class Auth0Gateway {
     return _client!;
   }
 
-  Future<Auth0Session> login({bool signUp = false}) async {
+  Future<Auth0Session> login({
+    bool signUp = false,
+    String? requestedRole,
+  }) async {
     final client = await _initialize();
     await client
         .callMethod<JSPromise<JSAny?>>(
@@ -57,6 +60,7 @@ class Auth0Gateway {
               'audience': audience,
               'redirect_uri': callbackUrl,
               if (signUp) 'screen_hint': 'signup',
+              if (requestedRole != null) 'ext-renthub-role': requestedRole,
             },
           }.jsify(),
         )

@@ -37,13 +37,30 @@ Firebase Admin uses Application Default Credentials. Set `GOOGLE_APPLICATION_CRE
 
 ## Auth0 Action
 
-Add a post-login Auth0 Action that places the application roles and safe profile fields into the API access token. Assign `renter`, `owner`, or `admin` through Auth0 roles or `app_metadata.roles`.
+Add a post-login Auth0 Action that places the application roles and safe profile fields into the API access token. RentHub sends the selected Renter or Owner role as `ext-renthub-role`; the Action validates and persists those self-service roles. The application never sends `admin`, which must still be assigned by an administrator in Auth0.
 
 ```javascript
 exports.onExecutePostLogin = async (event, api) => {
   const namespace = 'https://renthub';
-  const roles = event.authorization?.roles ?? event.user.app_metadata?.roles ?? ['renter'];
-  api.accessToken.setCustomClaim(`${namespace}/roles`, roles);
+  const selfServiceRoles = ['renter', 'owner'];
+  const requestedRole = String(
+    event.request.query?.['ext-renthub-role'] ?? '',
+  ).toLowerCase();
+  const auth0Roles = Array.isArray(event.authorization?.roles)
+    ? event.authorization.roles
+    : [];
+  const storedRoles = Array.isArray(event.user.app_metadata?.roles)
+    ? event.user.app_metadata.roles
+    : [];
+  const roles = [...new Set([...auth0Roles, ...storedRoles])];
+  if (selfServiceRoles.includes(requestedRole)) roles.push(requestedRole);
+  const finalRoles = [...new Set(roles)].filter(
+    (role) => ['renter', 'owner', 'admin'].includes(role),
+  );
+  if (finalRoles.length === 0) finalRoles.push('renter');
+
+  api.user.setAppMetadata('roles', finalRoles);
+  api.accessToken.setCustomClaim(`${namespace}/roles`, finalRoles);
   api.accessToken.setCustomClaim(`${namespace}/email`, event.user.email);
   api.accessToken.setCustomClaim(`${namespace}/name`, event.user.name ?? event.user.email);
 };

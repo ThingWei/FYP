@@ -31,6 +31,7 @@ class Auth0Gateway {
   String? _accessToken;
   String? _refreshToken;
   DateTime? _expiresAt;
+  Future<Auth0Session>? _loginInProgress;
 
   String _randomValue([int length = 32]) {
     final random = Random.secure();
@@ -112,7 +113,39 @@ class Auth0Gateway {
     _expiresAt = DateTime.now().add(Duration(seconds: expiresIn));
   }
 
-  Future<Auth0Session> login({bool signUp = false}) async {
+  Future<Auth0Session> login({
+    bool signUp = false,
+    String? requestedRole,
+  }) {
+    final existing = _loginInProgress;
+    if (existing != null) return existing;
+
+    final request = _guardedLogin(
+      signUp: signUp,
+      requestedRole: requestedRole,
+    );
+    _loginInProgress = request;
+    return request;
+  }
+
+  Future<Auth0Session> _guardedLogin({
+    required bool signUp,
+    required String? requestedRole,
+  }) async {
+    try {
+      return await _login(
+        signUp: signUp,
+        requestedRole: requestedRole,
+      );
+    } finally {
+      _loginInProgress = null;
+    }
+  }
+
+  Future<Auth0Session> _login({
+    required bool signUp,
+    required String? requestedRole,
+  }) async {
     final callback = Uri.parse(callbackUrl);
     final state = _randomValue();
     final verifier = _randomValue(48);
@@ -131,6 +164,7 @@ class Auth0Gateway {
         'code_challenge': challenge,
         'code_challenge_method': 'S256',
         if (signUp) 'screen_hint': 'signup',
+        if (requestedRole != null) 'ext-renthub-role': requestedRole,
       });
       await _openBrowser(authorization);
       final response = await _waitForCallback(server);

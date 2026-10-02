@@ -294,7 +294,14 @@ class Auth0AuthRepository implements AuthRepository {
 
   Future<User> _authenticate(UserRole requestedRole,
       {bool signUp = false}) async {
-    final auth0Session = await gateway.login(signUp: signUp);
+    final auth0Session = await gateway.login(
+      signUp: signUp,
+      requestedRole: switch (requestedRole) {
+        UserRole.renter => 'renter',
+        UserRole.owner => 'owner',
+        UserRole.admin => null,
+      },
+    );
     session.setAccessToken(auth0Session.accessToken);
     try {
       final user = User.fromJson(

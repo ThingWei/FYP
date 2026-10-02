@@ -12,7 +12,10 @@ class Auth0Gateway {
     required String databaseConnection,
   });
 
-  Future<Auth0Session> login({bool signUp = false}) =>
+  Future<Auth0Session> login({
+    bool signUp = false,
+    String? requestedRole,
+  }) =>
       throw UnsupportedError('Auth0 is not supported on this platform');
 
   Future<String?> token() async => null;
