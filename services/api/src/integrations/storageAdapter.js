@@ -3,9 +3,11 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
+import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env.js';
 
 let firebaseBucket;
+let supabaseClient;
 
 function bucket() {
   if (firebaseBucket) return firebaseBucket;
@@ -26,6 +28,31 @@ function localPath(storagePath) {
   return resolved;
 }
 
+function supabase() {
+  if (supabaseClient) return supabaseClient;
+  supabaseClient = createClient(env.supabaseUrl, env.supabaseSecretKey, {
+    auth: {
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      persistSession: false,
+    },
+  });
+  return supabaseClient;
+}
+
+function supabaseBucket() {
+  return supabase().storage.from(env.supabaseStorageBucket);
+}
+
+function assertSupabaseResult(result, action) {
+  if (result.error) {
+    const status = result.error.statusCode ?? result.error.status;
+    const suffix = status ? ` (HTTP ${status})` : '';
+    throw new Error(`Supabase Storage ${action} failed${suffix}: ${result.error.message}`);
+  }
+  return result.data;
+}
+
 export const storageAdapter = {
   checksum(buffer) {
     return createHash('sha256').update(buffer).digest('hex');
@@ -42,6 +69,15 @@ export const storageAdapter = {
       });
       return { provider: 'firebase', storagePath };
     }
+    if (env.storageMode === 'supabase') {
+      const result = await supabaseBucket().upload(storagePath, buffer, {
+        cacheControl: isPublic ? '31536000' : '0',
+        contentType,
+        upsert: false,
+      });
+      assertSupabaseResult(result, 'upload');
+      return { provider: 'supabase', storagePath };
+    }
     const target = localPath(storagePath);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, buffer, { flag: 'wx' });
@@ -53,12 +89,26 @@ export const storageAdapter = {
       const [buffer] = await bucket().file(storagePath).download();
       return buffer;
     }
+    if (env.storageMode === 'supabase') {
+      const data = assertSupabaseResult(
+        await supabaseBucket().download(storagePath),
+        'download',
+      );
+      return Buffer.from(await data.arrayBuffer());
+    }
     return readFile(localPath(storagePath));
   },
 
   async delete(storagePath) {
     if (env.storageMode === 'firebase') {
       await bucket().file(storagePath).delete({ ignoreNotFound: true });
+      return;
+    }
+    if (env.storageMode === 'supabase') {
+      assertSupabaseResult(
+        await supabaseBucket().remove([storagePath]),
+        'delete',
+      );
       return;
     }
     await unlink(localPath(storagePath)).catch((error) => {
@@ -88,6 +138,46 @@ export const storageAdapter = {
       return {
         provider: 'firebase',
         bucket: env.firebaseStorageBucket,
+        writeProbe,
+      };
+    }
+    if (env.storageMode === 'supabase') {
+      assertSupabaseResult(
+        await supabase().storage.getBucket(env.supabaseStorageBucket),
+        'bucket verification',
+      );
+      if (writeProbe) {
+        const probePath = `private/readiness/${randomUUID()}.png`;
+        let uploaded = false;
+        try {
+          assertSupabaseResult(
+            await supabaseBucket().upload(
+              probePath,
+              Buffer.from(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+                'base64',
+              ),
+              {
+                cacheControl: '0',
+                contentType: 'image/png',
+                upsert: false,
+              },
+            ),
+            'write probe',
+          );
+          uploaded = true;
+        } finally {
+          if (uploaded) {
+            assertSupabaseResult(
+              await supabaseBucket().remove([probePath]),
+              'write probe cleanup',
+            );
+          }
+        }
+      }
+      return {
+        provider: 'supabase',
+        bucket: env.supabaseStorageBucket,
         writeProbe,
       };
     }

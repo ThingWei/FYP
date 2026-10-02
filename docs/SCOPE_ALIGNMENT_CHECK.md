@@ -832,8 +832,8 @@ Codex must verify the repository against this intended stack.
 | Price model | XGBoost Regression |
 | Blockchain | Solidity + Hardhat + local Ganache + Ethers.js |
 | Push notifications | Firebase Cloud Messaging |
-| File storage | Firebase Storage |
-| Location | Google Maps API |
+| File storage | Supabase Storage |
+| Location | OpenStreetMap / Nominatim |
 | Geospatial | GeoJSON + MongoDB geospatial queries + Geolib/Turf.js |
 
 For each technology, report whether it is:

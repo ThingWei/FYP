@@ -60,9 +60,8 @@ were not printed. It is not currently usable:
 
 - [ ] Replace the placeholder `MONGODB_URI`. No MongoDB server was listening on
   local port 27017 during this check.
-- [ ] Decide on a development or production profile. The current file selects
-  `NODE_ENV=production`, `AUTH_MODE=auth0`, and `STORAGE_MODE=firebase`, while
-  required MongoDB/Auth0/Firebase values are still placeholders.
+- [ ] Complete the selected development profile with MongoDB, local JWT, email,
+  Supabase Storage, AI, and Ganache credentials.
 - [ ] For a local demonstration, use development-safe settings:
 
   ```dotenv
@@ -80,8 +79,14 @@ were not printed. It is not currently usable:
   SMTP_USERNAME=your.personal@gmail.com
   SMTP_PASSWORD=your-google-app-password-without-spaces
   PASSWORD_RESET_SECRET=replace-with-at-least-32-random-characters
-  STORAGE_MODE=local
-  UPLOAD_DIRECTORY=.data/uploads
+  STORAGE_MODE=supabase
+  SUPABASE_URL=https://your-project-ref.supabase.co
+  SUPABASE_SECRET_KEY=replace-with-server-secret-key
+  SUPABASE_STORAGE_BUCKET=renthub-files
+  MAPS_MODE=openstreetmap
+  OPENSTREETMAP_NOMINATIM_URL=https://nominatim.openstreetmap.org
+  OPENSTREETMAP_USER_AGENT=RentHub/1.0 (contact: your-email@example.com)
+  OPENSTREETMAP_MIN_INTERVAL_MS=1000
   AI_SERVICE_URL=http://localhost:8001
   AI_ENFORCEMENT_MODE=advisory
   BLOCKCHAIN_MODE=ganache
@@ -148,17 +153,18 @@ real credentials stored outside source control.
 - [ ] Auth0 session inventory, token lifetime, and rotation remain managed by
   and require configuration in the real Auth0 tenant if Auth0 is selected.
 
-## Firebase Storage setup
+## Supabase Storage setup
 
-- [ ] Replace the placeholder Firebase bucket.
-- [ ] Provide Application Default Credentials using
-  `GOOGLE_APPLICATION_CREDENTIALS` or workload identity; never commit a service
-  account JSON file.
-- [ ] Configure bucket CORS and IAM so public listing images and private evidence
-  follow the intended access rules.
+- [ ] Create a Supabase project and a private `renthub-files` bucket.
+- [ ] Add the project URL and server secret to the ignored API `.env`; never
+  expose the server secret to Flutter or commit it.
+- [ ] Keep client access private. RentHub API routes perform user/participant
+  authorization before serving listing images or protected evidence.
 - [ ] Run the production preflight write/delete probe.
 - [ ] Complete a real upload/download/access-control E2E test for listing,
   identity, handover, return, dispute, and claim evidence.
+- [ ] Keep Firebase only if push notifications are enabled with
+  `FCM_MODE=firebase`.
 
 ## AI / machine-learning / image-processing setup
 
@@ -227,7 +233,8 @@ Expected runtime paths are listed in `services/ai/.env.example` and
     real device/browser end to end.
 - [x] Protected image messages are implemented.
 - [ ] Location-pin messages are not implemented.
-- [ ] Google Maps/geospatial search is still deferred.
+- [ ] Interactive OpenStreetMap rendering and MongoDB geospatial search remain
+  deferred. The Nominatim backend adapter, caching, and rate limiting are ready.
 - [ ] Cross-Owner multi-item checkout/bundles are not implemented. Existing
   bundle metadata supports only the simpler same-Owner presentation.
 - [x] Internal scheduled administrator reports and CSV exports are implemented.
@@ -239,7 +246,7 @@ Expected runtime paths are listed in `services/ai/.env.example` and
 
 ## Final verification still required
 
-- [ ] Run the production preflight with real Atlas/Auth0/Firebase credentials.
+- [ ] Run the production preflight with real Atlas/Auth0/Supabase credentials.
 - [ ] Run the Phase 13 write/restart/read E2E drill.
 - [ ] Run Python tests and capture model metrics after installing Python.
 - [ ] Repeat Hardhat and Ganache smoke tests with the final environment.
@@ -256,7 +263,7 @@ Expected runtime paths are listed in `services/ai/.env.example` and
 ## Useful verification commands
 
 ```powershell
-# API tests without consuming production/Auth0/Firebase settings
+# API tests without consuming production/Auth0/Supabase settings
 cd services/api
 $env:NODE_ENV='test'
 $env:AUTH_MODE='mock'

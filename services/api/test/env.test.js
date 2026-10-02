@@ -38,3 +38,47 @@ test('rejects mock authentication in production', () => {
     /AUTH_MODE=mock is not allowed in production/,
   );
 });
+
+test('requires Supabase server settings in Supabase storage mode', () => {
+  assert.throws(
+    () => validateEnv({ ...valid, storageMode: 'supabase' }),
+    /SUPABASE_URL is required/,
+  );
+
+  const supabase = {
+    ...valid,
+    storageMode: 'supabase',
+    supabaseUrl: 'https://project-ref.supabase.co',
+    supabaseSecretKey: 'server-only-secret',
+    supabaseStorageBucket: 'renthub-files',
+  };
+  assert.equal(validateEnv(supabase), supabase);
+});
+
+test('accepts Supabase as production storage', () => {
+  const production = {
+    ...valid,
+    nodeEnv: 'production',
+    authMode: 'local',
+    localJwtSecret: 'a-production-jwt-secret-with-32-characters',
+    storageMode: 'supabase',
+    supabaseUrl: 'https://project-ref.supabase.co',
+    supabaseSecretKey: 'server-only-secret',
+    supabaseStorageBucket: 'renthub-files',
+  };
+  assert.equal(validateEnv(production), production);
+});
+
+test('rejects an OpenStreetMap request interval below one second', () => {
+  assert.throws(
+    () =>
+      validateEnv({
+        ...valid,
+        mapsMode: 'openstreetmap',
+        openStreetMapNominatimUrl: 'https://nominatim.openstreetmap.org',
+        openStreetMapUserAgent: 'RentHub/1.0',
+        openStreetMapMinIntervalMs: 500,
+      }),
+    /OPENSTREETMAP_MIN_INTERVAL_MS must be an integer of at least 1000/,
+  );
+});

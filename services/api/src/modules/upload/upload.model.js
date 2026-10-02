@@ -29,7 +29,11 @@ const uploadAssetSchema = new mongoose.Schema(
       required: true,
     },
     size: { type: Number, required: true, min: 1 },
-    storageProvider: { type: String, enum: ['local', 'firebase'], required: true },
+    storageProvider: {
+      type: String,
+      enum: ['local', 'firebase', 'supabase'],
+      required: true,
+    },
     storagePath: { type: String, required: true, unique: true },
     sha256: { type: String, required: true, minlength: 64, maxlength: 64 },
   },

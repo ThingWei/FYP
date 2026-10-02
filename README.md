@@ -1,6 +1,6 @@
 # RentHub
 
-RentHub is a multi-category rental marketplace monorepo. The Flutter client is the only public client; it calls the Node API, which coordinates MongoDB, the AI service, Firebase adapters, and the local Ganache blockchain.
+RentHub is a multi-category rental marketplace monorepo. The Flutter client is the only public client; it calls the Node API, which coordinates MongoDB, Supabase Storage, the AI service, optional Firebase push delivery, and the local Ganache blockchain.
 
 ## Projects
 
@@ -88,6 +88,42 @@ The SMTP password and reset secret must not be committed. Restart the API after
 changing `.env`. `EMAIL_MODE=resend` remains supported for a verified Resend
 sender, while Auth0 accounts continue to use Auth0's hosted reset email.
 
+### Supabase file storage
+
+RentHub stores uploaded listing images and protected evidence in a private
+Supabase Storage bucket while MongoDB retains the file metadata and ownership
+records. Create a private `renthub-files` bucket, then configure only the API:
+
+```dotenv
+STORAGE_MODE=supabase
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SECRET_KEY=your-server-secret-key
+SUPABASE_STORAGE_BUCKET=renthub-files
+MAX_UPLOAD_BYTES=10485760
+```
+
+Never put `SUPABASE_SECRET_KEY` in Flutter or commit it. The mobile/web client
+continues to upload and download through authenticated RentHub API routes. Run
+`npm.cmd run preflight -- --write-probe` to verify bucket lookup, upload, and
+cleanup. Firebase remains optional for `FCM_MODE=firebase`; it is no longer
+required for file storage.
+
+### OpenStreetMap location provider
+
+Google Maps is not used. The API location boundary targets OpenStreetMap
+Nominatim and enforces the public service's one-request-per-second minimum:
+
+```dotenv
+MAPS_MODE=openstreetmap
+OPENSTREETMAP_NOMINATIM_URL=https://nominatim.openstreetmap.org
+OPENSTREETMAP_USER_AGENT=RentHub/1.0 (contact: your-email@example.com)
+OPENSTREETMAP_MIN_INTERVAL_MS=1000
+```
+
+The current Flutter screens collect text locations and do not render an
+interactive map. Any future map screen must use OpenStreetMap tiles, show
+`© OpenStreetMap contributors`, and avoid background tile downloads.
+
 ## Run with the MongoDB backend
 
 Start MongoDB and the API first:
@@ -114,9 +150,9 @@ cd apps/renthub_flutter
 flutter run -d chrome --web-port 3001 -t lib/main_admin.dart --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
 ```
 
-For Auth0 bearer authentication, Firebase Storage uploads, required Auth0 claims, and Windows callback configuration, see [Backend Phase 12](docs/BACKEND_PHASE_12_RESULT.md).
+For the earlier Auth0/Firebase implementation history and Windows callback configuration, see [Backend Phase 12](docs/BACKEND_PHASE_12_RESULT.md).
 
-For the real Atlas/Auth0/Firebase preflight and restart-safe production E2E drill, see [Backend Phase 13](docs/BACKEND_PHASE_13_RUNBOOK.md).
+For the earlier Atlas/Auth0/Firebase preflight and restart-safe production E2E drill, see [Backend Phase 13](docs/BACKEND_PHASE_13_RUNBOOK.md); substitute the current Supabase settings when following its storage steps.
 
 The seeded local accounts use the password `RentHub123!` (rerun the seed
 command after pulling authentication changes):

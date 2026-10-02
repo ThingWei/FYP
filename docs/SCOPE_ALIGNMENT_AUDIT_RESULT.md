@@ -40,7 +40,7 @@ These are P0 completion gaps. The next implementation must preserve the existing
 | Express / Mongoose / MongoDB | Yes | Yes | Yes | Yes | ALIGNED |
 | Socket.IO | Yes | Yes | Yes | Yes | ALIGNED |
 | Auth0 JWT | Yes | Yes | Yes | Build/contract tested; tenant E2E pending | PARTIAL |
-| Firebase Storage | Yes | Yes | Yes | Local adapter tested; cloud E2E pending | PARTIAL |
+| Supabase Storage | Yes | Yes | Yes | Configuration tests pass; cloud E2E pending | PARTIAL |
 | FastAPI | Yes | No | Service shell only | Contract tests only | PLACEHOLDER |
 | YOLOv8 | No | No | No | No | MISSING |
 | OpenCV | No | No | No | No | MISSING |
@@ -54,7 +54,7 @@ These are P0 completion gaps. The next implementation must preserve the existing
 | Solidity contract | Yes | Isolated only | Yes | Hardhat unit tests exist | PARTIAL |
 | Ganache / Hardhat | Yes | Deploy script only | Yes | Contract tests exist | PARTIAL |
 | Ethers.js API adapter | No | No | No | No | MISSING |
-| Google Maps/geospatial | Adapter only | No | No | No | DEFERRED |
+| OpenStreetMap/geospatial | Yes | Adapter only | Nominatim geocoding | Unit tested; UI map deferred | PARTIAL |
 | Firebase Cloud Messaging | Preference fields only | No | No | No | DEFERRED |
 
 ## C. Core-technology findings
@@ -64,7 +64,7 @@ These are P0 completion gaps. The next implementation must preserve the existing
 Current flow:
 
 ```text
-Flutter file picker -> authenticated upload -> Express -> Firebase/local storage
+Flutter file picker -> authenticated upload -> Express -> Supabase/local storage
 -> MongoDB pending verification -> manual administrator decision
 ```
 

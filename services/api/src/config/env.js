@@ -45,10 +45,23 @@ export const env = {
   storageMode: process.env.STORAGE_MODE ?? 'local',
   uploadDirectory: process.env.UPLOAD_DIRECTORY ?? '.data/uploads',
   firebaseStorageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  supabaseUrl: process.env.SUPABASE_URL,
+  supabaseSecretKey: process.env.SUPABASE_SECRET_KEY,
+  supabaseStorageBucket: process.env.SUPABASE_STORAGE_BUCKET,
   fcmMode: process.env.FCM_MODE ?? 'disabled',
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID,
   webAppUrl: process.env.WEB_APP_URL,
   maxUploadBytes: integer(process.env.MAX_UPLOAD_BYTES, 10 * 1024 * 1024),
+  mapsMode: process.env.MAPS_MODE ?? 'openstreetmap',
+  openStreetMapNominatimUrl:
+    process.env.OPENSTREETMAP_NOMINATIM_URL ??
+    'https://nominatim.openstreetmap.org',
+  openStreetMapUserAgent:
+    process.env.OPENSTREETMAP_USER_AGENT ?? 'RentHub/1.0',
+  openStreetMapMinIntervalMs: integer(
+    process.env.OPENSTREETMAP_MIN_INTERVAL_MS,
+    1000,
+  ),
   aiUrl: process.env.AI_SERVICE_URL ?? 'http://localhost:8001',
   aiTimeoutMs: integer(process.env.AI_TIMEOUT_MS, 5000),
   aiEnforcementMode: process.env.AI_ENFORCEMENT_MODE ?? 'advisory',
@@ -78,6 +91,13 @@ export function validateEnv(config = env) {
   const errors = [];
   const storageMode = config.storageMode ?? 'local';
   const fcmMode = config.fcmMode ?? 'disabled';
+  const mapsMode = config.mapsMode ?? 'openstreetmap';
+  const openStreetMapNominatimUrl =
+    config.openStreetMapNominatimUrl ?? 'https://nominatim.openstreetmap.org';
+  const openStreetMapUserAgent =
+    config.openStreetMapUserAgent ?? 'RentHub/1.0';
+  const openStreetMapMinIntervalMs =
+    config.openStreetMapMinIntervalMs ?? 1000;
   const maxUploadBytes = config.maxUploadBytes ?? 10 * 1024 * 1024;
   const aiTimeoutMs = config.aiTimeoutMs ?? 5000;
   const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
@@ -157,8 +177,8 @@ export function validateEnv(config = env) {
   if (!Number.isInteger(passwordResetMaxAttempts) || passwordResetMaxAttempts < 3 || passwordResetMaxAttempts > 10) {
     errors.push('PASSWORD_RESET_MAX_ATTEMPTS must be an integer from 3 to 10');
   }
-  if (!['local', 'firebase'].includes(storageMode)) {
-    errors.push('STORAGE_MODE must be either local or firebase');
+  if (!['local', 'firebase', 'supabase'].includes(storageMode)) {
+    errors.push('STORAGE_MODE must be local, firebase, or supabase');
   }
   if (!Number.isInteger(maxUploadBytes) || maxUploadBytes < 1024) {
     errors.push('MAX_UPLOAD_BYTES must be an integer of at least 1024');
@@ -166,11 +186,52 @@ export function validateEnv(config = env) {
   if (storageMode === 'firebase' && !config.firebaseStorageBucket) {
     errors.push('FIREBASE_STORAGE_BUCKET is required for Firebase storage');
   }
+  if (storageMode === 'supabase') {
+    if (!config.supabaseUrl) {
+      errors.push('SUPABASE_URL is required for Supabase storage');
+    } else {
+      try {
+        const url = new URL(config.supabaseUrl);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+      } catch {
+        errors.push('SUPABASE_URL must be a valid HTTP or HTTPS URL');
+      }
+    }
+    if (!config.supabaseSecretKey) {
+      errors.push('SUPABASE_SECRET_KEY is required for Supabase storage');
+    }
+    if (!config.supabaseStorageBucket) {
+      errors.push('SUPABASE_STORAGE_BUCKET is required for Supabase storage');
+    }
+  }
   if (!['disabled', 'firebase'].includes(fcmMode)) {
     errors.push('FCM_MODE must be either disabled or firebase');
   }
   if (fcmMode === 'firebase' && !config.firebaseProjectId) {
     errors.push('FIREBASE_PROJECT_ID is required when FCM_MODE=firebase');
+  }
+  if (!['disabled', 'openstreetmap'].includes(mapsMode)) {
+    errors.push('MAPS_MODE must be disabled or openstreetmap');
+  }
+  if (mapsMode === 'openstreetmap') {
+    if (!openStreetMapNominatimUrl) {
+      errors.push(
+        'OPENSTREETMAP_NOMINATIM_URL is required when MAPS_MODE=openstreetmap',
+      );
+    }
+    if (!openStreetMapUserAgent) {
+      errors.push(
+        'OPENSTREETMAP_USER_AGENT is required when MAPS_MODE=openstreetmap',
+      );
+    }
+    if (
+      !Number.isInteger(openStreetMapMinIntervalMs) ||
+      openStreetMapMinIntervalMs < 1000
+    ) {
+      errors.push(
+        'OPENSTREETMAP_MIN_INTERVAL_MS must be an integer of at least 1000',
+      );
+    }
   }
   if (!Number.isInteger(aiTimeoutMs) || aiTimeoutMs < 500) {
     errors.push('AI_TIMEOUT_MS must be an integer of at least 500');
@@ -193,8 +254,13 @@ export function validateEnv(config = env) {
   if (!Number.isInteger(overdueGraceHours) || overdueGraceHours < 0) {
     errors.push('OVERDUE_GRACE_HOURS must be a non-negative integer');
   }
-  if (config.nodeEnv === 'production' && storageMode !== 'firebase') {
-    errors.push('STORAGE_MODE=firebase is required in production');
+  if (
+    config.nodeEnv === 'production' &&
+    !['firebase', 'supabase'].includes(storageMode)
+  ) {
+    errors.push(
+      'STORAGE_MODE=firebase or supabase is required in production',
+    );
   }
   if (errors.length) {
     throw new Error(`Invalid environment configuration:\n- ${errors.join('\n- ')}`);
