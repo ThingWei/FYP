@@ -39,6 +39,7 @@ class LiveRentHubController extends ChangeNotifier {
   List<Conversation> conversations = [];
   List<RentHubNotification> notifications = [];
   List<Map<String, dynamic>> notificationDevices = [];
+  List<Map<String, dynamic>> loginSessions = [];
   List<Transaction> transactions = [];
   List<Review> reviews = [];
   List<Review> receivedReviews = [];
@@ -1047,6 +1048,25 @@ class LiveRentHubController extends ChangeNotifier {
         notificationDevices.removeWhere(
           (item) => item['deviceId'] == deviceId,
         );
+      });
+
+  Future<void> loadLoginSessions() => _perform(() async {
+        loginSessions = (await api.request(
+          'GET',
+          '/users/me/sessions',
+        ) as List)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+      });
+
+  Future<void> revokeLoginSession(String sessionId) => _perform(() async {
+        await api.request('DELETE', '/users/me/sessions/$sessionId');
+        loginSessions.removeWhere((item) => item['id'] == sessionId);
+      });
+
+  Future<void> revokeOtherLoginSessions() => _perform(() async {
+        await api.request('POST', '/users/me/sessions/revoke-others');
+        loginSessions.removeWhere((item) => item['current'] != true);
       });
 
   Future<void> markNotificationRead(String id) => _perform(() async {

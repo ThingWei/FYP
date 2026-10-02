@@ -30,6 +30,7 @@ export function registerSocket(io) {
         const identity = await localSessionService.authenticateAccessToken(token);
         await assertAccountAccess(identity);
         socket.data.userId = identity.authId;
+        socket.data.sessionId = identity.sessionId;
         return next();
       }
       const issuer = env.authIssuer.endsWith('/')
@@ -51,6 +52,9 @@ export function registerSocket(io) {
   io.on('connection', (socket) => {
     const userId = socket.data.userId;
     socket.join(`user:${userId}`);
+    if (socket.data.sessionId) {
+      socket.join(`session:${socket.data.sessionId}`);
+    }
     socket.on('thread:join', async (threadId) => {
       if (
         typeof threadId !== 'string' ||

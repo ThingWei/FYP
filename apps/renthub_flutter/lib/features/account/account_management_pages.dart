@@ -415,9 +415,9 @@ class SecurityPage extends StatefulWidget {
 }
 
 class _SecurityPageState extends State<SecurityPage> {
-  bool loginAlerts = true;
   String? currentDeviceId;
   bool liveControllerAvailable = false;
+  bool localSessionsAvailable = false;
 
   @override
   void initState() {
@@ -430,12 +430,15 @@ class _SecurityPageState extends State<SecurityPage> {
     try {
       final controller = context.read<LiveRentHubController>();
       final push = context.read<PushNotificationService>();
+      final auth = context.read<AuthController>();
       final deviceId = await push.currentDeviceId();
       await controller.loadNotificationDevices();
+      if (!auth.usesExternalProvider) await controller.loadLoginSessions();
       if (mounted) {
         setState(() {
           currentDeviceId = deviceId;
           liveControllerAvailable = true;
+          localSessionsAvailable = !auth.usesExternalProvider;
         });
       }
     } on ProviderNotFoundException {
@@ -443,8 +446,53 @@ class _SecurityPageState extends State<SecurityPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load devices: $exception')),
+          SnackBar(
+              content: Text('Could not load security activity: $exception')),
         );
+      }
+    }
+  }
+
+  Future<void> _revokeLoginSession(Map<String, dynamic> session) async {
+    final accepted = await confirmAction(
+      context,
+      title: 'Sign out this device?',
+      message:
+          'RentHub access will end on ${_loginSessionName(session)}. This device will need to sign in again.',
+      action: 'Sign Out',
+      destructive: true,
+    );
+    if (!accepted || !mounted) return;
+    try {
+      await context
+          .read<LiveRentHubController>()
+          .revokeLoginSession(session['id'] as String);
+      if (mounted) showMockSuccess(context, 'Device signed out');
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
+  Future<void> _revokeOtherLoginSessions() async {
+    final accepted = await confirmAction(
+      context,
+      title: 'Sign out all other devices?',
+      message:
+          'Your current device will remain signed in. Every other RentHub login session will be revoked.',
+      action: 'Sign Out Others',
+      destructive: true,
+    );
+    if (!accepted || !mounted) return;
+    try {
+      await context.read<LiveRentHubController>().revokeOtherLoginSessions();
+      if (mounted) showMockSuccess(context, 'Other devices signed out');
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
       }
     }
   }
@@ -499,32 +547,32 @@ class _SecurityPageState extends State<SecurityPage> {
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.password_outlined),
                       title: const Text('Password'),
-                      subtitle: const Text('Last changed 30 days ago'),
+                      subtitle: const Text(
+                        'Change it using a verified email code',
+                      ),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: _changePassword,
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary:
-                          const Icon(Icons.notifications_active_outlined),
-                      title: const Text('Login alerts'),
-                      subtitle: const Text('Notify me of a new sign-in'),
-                      value: loginAlerts,
-                      onChanged: (value) => setState(() => loginAlerts = value),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 12),
-              const AccountCard(
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.phone_android_outlined),
-                  title: Text('This device'),
-                  subtitle: Text('Windows prototype session • Kuala Lumpur'),
-                  trailing: StatusBadge('Active'),
+              if (localSessionsAvailable)
+                _LiveLoginSessions(
+                  onRevoke: _revokeLoginSession,
+                  onRevokeOthers: _revokeOtherLoginSessions,
+                  onRefresh: _loadDevices,
                 ),
-              ),
+              if (BackendMode.useMocks)
+                const AccountCard(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.phone_android_outlined),
+                    title: Text('This device'),
+                    subtitle: Text('Windows prototype session • Kuala Lumpur'),
+                    trailing: StatusBadge('Active'),
+                  ),
+                ),
               if (liveControllerAvailable) ...[
                 const SizedBox(height: 12),
                 _LiveNotificationDevices(
@@ -534,14 +582,146 @@ class _SecurityPageState extends State<SecurityPage> {
                 ),
               ],
               const SizedBox(height: 12),
-              const Text(
-                'Removing a notification device stops push delivery only. Auth0 login-session revocation is managed separately by the identity provider.',
-                style: TextStyle(color: AppColors.secondaryText, fontSize: 12),
+              Text(
+                context.watch<AuthController>().usesExternalProvider
+                    ? 'Login sessions are managed by your identity provider. Removing a notification device only stops push delivery.'
+                    : 'Login sessions control account access. Notification devices only control push delivery.',
+                style: const TextStyle(
+                  color: AppColors.secondaryText,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
         ),
       );
+}
+
+class _LiveLoginSessions extends StatelessWidget {
+  const _LiveLoginSessions({
+    required this.onRevoke,
+    required this.onRevokeOthers,
+    required this.onRefresh,
+  });
+
+  final Future<void> Function(Map<String, dynamic>) onRevoke;
+  final Future<void> Function() onRevokeOthers;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<LiveRentHubController>();
+    final sessions = controller.loginSessions;
+    final otherCount = sessions.where((item) => item['current'] != true).length;
+    return AccountCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Where you are signed in',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh login sessions',
+                onPressed: controller.loading ? null : onRefresh,
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+          if (sessions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'No active login sessions were found.',
+                style: TextStyle(color: AppColors.secondaryText),
+              ),
+            ),
+          for (final session in sessions)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(_loginSessionIcon(session)),
+              title: Text(_loginSessionName(session)),
+              subtitle: Text(_loginSessionDetails(session)),
+              trailing: session['current'] == true
+                  ? const StatusBadge('This device')
+                  : IconButton(
+                      tooltip: 'Sign out this device',
+                      onPressed:
+                          controller.loading ? null : () => onRevoke(session),
+                      icon: const Icon(Icons.logout, color: AppColors.error),
+                    ),
+            ),
+          if (otherCount > 0) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: controller.loading ? null : onRevokeOthers,
+                icon: const Icon(Icons.logout),
+                label: Text(
+                  'Sign out $otherCount other ${otherCount == 1 ? 'device' : 'devices'}',
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+IconData _loginSessionIcon(Map<String, dynamic> session) {
+  final agent = (session['userAgent'] as String? ?? '').toLowerCase();
+  if (agent.contains('android')) return Icons.phone_android_outlined;
+  if (agent.contains('iphone') || agent.contains('ipad')) {
+    return Icons.phone_iphone;
+  }
+  if (agent.contains('windows') ||
+      agent.contains('macintosh') ||
+      agent.contains('linux')) {
+    return Icons.computer_outlined;
+  }
+  return Icons.devices_other_outlined;
+}
+
+String _loginSessionName(Map<String, dynamic> session) {
+  final agent = session['userAgent'] as String? ?? '';
+  final lowerAgent = agent.toLowerCase();
+  final platform = lowerAgent.contains('android')
+      ? 'Android'
+      : lowerAgent.contains('iphone') || lowerAgent.contains('ipad')
+          ? 'iPhone or iPad'
+          : lowerAgent.contains('windows')
+              ? 'Windows'
+              : lowerAgent.contains('macintosh') || lowerAgent.contains('macos')
+                  ? 'Mac'
+                  : lowerAgent.contains('linux')
+                      ? 'Linux'
+                      : 'Unknown device';
+  final browser = agent.contains('Edg/')
+      ? 'Edge'
+      : agent.contains('Chrome/')
+          ? 'Chrome'
+          : agent.contains('Firefox/')
+              ? 'Firefox'
+              : agent.contains('Safari/')
+                  ? 'Safari'
+                  : '';
+  return browser.isEmpty ? platform : '$browser on $platform';
+}
+
+String _loginSessionDetails(Map<String, dynamic> session) {
+  final lastUsed =
+      DateTime.tryParse(session['lastUsedAt']?.toString() ?? '')?.toLocal();
+  final date = lastUsed == null
+      ? 'Unknown activity'
+      : 'Refreshed ${lastUsed.day}/${lastUsed.month}/${lastUsed.year} at ${lastUsed.hour.toString().padLeft(2, '0')}:${lastUsed.minute.toString().padLeft(2, '0')}';
+  final ip = (session['ip'] as String? ?? '').trim();
+  return ip.isEmpty ? date : '$date · IP $ip';
 }
 
 class _LiveNotificationDevices extends StatelessWidget {

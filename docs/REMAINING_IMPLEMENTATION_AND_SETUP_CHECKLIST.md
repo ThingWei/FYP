@@ -46,6 +46,9 @@ values are recorded here.
 - [x] Replaced live development identity headers with signed short-lived local
   JWTs, rotating MongoDB refresh sessions, secure Flutter credential storage,
   automatic refresh, authenticated Socket.IO, and lifecycle revocation.
+- [x] Added a user-facing local login-session inventory with current-device
+  identification, individual revocation, sign-out-all-others, and immediate
+  Socket.IO disconnection for revoked sessions.
 
 ## Immediate local setup still required
 
@@ -137,10 +140,10 @@ real credentials stored outside source control.
 - [x] Self-service account deactivation, immediate API/Socket.IO access
   revocation, listing hiding, administrator reactivation, and audit logging are
   implemented.
-- [ ] A user-facing multi-device login-session inventory and selective
-  per-session revocation remain unimplemented. Local token rotation is now
-  implemented; Auth0 token lifetime and rotation still require real-tenant
-  configuration if Auth0 is selected.
+- [x] Local accounts can inspect and selectively revoke multi-device login
+  sessions from the Security page.
+- [ ] Auth0 session inventory, token lifetime, and rotation remain managed by
+  and require configuration in the real Auth0 tenant if Auth0 is selected.
 
 ## Firebase Storage setup
 

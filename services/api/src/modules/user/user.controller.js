@@ -5,7 +5,9 @@ import { userService } from './user.service.js';
 
 const sessionMetadata = (req) => ({
   ip: req.ip,
-  userAgent: req.get('user-agent'),
+  userAgent: [req.get('x-renthub-client'), req.get('user-agent')]
+    .filter(Boolean)
+    .join(' | '),
 });
 
 export const userController = {
@@ -26,6 +28,15 @@ export const userController = {
     )),
   localLogout: asyncHandler(async (req, res) =>
     ok(res, await userService.localLogout(req.user))),
+  localSessions: asyncHandler(async (req, res) =>
+    ok(res, await userService.localSessions(req.user))),
+  revokeLocalSession: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await userService.revokeLocalSession(req.user, req.params.sessionId),
+    )),
+  revokeOtherLocalSessions: asyncHandler(async (req, res) =>
+    ok(res, await userService.revokeOtherLocalSessions(req.user))),
   requestLocalPasswordReset: asyncHandler(async (req, res) =>
     ok(res, await userService.requestLocalPasswordReset(matchedData(req)))),
   confirmLocalPasswordReset: asyncHandler(async (req, res) =>

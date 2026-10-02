@@ -144,18 +144,20 @@ test('local auth issues, rotates, and revokes bearer sessions', async () => {
   env.localAccessTokenMinutes = 15;
   env.localRefreshTokenDays = 30;
   try {
-    const login = await request(app).post('/api/v1/users/local-login').send({
-      email: 'local-session@renthub.my',
-      password: 'Correct123!',
-      role: 'renter',
-    });
+    const login = await request(app)
+      .post('/api/v1/users/local-login')
+      .set('user-agent', 'RentHub First Device')
+      .send({
+        email: 'local-session@renthub.my',
+        password: 'Correct123!',
+        role: 'renter',
+      });
     assert.equal(login.status, 200);
     assert.equal(login.body.data.user.authId, 'u-local-session');
     assert.ok(login.body.data.session.accessToken);
     assert.ok(login.body.data.session.refreshToken);
 
     const accessToken = login.body.data.session.accessToken;
-    const refreshToken = login.body.data.session.refreshToken;
     const me = await request(app)
       .get('/api/v1/users/me')
       .set('authorization', `Bearer ${accessToken}`);
@@ -167,11 +169,67 @@ test('local auth issues, rotates, and revokes bearer sessions', async () => {
       .set(identity({ id: 'u-local-session' }));
     assert.equal(forged.status, 401);
 
+    const secondLogin = await request(app)
+      .post('/api/v1/users/local-login')
+      .set('user-agent', 'RentHub Second Device')
+      .send({
+        email: 'local-session@renthub.my',
+        password: 'Correct123!',
+        role: 'renter',
+      });
+    const secondAccessToken = secondLogin.body.data.session.accessToken;
+    const secondRefreshToken = secondLogin.body.data.session.refreshToken;
+    const sessions = await request(app)
+      .get('/api/v1/users/me/sessions')
+      .set('authorization', `Bearer ${secondAccessToken}`);
+    assert.equal(sessions.status, 200);
+    assert.equal(sessions.body.data.length, 2);
+    assert.equal(
+      sessions.body.data.find((session) => session.current).userAgent,
+      'RentHub Second Device',
+    );
+
+    const firstSession = sessions.body.data.find((session) => !session.current);
+    const revokeFirst = await request(app)
+      .delete(`/api/v1/users/me/sessions/${firstSession.id}`)
+      .set('authorization', `Bearer ${secondAccessToken}`);
+    assert.equal(revokeFirst.status, 200);
+
+    const revokedFirst = await request(app)
+      .get('/api/v1/users/me')
+      .set('authorization', `Bearer ${accessToken}`);
+    assert.equal(revokedFirst.status, 401);
+
     const refreshed = await request(app)
       .post('/api/v1/users/local-refresh')
-      .send({ refreshToken });
+      .send({ refreshToken: secondRefreshToken });
     assert.equal(refreshed.status, 200);
-    assert.notEqual(refreshed.body.data.session.refreshToken, refreshToken);
+    assert.notEqual(
+      refreshed.body.data.session.refreshToken,
+      secondRefreshToken,
+    );
+
+    const thirdLogin = await request(app).post('/api/v1/users/local-login').send({
+      email: 'local-session@renthub.my',
+      password: 'Correct123!',
+      role: 'renter',
+    });
+    const revokeOthers = await request(app)
+      .post('/api/v1/users/me/sessions/revoke-others')
+      .set(
+        'authorization',
+        `Bearer ${refreshed.body.data.session.accessToken}`,
+      );
+    assert.equal(revokeOthers.status, 200);
+    assert.equal(revokeOthers.body.data.revokedCount, 1);
+
+    const revokedThird = await request(app)
+      .get('/api/v1/users/me')
+      .set(
+        'authorization',
+        `Bearer ${thirdLogin.body.data.session.accessToken}`,
+      );
+    assert.equal(revokedThird.status, 401);
 
     const logout = await request(app)
       .post('/api/v1/users/local-logout')

@@ -10,6 +10,7 @@ import {
   localLoginValidation,
   localRefreshValidation,
   localRegistrationValidation,
+  localSessionIdValidation,
   passwordResetConfirmationValidation,
   passwordResetRequestValidation,
   profileValidation,
@@ -60,6 +61,19 @@ userRouter.post(
 );
 userRouter.post('/session', authenticate, userController.startSession);
 userRouter.get('/me', authenticate, userController.me);
+userRouter.get('/me/sessions', authenticate, userController.localSessions);
+userRouter.post(
+  '/me/sessions/revoke-others',
+  authenticate,
+  userController.revokeOtherLocalSessions,
+);
+userRouter.delete(
+  '/me/sessions/:sessionId',
+  authenticate,
+  localSessionIdValidation,
+  validate,
+  userController.revokeLocalSession,
+);
 userRouter.post(
   '/me/deactivate',
   authenticate,

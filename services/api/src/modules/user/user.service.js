@@ -178,6 +178,27 @@ export const userService = {
     return { signedOut: true };
   },
 
+  async localSessions(identity) {
+    if (env.authMode !== 'local') {
+      throw new AppError('Local sessions are disabled', 404, 'NOT_FOUND');
+    }
+    return localSessionService.list(identity);
+  },
+
+  async revokeLocalSession(identity, sessionId) {
+    if (env.authMode !== 'local') {
+      throw new AppError('Local sessions are disabled', 404, 'NOT_FOUND');
+    }
+    return localSessionService.revokeForUser(identity, sessionId);
+  },
+
+  async revokeOtherLocalSessions(identity) {
+    if (env.authMode !== 'local') {
+      throw new AppError('Local sessions are disabled', 404, 'NOT_FOUND');
+    }
+    return localSessionService.revokeOthers(identity);
+  },
+
   async requestLocalPasswordReset({ email }) {
     if (!['mock', 'local'].includes(env.authMode)) {
       throw new AppError('Local password reset is disabled', 404, 'NOT_FOUND');
@@ -273,6 +294,7 @@ export const userService = {
       PasswordResetModel.deleteMany({ userId: user._id }),
       localSessionService.revokeAllForUser(user._id),
     ]);
+    disconnectUser(user.authId);
     return { message: 'Your password has been updated. You can now sign in.' };
   },
 

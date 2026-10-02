@@ -35,6 +35,10 @@ export const localRefreshValidation = [
   body('refreshToken').isString().isLength({ min: 40, max: 500 }),
 ];
 
+export const localSessionIdValidation = [
+  param('sessionId').isUUID().withMessage('Invalid login session identifier'),
+];
+
 export const passwordResetRequestValidation = [email()];
 
 export const passwordResetConfirmationValidation = [

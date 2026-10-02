@@ -9,6 +9,7 @@ import { AppError } from '../../core/errors.js';
 import { env } from '../../config/env.js';
 import { UserModel } from './user.model.js';
 import { LocalSessionModel } from './localSession.model.js';
+import { disconnectSession } from '../../socket/eventBus.js';
 
 const issuer = 'renthub-local';
 const audience = 'renthub-app';
@@ -179,12 +180,14 @@ export const localSessionService = {
     };
   },
 
-  revoke(sessionId) {
+  async revoke(sessionId) {
     if (!sessionId) return Promise.resolve();
-    return LocalSessionModel.updateOne(
+    const result = await LocalSessionModel.updateOne(
       { publicId: sessionId, revokedAt: null },
       { revokedAt: new Date() },
     );
+    disconnectSession(sessionId);
+    return result;
   },
 
   revokeAllForUser(userId) {
@@ -192,5 +195,69 @@ export const localSessionService = {
       { userId, revokedAt: null },
       { revokedAt: new Date() },
     );
+  },
+
+  async list(identity) {
+    if (!identity.localSessionUserId) throw invalidSession();
+    const sessions = await LocalSessionModel.find({
+      userId: identity.localSessionUserId,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    })
+      .sort({ lastUsedAt: -1, createdAt: -1 })
+      .lean();
+    return sessions.map((session) => ({
+      id: session.publicId,
+      current: session.publicId === identity.sessionId,
+      userAgent: session.userAgent,
+      ip: session.lastIp || session.createdIp,
+      createdAt: session.createdAt,
+      lastUsedAt: session.lastUsedAt,
+      expiresAt: session.expiresAt,
+    }));
+  },
+
+  async revokeForUser(identity, sessionId) {
+    if (!identity.localSessionUserId) throw invalidSession();
+    if (sessionId === identity.sessionId) {
+      throw new AppError(
+        'Use Log Out to end your current session.',
+        409,
+        'CURRENT_SESSION',
+      );
+    }
+    const result = await LocalSessionModel.updateOne(
+      {
+        publicId: sessionId,
+        userId: identity.localSessionUserId,
+        revokedAt: null,
+      },
+      { revokedAt: new Date() },
+    );
+    if (!result.matchedCount) {
+      throw new AppError('Login session not found', 404, 'NOT_FOUND');
+    }
+    disconnectSession(sessionId);
+    return { sessionId, revoked: true };
+  },
+
+  async revokeOthers(identity) {
+    if (!identity.localSessionUserId) throw invalidSession();
+    const sessions = await LocalSessionModel.find({
+      userId: identity.localSessionUserId,
+      publicId: { $ne: identity.sessionId },
+      revokedAt: null,
+    })
+      .select('publicId')
+      .lean();
+    const ids = sessions.map((session) => session.publicId);
+    if (ids.length) {
+      await LocalSessionModel.updateMany(
+        { publicId: { $in: ids }, revokedAt: null },
+        { revokedAt: new Date() },
+      );
+      for (const id of ids) disconnectSession(id);
+    }
+    return { revokedCount: ids.length };
   },
 };

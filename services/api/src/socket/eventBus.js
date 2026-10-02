@@ -30,3 +30,7 @@ export function emitNotification(notification) {
 export function disconnectUser(userId) {
   socketServer?.in(`user:${userId}`).disconnectSockets(true);
 }
+
+export function disconnectSession(sessionId) {
+  socketServer?.in(`session:${sessionId}`).disconnectSockets(true);
+}

@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class ApiException implements Exception {
@@ -18,6 +19,9 @@ class ApiClient {
   final String baseUrl;
   final Future<String?> Function()? tokenProvider;
   final Future<Map<String, String>> Function()? headersProvider;
+
+  static String get _clientDescription =>
+      'RentHub ${kIsWeb ? 'Web' : 'App'} on ${defaultTargetPlatform.name}';
 
   Future<String?> authenticationToken() async => tokenProvider?.call();
 
@@ -50,6 +54,7 @@ class ApiClient {
     final request = http.Request(method, Uri.parse('$baseUrl$path'))
       ..headers.addAll({
         'content-type': 'application/json',
+        'x-renthub-client': _clientDescription,
         if (token != null) 'authorization': 'Bearer $token',
         ...additionalHeaders,
       });
@@ -77,6 +82,7 @@ class ApiClient {
     final additionalHeaders = await headersProvider?.call() ?? const {};
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'))
       ..headers.addAll({
+        'x-renthub-client': _clientDescription,
         if (token != null) 'authorization': 'Bearer $token',
         ...additionalHeaders,
       })
