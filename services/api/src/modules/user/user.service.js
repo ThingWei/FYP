@@ -17,6 +17,7 @@ import { disconnectUser } from '../../socket/eventBus.js';
 import { env } from '../../config/env.js';
 import { hashPassword, verifyPassword } from '../../core/password.js';
 import { emailClient } from '../../integrations/emailClient.js';
+import { localSessionService } from './localSession.service.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -99,8 +100,8 @@ async function requireCurrentUser(identity) {
 }
 
 export const userService = {
-  async localLogin({ email, password, role }) {
-    if (env.authMode !== 'mock') {
+  async localLogin({ email, password, role }, metadata) {
+    if (!['mock', 'local'].includes(env.authMode)) {
       throw new AppError('Local login is disabled', 404, 'NOT_FOUND');
     }
     const user = await userRepository.findByEmailWithPassword(email);
@@ -131,11 +132,13 @@ export const userService = {
     user.activeRole = role;
     user.lastLoginAt = new Date();
     await user.save();
-    return user;
+    return env.authMode === 'local'
+      ? localSessionService.create(user, metadata)
+      : user;
   },
 
-  async localRegister({ displayName, email, password, role }) {
-    if (env.authMode !== 'mock') {
+  async localRegister({ displayName, email, password, role }, metadata) {
+    if (!['mock', 'local'].includes(env.authMode)) {
       throw new AppError('Local registration is disabled', 404, 'NOT_FOUND');
     }
     if (await userRepository.findByEmailWithPassword(email)) {
@@ -146,7 +149,7 @@ export const userService = {
       );
     }
     const suffix = new mongoose.Types.ObjectId().toString();
-    return userRepository.create({
+    const user = await userRepository.create({
       authId: `u-${suffix}`,
       email,
       passwordHash: await hashPassword(password),
@@ -155,10 +158,28 @@ export const userService = {
       activeRole: role,
       lastLoginAt: new Date(),
     });
+    return env.authMode === 'local'
+      ? localSessionService.create(user, metadata)
+      : user;
+  },
+
+  async localRefresh({ refreshToken }, metadata) {
+    if (env.authMode !== 'local') {
+      throw new AppError('Local refresh is disabled', 404, 'NOT_FOUND');
+    }
+    return localSessionService.refresh(refreshToken, metadata);
+  },
+
+  async localLogout(identity) {
+    if (env.authMode !== 'local') {
+      throw new AppError('Local logout is disabled', 404, 'NOT_FOUND');
+    }
+    await localSessionService.revoke(identity.sessionId);
+    return { signedOut: true };
   },
 
   async requestLocalPasswordReset({ email }) {
-    if (env.authMode !== 'mock') {
+    if (!['mock', 'local'].includes(env.authMode)) {
       throw new AppError('Local password reset is disabled', 404, 'NOT_FOUND');
     }
     try {
@@ -215,7 +236,7 @@ export const userService = {
   },
 
   async confirmLocalPasswordReset({ email, code, password }) {
-    if (env.authMode !== 'mock') {
+    if (!['mock', 'local'].includes(env.authMode)) {
       throw new AppError('Local password reset is disabled', 404, 'NOT_FOUND');
     }
     if (!env.passwordResetSecret) throw invalidResetCode();
@@ -248,7 +269,10 @@ export const userService = {
     user.passwordHash = await hashPassword(password);
     user.accessRevokedAt = new Date();
     await user.save();
-    await PasswordResetModel.deleteMany({ userId: user._id });
+    await Promise.all([
+      PasswordResetModel.deleteMany({ userId: user._id }),
+      localSessionService.revokeAllForUser(user._id),
+    ]);
     return { message: 'Your password has been updated. You can now sign in.' };
   },
 
@@ -339,6 +363,7 @@ export const userService = {
         { status: 'inactive' },
       ),
       DeviceRegistrationModel.deleteMany({ userId: user.authId }),
+      localSessionService.revokeAllForUser(user._id),
       adminModule.service.create({
         actorId: user.authId,
         action: 'account.self_deactivated',
@@ -653,6 +678,7 @@ export const userService = {
           { status: 'inactive' },
         ),
         DeviceRegistrationModel.deleteMany({ userId: user.authId }),
+        localSessionService.revokeAllForUser(user._id),
       ]);
       disconnectUser(user.authId);
     }

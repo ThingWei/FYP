@@ -58,8 +58,6 @@ class AppDependencies {
         defaultValue: 'http://localhost:3000/api/v1',
       ),
       tokenProvider: session.token,
-      headersProvider: () async =>
-          auth0Enabled ? const {} : session.mockHeaders,
     );
     final pushNotifications = PushNotificationService(api);
     return AppDependencies(

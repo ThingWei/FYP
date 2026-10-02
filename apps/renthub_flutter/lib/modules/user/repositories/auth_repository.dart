@@ -71,13 +71,56 @@ class MockAuthRepository implements AuthRepository {
 }
 
 class LiveAuthRepository implements AuthRepository {
-  LiveAuthRepository(this.api, this.session);
+  LiveAuthRepository(this.api, this.session) {
+    session.configureTokenRefresh(_refreshAccessToken);
+  }
 
   final ApiClient api;
   final SessionIdentity session;
 
   @override
   bool get usesExternalProvider => false;
+
+  Future<User> _acceptSession(
+    Object? value, {
+    UserRole? selectedRole,
+  }) async {
+    final data = Map<String, dynamic>.from(value as Map);
+    final user = User.fromJson(Map<String, dynamic>.from(data['user'] as Map));
+    final credentials = Map<String, dynamic>.from(data['session'] as Map);
+    await session.setLocalCredentials(
+      accessToken: credentials['accessToken'] as String,
+      refreshToken: credentials['refreshToken'] as String,
+      accessTokenExpiresAt: DateTime.parse(
+        credentials['accessTokenExpiresAt'] as String,
+      ),
+    );
+    await _remember(user, selectedRole: selectedRole);
+    return user;
+  }
+
+  Future<String?> _refreshAccessToken() async {
+    final refreshToken = session.refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) return null;
+    try {
+      await _acceptSession(
+        await api.requestUnauthenticated(
+          'POST',
+          '/users/local-refresh',
+          body: {'refreshToken': refreshToken},
+        ),
+        selectedRole: session.activeRole,
+      );
+      return session.accessToken;
+    } on ApiException catch (error) {
+      if (error.status == 401 || error.status == 403) {
+        await session.clearPersisted();
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> _remember(User user, {UserRole? selectedRole}) async {
     session.set(
@@ -116,7 +159,7 @@ class LiveAuthRepository implements AuthRepository {
   @override
   Future<User> login(String email, String password, UserRole role) async {
     try {
-      final data = await api.request(
+      final data = await api.requestUnauthenticated(
         'POST',
         '/users/local-login',
         body: {
@@ -125,9 +168,7 @@ class LiveAuthRepository implements AuthRepository {
           'role': role.name,
         },
       );
-      final user = User.fromJson(data as Map<String, dynamic>);
-      await _remember(user, selectedRole: role);
-      return user;
+      return _acceptSession(data, selectedRole: role);
     } catch (_) {
       await session.clearPersisted();
       rethrow;
@@ -142,7 +183,7 @@ class LiveAuthRepository implements AuthRepository {
     UserRole role,
   ) async {
     try {
-      final data = await api.request(
+      final data = await api.requestUnauthenticated(
         'POST',
         '/users/local-register',
         body: {
@@ -152,9 +193,7 @@ class LiveAuthRepository implements AuthRepository {
           'role': role.name,
         },
       );
-      final user = User.fromJson(data as Map<String, dynamic>);
-      await _remember(user, selectedRole: role);
-      return user;
+      return _acceptSession(data, selectedRole: role);
     } catch (_) {
       await session.clearPersisted();
       rethrow;
@@ -177,11 +216,20 @@ class LiveAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> logout() => session.clearPersisted();
+  Future<void> logout() async {
+    try {
+      await api.request('POST', '/users/local-logout');
+    } catch (_) {
+      // Local credential removal must still succeed while the API is offline or
+      // when the server-side session has already expired.
+    } finally {
+      await session.clearPersisted();
+    }
+  }
 
   @override
   Future<void> requestPasswordReset(String email) async {
-    await api.request(
+    await api.requestUnauthenticated(
       'POST',
       '/users/local-password-reset/request',
       body: {'email': email.trim().toLowerCase()},
@@ -194,7 +242,7 @@ class LiveAuthRepository implements AuthRepository {
     String code,
     String password,
   ) async {
-    await api.request(
+    await api.requestUnauthenticated(
       'POST',
       '/users/local-password-reset/confirm',
       body: {
@@ -203,6 +251,7 @@ class LiveAuthRepository implements AuthRepository {
         'password': password,
       },
     );
+    await session.clearPersisted();
   }
 }
 

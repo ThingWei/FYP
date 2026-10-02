@@ -12,6 +12,7 @@ import {
 } from '../src/config/database.js';
 import { UserModel } from '../src/modules/user/user.model.js';
 import { PasswordResetModel } from '../src/modules/user/passwordReset.model.js';
+import { LocalSessionModel } from '../src/modules/user/localSession.model.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
 import { BookingModel } from '../src/modules/booking/booking.model.js';
 import { MessageModel } from '../src/modules/communication/message.model.js';
@@ -58,6 +59,7 @@ before(async () => {
   await Promise.all([
     UserModel.init(),
     PasswordResetModel.init(),
+    LocalSessionModel.init(),
     ListingModel.init(),
     NotificationModel.init(),
     adminModule.Model.init(),
@@ -68,6 +70,7 @@ beforeEach(async () => {
   await Promise.all([
     UserModel.deleteMany({}),
     PasswordResetModel.deleteMany({}),
+    LocalSessionModel.deleteMany({}),
     ListingModel.deleteMany({}),
     NotificationModel.deleteMany({}),
     adminModule.Model.deleteMany({}),
@@ -119,6 +122,76 @@ test('local login accepts the stored password and rejects a wrong password', asy
   assert.equal(accepted.body.data.passwordHash, undefined);
   assert.equal(rejected.status, 401);
   assert.equal(rejected.body.error.code, 'INVALID_CREDENTIALS');
+});
+
+test('local auth issues, rotates, and revokes bearer sessions', async () => {
+  await UserModel.create({
+    authId: 'u-local-session',
+    email: 'local-session@renthub.my',
+    displayName: 'Local Session',
+    passwordHash: await hashPassword('Correct123!'),
+    roles: ['renter'],
+    activeRole: 'renter',
+  });
+  const original = {
+    authMode: env.authMode,
+    localJwtSecret: env.localJwtSecret,
+    localAccessTokenMinutes: env.localAccessTokenMinutes,
+    localRefreshTokenDays: env.localRefreshTokenDays,
+  };
+  env.authMode = 'local';
+  env.localJwtSecret = 'test-local-jwt-secret-at-least-32-chars';
+  env.localAccessTokenMinutes = 15;
+  env.localRefreshTokenDays = 30;
+  try {
+    const login = await request(app).post('/api/v1/users/local-login').send({
+      email: 'local-session@renthub.my',
+      password: 'Correct123!',
+      role: 'renter',
+    });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.data.user.authId, 'u-local-session');
+    assert.ok(login.body.data.session.accessToken);
+    assert.ok(login.body.data.session.refreshToken);
+
+    const accessToken = login.body.data.session.accessToken;
+    const refreshToken = login.body.data.session.refreshToken;
+    const me = await request(app)
+      .get('/api/v1/users/me')
+      .set('authorization', `Bearer ${accessToken}`);
+    assert.equal(me.status, 200);
+    assert.equal(me.body.data.authId, 'u-local-session');
+
+    const forged = await request(app)
+      .get('/api/v1/users/me')
+      .set(identity({ id: 'u-local-session' }));
+    assert.equal(forged.status, 401);
+
+    const refreshed = await request(app)
+      .post('/api/v1/users/local-refresh')
+      .send({ refreshToken });
+    assert.equal(refreshed.status, 200);
+    assert.notEqual(refreshed.body.data.session.refreshToken, refreshToken);
+
+    const logout = await request(app)
+      .post('/api/v1/users/local-logout')
+      .set(
+        'authorization',
+        `Bearer ${refreshed.body.data.session.accessToken}`,
+      );
+    assert.equal(logout.status, 200);
+    assert.equal(logout.body.data.signedOut, true);
+
+    const revoked = await request(app)
+      .get('/api/v1/users/me')
+      .set(
+        'authorization',
+        `Bearer ${refreshed.body.data.session.accessToken}`,
+      );
+    assert.equal(revoked.status, 401);
+  } finally {
+    Object.assign(env, original);
+  }
 });
 
 test('emails a one-time code and changes a local account password', async () => {

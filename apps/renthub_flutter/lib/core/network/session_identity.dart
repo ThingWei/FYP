@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../shared/models/domain_models.dart';
@@ -8,6 +9,14 @@ class SessionIdentity {
   static const _displayNameKey = 'renthub_session_display_name';
   static const _rolesKey = 'renthub_session_roles';
   static const _activeRoleKey = 'renthub_session_active_role';
+  static const _accessTokenKey = 'renthub_session_access_token';
+  static const _refreshTokenKey = 'renthub_session_refresh_token';
+  static const _accessTokenExpiryKey = 'renthub_session_access_token_expiry';
+
+  SessionIdentity({FlutterSecureStorage? secureStorage})
+      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+
+  final FlutterSecureStorage _secureStorage;
 
   String? userId;
   String? email;
@@ -15,13 +24,26 @@ class SessionIdentity {
   Set<UserRole> roles = {};
   UserRole? activeRole;
   String? accessToken;
+  String? refreshToken;
+  DateTime? accessTokenExpiresAt;
   Future<String?> Function()? _tokenRefresher;
+  Future<String?>? _refreshing;
 
   bool get active => userId != null;
 
   Future<String?> token() async {
-    if (accessToken == null || _tokenRefresher == null) return accessToken;
-    accessToken = await _tokenRefresher!();
+    if (_tokenRefresher == null) return accessToken;
+    final expiry = accessTokenExpiresAt;
+    if (accessToken != null &&
+        expiry != null &&
+        expiry.isAfter(DateTime.now().add(const Duration(seconds: 30)))) {
+      return accessToken;
+    }
+    final activeRefresh = _refreshing;
+    if (activeRefresh != null) return activeRefresh;
+    final refresh = _tokenRefresher!().whenComplete(() => _refreshing = null);
+    _refreshing = refresh;
+    accessToken = await refresh;
     return accessToken;
   }
 
@@ -56,6 +78,11 @@ class SessionIdentity {
 
   Future<bool> restorePersisted() async {
     final preferences = await SharedPreferences.getInstance();
+    final secureValues = await Future.wait([
+      _secureStorage.read(key: _accessTokenKey),
+      _secureStorage.read(key: _refreshTokenKey),
+      _secureStorage.read(key: _accessTokenExpiryKey),
+    ]);
     final restoredUserId = preferences.getString(_userIdKey);
     final restoredEmail = preferences.getString(_emailKey);
     final restoredName = preferences.getString(_displayNameKey);
@@ -69,9 +96,13 @@ class SessionIdentity {
     if (restoredUserId == null ||
         restoredEmail == null ||
         restoredName == null ||
-        restoredRoles.isEmpty) {
+        restoredRoles.isEmpty ||
+        secureValues[1] == null) {
       return false;
     }
+    accessToken = secureValues[0];
+    refreshToken = secureValues[1];
+    accessTokenExpiresAt = DateTime.tryParse(secureValues[2] ?? '');
     final activeRoleName = preferences.getString(_activeRoleKey);
     final selectedRole = restoredRoles.where(
       (role) => role.name == activeRoleName,
@@ -110,6 +141,24 @@ class SessionIdentity {
 
   void setAccessToken(String token) => accessToken = token;
 
+  Future<void> setLocalCredentials({
+    required String accessToken,
+    required String refreshToken,
+    required DateTime accessTokenExpiresAt,
+  }) async {
+    this.accessToken = accessToken;
+    this.refreshToken = refreshToken;
+    this.accessTokenExpiresAt = accessTokenExpiresAt;
+    await Future.wait([
+      _secureStorage.write(key: _accessTokenKey, value: accessToken),
+      _secureStorage.write(key: _refreshTokenKey, value: refreshToken),
+      _secureStorage.write(
+        key: _accessTokenExpiryKey,
+        value: accessTokenExpiresAt.toIso8601String(),
+      ),
+    ]);
+  }
+
   void configureTokenRefresh(Future<String?> Function() refresher) {
     _tokenRefresher = refresher;
   }
@@ -121,6 +170,9 @@ class SessionIdentity {
     roles = {};
     activeRole = null;
     accessToken = null;
+    refreshToken = null;
+    accessTokenExpiresAt = null;
+    _refreshing = null;
   }
 
   Future<void> clearPersisted() async {
@@ -132,6 +184,9 @@ class SessionIdentity {
       preferences.remove(_displayNameKey),
       preferences.remove(_rolesKey),
       preferences.remove(_activeRoleKey),
+      _secureStorage.delete(key: _accessTokenKey),
+      _secureStorage.delete(key: _refreshTokenKey),
+      _secureStorage.delete(key: _accessTokenExpiryKey),
     ]);
   }
 }

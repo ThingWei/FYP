@@ -27,9 +27,26 @@ class ApiClient {
     return Uri.parse(baseUrl).resolve(value).toString();
   }
 
-  Future<dynamic> request(String method, String path, {Object? body}) async {
-    final token = await tokenProvider?.call();
-    final additionalHeaders = await headersProvider?.call() ?? const {};
+  Future<dynamic> request(String method, String path, {Object? body}) =>
+      _request(method, path, body: body, authenticated: true);
+
+  Future<dynamic> requestUnauthenticated(
+    String method,
+    String path, {
+    Object? body,
+  }) =>
+      _request(method, path, body: body, authenticated: false);
+
+  Future<dynamic> _request(
+    String method,
+    String path, {
+    Object? body,
+    required bool authenticated,
+  }) async {
+    final token = authenticated ? await tokenProvider?.call() : null;
+    final additionalHeaders = authenticated
+        ? await headersProvider?.call() ?? const {}
+        : const <String, String>{};
     final request = http.Request(method, Uri.parse('$baseUrl$path'))
       ..headers.addAll({
         'content-type': 'application/json',

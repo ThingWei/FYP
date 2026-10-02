@@ -9,7 +9,7 @@ function normalizedIssuer(value) {
 
 export async function checkAuth0(config = env, fetchImpl = fetch) {
   if (config.authMode !== 'auth0') {
-    return { provider: 'mock', skipped: true };
+    return { provider: config.authMode, skipped: true };
   }
   const issuer = normalizedIssuer(config.authIssuer);
   const discoveryUrl = new URL('.well-known/openid-configuration', issuer);

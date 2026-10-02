@@ -1,10 +1,14 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renthub_flutter/core/network/session_identity.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+  });
 
   test('persists and restores the selected development identity', () async {
     final original = SessionIdentity()
@@ -17,6 +21,11 @@ void main() {
       );
 
     await original.persist();
+    await original.setLocalCredentials(
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      accessTokenExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+    );
     final restored = SessionIdentity();
 
     expect(await restored.restorePersisted(), isTrue);
@@ -24,6 +33,8 @@ void main() {
     expect(restored.email, 'person@example.com');
     expect(restored.roles, {UserRole.renter, UserRole.owner});
     expect(restored.activeRole, UserRole.owner);
+    expect(restored.accessToken, 'access-token');
+    expect(restored.refreshToken, 'refresh-token');
   });
 
   test('clearing a session removes the persisted identity', () async {
@@ -35,6 +46,11 @@ void main() {
         assignedRoles: {UserRole.renter},
       );
     await session.persist();
+    await session.setLocalCredentials(
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      accessTokenExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+    );
 
     await session.clearPersisted();
 

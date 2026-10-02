@@ -3,15 +3,27 @@ import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 class SocketService {
-  SocketService(String url, {String? userId, String? token})
-      : _socket = io.io(url, {
+  SocketService(
+    String url, {
+    String? userId,
+    Future<String?> Function()? tokenProvider,
+  }) : _socket = io.io(url, {
           'transports': ['websocket'],
           'autoConnect': false,
-          if (userId != null || token != null)
-            'auth': {
-              if (userId != null) 'userId': userId,
-              if (token != null) 'token': token,
-            },
+          if (tokenProvider != null)
+            'auth': (void Function(Map<dynamic, dynamic>) callback) {
+              tokenProvider().then(
+                (token) => callback({
+                  if (token != null) 'token': token,
+                  if (token == null && userId != null) 'userId': userId,
+                }),
+                onError: (_) => callback({
+                  if (userId != null) 'userId': userId,
+                }),
+              );
+            }
+          else if (userId != null)
+            'auth': {'userId': userId},
         });
   final io.Socket _socket;
   final _messages = StreamController<dynamic>.broadcast();

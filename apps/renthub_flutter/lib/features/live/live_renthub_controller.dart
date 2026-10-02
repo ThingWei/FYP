@@ -721,11 +721,10 @@ class LiveRentHubController extends ChangeNotifier {
     _socketSubscription?.cancel();
     _socket?.dispose();
     _socketUserId = userId;
-    final token = await api.authenticationToken();
     _socket = SocketService(
       socketUrl,
-      userId: token == null ? userId : null,
-      token: token,
+      userId: userId,
+      tokenProvider: api.authenticationToken,
     )..initializeListeners();
     _socketSubscription = _socket!.messages.listen((event) {
       if (event is! Map) return;

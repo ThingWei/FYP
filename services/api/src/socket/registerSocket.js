@@ -6,6 +6,7 @@ import {
 } from '../middleware/auth.js';
 import { ThreadModel } from '../modules/communication/thread.model.js';
 import { setSocketServer } from './eventBus.js';
+import { localSessionService } from '../modules/user/localSession.service.js';
 
 let jwks;
 
@@ -25,6 +26,12 @@ export function registerSocket(io) {
       }
       const token = socket.handshake.auth?.token;
       if (!token) return next(new Error('Authentication required'));
+      if (env.authMode === 'local') {
+        const identity = await localSessionService.authenticateAccessToken(token);
+        await assertAccountAccess(identity);
+        socket.data.userId = identity.authId;
+        return next();
+      }
       const issuer = env.authIssuer.endsWith('/')
         ? env.authIssuer
         : `${env.authIssuer}/`;

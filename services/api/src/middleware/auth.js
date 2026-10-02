@@ -2,6 +2,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { UserModel } from '../modules/user/user.model.js';
+import { localSessionService } from '../modules/user/localSession.service.js';
 
 let jwks;
 
@@ -86,6 +87,11 @@ export async function authenticate(req, _res, next) {
     }
     const token = req.header('authorization')?.replace(/^Bearer /, '');
     if (!token) throw new AppError('Authentication required', 401, 'UNAUTHENTICATED');
+    if (env.authMode === 'local') {
+      req.user = await localSessionService.authenticateAccessToken(token);
+      await assertAccountAccess(req.user);
+      return next();
+    }
     const issuer = env.authIssuer.endsWith('/')
       ? env.authIssuer
       : `${env.authIssuer}/`;

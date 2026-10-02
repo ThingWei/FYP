@@ -21,6 +21,9 @@ export const env = {
     process.env.AUTH0_ROLES_CLAIM ?? 'https://renthub/roles',
   authEmailClaim: process.env.AUTH0_EMAIL_CLAIM ?? 'email',
   authNameClaim: process.env.AUTH0_NAME_CLAIM ?? 'name',
+  localJwtSecret: process.env.LOCAL_JWT_SECRET,
+  localAccessTokenMinutes: integer(process.env.LOCAL_ACCESS_TOKEN_MINUTES, 15),
+  localRefreshTokenDays: integer(process.env.LOCAL_REFRESH_TOKEN_DAYS, 30),
   emailMode: process.env.EMAIL_MODE ?? 'disabled',
   resendApiKey: process.env.RESEND_API_KEY,
   emailFrom: process.env.EMAIL_FROM,
@@ -80,6 +83,8 @@ export function validateEnv(config = env) {
   const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
   const blockchainMode = config.blockchainMode ?? 'disabled';
   const emailMode = config.emailMode ?? 'disabled';
+  const localAccessTokenMinutes = config.localAccessTokenMinutes ?? 15;
+  const localRefreshTokenDays = config.localRefreshTokenDays ?? 30;
   const passwordResetTtlMinutes = config.passwordResetTtlMinutes ?? 10;
   const passwordResetCooldownSeconds = config.passwordResetCooldownSeconds ?? 60;
   const passwordResetMaxAttempts = config.passwordResetMaxAttempts ?? 5;
@@ -93,8 +98,8 @@ export function validateEnv(config = env) {
   if (!config.mongoUri?.startsWith('mongodb')) {
     errors.push('MONGODB_URI must be a MongoDB connection string');
   }
-  if (!['mock', 'auth0'].includes(config.authMode)) {
-    errors.push('AUTH_MODE must be either mock or auth0');
+  if (!['mock', 'local', 'auth0'].includes(config.authMode)) {
+    errors.push('AUTH_MODE must be mock, local, or auth0');
   }
   if (config.nodeEnv === 'production' && config.authMode === 'mock') {
     errors.push('AUTH_MODE=mock is not allowed in production');
@@ -102,6 +107,26 @@ export function validateEnv(config = env) {
   if (config.authMode === 'auth0') {
     if (!config.authIssuer) errors.push('AUTH0_ISSUER_BASE_URL is required');
     if (!config.authAudience) errors.push('AUTH0_AUDIENCE is required');
+  }
+  if (
+    config.authMode === 'local' &&
+    (!config.localJwtSecret || config.localJwtSecret.length < 32)
+  ) {
+    errors.push('LOCAL_JWT_SECRET must contain at least 32 characters');
+  }
+  if (
+    !Number.isInteger(localAccessTokenMinutes) ||
+    localAccessTokenMinutes < 5 ||
+    localAccessTokenMinutes > 1440
+  ) {
+    errors.push('LOCAL_ACCESS_TOKEN_MINUTES must be an integer from 5 to 1440');
+  }
+  if (
+    !Number.isInteger(localRefreshTokenDays) ||
+    localRefreshTokenDays < 1 ||
+    localRefreshTokenDays > 365
+  ) {
+    errors.push('LOCAL_REFRESH_TOKEN_DAYS must be an integer from 1 to 365');
   }
   if (!['disabled', 'resend', 'smtp'].includes(emailMode)) {
     errors.push('EMAIL_MODE must be disabled, resend, or smtp');

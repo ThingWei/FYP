@@ -3,11 +3,29 @@ import { asyncHandler } from '../../core/asyncHandler.js';
 import { created, ok } from '../../core/respond.js';
 import { userService } from './user.service.js';
 
+const sessionMetadata = (req) => ({
+  ip: req.ip,
+  userAgent: req.get('user-agent'),
+});
+
 export const userController = {
   localLogin: asyncHandler(async (req, res) =>
-    ok(res, await userService.localLogin(matchedData(req)))),
+    ok(
+      res,
+      await userService.localLogin(matchedData(req), sessionMetadata(req)),
+    )),
   localRegister: asyncHandler(async (req, res) =>
-    created(res, await userService.localRegister(matchedData(req)))),
+    created(
+      res,
+      await userService.localRegister(matchedData(req), sessionMetadata(req)),
+    )),
+  localRefresh: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await userService.localRefresh(matchedData(req), sessionMetadata(req)),
+    )),
+  localLogout: asyncHandler(async (req, res) =>
+    ok(res, await userService.localLogout(req.user))),
   requestLocalPasswordReset: asyncHandler(async (req, res) =>
     ok(res, await userService.requestLocalPasswordReset(matchedData(req)))),
   confirmLocalPasswordReset: asyncHandler(async (req, res) =>

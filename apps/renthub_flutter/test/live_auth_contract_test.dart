@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
 import 'package:renthub_flutter/core/network/session_identity.dart';
@@ -23,19 +24,38 @@ class AuthApiClient extends ApiClient {
     if (failure != null) throw failure!;
     return response;
   }
+
+  @override
+  Future<dynamic> requestUnauthenticated(
+    String method,
+    String path, {
+    Object? body,
+  }) =>
+      request(method, path, body: body);
 }
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+  });
 
   test('live login establishes the identity used by authenticated API calls',
       () async {
     final session = SessionIdentity();
     final api = AuthApiClient(response: {
-      'authId': 'u-renter',
-      'email': 'renter@renthub.my',
-      'displayName': 'Alex Tan',
-      'roles': ['renter'],
+      'user': {
+        'authId': 'u-renter',
+        'email': 'renter@renthub.my',
+        'displayName': 'Alex Tan',
+        'roles': ['renter'],
+      },
+      'session': {
+        'accessToken': 'access-token',
+        'refreshToken': 'refresh-token',
+        'accessTokenExpiresAt':
+            DateTime.now().add(const Duration(minutes: 15)).toIso8601String(),
+      },
     });
 
     final user = await LiveAuthRepository(api, session).login(
@@ -45,8 +65,8 @@ void main() {
     );
 
     expect(user.id, 'u-renter');
-    expect(session.mockHeaders['x-user-id'], 'u-renter');
-    expect(session.mockHeaders['x-user-roles'], 'renter');
+    expect(session.accessToken, 'access-token');
+    expect(session.refreshToken, 'refresh-token');
     expect(api.calls, 1);
     expect(api.lastPath, '/users/local-login');
     expect(
@@ -69,6 +89,11 @@ void main() {
         selectedRole: UserRole.renter,
       );
     await original.persist();
+    await original.setLocalCredentials(
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      accessTokenExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+    );
     final restored = SessionIdentity();
     final api = AuthApiClient(response: {
       'authId': 'u-renter',

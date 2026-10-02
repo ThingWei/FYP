@@ -31,6 +31,10 @@ export const localRegistrationValidation = [
   body('role').isIn(['renter', 'owner']),
 ];
 
+export const localRefreshValidation = [
+  body('refreshToken').isString().isLength({ min: 40, max: 500 }),
+];
+
 export const passwordResetRequestValidation = [email()];
 
 export const passwordResetConfirmationValidation = [

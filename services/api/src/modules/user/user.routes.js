@@ -8,6 +8,7 @@ import {
   comparisonValidation,
   listValidation,
   localLoginValidation,
+  localRefreshValidation,
   localRegistrationValidation,
   passwordResetConfirmationValidation,
   passwordResetRequestValidation,
@@ -33,6 +34,17 @@ userRouter.post(
   localRegistrationValidation,
   validate,
   userController.localRegister,
+);
+userRouter.post(
+  '/local-refresh',
+  localRefreshValidation,
+  validate,
+  userController.localRefresh,
+);
+userRouter.post(
+  '/local-logout',
+  authenticate,
+  userController.localLogout,
 );
 userRouter.post(
   '/local-password-reset/request',

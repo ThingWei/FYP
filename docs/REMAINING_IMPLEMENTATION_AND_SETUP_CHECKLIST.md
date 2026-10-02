@@ -1,6 +1,6 @@
 # RentHub remaining implementation and setup checklist
 
-Last verified: 1 October 2026
+Last verified: 2 October 2026
 
 This checklist separates code that exists from external services, credentials,
 model artifacts, and production checks that still have to be supplied. No secret
@@ -21,9 +21,9 @@ values are recorded here.
 - [x] Added AI artifact visibility to the FastAPI health response.
 - [x] Added environment settings for interval, expiry, reminder, and grace
   periods to `services/api/.env.example`.
-- [x] Added automated lifecycle, administrator health, reporting, and password-
-  reset tests; the complete API suite passes 65/65 with isolated test auth and local
-  storage.
+- [x] Added automated lifecycle, administrator health, reporting, password-
+  reset, and local bearer-session tests; the complete API suite passes 67/67
+  with isolated test auth and local storage.
 - [x] Dart static analysis of `lib/` passes with no issues.
 - [x] Added persistent daily/weekly/monthly administrator report schedules.
 - [x] Added manual and scheduled CSV generation for platform summaries,
@@ -42,7 +42,10 @@ values are recorded here.
 - [x] Added entity-aware push tap routing for conversations, bookings, rentals,
   payments, disputes, and loyalty activity, with a notification-centre fallback.
 - [x] Removed prefilled login credentials and added restart-persistent,
-  role-aware development sessions that are revalidated through `/users/me`.
+  role-aware sessions that are revalidated through `/users/me`.
+- [x] Replaced live development identity headers with signed short-lived local
+  JWTs, rotating MongoDB refresh sessions, secure Flutter credential storage,
+  automatic refresh, authenticated Socket.IO, and lifecycle revocation.
 
 ## Immediate local setup still required
 
@@ -59,7 +62,10 @@ were not printed. It is not currently usable:
   ```dotenv
   NODE_ENV=development
   MONGODB_URI=mongodb://localhost:27017/renthub
-  AUTH_MODE=mock
+  AUTH_MODE=local
+  LOCAL_JWT_SECRET=replace-with-at-least-32-random-characters
+  LOCAL_ACCESS_TOKEN_MINUTES=15
+  LOCAL_REFRESH_TOKEN_DAYS=30
   EMAIL_MODE=smtp
   EMAIL_FROM=RentHub <your.personal@gmail.com>
   SMTP_HOST=smtp.gmail.com
@@ -93,6 +99,8 @@ were not printed. It is not currently usable:
   only as an explicit UI-preview/test override.
 - [ ] Launch Flutter with the appropriate mobile `API_BASE_URL` and `SOCKET_URL`
   as documented in the root README.
+- [ ] Sign in, close and reopen the app, verify session restoration, then log
+  out and confirm the revoked session cannot access `/users/me`.
 
 Do not copy `.env.example` over the existing `.env` without first preserving any
 real credentials stored outside source control.
@@ -129,9 +137,10 @@ real credentials stored outside source control.
 - [x] Self-service account deactivation, immediate API/Socket.IO access
   revocation, listing hiding, administrator reactivation, and audit logging are
   implemented.
-- [ ] Multi-device session inventory and selective per-device revocation remain
-  unimplemented. Auth0 access-token lifetime and refresh-token rotation still
-  need to be configured in the real tenant.
+- [ ] A user-facing multi-device login-session inventory and selective
+  per-session revocation remain unimplemented. Local token rotation is now
+  implemented; Auth0 token lifetime and rotation still require real-tenant
+  configuration if Auth0 is selected.
 
 ## Firebase Storage setup
 

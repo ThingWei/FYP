@@ -59,7 +59,10 @@ class AuthController extends LoadableController {
     String code,
     String password,
   ) =>
-      run(() => repository.confirmPasswordReset(email, code, password));
+      run(() async {
+        await repository.confirmPasswordReset(email, code, password);
+        user = null;
+      });
   Future<void> logout() => run(() async {
         try {
           await pushNotifications?.disableForCurrentUser();

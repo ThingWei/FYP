@@ -19,6 +19,19 @@ test('requires Auth0 settings when Auth0 mode is enabled', () => {
   );
 });
 
+test('requires a strong signing secret for local authentication', () => {
+  assert.throws(
+    () => validateEnv({ ...valid, authMode: 'local', localJwtSecret: 'short' }),
+    /LOCAL_JWT_SECRET must contain at least 32 characters/,
+  );
+  const local = {
+    ...valid,
+    authMode: 'local',
+    localJwtSecret: 'a-local-jwt-secret-with-32-characters',
+  };
+  assert.equal(validateEnv(local), local);
+});
+
 test('rejects mock authentication in production', () => {
   assert.throws(
     () => validateEnv({ ...valid, nodeEnv: 'production' }),

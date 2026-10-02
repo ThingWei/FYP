@@ -5,10 +5,22 @@ paths:
   /health:
     get:
       responses: { '200': { description: Healthy } }
-  /auth/login:
+  /users/local-login:
     post:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } } }
-      responses: { '200': { description: Authenticated }, '401': { description: Invalid credentials } }
+      responses: { '200': { description: Signed access token, rotating refresh token, and user profile }, '401': { description: Invalid credentials } }
+  /users/local-register:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RegistrationRequest' } } } }
+      responses: { '201': { description: Account created with signed local session }, '409': { description: Email already registered } }
+  /users/local-refresh:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RefreshRequest' } } } }
+      responses: { '200': { description: Rotated refresh token and new access token }, '401': { description: Refresh session invalid, expired, or revoked } }
+  /users/local-logout:
+    post:
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Current local session revoked }, '401': { description: Access token invalid or session revoked } }
   /users/local-password-reset/request:
     post:
       requestBody:
@@ -145,8 +157,27 @@ components:
   schemas:
     LoginRequest:
       type: object
-      required: [email, password]
-      properties: { email: { type: string, format: email }, password: { type: string, minLength: 8 } }
+      required: [email, password, role]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        role: { type: string, enum: [renter, owner, admin] }
+    RegistrationRequest:
+      type: object
+      required: [displayName, email, password, role]
+      additionalProperties: false
+      properties:
+        displayName: { type: string, minLength: 2, maxLength: 80 }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        role: { type: string, enum: [renter, owner] }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      additionalProperties: false
+      properties:
+        refreshToken: { type: string, minLength: 40, maxLength: 500 }
     PasswordResetRequest:
       type: object
       required: [email]

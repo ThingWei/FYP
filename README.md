@@ -42,6 +42,27 @@ by the launcher are stopped when Flutter exits. Local blockchain state persists
 under `blockchain\.data\ganache`. Launcher logs are stored in each service's
 `.data\logs` directory.
 
+### Local account sessions
+
+For MongoDB-backed renter, Owner, and administrator accounts, use signed local
+JWT sessions instead of development identity headers:
+
+```dotenv
+AUTH_MODE=local
+LOCAL_JWT_SECRET=replace-with-a-random-secret-of-at-least-32-characters
+LOCAL_ACCESS_TOKEN_MINUTES=15
+LOCAL_REFRESH_TOKEN_DAYS=30
+```
+
+Generate a secret locally with
+`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` and
+store it only in the ignored `services/api/.env`. The Flutter client stores the
+access and rotating refresh tokens in platform secure storage, restores the
+session after restart, and refreshes short-lived access tokens automatically.
+Logout, password reset, self-deactivation, suspension, and banning revoke the
+affected MongoDB session records. `AUTH_MODE=mock` is retained only for API
+tests and explicit UI prototype runs.
+
 ### Password-reset email
 
 Local MongoDB accounts can use Nodemailer with Gmail SMTP to deliver single-use

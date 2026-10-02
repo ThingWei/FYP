@@ -48,7 +48,7 @@ export async function technologyHealth() {
   ]);
   const scheduler = lifecycleSchedulerStatus();
   const authentication = {
-    status: env.authMode === 'auth0' ? 'configured' : 'development',
+    status: env.authMode === 'mock' ? 'development' : 'configured',
     mode: env.authMode,
   };
   const components = {
