@@ -32,6 +32,21 @@ test('requires a strong signing secret for local authentication', () => {
   assert.equal(validateEnv(local), local);
 });
 
+test('hybrid authentication requires both local and Auth0 settings', () => {
+  assert.throws(
+    () => validateEnv({ ...valid, authMode: 'hybrid' }),
+    /AUTH0_ISSUER_BASE_URL is required/,
+  );
+  const hybrid = {
+    ...valid,
+    authMode: 'hybrid',
+    authIssuer: 'https://tenant.example.com/',
+    authAudience: 'https://api.renthub.local',
+    localJwtSecret: 'a-hybrid-jwt-secret-with-32-characters',
+  };
+  assert.equal(validateEnv(hybrid), hybrid);
+});
+
 test('rejects mock authentication in production', () => {
   assert.throws(
     () => validateEnv({ ...valid, nodeEnv: 'production' }),

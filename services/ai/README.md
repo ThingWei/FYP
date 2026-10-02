@@ -17,6 +17,13 @@ hard-coded confidence values when a model is missing.
   and otherwise names its rating/popularity cold-start fallback.
 - `POST /recommend/price`: loads an evaluated XGBoost pipeline. If the artifact is
   absent, the endpoint returns `available: false` rather than a guessed price.
+  The response includes the held-out evaluation metadata, a suggested daily
+  price, uncertainty range and human-readable feature explanation. Express adds
+  live marketplace coverage and reduces confidence when comparable or completed
+  rental evidence is unavailable. The Express pricing orchestration can blend
+  an exact-product prediction with dated Malaysian market references. Direct
+  short-term rentals receive more weight than category-adjusted resale evidence;
+  installment, subscription and rent-to-own prices are excluded.
 
 ## Create the local research artifacts
 

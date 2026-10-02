@@ -87,6 +87,7 @@ class PriceRecommendationResponse(BaseModel):
     adapter: str
     model_version: str | None = None
     explanation: list[str] = Field(default_factory=list)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
     similar_listing_average: float
     historical_average: float
     error: str | None = None

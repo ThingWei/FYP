@@ -10,6 +10,7 @@ import {
 import { AvailabilityModel } from '../src/modules/listing/availability.model.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
+import { aiClient } from '../src/integrations/aiClient.js';
 
 let mongodb;
 
@@ -144,6 +145,101 @@ test('only an Owner can create strict physical and service drafts', async () => 
   assert.equal(service.body.data.isService, true);
   assert.equal(service.body.data.condition, undefined);
   assert.equal(service.body.data.securityDeposit, 0);
+});
+
+test('builds an AI price request from marketplace data without a current price', async () => {
+  await startOwner();
+  await activeListing({
+    publicId: 'l-price-comparable',
+    dailyPrice: 90,
+    state: 'Kuala Lumpur',
+    subcategory: 'Cameras',
+    brand: 'Sony',
+    productModel: 'Alpha a7S III',
+  });
+  const original = aiClient.recommendPrice;
+  let received;
+  aiClient.recommendPrice = async (payload) => {
+    received = payload;
+    return {
+      available: true,
+      suggested_daily_price: 88,
+      lower_bound: 82,
+      upper_bound: 94,
+      confidence: 0.9,
+      explanation: [],
+      similar_listing_average: payload.similar_active_average,
+      historical_average: payload.historical_completed_average,
+    };
+  };
+  try {
+    const response = await request(app)
+      .post('/api/v1/listings/price-recommendation')
+      .set(ownerHeaders)
+      .send({
+        itemProfile: {
+          category: 'Devices',
+          subcategory: 'Cameras',
+          condition: 'Excellent',
+          brand: 'Sony',
+          product_model: 'Alpha a7S III',
+          state: 'Kuala Lumpur',
+          item_age_years: 2,
+        },
+        rentalDurationDays: 3,
+      });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.suggested_daily_price, 88);
+    assert.equal(received.similar_active_average, 90);
+    assert.equal(received.historical_completed_average, 75);
+    assert.equal(received.owner_trust_score, 50);
+    assert.equal(received.rental_duration_days, 3);
+    assert.equal(response.body.data.market_context.activeComparableCount, 1);
+  } finally {
+    aiClient.recommendPrice = original;
+  }
+});
+
+test('blends an exact iPhone market comparable into the AI price', async () => {
+  await startOwner();
+  const original = aiClient.recommendPrice;
+  aiClient.recommendPrice = async (payload) => ({
+    available: true,
+    suggested_daily_price: 75,
+    lower_bound: 68,
+    upper_bound: 82,
+    confidence: 0.9,
+    adapter: 'xgboost-v1',
+    explanation: [],
+    similar_listing_average: payload.similar_active_average,
+    historical_average: payload.historical_completed_average,
+  });
+  try {
+    const response = await request(app)
+      .post('/api/v1/listings/price-recommendation')
+      .set(ownerHeaders)
+      .send({
+        itemProfile: {
+          category: 'Devices',
+          subcategory: 'Smartphones',
+          condition: 'Good',
+          brand: 'Apple',
+          product_model: 'iPhone 13 Pro 256GB',
+          state: 'Kuala Lumpur',
+          item_age_years: 1,
+        },
+        rentalDurationDays: 1,
+      });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.suggested_daily_price, 89.63);
+    assert.equal(response.body.data.market_context.externalComparableCount, 1);
+    assert.equal(response.body.data.market_context.externalComparableAverage, 97.5);
+    assert.match(response.body.data.adapter, /market-comparables-v1/);
+  } finally {
+    aiClient.recommendPrice = original;
+  }
 });
 
 test('enforces owner submission and administrator moderation transitions', async () => {

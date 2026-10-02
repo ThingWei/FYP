@@ -32,6 +32,7 @@ class Auth0Gateway {
   String? _refreshToken;
   DateTime? _expiresAt;
   Future<Auth0Session>? _loginInProgress;
+  HttpServer? _activeCallbackServer;
 
   String _randomValue([int length = 32]) {
     final random = Random.secure();
@@ -153,6 +154,7 @@ class Auth0Gateway {
       sha256.convert(utf8.encode(verifier)).bytes,
     ).replaceAll('=', '');
     final server = await _callbackServer();
+    _activeCallbackServer = server;
     try {
       final authorization = Uri.https(domain, '/authorize', {
         'client_id': clientId,
@@ -190,8 +192,16 @@ class Auth0Gateway {
       }
       return Auth0Session(accessToken: _accessToken!);
     } finally {
+      if (identical(_activeCallbackServer, server)) {
+        _activeCallbackServer = null;
+      }
       await server.close(force: true);
     }
+  }
+
+  Future<void> cancelLogin() async {
+    final server = _activeCallbackServer;
+    if (server != null) await server.close(force: true);
   }
 
   Future<String?> token() async {
@@ -232,20 +242,8 @@ class Auth0Gateway {
   }
 
   Future<void> logout() async {
-    final server = await _callbackServer();
-    try {
-      await _openBrowser(Uri.https(domain, '/v2/logout', {
-        'client_id': clientId,
-        'returnTo': callbackUrl,
-      }));
-      await _waitForCallback(server);
-    } on TimeoutException {
-      // The local session must still be cleared if the browser is closed.
-    } finally {
-      _accessToken = null;
-      _refreshToken = null;
-      _expiresAt = null;
-      await server.close(force: true);
-    }
+    _accessToken = null;
+    _refreshToken = null;
+    _expiresAt = null;
   }
 }

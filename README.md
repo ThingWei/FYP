@@ -42,6 +42,18 @@ by the launcher are stopped when Flutter exits. Local blockchain state persists
 under `blockchain\.data\ganache`. Launcher logs are stored in each service's
 `.data\logs` directory.
 
+When `AUTH_MODE=auth0` or `AUTH_MODE=hybrid`, the launcher also reads the Auth0 domain, audience,
+client ID, callback, and database connection from `services\api\.env` and adds
+the Flutter Dart defines automatically. Configure `AUTH0_WINDOWS_CLIENT_ID` for
+the Native application and `AUTH0_WEB_CLIENT_ID` for the Web SPA. The standard
+Windows command remains `.\run-renthub.ps1`; use `-Device chrome` for the Web
+client and add `-Admin` for the administrator portal.
+
+Use `AUTH_MODE=hybrid` when the normal email/password forms should use RentHub's
+local MongoDB sessions while the separate **Continue with Auth0** action uses
+Auth0 Universal Login. `AUTH_MODE=local` disables the Auth0 action, while
+`AUTH_MODE=auth0` is retained for deployments that accept only Auth0 tokens.
+
 ### Local account sessions
 
 For MongoDB-backed renter, Owner, and administrator accounts, use signed local

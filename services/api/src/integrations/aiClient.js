@@ -78,6 +78,7 @@ export const aiClient = {
       confidence: 0,
       adapter: 'ai-service-unavailable',
       explanation: [],
+      evaluation: {},
       similar_listing_average: payload.similar_active_average,
       historical_average: payload.historical_completed_average,
     });

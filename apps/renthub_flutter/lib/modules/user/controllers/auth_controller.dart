@@ -9,8 +9,11 @@ class AuthController extends LoadableController {
   final PushNotificationService? pushNotifications;
   User? user;
   UserRole selectedRole = UserRole.renter;
+  bool externalLoginInProgress = false;
+  bool _externalLoginCancelled = false;
   bool get authenticated => user != null;
   bool get usesExternalProvider => repository.usesExternalProvider;
+  bool get supportsExternalProvider => repository.supportsExternalProvider;
 
   Future<void> restoreSession({Set<UserRole>? allowedRoles}) => run(() async {
         final restoredUser = await repository.restoreSession();
@@ -45,6 +48,28 @@ class AuthController extends LoadableController {
           await pushNotifications?.enableForCurrentUser();
         }
       });
+  Future<void> loginWithAuth0() async {
+    if (externalLoginInProgress) return;
+    externalLoginInProgress = true;
+    _externalLoginCancelled = false;
+    notifyListeners();
+    await run(() async {
+      user = await repository.loginWithExternalProvider(selectedRole);
+      if (user?.pushNotifications ?? false) {
+        await pushNotifications?.enableForCurrentUser();
+      }
+    });
+    externalLoginInProgress = false;
+    if (_externalLoginCancelled) error = null;
+    notifyListeners();
+  }
+
+  Future<void> cancelAuth0Login() async {
+    if (!externalLoginInProgress) return;
+    _externalLoginCancelled = true;
+    await repository.cancelExternalLogin();
+  }
+
   Future<void> register(String name, String email, String password) =>
       run(() async {
         user = await repository.register(name, email, password, selectedRole);

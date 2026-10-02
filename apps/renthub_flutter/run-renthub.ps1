@@ -141,6 +141,13 @@ $nodePath = (Get-Command node).Source
 if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
     throw 'Flutter is not available on PATH.'
 }
+if ($Device -eq 'windows') {
+    $existingRentHub = Get-Process -Name 'renthub_flutter' -ErrorAction SilentlyContinue
+    if ($null -ne $existingRentHub) {
+        $processIds = ($existingRentHub.Id | Sort-Object) -join ', '
+        throw "RentHub is already running (process $processIds). Close the existing RentHub window, then run this launcher once. This avoids duplicate Auth0 callback ports and disconnected backend sessions."
+    }
+}
 if (-not $SkipAi -and -not (Test-Path -LiteralPath $aiPython)) {
     throw "AI Python environment is missing. Create it at $aiDirectory\.venv and install requirements.txt."
 }
@@ -152,6 +159,30 @@ $ganacheRpcUrl = Get-RentHubEnvironmentValue `
     -Path $apiEnvironment `
     -Name 'GANACHE_RPC_URL' `
     -DefaultValue 'http://localhost:8545'
+$authMode = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH_MODE' `
+    -DefaultValue 'local'
+$auth0Issuer = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH0_ISSUER_BASE_URL'
+$auth0Audience = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH0_AUDIENCE'
+$auth0WindowsClientId = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH0_WINDOWS_CLIENT_ID'
+$auth0WebClientId = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH0_WEB_CLIENT_ID'
+$auth0WindowsCallbackUrl = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH0_WINDOWS_CALLBACK_URL' `
+    -DefaultValue 'http://127.0.0.1:53124/callback'
+$auth0DatabaseConnection = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH0_DATABASE_CONNECTION' `
+    -DefaultValue 'Username-Password-Authentication'
 if (-not $SkipBlockchain -and $blockchainMode -eq 'ganache' -and -not (Test-Path -LiteralPath $ganacheCli)) {
     throw "Blockchain dependencies are missing. Run 'npm.cmd install' in $blockchainDirectory first."
 }
@@ -350,6 +381,47 @@ try {
     }
     if ($Admin) {
         $arguments += @('-t', 'lib/main_admin.dart')
+    }
+    if ($authMode -in @('auth0', 'hybrid')) {
+        if ([string]::IsNullOrWhiteSpace($auth0Issuer)) {
+            throw 'AUTH0_ISSUER_BASE_URL is required in the API .env when AUTH_MODE=auth0.'
+        }
+        if ([string]::IsNullOrWhiteSpace($auth0Audience)) {
+            throw 'AUTH0_AUDIENCE is required in the API .env when AUTH_MODE=auth0.'
+        }
+
+        $auth0Domain = $auth0Issuer `
+            -replace '^https?://', '' `
+            -replace '/$', ''
+        if ($Device -eq 'windows') {
+            $auth0ClientId = $auth0WindowsClientId
+            $auth0CallbackUrl = $auth0WindowsCallbackUrl
+            $clientSettingName = 'AUTH0_WINDOWS_CLIENT_ID'
+        }
+        elseif ($isBrowser) {
+            $auth0ClientId = $auth0WebClientId
+            $auth0CallbackUrl = if ($Admin) {
+                'http://localhost:3001'
+            }
+            else {
+                'http://localhost:8080'
+            }
+            $clientSettingName = 'AUTH0_WEB_CLIENT_ID'
+        }
+        else {
+            throw 'Auth0 mobile startup is not enabled yet. Use Windows/Web or complete the Android Auth0 integration first.'
+        }
+
+        if ([string]::IsNullOrWhiteSpace($auth0ClientId)) {
+            throw "$clientSettingName is required in the API .env when AUTH_MODE=auth0 and Device=$Device."
+        }
+        $arguments += @(
+            "--dart-define=AUTH0_DOMAIN=$auth0Domain",
+            "--dart-define=AUTH0_CLIENT_ID=$auth0ClientId",
+            "--dart-define=AUTH0_AUDIENCE=$auth0Audience",
+            "--dart-define=AUTH0_CALLBACK_URL=$auth0CallbackUrl",
+            "--dart-define=AUTH0_DATABASE_CONNECTION=$auth0DatabaseConnection"
+        )
     }
     if ($ExtraFlutterArgs) {
         $arguments += $ExtraFlutterArgs

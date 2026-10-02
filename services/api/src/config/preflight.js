@@ -8,7 +8,7 @@ function normalizedIssuer(value) {
 }
 
 export async function checkAuth0(config = env, fetchImpl = fetch) {
-  if (config.authMode !== 'auth0') {
+  if (!['auth0', 'hybrid'].includes(config.authMode)) {
     return { provider: config.authMode, skipped: true };
   }
   const issuer = normalizedIssuer(config.authIssuer);

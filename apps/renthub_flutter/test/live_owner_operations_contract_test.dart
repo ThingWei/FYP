@@ -92,6 +92,43 @@ void main() {
     expect(controller.ownerListings.single.status, 'pending_review');
   });
 
+  test(
+      'price recommendation sends real item features without requiring a price',
+      () async {
+    final response = {
+      'available': true,
+      'suggested_daily_price': 92.5,
+      'lower_bound': 87.0,
+      'upper_bound': 98.0,
+      'confidence': 0.9,
+      'explanation': ['Compared with active Devices listings'],
+      'similar_listing_average': 85.0,
+      'historical_average': 82.0,
+    };
+    final api = RecordingOwnerApiClient([response]);
+    final controller = LiveRentHubController(api);
+    addTearDown(controller.dispose);
+
+    final result = await controller.getPriceRecommendation(
+      category: 'Devices',
+      condition: 'Excellent',
+      state: 'Kuala Lumpur',
+      brand: 'Sony',
+      itemAgeYears: 2.5,
+      rentalDurationDays: 3,
+    );
+
+    expect(result['suggested_daily_price'], 92.5);
+    expect(api.calls.single.$2, '/listings/price-recommendation');
+    final body = api.calls.single.$3! as Map<String, dynamic>;
+    expect(body.containsKey('fallbackComparablePrice'), isFalse);
+    expect(body.containsKey('supplyDemandRatio'), isFalse);
+    expect(body.containsKey('ownerAverageRating'), isFalse);
+    expect((body['itemProfile'] as Map)['brand'], 'Sony');
+    expect((body['itemProfile'] as Map)['item_age_years'], 2.5);
+    expect(body['rentalDurationDays'], 3);
+  });
+
   test('availability, promotion and bundle use live Owner endpoints', () async {
     final promotion = {
       'enabled': true,

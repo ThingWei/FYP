@@ -1126,9 +1126,13 @@ class LiveRentHubController extends ChangeNotifier {
 
   Future<Map<String, dynamic>> getPriceRecommendation({
     required String category,
+    required String subcategory,
     required String condition,
     required String state,
-    required double fallbackComparablePrice,
+    required String brand,
+    required String productModel,
+    required double itemAgeYears,
+    required int rentalDurationDays,
   }) =>
       _perform(() async => await api.request(
             'POST',
@@ -1136,17 +1140,14 @@ class LiveRentHubController extends ChangeNotifier {
             body: {
               'itemProfile': {
                 'category': category,
-                'subcategory': 'General',
+                'subcategory': subcategory,
                 'condition': condition,
-                'brand': 'Unknown',
+                'brand': brand.trim().isEmpty ? 'Unknown' : brand.trim(),
+                'product_model': productModel.trim(),
                 'state': state,
-                'item_age_years': 1,
+                'item_age_years': itemAgeYears,
               },
-              'fallbackComparablePrice': fallbackComparablePrice,
-              'supplyDemandRatio': 1,
-              'seasonalDayFactor': 1,
-              'rentalDurationDays': 1,
-              'ownerAverageRating': 0,
+              'rentalDurationDays': rentalDurationDays,
             },
           ) as Map<String, dynamic>);
 

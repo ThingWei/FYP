@@ -49,9 +49,6 @@ class AppDependencies {
             databaseConnection: auth0DatabaseConnection,
           )
         : null;
-    if (auth0Gateway != null) {
-      session.configureTokenRefresh(auth0Gateway.token);
-    }
     final api = ApiClient(
       const String.fromEnvironment(
         'API_BASE_URL',
@@ -66,10 +63,11 @@ class AppDependencies {
       BackendMode.useMocks
           ? MockAuthRepository()
           : auth0Enabled
-              ? Auth0AuthRepository(
-                  api,
+              ? HybridAuthRepository(
+                  LiveAuthRepository(api, session),
+                  Auth0AuthRepository(api, session, auth0Gateway!),
                   session,
-                  auth0Gateway!,
+                  auth0Gateway,
                 )
               : LiveAuthRepository(api, session),
       BackendMode.useMocks

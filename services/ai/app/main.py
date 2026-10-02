@@ -12,7 +12,12 @@ app = FastAPI(title='RentHub AI Service', version='2.0.0')
 @app.get('/health')
 def health():
     artifacts = {
-        'price_model': Path(os.getenv('PRICE_MODEL_PATH', 'models/price_xgboost.joblib')).is_file(),
+        'price_model': Path(
+            os.getenv(
+                'PRICE_MODEL_PATH',
+                str(Path(__file__).resolve().parents[1] / 'models' / 'price_xgboost.joblib'),
+            )
+        ).is_file(),
         'recommendation_model': Path(
             os.getenv('RECOMMENDATION_MODEL_PATH', 'models/recommendation_svd.pkl')
         ).is_file(),

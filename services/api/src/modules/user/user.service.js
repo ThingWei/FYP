@@ -101,7 +101,7 @@ async function requireCurrentUser(identity) {
 
 export const userService = {
   async localLogin({ email, password, role }, metadata) {
-    if (!['mock', 'local'].includes(env.authMode)) {
+    if (!['mock', 'local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local login is disabled', 404, 'NOT_FOUND');
     }
     const user = await userRepository.findByEmailWithPassword(email);
@@ -132,13 +132,13 @@ export const userService = {
     user.activeRole = role;
     user.lastLoginAt = new Date();
     await user.save();
-    return env.authMode === 'local'
+    return ['local', 'hybrid'].includes(env.authMode)
       ? localSessionService.create(user, metadata)
       : user;
   },
 
   async localRegister({ displayName, email, password, role }, metadata) {
-    if (!['mock', 'local'].includes(env.authMode)) {
+    if (!['mock', 'local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local registration is disabled', 404, 'NOT_FOUND');
     }
     if (await userRepository.findByEmailWithPassword(email)) {
@@ -158,20 +158,20 @@ export const userService = {
       activeRole: role,
       lastLoginAt: new Date(),
     });
-    return env.authMode === 'local'
+    return ['local', 'hybrid'].includes(env.authMode)
       ? localSessionService.create(user, metadata)
       : user;
   },
 
   async localRefresh({ refreshToken }, metadata) {
-    if (env.authMode !== 'local') {
+    if (!['local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local refresh is disabled', 404, 'NOT_FOUND');
     }
     return localSessionService.refresh(refreshToken, metadata);
   },
 
   async localLogout(identity) {
-    if (env.authMode !== 'local') {
+    if (!['local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local logout is disabled', 404, 'NOT_FOUND');
     }
     await localSessionService.revoke(identity.sessionId);
@@ -179,28 +179,28 @@ export const userService = {
   },
 
   async localSessions(identity) {
-    if (env.authMode !== 'local') {
+    if (!['local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local sessions are disabled', 404, 'NOT_FOUND');
     }
     return localSessionService.list(identity);
   },
 
   async revokeLocalSession(identity, sessionId) {
-    if (env.authMode !== 'local') {
+    if (!['local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local sessions are disabled', 404, 'NOT_FOUND');
     }
     return localSessionService.revokeForUser(identity, sessionId);
   },
 
   async revokeOtherLocalSessions(identity) {
-    if (env.authMode !== 'local') {
+    if (!['local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local sessions are disabled', 404, 'NOT_FOUND');
     }
     return localSessionService.revokeOthers(identity);
   },
 
   async requestLocalPasswordReset({ email }) {
-    if (!['mock', 'local'].includes(env.authMode)) {
+    if (!['mock', 'local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local password reset is disabled', 404, 'NOT_FOUND');
     }
     try {
@@ -257,7 +257,7 @@ export const userService = {
   },
 
   async confirmLocalPasswordReset({ email, code, password }) {
-    if (!['mock', 'local'].includes(env.authMode)) {
+    if (!['mock', 'local', 'hybrid'].includes(env.authMode)) {
       throw new AppError('Local password reset is disabled', 404, 'NOT_FOUND');
     }
     if (!env.passwordResetSecret) throw invalidResetCode();

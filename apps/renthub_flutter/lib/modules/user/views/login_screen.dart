@@ -36,12 +36,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     final controller = context.read<AuthController>();
-    if (!controller.usesExternalProvider && !formKey.currentState!.validate()) {
+    if (!formKey.currentState!.validate()) {
       return;
     }
     await controller.login(email.text.trim(), password.text);
     if (mounted && controller.authenticated) widget.onAuthenticated?.call();
   }
+
+  Future<void> _loginWithAuth0() async {
+    final controller = context.read<AuthController>();
+    await controller.loginWithAuth0();
+    if (mounted && controller.authenticated) widget.onAuthenticated?.call();
+  }
+
+  Future<void> _cancelAuth0Login() =>
+      context.read<AuthController>().cancelAuth0Login();
 
   @override
   Widget build(BuildContext context) {
@@ -137,11 +146,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                     RentHubActionButton(
                       label: 'Log In',
-                      loading: controller.loading,
-                      onPressed: _login,
+                      loading: controller.loading &&
+                          !controller.externalLoginInProgress,
+                      onPressed: controller.loading ? null : _login,
                     ),
                     if (!widget.administrator) ...[
-                      if (controller.usesExternalProvider) ...[
+                      if (controller.supportsExternalProvider) ...[
                         const SizedBox(height: 18),
                         const Row(
                           children: [
@@ -159,10 +169,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 18),
                         RentHubActionButton(
-                          label: 'Continue with Auth0',
-                          icon: Icons.account_circle_outlined,
-                          style: RentHubButtonStyle.secondary,
-                          onPressed: _login,
+                          label: controller.externalLoginInProgress
+                              ? 'Cancel Auth0 Login'
+                              : 'Continue with Auth0',
+                          icon: controller.externalLoginInProgress
+                              ? Icons.close
+                              : Icons.account_circle_outlined,
+                          style: controller.externalLoginInProgress
+                              ? RentHubButtonStyle.outline
+                              : RentHubButtonStyle.secondary,
+                          onPressed: controller.externalLoginInProgress
+                              ? _cancelAuth0Login
+                              : controller.loading
+                                  ? null
+                                  : _loginWithAuth0,
                         ),
                       ],
                       const SizedBox(height: 16),

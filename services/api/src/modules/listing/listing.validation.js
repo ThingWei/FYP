@@ -10,6 +10,10 @@ const editableFields = new Set([
   'title',
   'description',
   'category',
+  'subcategory',
+  'brand',
+  'productModel',
+  'itemAgeYears',
   'listingType',
   'dailyPrice',
   'priceUnit',
@@ -39,6 +43,10 @@ const listingFields = [
   body('title').optional().trim().isLength({ min: 3, max: 120 }),
   body('description').optional().trim().isLength({ max: 3000 }),
   body('category').optional().isIn(LISTING_CATEGORIES),
+  body('subcategory').optional().trim().isLength({ max: 100 }),
+  body('brand').optional().trim().isLength({ max: 100 }),
+  body('productModel').optional().trim().isLength({ max: 120 }),
+  body('itemAgeYears').optional().isFloat({ min: 0, max: 100 }).toFloat(),
   body('listingType').optional().isIn(LISTING_TYPES),
   body('dailyPrice').optional().isFloat({ min: 1, max: 1_000_000 }).toFloat(),
   body('priceUnit').optional().isIn(['day', 'hour', 'session', 'package']),
@@ -163,37 +171,16 @@ export const priceRecommendationValidation = [
   body('itemProfile.condition')
     .isIn(['Fair', 'Good', 'Very good', 'Excellent', 'Like New']),
   body('itemProfile.brand').optional().trim().isLength({ max: 100 }),
+  body('itemProfile.product_model').optional().trim().isLength({ max: 120 }),
   body('itemProfile.state').optional().trim().isLength({ max: 80 }),
   body('itemProfile.item_age_years')
     .optional()
     .isFloat({ min: 0, max: 100 })
     .toFloat(),
-  body('fallbackComparablePrice')
-    .isFloat({ min: 1, max: 1_000_000 })
-    .toFloat(),
-  body('supplyDemandRatio')
-    .optional({ values: 'falsy' })
-    .isFloat({ min: 0.1, max: 10 })
-    .toFloat(),
-  body('seasonalDayFactor')
-    .optional({ values: 'falsy' })
-    .isFloat({ min: 0.1, max: 10 })
-    .toFloat(),
   body('rentalDurationDays')
     .optional({ values: 'falsy' })
     .isInt({ min: 1, max: 365 })
     .toInt(),
-  body('ownerAverageRating')
-    .optional({ values: 'falsy' })
-    .isFloat({ min: 0, max: 5 })
-    .toFloat(),
-  body().custom((value) => {
-    value.supplyDemandRatio ??= 1;
-    value.seasonalDayFactor ??= 1;
-    value.rentalDurationDays ??= 1;
-    value.ownerAverageRating ??= 0;
-    return true;
-  }),
 ];
 
 export const availabilityValidation = [

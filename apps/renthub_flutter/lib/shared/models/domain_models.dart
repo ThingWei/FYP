@@ -114,6 +114,10 @@ class Listing {
     required this.title,
     required this.category,
     required this.dailyPrice,
+    this.subcategory = '',
+    this.brand = '',
+    this.productModel = '',
+    this.itemAgeYears,
     this.condition = 'Good',
     this.ownerName = 'RentHub Owner',
     this.ownerTrustScore = 50,
@@ -147,6 +151,8 @@ class Listing {
     this.itemVerificationReasons = const [],
   });
   final String id, title, category, condition, ownerName, location;
+  final String subcategory, brand, productModel;
+  final double? itemAgeYears;
   final String description, status, ownerId, priceUnit;
   final double dailyPrice, rating, ownerTrustScore;
   final double securityDeposit, damageWaiverFee;
@@ -179,6 +185,10 @@ class Listing {
       id: j['publicId'] ?? j['id'] ?? j['_id'],
       title: j['title'],
       category: j['category'],
+      subcategory: j['subcategory'] as String? ?? '',
+      brand: j['brand'] as String? ?? '',
+      productModel: j['productModel'] as String? ?? '',
+      itemAgeYears: (j['itemAgeYears'] as num?)?.toDouble(),
       dailyPrice: (j['dailyPrice'] as num).toDouble(),
       condition: j['condition'] ?? 'Good',
       ownerName: j['ownerName'] ?? 'RentHub Owner',

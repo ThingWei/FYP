@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
 import { env } from '../config/env.js';
 import {
   assertAccountAccess,
@@ -26,7 +26,11 @@ export function registerSocket(io) {
       }
       const token = socket.handshake.auth?.token;
       if (!token) return next(new Error('Authentication required'));
-      if (env.authMode === 'local') {
+      const tokenAlgorithm = decodeProtectedHeader(token).alg;
+      if (
+        env.authMode === 'local' ||
+        (env.authMode === 'hybrid' && tokenAlgorithm === 'HS256')
+      ) {
         const identity = await localSessionService.authenticateAccessToken(token);
         await assertAccountAccess(identity);
         socket.data.userId = identity.authId;

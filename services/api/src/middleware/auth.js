@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { UserModel } from '../modules/user/user.model.js';
@@ -87,7 +87,11 @@ export async function authenticate(req, _res, next) {
     }
     const token = req.header('authorization')?.replace(/^Bearer /, '');
     if (!token) throw new AppError('Authentication required', 401, 'UNAUTHENTICATED');
-    if (env.authMode === 'local') {
+    const tokenAlgorithm = decodeProtectedHeader(token).alg;
+    if (
+      env.authMode === 'local' ||
+      (env.authMode === 'hybrid' && tokenAlgorithm === 'HS256')
+    ) {
       req.user = await localSessionService.authenticateAccessToken(token);
       await assertAccountAccess(req.user);
       return next();

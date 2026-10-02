@@ -124,7 +124,7 @@ test('local login accepts the stored password and rejects a wrong password', asy
   assert.equal(rejected.body.error.code, 'INVALID_CREDENTIALS');
 });
 
-test('local auth issues, rotates, and revokes bearer sessions', async () => {
+test('hybrid auth accepts, rotates, and revokes local bearer sessions', async () => {
   await UserModel.create({
     authId: 'u-local-session',
     email: 'local-session@renthub.my',
@@ -139,7 +139,7 @@ test('local auth issues, rotates, and revokes bearer sessions', async () => {
     localAccessTokenMinutes: env.localAccessTokenMinutes,
     localRefreshTokenDays: env.localRefreshTokenDays,
   };
-  env.authMode = 'local';
+  env.authMode = 'hybrid';
   env.localJwtSecret = 'test-local-jwt-secret-at-least-32-chars';
   env.localAccessTokenMinutes = 15;
   env.localRefreshTokenDays = 30;

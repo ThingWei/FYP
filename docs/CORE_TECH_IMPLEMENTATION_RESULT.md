@@ -1,6 +1,6 @@
 # RentHub core-technology implementation result
 
-Date: 2026-09-27
+Last updated: 2026-10-02
 
 This implementation follows the decisions and gaps recorded in
 `SCOPE_ALIGNMENT_AUDIT_RESULT.md`.
@@ -19,9 +19,18 @@ This implementation follows the decisions and gaps recorded in
   60% TF-IDF/cosine content score and 40% Surprise SVD score. Marketplace-wide
   MongoDB interactions support live IDs; a compatible artifact is preferred and
   the response names the rating/popularity fallback during cold start.
-- Pricing: the Owner form calls an XGBoost endpoint built from the seven specified
-  input groups and can accept the suggested daily price. Missing artifacts leave
-  the Owner's entered price unchanged.
+- Pricing: the Owner form sends category, specific category, brand, exact model,
+  condition, item age, Malaysian location and expected rental duration without
+  first requiring an Owner-entered price. Express matches exact local listings
+  and completed rentals, and blends the XGBoost result with dated Malaysian
+  market comparables when an exact product reference exists. Direct rental
+  evidence receives the highest weight. When a category such as books has no
+  rental evidence, resale asking prices can be converted through a documented
+  category rental factor at lower confidence. Financing and rent-to-own prices
+  are excluded. Comparable source URLs and observation dates remain in the
+  response for auditability. The UI shows the
+  suggested price, range, adjusted confidence and explanations, and the Owner
+  can accept or ignore it. Missing artifacts leave the entered price unchanged.
 - Blockchain: approving a physical booking deploys and signs a Solidity rental
   agreement on Ganache. Cancellation, return completion, dispute opening,
   resolution and dismissal update the contract and persist transaction hashes.
@@ -49,9 +58,11 @@ outside Docker Compose and can be enabled with `BLOCKCHAIN_MODE=ganache`.
 - Solidity: 4/4 Hardhat tests passed.
 - Ganache: deploy/sign, dispute/dismiss, dispute/resolve, complete, and cancel
   smoke lifecycle passed against the JSON-RPC node.
-- Python: not executed on this workstation because no Python or Docker runtime
-  is installed. Runtime outputs therefore remain unavailable until the documented
-  environment setup and training commands are completed.
+- Python: the FastAPI contract suite passes 4/4 in the Python 3.11 virtual
+  environment. The local XGBoost artifact returns real inference output and its
+  retained synthetic held-out metrics (MAE 4.37, RMSE 6.57, R² 0.985). These
+  metrics describe the deterministic synthetic FYP dataset, not production
+  marketplace accuracy.
 
 ## Lifecycle automation and health follow-up
 

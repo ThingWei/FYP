@@ -76,6 +76,10 @@ const listingSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true, minlength: 3, maxlength: 120 },
     description: { type: String, trim: true, maxlength: 3000, default: '' },
     category: { type: String, required: true, enum: LISTING_CATEGORIES, index: true },
+    subcategory: { type: String, trim: true, maxlength: 100, default: '' },
+    brand: { type: String, trim: true, maxlength: 100, default: '' },
+    productModel: { type: String, trim: true, maxlength: 120, default: '' },
+    itemAgeYears: { type: Number, min: 0, max: 100 },
     listingType: { type: String, required: true, enum: LISTING_TYPES, index: true },
     dailyPrice: { type: Number, required: true, min: 1, max: 1_000_000 },
     priceUnit: {
@@ -186,7 +190,14 @@ listingSchema.pre('validate', function validateListingType() {
 });
 
 listingSchema.index({ title: 'text', description: 'text', location: 'text' });
-listingSchema.index({ status: 1, category: 1, listingType: 1, dailyPrice: 1 });
+listingSchema.index({
+  status: 1,
+  category: 1,
+  subcategory: 1,
+  brand: 1,
+  productModel: 1,
+  dailyPrice: 1,
+});
 listingSchema.index({ status: 1, rating: -1, createdAt: -1 });
 
 export const ListingModel =

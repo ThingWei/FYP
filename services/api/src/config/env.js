@@ -118,18 +118,18 @@ export function validateEnv(config = env) {
   if (!config.mongoUri?.startsWith('mongodb')) {
     errors.push('MONGODB_URI must be a MongoDB connection string');
   }
-  if (!['mock', 'local', 'auth0'].includes(config.authMode)) {
-    errors.push('AUTH_MODE must be mock, local, or auth0');
+  if (!['mock', 'local', 'auth0', 'hybrid'].includes(config.authMode)) {
+    errors.push('AUTH_MODE must be mock, local, auth0, or hybrid');
   }
   if (config.nodeEnv === 'production' && config.authMode === 'mock') {
     errors.push('AUTH_MODE=mock is not allowed in production');
   }
-  if (config.authMode === 'auth0') {
+  if (['auth0', 'hybrid'].includes(config.authMode)) {
     if (!config.authIssuer) errors.push('AUTH0_ISSUER_BASE_URL is required');
     if (!config.authAudience) errors.push('AUTH0_AUDIENCE is required');
   }
   if (
-    config.authMode === 'local' &&
+    ['local', 'hybrid'].includes(config.authMode) &&
     (!config.localJwtSecret || config.localJwtSecret.length < 32)
   ) {
     errors.push('LOCAL_JWT_SECRET must contain at least 32 characters');

@@ -7,8 +7,11 @@ import '../../../shared/models/domain_models.dart';
 
 abstract interface class AuthRepository {
   bool get usesExternalProvider;
+  bool get supportsExternalProvider;
   Future<User?> restoreSession();
   Future<User> login(String email, String password, UserRole role);
+  Future<User> loginWithExternalProvider(UserRole role);
+  Future<void> cancelExternalLogin();
   Future<User> register(
     String name,
     String email,
@@ -29,6 +32,8 @@ class MockAuthRepository implements AuthRepository {
   @override
   bool get usesExternalProvider => false;
   @override
+  bool get supportsExternalProvider => false;
+  @override
   Future<User?> restoreSession() async => null;
   User _user(String email, UserRole role) => User(
         id: 'demo-user',
@@ -45,6 +50,13 @@ class MockAuthRepository implements AuthRepository {
     await Future<void>.delayed(const Duration(milliseconds: 300));
     return _user(e, r);
   }
+
+  @override
+  Future<User> loginWithExternalProvider(UserRole role) =>
+      throw UnsupportedError('External authentication is not configured.');
+
+  @override
+  Future<void> cancelExternalLogin() async {}
 
   @override
   Future<User> register(String n, String e, String p, UserRole r) async =>
@@ -80,6 +92,8 @@ class LiveAuthRepository implements AuthRepository {
 
   @override
   bool get usesExternalProvider => false;
+  @override
+  bool get supportsExternalProvider => false;
 
   Future<User> _acceptSession(
     Object? value, {
@@ -121,6 +135,8 @@ class LiveAuthRepository implements AuthRepository {
       return null;
     }
   }
+
+  Future<String?> refreshAccessToken() => _refreshAccessToken();
 
   Future<void> _remember(User user, {UserRole? selectedRole}) async {
     session.set(
@@ -174,6 +190,13 @@ class LiveAuthRepository implements AuthRepository {
       rethrow;
     }
   }
+
+  @override
+  Future<User> loginWithExternalProvider(UserRole role) =>
+      throw UnsupportedError('External authentication is not configured.');
+
+  @override
+  Future<void> cancelExternalLogin() async {}
 
   @override
   Future<User> register(
@@ -264,6 +287,8 @@ class Auth0AuthRepository implements AuthRepository {
 
   @override
   bool get usesExternalProvider => true;
+  @override
+  bool get supportsExternalProvider => true;
 
   Future<void> _remember(User user, {UserRole? selectedRole}) async {
     session.set(
@@ -327,6 +352,12 @@ class Auth0AuthRepository implements AuthRepository {
       _authenticate(role);
 
   @override
+  Future<User> loginWithExternalProvider(UserRole role) => _authenticate(role);
+
+  @override
+  Future<void> cancelExternalLogin() => gateway.cancelLogin();
+
+  @override
   Future<User> register(
     String name,
     String email,
@@ -368,4 +399,103 @@ class Auth0AuthRepository implements AuthRepository {
     String password,
   ) =>
       throw UnsupportedError('Auth0 completes password resets by email link.');
+}
+
+class HybridAuthRepository implements AuthRepository {
+  HybridAuthRepository(
+    this.local,
+    this.external,
+    this.session,
+    this.gateway,
+  ) {
+    session.configureTokenRefresh(
+      () => _externalSession ? gateway.token() : local.refreshAccessToken(),
+    );
+  }
+
+  final LiveAuthRepository local;
+  final Auth0AuthRepository external;
+  final SessionIdentity session;
+  final Auth0Gateway gateway;
+  bool _externalSession = false;
+
+  @override
+  bool get usesExternalProvider => _externalSession;
+
+  @override
+  bool get supportsExternalProvider => true;
+
+  @override
+  Future<User?> restoreSession() async {
+    _externalSession = false;
+    final localUser = await local.restoreSession();
+    if (localUser != null) return localUser;
+    _externalSession = true;
+    final externalUser = await external.restoreSession();
+    if (externalUser != null) return externalUser;
+    _externalSession = false;
+    return null;
+  }
+
+  @override
+  Future<User> login(String email, String password, UserRole role) async {
+    _externalSession = false;
+    return local.login(email, password, role);
+  }
+
+  @override
+  Future<User> loginWithExternalProvider(UserRole role) async {
+    _externalSession = true;
+    try {
+      return await external.loginWithExternalProvider(role);
+    } catch (_) {
+      _externalSession = false;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> cancelExternalLogin() => external.cancelExternalLogin();
+
+  @override
+  Future<User> register(
+    String name,
+    String email,
+    String password,
+    UserRole role,
+  ) async {
+    _externalSession = false;
+    return local.register(name, email, password, role);
+  }
+
+  @override
+  Future<void> logout() async {
+    if (_externalSession) {
+      await external.logout();
+    } else {
+      await local.logout();
+    }
+    _externalSession = false;
+  }
+
+  @override
+  Future<void> requestPasswordReset(String email) =>
+      local.requestPasswordReset(email);
+
+  @override
+  Future<void> confirmPasswordReset(
+    String email,
+    String code,
+    String password,
+  ) =>
+      local.confirmPasswordReset(email, code, password);
+
+  @override
+  void selectRole(UserRole role) {
+    if (_externalSession) {
+      external.selectRole(role);
+    } else {
+      local.selectRole(role);
+    }
+  }
 }

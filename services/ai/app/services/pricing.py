@@ -7,7 +7,8 @@ from ..schemas import PriceRecommendationRequest, PriceRecommendationResponse
 
 @lru_cache(maxsize=1)
 def _artifact():
-    path = Path(os.getenv('PRICE_MODEL_PATH', 'models/price_xgboost.joblib'))
+    default_path = Path(__file__).resolve().parents[2] / 'models' / 'price_xgboost.joblib'
+    path = Path(os.getenv('PRICE_MODEL_PATH', str(default_path)))
     if not path.is_file():
         return None, None, path
     import joblib
@@ -57,6 +58,11 @@ class XGBoostPriceService:
             confidence=round(confidence, 4),
             adapter='xgboost-v1',
             model_version=path.name,
+            evaluation={
+                key: metrics[key]
+                for key in ('dataset', 'rows', 'testRows', 'mae', 'rmse', 'r2', 'seed')
+                if key in metrics
+            },
             explanation=[
                 f"Compared with active {row['category']} listings in {row['state']}",
                 f"Historical completed-rental average: RM {request.historical_completed_average:.2f}",

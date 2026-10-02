@@ -517,19 +517,112 @@ class _LiveListingFormState extends State<LiveListingForm> {
   late final duration = TextEditingController(
     text: widget.listing?.serviceDurationMinutes?.toString() ?? '60',
   );
+  late final brand = TextEditingController(text: widget.listing?.brand);
+  late final productModel =
+      TextEditingController(text: widget.listing?.productModel);
+  late final itemAge = TextEditingController(
+    text: widget.listing?.itemAgeYears?.toString() ?? '1',
+  );
+  final expectedRentalDays = TextEditingController(text: '1');
   String category = RentHubCategories.devices;
+  String subcategory = 'Smartphones';
   String condition = 'Excellent';
   bool saving = false;
   bool suggestingPrice = false;
   Map<String, dynamic>? priceRecommendation;
   late final List<String> images;
 
+  static const subcategories = <String, List<String>>{
+    RentHubCategories.devices: [
+      'Smartphones',
+      'Cameras',
+      'Computers',
+      'Audio',
+      'Gaming',
+      'Other devices',
+    ],
+    RentHubCategories.vehicles: [
+      'Cars',
+      'Motorcycles',
+      'Bicycles',
+      'Other vehicles',
+    ],
+    RentHubCategories.equipment: [
+      'Event equipment',
+      'Tools',
+      'Sports equipment',
+      'Other equipment',
+    ],
+    RentHubCategories.clothing: [
+      'Formal wear',
+      'Costumes',
+      'Traditional wear',
+      'Other clothing',
+    ],
+    RentHubCategories.books: [
+      'Textbooks',
+      'Reference books',
+      'Fiction',
+      'Other books',
+    ],
+  };
+
+  void _clearPriceRecommendation() {
+    if (priceRecommendation != null) {
+      setState(() => priceRecommendation = null);
+    }
+  }
+
+  String _listingState() {
+    const states = [
+      'Kuala Lumpur',
+      'Selangor',
+      'Johor',
+      'Penang',
+      'Perak',
+      'Negeri Sembilan',
+      'Melaka',
+      'Pahang',
+      'Kedah',
+      'Kelantan',
+      'Terengganu',
+      'Perlis',
+      'Sabah',
+      'Sarawak',
+      'Putrajaya',
+      'Labuan',
+    ];
+    final entered = location.text.toLowerCase();
+    return states.firstWhere(
+      (state) => entered.contains(state.toLowerCase()),
+      orElse: () => 'Kuala Lumpur',
+    );
+  }
+
   Future<void> _suggestPrice() async {
-    final currentPrice = double.tryParse(price.text);
-    if (currentPrice == null || currentPrice <= 0) {
+    final age = double.tryParse(itemAge.text);
+    final rentalDays = int.tryParse(expectedRentalDays.text);
+    if (age == null || age < 0 || age > 100) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid item age from 0 to 100.')),
+      );
+      return;
+    }
+    if (rentalDays == null || rentalDays < 1 || rentalDays > 365) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Enter a current comparison price first.')),
+          content: Text('Expected rental duration must be 1 to 365 days.'),
+        ),
+      );
+      return;
+    }
+    if (brand.text.trim().isEmpty || productModel.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Enter the maker or author and the exact product or edition for a comparable price.',
+          ),
+        ),
       );
       return;
     }
@@ -538,11 +631,13 @@ class _LiveListingFormState extends State<LiveListingForm> {
       final suggestion =
           await context.read<LiveRentHubController>().getPriceRecommendation(
                 category: category,
+                subcategory: subcategory,
                 condition: condition,
-                state: location.text.toLowerCase().contains('selangor')
-                    ? 'Selangor'
-                    : 'Kuala Lumpur',
-                fallbackComparablePrice: currentPrice,
+                brand: brand.text,
+                productModel: productModel.text,
+                itemAgeYears: age,
+                rentalDurationDays: rentalDays,
+                state: _listingState(),
               );
       if (mounted) setState(() => priceRecommendation = suggestion);
     } catch (exception) {
@@ -593,6 +688,12 @@ class _LiveListingFormState extends State<LiveListingForm> {
       category = RentHubCategories.services;
     } else if (widget.listing != null) {
       category = widget.listing!.category;
+      final savedSubcategory = widget.listing!.subcategory;
+      if (subcategories[category]?.contains(savedSubcategory) ?? false) {
+        subcategory = savedSubcategory;
+      } else {
+        subcategory = subcategories[category]!.first;
+      }
       condition = widget.listing!.condition;
     }
   }
@@ -605,6 +706,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
     location.dispose();
     deposit.dispose();
     duration.dispose();
+    brand.dispose();
+    productModel.dispose();
+    itemAge.dispose();
+    expectedRentalDays.dispose();
     super.dispose();
   }
 
@@ -626,9 +731,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       'listingType': widget.isService ? 'service' : 'physical',
       'dailyPrice': double.parse(price.text),
       'location': location.text.trim(),
-      'state': location.text.toLowerCase().contains('selangor')
-          ? 'Selangor'
-          : 'Kuala Lumpur',
+      'state': _listingState(),
       if (images.isNotEmpty) 'images': images,
       if (widget.isService) ...{
         'priceUnit': 'package',
@@ -639,6 +742,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
           'inclusions': ['Service package as described'],
         },
       } else ...{
+        'subcategory': subcategory,
+        'brand': brand.text.trim(),
+        'productModel': productModel.text.trim(),
+        'itemAgeYears': double.parse(itemAge.text),
         'priceUnit': 'day',
         'condition': condition,
         'securityDeposit': double.parse(deposit.text),
@@ -763,11 +870,127 @@ class _LiveListingFormState extends State<LiveListingForm> {
                         .map((value) =>
                             DropdownMenuItem(value: value, child: Text(value)))
                         .toList(),
-                    onChanged: (value) => setState(() => category = value!),
+                    onChanged: (value) => setState(() {
+                      category = value!;
+                      subcategory = subcategories[category]!.first;
+                      priceRecommendation = null;
+                    }),
                   ),
                 if (!widget.isService) const SizedBox(height: 12),
+                if (!widget.isService) ...[
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(category),
+                    initialValue: subcategory,
+                    decoration: const InputDecoration(
+                      labelText: 'Specific category',
+                    ),
+                    items: subcategories[category]!
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(() {
+                      subcategory = value!;
+                      priceRecommendation = null;
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: condition,
+                    decoration: const InputDecoration(labelText: 'Condition'),
+                    items: const [
+                      'Fair',
+                      'Good',
+                      'Very good',
+                      'Excellent',
+                      'Like New'
+                    ]
+                        .map((value) =>
+                            DropdownMenuItem(value: value, child: Text(value)))
+                        .toList(),
+                    onChanged: (value) => setState(() {
+                      condition = value!;
+                      priceRecommendation = null;
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: brand,
+                    onChanged: (_) => _clearPriceRecommendation(),
+                    decoration: InputDecoration(
+                      labelText: category == RentHubCategories.books
+                          ? 'Author / publisher'
+                          : 'Brand / maker',
+                      hintText: category == RentHubCategories.books
+                          ? 'For example, J.R.R. Tolkien'
+                          : 'For example, Apple, Sony or Canon',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: productModel,
+                    onChanged: (_) => _clearPriceRecommendation(),
+                    decoration: InputDecoration(
+                      labelText: category == RentHubCategories.books
+                          ? 'Exact title / edition'
+                          : 'Exact product / model',
+                      hintText: category == RentHubCategories.books
+                          ? 'For example, The Lord of the Rings Trilogy'
+                          : 'For example, iPhone 15 Pro Max 256GB',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: itemAge,
+                          onChanged: (_) => _clearPriceRecommendation(),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Item age (years)',
+                          ),
+                          validator: (value) {
+                            final parsed = double.tryParse(value ?? '');
+                            return parsed != null &&
+                                    parsed >= 0 &&
+                                    parsed <= 100
+                                ? null
+                                : 'Use 0 to 100';
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          controller: expectedRentalDays,
+                          onChanged: (_) => _clearPriceRecommendation(),
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Typical rental days',
+                          ),
+                          validator: (value) {
+                            final parsed = int.tryParse(value ?? '');
+                            return parsed != null &&
+                                    parsed >= 1 &&
+                                    parsed <= 365
+                                ? null
+                                : 'Use 1 to 365';
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 TextFormField(
                   controller: price,
+                  onChanged: (_) => _clearPriceRecommendation(),
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
@@ -807,6 +1030,53 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   Text(
                                     'Range ${formatMoney((priceRecommendation!['lower_bound'] as num).toDouble())}–${formatMoney((priceRecommendation!['upper_bound'] as num).toDouble())}',
                                   ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Model confidence ${(((priceRecommendation!['confidence'] as num?)?.toDouble() ?? 0) * 100).round()}%',
+                                  ),
+                                  Text(
+                                    'Comparable average ${formatMoney((priceRecommendation!['similar_listing_average'] as num?)?.toDouble() ?? 0)} • completed-rental daily average ${formatMoney((priceRecommendation!['historical_average'] as num?)?.toDouble() ?? 0)}',
+                                    style: const TextStyle(
+                                      color: AppColors.secondaryText,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${(priceRecommendation!['market_context'] as Map?)?['activeComparableCount'] ?? 0} active comparable(s) • ${(priceRecommendation!['market_context'] as Map?)?['completedRentalCount'] ?? 0} recent completed rental(s)',
+                                    style: const TextStyle(
+                                      color: AppColors.secondaryText,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  for (final reason
+                                      in (priceRecommendation!['explanation']
+                                                  as List? ??
+                                              const [])
+                                          .cast<String>())
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(
+                                            Icons.check_circle_outline,
+                                            size: 16,
+                                            color: AppColors.info,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(child: Text(reason)),
+                                        ],
+                                      ),
+                                    ),
+                                  const Text(
+                                    'Advisory estimate using matching, dated market evidence when available. Resale evidence is converted to a daily rental anchor and weighted below direct rental evidence. You remain in control of the final price.',
+                                    style: TextStyle(
+                                      color: AppColors.secondaryText,
+                                      fontSize: 12,
+                                    ),
+                                  ),
                                   TextButton(
                                     onPressed: () => setState(() {
                                       price.text = (priceRecommendation![
@@ -827,6 +1097,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: location,
+                  onChanged: (_) => _clearPriceRecommendation(),
                   decoration: const InputDecoration(labelText: 'Location'),
                   validator: (value) => (value?.trim().length ?? 0) >= 2
                       ? null
@@ -847,22 +1118,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
                     },
                   )
                 else ...[
-                  DropdownButtonFormField<String>(
-                    initialValue: condition,
-                    decoration: const InputDecoration(labelText: 'Condition'),
-                    items: const [
-                      'Fair',
-                      'Good',
-                      'Very good',
-                      'Excellent',
-                      'Like New'
-                    ]
-                        .map((value) =>
-                            DropdownMenuItem(value: value, child: Text(value)))
-                        .toList(),
-                    onChanged: (value) => setState(() => condition = value!),
-                  ),
-                  const SizedBox(height: 12),
                   TextFormField(
                     controller: deposit,
                     keyboardType:

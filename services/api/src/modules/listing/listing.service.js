@@ -12,6 +12,7 @@ import {
 } from './listing.model.js';
 import { listingRepository } from './listing.repository.js';
 import { uploadService } from '../upload/upload.service.js';
+import { externalMarketComparables } from './marketPriceComparables.js';
 
 function pageOptions(query) {
   return {
@@ -24,6 +25,28 @@ function escapedPattern(value) {
   return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 }
 
+function exactPattern(value) {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
+const categoryPriceFallback = {
+  Clothing: 28,
+  Vehicles: 165,
+  Devices: 75,
+  Books: 12,
+  Equipment: 95,
+};
+
+function clamp(value, minimum, maximum) {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function rentalDays(booking) {
+  const milliseconds = new Date(booking.endDate) - new Date(booking.startDate);
+  return Math.max(1, Math.floor(milliseconds / 86_400_000) + 1);
+}
+
 function listingInput(input) {
   const listingType =
     input.listingType ?? (input.category === 'Services' ? 'service' : 'physical');
@@ -31,6 +54,10 @@ function listingInput(input) {
     ...(input.title !== undefined && { title: input.title }),
     ...(input.description !== undefined && { description: input.description }),
     ...(input.category !== undefined && { category: input.category }),
+    ...(input.subcategory !== undefined && { subcategory: input.subcategory }),
+    ...(input.brand !== undefined && { brand: input.brand }),
+    ...(input.productModel !== undefined && { productModel: input.productModel }),
+    ...(input.itemAgeYears !== undefined && { itemAgeYears: input.itemAgeYears }),
     listingType,
     ...(input.dailyPrice !== undefined && { dailyPrice: input.dailyPrice }),
     ...(input.priceUnit !== undefined && { priceUnit: input.priceUnit }),
@@ -160,34 +187,174 @@ export const listingService = {
   async recommendPrice(input, identity) {
     const owner = await requireOwner(identity);
     const profile = input.itemProfile;
-    const similarFilter = {
+    const broadSimilarFilter = {
       status: 'active',
       category: profile.category,
       listingType: 'physical',
       ...(profile.state && { state: profile.state }),
     };
-    const [similar, completed] = await Promise.all([
+    const exactSimilarFilter = {
+      ...broadSimilarFilter,
+      ...(profile.subcategory && { subcategory: exactPattern(profile.subcategory) }),
+      ...(profile.brand && { brand: exactPattern(profile.brand) }),
+      ...(profile.product_model && { productModel: exactPattern(profile.product_model) }),
+      ...(profile.condition && { condition: profile.condition }),
+    };
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const [similar, completedBookings, ownerRating] = await Promise.all([
       ListingModel.aggregate([
-        { $match: similarFilter },
+        { $match: exactSimilarFilter },
         { $group: { _id: null, average: { $avg: '$dailyPrice' }, count: { $sum: 1 } } },
       ]),
-      BookingModel.aggregate([
-        { $match: { listingType: 'physical', status: 'completed' } },
-        { $group: { _id: null, average: { $avg: '$pricing.baseAmount' }, count: { $sum: 1 } } },
+      BookingModel.find({
+        listingType: 'physical',
+        status: 'completed',
+        createdAt: { $gte: ninetyDaysAgo },
+      })
+        .select('listingId startDate endDate pricing.baseAmount')
+        .limit(5000)
+        .lean(),
+      ReviewModel.aggregate([
+        {
+          $match: {
+            subjectId: owner.authId,
+            subjectRole: 'owner',
+            status: 'published',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            average: { $avg: '$overallRating' },
+            count: { $sum: 1 },
+          },
+        },
       ]),
     ]);
-    const similarAverage = similar[0]?.average ?? input.fallbackComparablePrice;
-    const historicalAverage = completed[0]?.average ?? input.fallbackComparablePrice;
-    return aiClient.recommendPrice({
+    const completedListingIds = [
+      ...new Set(completedBookings.map((booking) => booking.listingId)),
+    ];
+    const completedListings = await ListingModel.find({
+      publicId: { $in: completedListingIds },
+      category: profile.category,
+      listingType: 'physical',
+      ...(profile.state && { state: profile.state }),
+      ...(profile.subcategory && { subcategory: exactPattern(profile.subcategory) }),
+      ...(profile.brand && { brand: exactPattern(profile.brand) }),
+      ...(profile.product_model && { productModel: exactPattern(profile.product_model) }),
+      ...(profile.condition && { condition: profile.condition }),
+    })
+      .select('publicId')
+      .lean();
+    const eligibleIds = new Set(
+      completedListings.map((listing) => listing.publicId),
+    );
+    const historicalDailyPrices = completedBookings
+      .filter((booking) => eligibleIds.has(booking.listingId))
+      .map((booking) => booking.pricing.baseAmount / rentalDays(booking));
+    const fallback = categoryPriceFallback[profile.category] ?? 50;
+    const similarAverage = similar[0]?.average ?? fallback;
+    const historicalAverage = historicalDailyPrices.length
+      ? historicalDailyPrices.reduce((sum, value) => sum + value, 0) /
+        historicalDailyPrices.length
+      : fallback;
+    const supplyCount = similar[0]?.count ?? 0;
+    const demandCount = historicalDailyPrices.length;
+    const external = externalMarketComparables(
+      profile,
+      input.rentalDurationDays ?? 1,
+    );
+    const supplyDemandRatio = clamp(
+      0.85 + demandCount / Math.max(supplyCount * 8, 8),
+      0.75,
+      1.45,
+    );
+    const recommendation = await aiClient.recommendPrice({
       item_profile: profile,
       similar_active_average: similarAverage,
       historical_completed_average: historicalAverage,
-      supply_demand_ratio: input.supplyDemandRatio ?? 1,
-      seasonal_day_factor: input.seasonalDayFactor ?? 1,
+      supply_demand_ratio: supplyDemandRatio,
+      seasonal_day_factor: 1,
       rental_duration_days: input.rentalDurationDays ?? 1,
       owner_trust_score: owner.trustScore,
-      owner_average_rating: input.ownerAverageRating ?? 0,
+      owner_average_rating: ownerRating[0]?.average ?? 0,
     });
+    if (recommendation.available && external.adjustedAverage !== null) {
+      const modelSuggestion = Number(recommendation.suggested_daily_price);
+      const hasDirectRentalEvidence = external.directRentalCount > 0;
+      const externalWeight = hasDirectRentalEvidence
+        ? external.count >= 2
+          ? 0.75
+          : 0.65
+        : external.count >= 2
+          ? 0.5
+          : 0.4;
+      const blended =
+        external.adjustedAverage * externalWeight +
+        modelSuggestion * (1 - externalWeight);
+      const spread = Math.max(
+        blended * (external.count >= 2 ? 0.1 : 0.14),
+        Number(recommendation.upper_bound ?? blended) - modelSuggestion,
+      );
+      recommendation.suggested_daily_price = Math.round(blended * 100) / 100;
+      recommendation.lower_bound = Math.round(Math.max(1, blended - spread) * 100) / 100;
+      recommendation.upper_bound = Math.round((blended + spread) * 100) / 100;
+      recommendation.adapter = `${recommendation.adapter}+market-comparables-v1`;
+      recommendation.explanation = [
+        ...(hasDirectRentalEvidence
+          ? [
+              `Matched ${external.directRentalCount} dated Malaysian short-term rental comparable(s) for ${profile.brand} ${profile.product_model}`,
+            ]
+          : [
+              `No exact rental listing was available; ${external.resaleDerivedCount} dated Malaysian resale comparable(s) were converted to a daily rental anchor`,
+            ]),
+        `Category, condition, item age and ${input.rentalDurationDays ?? 1}-day duration were applied to the market anchor`,
+        ...(recommendation.explanation ?? []),
+      ];
+    }
+    const localCoverage =
+      (supplyCount > 0 ? 0.5 : 0) + (demandCount > 0 ? 0.5 : 0);
+    const externalCoverage = external.directRentalCount
+      ? external.count >= 2
+        ? 1
+        : 0.5
+      : external.resaleDerivedCount >= 2
+        ? 0.5
+        : external.resaleDerivedCount === 1
+          ? 0.25
+          : 0;
+    const marketCoverage = Math.max(localCoverage, externalCoverage);
+    const confidence = recommendation.available
+      ? Math.round(
+          recommendation.confidence * (0.7 + 0.3 * marketCoverage) * 10_000,
+        ) / 10_000
+      : recommendation.confidence;
+    return {
+      ...recommendation,
+      confidence,
+      explanation: [
+        ...(supplyCount === 0
+          ? ['No active local comparable was available; a category baseline was used']
+          : []),
+        ...(demandCount === 0
+          ? ['No recent matching completed rental was available; a category baseline was used']
+          : []),
+        ...(recommendation.explanation ?? []),
+      ],
+      market_context: {
+        activeComparableCount: supplyCount,
+        completedRentalCount: demandCount,
+        supplyDemandRatio,
+        ownerReviewCount: ownerRating[0]?.count ?? 0,
+        externalComparableCount: external.count,
+        externalComparableAverage: external.adjustedAverage,
+        directRentalComparableCount: external.directRentalCount ?? 0,
+        resaleDerivedComparableCount: external.resaleDerivedCount ?? 0,
+        externalEvidenceTypes: external.evidenceTypes ?? [],
+        externalSources: external.sources,
+        coverage: marketCoverage,
+      },
+    };
   },
 
   async list(query) {

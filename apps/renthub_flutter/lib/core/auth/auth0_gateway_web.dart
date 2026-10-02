@@ -85,6 +85,10 @@ class Auth0Gateway {
     return result.toDart;
   }
 
+  Future<void> cancelLogin() async {
+    // Auth0's popup SDK detects a closed popup and rejects its login future.
+  }
+
   Future<void> requestPasswordReset(String email) async {
     final response = await http.post(
       Uri.https(domain, '/dbconnections/change_password'),
@@ -113,7 +117,7 @@ class Auth0Gateway {
         .callMethod<JSPromise<JSAny?>>(
           'logout'.toJS,
           {
-            'logoutParams': {'returnTo': callbackUrl},
+            'openUrl': false,
           }.jsify(),
         )
         .toDart;
