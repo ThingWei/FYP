@@ -75,6 +75,25 @@ paths:
     post:
       security: [{ bearerAuth: [] }]
       responses: { '201': { description: Booking created } }
+  /messages/threads/{threadId}/messages:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: threadId, required: true, schema: { type: string } }
+      responses: { '200': { description: Conversation messages, including protected image metadata } }
+    post:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: threadId, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendMessageRequest' }
+      responses:
+        '201': { description: Text or protected-image message created and emitted through Socket.IO }
+        '400': { description: Attachment is invalid, unowned, or has the wrong purpose }
+        '403': { description: Sender is blocked or is not a conversation participant }
   /messages/push/devices:
     get:
       security: [{ bearerAuth: [] }]
@@ -217,6 +236,16 @@ components:
         deviceName: { type: string, maxLength: 120 }
         platform: { type: string, enum: [android, ios, macos, web] }
         token: { type: string, minLength: 20, maxLength: 4096 }
+    SendMessageRequest:
+      type: object
+      additionalProperties: false
+      description: At least one of text or attachmentRef is required.
+      properties:
+        text: { type: string, maxLength: 2000 }
+        attachmentRef:
+          type: string
+          pattern: '^upload://UPL-[A-Z0-9]+$'
+          description: Private upload created with purpose message_image.
     AccountDeactivationRequest:
       type: object
       required: [confirmation, reason]

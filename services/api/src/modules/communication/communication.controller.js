@@ -48,7 +48,7 @@ export const communicationController = {
       res,
       await communicationService.sendMessage(
         req.params.threadId,
-        matchedData(req, { locations: ['body'] }).text,
+        matchedData(req, { locations: ['body'] }),
         req.user,
       ),
     ),

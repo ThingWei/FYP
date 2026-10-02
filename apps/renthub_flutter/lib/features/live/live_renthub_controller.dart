@@ -984,18 +984,38 @@ class LiveRentHubController extends ChangeNotifier {
         Message.fromJson,
       );
 
-  Future<Message> sendMessage(String threadId, String text) =>
+  Future<Message> sendMessage(
+    String threadId,
+    String text, {
+    String? attachmentRef,
+  }) =>
       _perform(() async {
         final message = Message.fromJson(
           await api.request(
             'POST',
             '/messages/threads/$threadId/messages',
-            body: {'text': text},
+            body: {
+              if (text.trim().isNotEmpty) 'text': text.trim(),
+              if (attachmentRef != null) 'attachmentRef': attachmentRef,
+            },
           ) as Map<String, dynamic>,
         );
         await refreshConversations();
         return message;
       });
+
+  Future<Message?> pickAndSendMessageImage(String threadId) async {
+    final reference = await pickAndUpload(purpose: 'message_image');
+    if (reference == null) return null;
+    try {
+      return await sendMessage(threadId, '', attachmentRef: reference);
+    } catch (_) {
+      try {
+        await deleteUpload(reference);
+      } catch (_) {}
+      rethrow;
+    }
+  }
 
   Future<void> markThreadRead(String threadId) async {
     await api.request('POST', '/messages/threads/$threadId/read');

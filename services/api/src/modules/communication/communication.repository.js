@@ -40,7 +40,7 @@ export const communicationRepository = {
       { publicId: threadId },
       {
         $set: {
-          lastMessageText: message.text,
+          lastMessageText: message.text || '[Image]',
           lastMessageSenderId: message.senderId,
           lastMessageAt: message.createdAt,
         },

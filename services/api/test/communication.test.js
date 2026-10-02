@@ -1,4 +1,4 @@
-import test, { after, before, beforeEach } from 'node:test';
+import test, { after, afterEach, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
@@ -15,8 +15,11 @@ import { NotificationModel } from '../src/modules/communication/notification.mod
 import { DeviceRegistrationModel } from '../src/modules/communication/deviceRegistration.model.js';
 import { ThreadModel } from '../src/modules/communication/thread.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
+import { UploadAssetModel } from '../src/modules/upload/upload.model.js';
+import { storageAdapter } from '../src/integrations/storageAdapter.js';
 
 let mongodb;
+const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
 
 const identity = (id, roles, name) => ({
   'x-user-id': id,
@@ -79,6 +82,7 @@ before(async () => {
     MessageReportModel.init(),
     NotificationModel.init(),
     DeviceRegistrationModel.init(),
+    UploadAssetModel.init(),
   ]);
 });
 
@@ -92,7 +96,16 @@ beforeEach(async () => {
     MessageReportModel.deleteMany({}),
     NotificationModel.deleteMany({}),
     DeviceRegistrationModel.deleteMany({}),
+    UploadAssetModel.deleteMany({}),
   ]);
+});
+
+afterEach(async () => {
+  const assets = await UploadAssetModel.find({}).select('storagePath').lean();
+  await Promise.all(
+    assets.map((asset) => storageAdapter.delete(asset.storagePath)),
+  );
+  await UploadAssetModel.deleteMany({});
 });
 
 after(async () => {
@@ -240,6 +253,41 @@ test('sends, reads, reports and blocks messages with participant safeguards', as
   assert.equal(blocked.status, 403);
   assert.equal(blocked.body.error.code, 'COMMUNICATION_BLOCKED');
   assert.equal(await MessageModel.countDocuments({ threadId }), 1);
+});
+
+test('sends a protected image that only conversation participants can read', async () => {
+  const { threadId } = await setupConversation();
+  const uploaded = await request(app)
+    .post('/api/v1/uploads')
+    .set(owner)
+    .field('purpose', 'message_image')
+    .attach('file', png, { filename: 'camera-condition.png', contentType: 'image/png' });
+  assert.equal(uploaded.status, 201);
+
+  const sent = await request(app)
+    .post(`/api/v1/messages/threads/${threadId}/messages`)
+    .set(owner)
+    .send({ attachmentRef: uploaded.body.data.reference });
+  assert.equal(sent.status, 201);
+  assert.equal(sent.body.data.text, '');
+  assert.equal(sent.body.data.attachment.kind, 'image');
+  assert.equal(sent.body.data.attachment.contentType, 'image/png');
+
+  const contentUrl = sent.body.data.attachment.contentUrl;
+  const participantRead = await request(app).get(contentUrl).set(renter);
+  const outsiderRead = await request(app).get(contentUrl).set(outsider);
+  assert.equal(participantRead.status, 200);
+  assert.deepEqual(participantRead.body, png);
+  assert.equal(outsiderRead.status, 403);
+
+  const conversation = await request(app).get('/api/v1/messages/threads').set(renter);
+  assert.equal(conversation.body.data[0].lastMessageText, '[Image]');
+
+  const deleteAttached = await request(app)
+    .delete(`/api/v1/uploads/${uploaded.body.data.id}`)
+    .set(owner);
+  assert.equal(deleteAttached.status, 409);
+  assert.equal(deleteAttached.body.error.code, 'UPLOAD_IN_USE');
 });
 
 test('supports notification filters, read state, individual removal and clear all', async () => {

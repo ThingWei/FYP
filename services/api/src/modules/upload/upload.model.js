@@ -8,6 +8,7 @@ export const UPLOAD_PURPOSES = [
   'return_evidence',
   'dispute_evidence',
   'claim_evidence',
+  'message_image',
 ];
 
 const uploadAssetSchema = new mongoose.Schema(

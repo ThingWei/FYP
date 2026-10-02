@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -184,6 +185,25 @@ class _LiveChatPageState extends State<LiveChatPage> {
     }
   }
 
+  Future<void> _sendImage() async {
+    if (sending) return;
+    setState(() => sending = true);
+    try {
+      final message = await context
+          .read<LiveRentHubController>()
+          .pickAndSendMessageImage(widget.conversation.id);
+      if (message != null) _addMessage(message);
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(exception.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
   Future<void> _report(Message message) async {
     var reason = 'inappropriate';
     final details = TextEditingController();
@@ -330,7 +350,21 @@ class _LiveChatPageState extends State<LiveChatPage> {
                                           Border.all(color: AppColors.border),
                                       borderRadius: BorderRadius.circular(14),
                                     ),
-                                    child: Text(message.text),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        if (message.attachment?.kind == 'image')
+                                          _ProtectedMessageImage(
+                                            attachment: message.attachment!,
+                                          ),
+                                        if (message.attachment != null &&
+                                            message.text.isNotEmpty)
+                                          const SizedBox(height: 8),
+                                        if (message.text.isNotEmpty)
+                                          Text(message.text),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               );
@@ -350,6 +384,11 @@ class _LiveChatPageState extends State<LiveChatPage> {
                 decoration: InputDecoration(
                   hintText: 'Write a message',
                   counterText: '',
+                  prefixIcon: IconButton(
+                    tooltip: 'Send image',
+                    onPressed: sending ? null : _sendImage,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                  ),
                   suffixIcon: IconButton(
                     tooltip: 'Send message',
                     onPressed: sending ? null : _send,
@@ -368,6 +407,93 @@ class _LiveChatPageState extends State<LiveChatPage> {
       ),
     );
   }
+}
+
+class _ProtectedMessageImage extends StatefulWidget {
+  const _ProtectedMessageImage({required this.attachment});
+
+  final MessageAttachment attachment;
+
+  @override
+  State<_ProtectedMessageImage> createState() => _ProtectedMessageImageState();
+}
+
+class _ProtectedMessageImageState extends State<_ProtectedMessageImage> {
+  late Future<Uint8List> imageBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    imageBytes = context
+        .read<LiveRentHubController>()
+        .api
+        .downloadBytes(widget.attachment.url);
+  }
+
+  void _open(Uint8List bytes) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4,
+          child: Image.memory(
+            bytes,
+            semanticLabel: widget.attachment.filename,
+            fit: BoxFit.contain,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Uint8List>(
+        future: imageBytes,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const SizedBox(
+              width: 220,
+              height: 120,
+              child: Center(
+                child: Text(
+                  'Image unavailable',
+                  style: TextStyle(color: AppColors.secondaryText),
+                ),
+              ),
+            );
+          }
+          final bytes = snapshot.data;
+          if (bytes == null) {
+            return const SizedBox(
+              width: 220,
+              height: 120,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          return Semantics(
+            button: true,
+            label: 'Open image ${widget.attachment.filename}',
+            child: InkWell(
+              onTap: () => _open(bytes),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 260,
+                    maxHeight: 260,
+                  ),
+                  child: Image.memory(
+                    bytes,
+                    semanticLabel: widget.attachment.filename,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
 }
 
 class LiveNotificationsPage extends StatefulWidget {

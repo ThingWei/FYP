@@ -21,11 +21,23 @@ export const threadMessagesValidation = [threadId, ...paginationValidation];
 export const sendMessageValidation = [
   threadId,
   body().custom((value) => {
-    const unknown = Object.keys(value).filter((field) => field !== 'text');
+    const allowed = new Set(['text', 'attachmentRef']);
+    const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
   }),
-  body('text').trim().isLength({ min: 1, max: 2000 }),
+  body('text').optional().trim().isLength({ max: 2000 }),
+  body('attachmentRef')
+    .optional()
+    .trim()
+    .matches(/^upload:\/\/UPL-[A-Z0-9]+$/i)
+    .withMessage('Invalid message image reference'),
+  body().custom((value) => {
+    if (!value.text?.trim() && !value.attachmentRef) {
+      throw new Error('A message requires text or an image');
+    }
+    return true;
+  }),
 ];
 
 export const markReadValidation = [threadId];

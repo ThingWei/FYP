@@ -392,6 +392,28 @@ class Transaction {
       );
 }
 
+class MessageAttachment {
+  const MessageAttachment({
+    required this.kind,
+    required this.url,
+    required this.contentType,
+    required this.filename,
+    required this.size,
+  });
+
+  final String kind, url, contentType, filename;
+  final int size;
+
+  factory MessageAttachment.fromJson(Map<String, dynamic> json) =>
+      MessageAttachment(
+        kind: json['kind'] as String,
+        url: json['contentUrl'] as String,
+        contentType: json['contentType'] as String,
+        filename: json['filename'] as String,
+        size: (json['size'] as num).toInt(),
+      );
+}
+
 class Message {
   const Message(
     this.id,
@@ -401,9 +423,11 @@ class Message {
     this.recipientId = '',
     this.readAt,
     this.createdAt,
+    this.attachment,
   });
   final String id, threadId, text, senderId, recipientId;
   final DateTime? readAt, createdAt;
+  final MessageAttachment? attachment;
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
         (json['publicId'] ?? json['id'] ?? json['_id']) as String,
@@ -417,6 +441,11 @@ class Message {
         createdAt: json['createdAt'] == null
             ? null
             : DateTime.parse(json['createdAt'] as String),
+        attachment: json['attachment'] == null
+            ? null
+            : MessageAttachment.fromJson(
+                Map<String, dynamic>.from(json['attachment'] as Map),
+              ),
       );
 }
 

@@ -7,6 +7,7 @@ import { DisputeModel } from '../dispute/dispute.model.js';
 import { RentalModel } from '../rental/rental.model.js';
 import { ListingModel } from '../listing/listing.model.js';
 import { UserModel } from '../user/user.model.js';
+import { MessageModel } from '../communication/message.model.js';
 import { UploadAssetModel, UPLOAD_PURPOSES } from './upload.model.js';
 
 const PUBLIC_PURPOSES = new Set(['listing_image', 'avatar']);
@@ -22,6 +23,10 @@ function detectedType(buffer) {
 }
 
 async function participantMayRead(identity, reference) {
+  if (await MessageModel.exists({
+    'attachment.reference': reference,
+    $or: [{ senderId: identity.authId }, { recipientId: identity.authId }],
+  })) return true;
   if (await RentalModel.exists({
     $and: [
       { $or: [{ renterId: identity.authId }, { ownerId: identity.authId }] },
@@ -108,7 +113,11 @@ export const uploadService = {
     if (!detected) {
       throw new AppError('Only JPEG, PNG, WebP, and PDF files are accepted', 415, 'UNSUPPORTED_FILE');
     }
-    if (purpose === 'listing_image' || purpose === 'avatar') {
+    if (
+      purpose === 'listing_image' ||
+      purpose === 'avatar' ||
+      purpose === 'message_image'
+    ) {
       if (!detected.type.startsWith('image/')) {
         throw new AppError('This upload purpose requires an image', 415, 'IMAGE_REQUIRED');
       }
@@ -152,6 +161,20 @@ export const uploadService = {
     return asset;
   },
 
+  async getOwnedReference(identity, reference, purpose) {
+    await this.assertOwnedReferences(identity, [reference], [purpose]);
+    const id = reference.match(/UPL-[A-Z0-9]+/i)?.[0];
+    const asset = await UploadAssetModel.findOne({
+      publicId: id,
+      uploadedBy: identity.authId,
+      purpose,
+    });
+    if (!asset) {
+      throw new AppError('Upload not found', 404, 'NOT_FOUND');
+    }
+    return asset;
+  },
+
   async getPrivate(identity, id) {
     const asset = await UploadAssetModel.findOne({ publicId: id, visibility: 'private' });
     if (!asset) throw new AppError('Upload not found', 404, 'NOT_FOUND');
@@ -189,6 +212,7 @@ export const uploadService = {
         $or: [{ evidence: reference }, { 'responses.evidence': reference }],
       }),
       ClaimModel.exists({ evidence: reference }),
+      MessageModel.exists({ 'attachment.reference': reference }),
     ]);
     if (used.some(Boolean)) {
       throw new AppError('This upload is already attached to a record', 409, 'UPLOAD_IN_USE');

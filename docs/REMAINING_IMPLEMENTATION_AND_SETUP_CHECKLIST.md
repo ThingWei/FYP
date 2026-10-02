@@ -49,6 +49,9 @@ values are recorded here.
 - [x] Added a user-facing local login-session inventory with current-device
   identification, individual revocation, sign-out-all-others, and immediate
   Socket.IO disconnection for revoked sessions.
+- [x] Added protected image messages with authenticated upload/download,
+  participant-only access, Socket.IO delivery, conversation previews, full-size
+  viewing, attachment cleanup on failed sends, and server-side ownership checks.
 
 ## Immediate local setup still required
 
@@ -222,7 +225,8 @@ Expected runtime paths are listed in `services/ai/.env.example` and
     notification tap routing.
   - [ ] Verify booking, message, rental, dispute, and account notifications on a
     real device/browser end to end.
-- [ ] Image messages and location-pin messages are not implemented.
+- [x] Protected image messages are implemented.
+- [ ] Location-pin messages are not implemented.
 - [ ] Google Maps/geospatial search is still deferred.
 - [ ] Cross-Owner multi-item checkout/bundles are not implemented. Existing
   bundle metadata supports only the simpler same-Owner presentation.

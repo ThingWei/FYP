@@ -101,4 +101,26 @@ class ApiClient {
     }
     return Map<String, dynamic>.from(decoded['data'] as Map);
   }
+
+  Future<Uint8List> downloadBytes(String value) async {
+    final token = await tokenProvider?.call();
+    final additionalHeaders = await headersProvider?.call() ?? const {};
+    final response = await http.get(
+      Uri.parse(absoluteUrl(value)),
+      headers: {
+        'x-renthub-client': _clientDescription,
+        if (token != null) 'authorization': 'Bearer $token',
+        ...additionalHeaders,
+      },
+    );
+    if (response.statusCode >= 400) {
+      var message = 'Image download failed';
+      try {
+        final decoded = jsonDecode(response.body);
+        message = decoded?['error']?['message'] ?? message;
+      } catch (_) {}
+      throw ApiException(response.statusCode, message);
+    }
+    return response.bodyBytes;
+  }
 }

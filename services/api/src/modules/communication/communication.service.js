@@ -6,6 +6,7 @@ import { UserModel } from '../user/user.model.js';
 import { communicationRepository } from './communication.repository.js';
 import { ensureBookingThread, notifyUser } from './notification.service.js';
 import { DeviceRegistrationModel } from './deviceRegistration.model.js';
+import { uploadService } from '../upload/upload.service.js';
 
 function publicId(prefix) {
   const suffix = new mongoose.Types.ObjectId().toString().slice(-10).toUpperCase();
@@ -140,7 +141,7 @@ export const communicationService = {
     return { items, meta: { page, limit, total } };
   },
 
-  async sendMessage(threadId, text, identity) {
+  async sendMessage(threadId, input, identity) {
     const sender = await requireActiveUser(identity);
     const thread = await communicationRepository.findThread(
       threadId,
@@ -165,12 +166,30 @@ export const communicationService = {
         'COMMUNICATION_BLOCKED',
       );
     }
+    let attachment;
+    if (input.attachmentRef) {
+      const asset = await uploadService.getOwnedReference(
+        identity,
+        input.attachmentRef,
+        'message_image',
+      );
+      const uploaded = asset.toJSON();
+      attachment = {
+        kind: 'image',
+        reference: uploaded.reference,
+        contentUrl: uploaded.contentUrl,
+        contentType: uploaded.contentType,
+        filename: uploaded.originalName,
+        size: uploaded.size,
+      };
+    }
     const message = await communicationRepository.createMessage({
       publicId: publicId('MSG'),
       threadId: thread.publicId,
       senderId: sender.authId,
       recipientId,
-      text,
+      text: input.text?.trim() ?? '',
+      ...(attachment && { attachment }),
     });
     await communicationRepository.updateThreadPreview(thread.publicId, message);
     await notifyUser({
@@ -178,10 +197,11 @@ export const communicationService = {
       category: 'message',
       type: 'message_new',
       title: `New message from ${sender.displayName}`,
-      body:
-        message.text.length > 200
+      body: message.text
+        ? message.text.length > 200
           ? `${message.text.slice(0, 197)}...`
-          : message.text,
+          : message.text
+        : 'Sent an image',
       entityType: 'thread',
       entityId: thread.publicId,
     });
@@ -230,7 +250,7 @@ export const communicationService = {
       threadId: thread.publicId,
       reporterId: identity.authId,
       reportedUserId: message.senderId,
-      messageText: message.text,
+      messageText: message.text || '[Image]',
       reason: input.reason,
       details: input.details ?? '',
     });
