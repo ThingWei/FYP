@@ -17,29 +17,36 @@ hard-coded confidence values when a model is missing.
   and otherwise names its rating/popularity cold-start fallback.
 - `POST /recommend/price`: loads an evaluated XGBoost pipeline. If the artifact is
   absent, the endpoint returns `available: false` rather than a guessed price.
-  The response includes the held-out evaluation metadata, a suggested daily
-  price, uncertainty range and human-readable feature explanation. Express adds
-  live marketplace coverage and reduces confidence when comparable or completed
-  rental evidence is unavailable. The Express pricing orchestration can blend
-  an exact-product prediction with dated Malaysian market references. Direct
-  short-term rentals receive more weight than category-adjusted resale evidence;
-  installment, subscription and rent-to-own prices are excluded.
+  The response includes held-out evaluation metadata, a suggested daily price,
+  calibrated uncertainty range, evidence-based confidence and human-readable
+  explanation. Express derives active-listing and completed-rental evidence from
+  MongoDB using a narrow-to-wide comparable hierarchy. Client-provided market
+  aggregates are not trusted. If AI is unavailable, Express only returns a
+  clearly labelled median/IQR fallback when enough marketplace evidence exists.
 
 ## Create the local research artifacts
 
 From `services/ai`, create a Python 3.11 virtual environment, install
 `requirements.txt`, then run:
 
-```text
-python -m app.training.train_tabular_models
+```powershell
+cd ..\api
+npm run export:pricing-data
+
+cd ..\ai
+python -m app.training.train_tabular_models --real-export ..\api\.data\pricing_observations.json --synthetic-rows 5000
 python -m app.training.train_image_risk path/to/reviewed-risk-images
 python -m app.training.train_yolo path/to/dataset.yaml
 ```
 
-The first command produces deterministic synthetic-data artifacts and held-out
-metrics for pricing and collaborative filtering. Synthetic evaluation must be
-identified as such in the FYP report. The image models require labelled datasets;
-the repository intentionally does not invent those results.
+The export contains no direct user identifiers and computes every market feature
+from observations strictly earlier than its target row. The training command
+labels real and synthetic provenance, uses product-grouped train/validation/test
+splits, compares against a median baseline, calibrates its interval on validation
+residuals, and writes the model atomically only after a fresh-load smoke test.
+Synthetic evaluation must be identified as such in the FYP report. The image
+models require labelled datasets; the repository intentionally does not invent
+those results.
 
 Expected runtime files:
 

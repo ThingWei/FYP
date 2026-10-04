@@ -638,6 +638,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                 itemAgeYears: age,
                 rentalDurationDays: rentalDays,
                 state: _listingState(),
+                excludeListingId: widget.listing?.id,
               );
       if (mounted) setState(() => priceRecommendation = suggestion);
     } catch (exception) {
@@ -1032,23 +1033,49 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Model confidence ${(((priceRecommendation!['confidence'] as num?)?.toDouble() ?? 0) * 100).round()}%',
+                                    '${(priceRecommendation!['confidence_label'] as String? ?? 'low').toUpperCase()} confidence ${(((priceRecommendation!['confidence'] as num?)?.toDouble() ?? 0) * 100).round()}% · ${(priceRecommendation!['model_source'] as String? ?? 'unknown').replaceAll('_', ' ')}',
                                   ),
-                                  Text(
-                                    'Comparable average ${formatMoney((priceRecommendation!['similar_listing_average'] as num?)?.toDouble() ?? 0)} • completed-rental daily average ${formatMoney((priceRecommendation!['historical_average'] as num?)?.toDouble() ?? 0)}',
-                                    style: const TextStyle(
-                                      color: AppColors.secondaryText,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${(priceRecommendation!['market_context'] as Map?)?['activeComparableCount'] ?? 0} active comparable(s) • ${(priceRecommendation!['market_context'] as Map?)?['completedRentalCount'] ?? 0} recent completed rental(s)',
-                                    style: const TextStyle(
-                                      color: AppColors.secondaryText,
-                                      fontSize: 12,
-                                    ),
-                                  ),
+                                  Builder(builder: (context) {
+                                    final evidence =
+                                        priceRecommendation!['evidence']
+                                                as Map? ??
+                                            const {};
+                                    final activeMedian =
+                                        evidence['comparable_active_median']
+                                            as num?;
+                                    final historicalMedian =
+                                        evidence['historical_rental_median']
+                                            as num?;
+                                    return Text(
+                                      '${evidence['comparable_active_count'] ?? 0} active comparable(s)${activeMedian == null ? '' : ' · median ${formatMoney(activeMedian.toDouble())}'}; ${evidence['historical_rental_count'] ?? 0} completed rental(s)${historicalMedian == null ? '' : ' · median ${formatMoney(historicalMedian.toDouble())}'}',
+                                      style: const TextStyle(
+                                        color: AppColors.secondaryText,
+                                        fontSize: 12,
+                                      ),
+                                    );
+                                  }),
                                   const SizedBox(height: 8),
+                                  for (final warning
+                                      in (priceRecommendation!['warnings']
+                                                  as List? ??
+                                              const [])
+                                          .cast<String>())
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(
+                                            Icons.info_outline,
+                                            size: 16,
+                                            color: AppColors.warning,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(child: Text(warning)),
+                                        ],
+                                      ),
+                                    ),
                                   for (final reason
                                       in (priceRecommendation!['explanation']
                                                   as List? ??
@@ -1071,7 +1098,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                       ),
                                     ),
                                   const Text(
-                                    'Advisory estimate using matching, dated market evidence when available. Resale evidence is converted to a daily rental anchor and weighted below direct rental evidence. You remain in control of the final price.',
+                                    'Market-based advisory only. You remain in control of the final daily price.',
                                     style: TextStyle(
                                       color: AppColors.secondaryText,
                                       fontSize: 12,
@@ -1087,8 +1114,19 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   ),
                                 ],
                               )
-                            : const Text(
-                                'The trained pricing artifact is unavailable. Your entered price is unchanged.',
+                            : Text(
+                                ((priceRecommendation!['warnings'] as List?) ??
+                                            const [])
+                                        .cast<String>()
+                                        .join(' ')
+                                        .trim()
+                                        .isNotEmpty
+                                    ? ((priceRecommendation!['warnings']
+                                                as List?) ??
+                                            const [])
+                                        .cast<String>()
+                                        .join(' ')
+                                    : 'Pricing is unavailable because there is not enough compatible model or market evidence. Your entered price is unchanged.',
                               ),
                       ),
                     ),

@@ -20,17 +20,17 @@ This implementation follows the decisions and gaps recorded in
   MongoDB interactions support live IDs; a compatible artifact is preferred and
   the response names the rating/popularity fallback during cold start.
 - Pricing: the Owner form sends category, specific category, brand, exact model,
-  condition, item age, Malaysian location and expected rental duration without
-  first requiring an Owner-entered price. Express matches exact local listings
-  and completed rentals, and blends the XGBoost result with dated Malaysian
-  market comparables when an exact product reference exists. Direct rental
-  evidence receives the highest weight. When a category such as books has no
-  rental evidence, resale asking prices can be converted through a documented
-  category rental factor at lower confidence. Financing and rent-to-own prices
-  are excluded. Comparable source URLs and observation dates remain in the
-  response for auditability. The UI shows the
-  suggested price, range, adjusted confidence and explanations, and the Owner
-  can accept or ignore it. Missing artifacts leave the entered price unchanged.
+  condition, item age, Malaysian state and expected rental duration without
+  requiring an Owner-entered price. Express independently derives current active
+  and completed-rental evidence from MongoDB through exact-product, brand,
+  subcategory, local-category and marketplace-wide tiers. A versioned XGBoost
+  pipeline uses this evidence with item and Owner features. The displayed range
+  is calibrated from held-out validation residuals and confidence reflects model
+  reliability, evidence volume, freshness and feature completeness. If the model
+  is unavailable, a labelled median/IQR fallback is allowed only with sufficient
+  database evidence; otherwise the UI reports insufficient data. No static
+  product prices, category rental multipliers or client-provided market averages
+  affect the result. The Owner can accept or ignore the suggestion.
 - Blockchain: approving a physical booking deploys and signs a Solidity rental
   agreement on Ganache. Cancellation, return completion, dispute opening,
   resolution and dismissal update the contract and persist transaction hashes.
@@ -50,19 +50,23 @@ outside Docker Compose and can be enabled with `BLOCKCHAIN_MODE=ganache`.
 
 ## Verification performed
 
-- Express API: 54/54 tests passed.
-- Flutter: analyzer clean; 72 tests passed and two environment-dependent tests
-  remained skipped by their existing conditions. Both renter/Owner and separate
-  administrator web entry points built successfully; existing socket.io WASM and
-  Cupertino font warnings remain non-blocking.
+- Express API: 81/81 tests passed with external blockchain and push adapters
+  disabled for the isolated test run.
+- Flutter: full analyzer clean. The pricing-focused suite passes 6/6. The broader
+  suite currently records 80 passes, two existing conditional skips and one
+  unrelated account-page test failure because `SecurityPage` is mounted without
+  its required `AuthController` provider. Pricing does not modify authentication.
+  Previously verified renter/Owner and separate administrator web builds remain
+  unchanged by this implementation.
 - Solidity: 4/4 Hardhat tests passed.
 - Ganache: deploy/sign, dispute/dismiss, dispute/resolve, complete, and cancel
   smoke lifecycle passed against the JSON-RPC node.
-- Python: the FastAPI contract suite passes 4/4 in the Python 3.11 virtual
-  environment. The local XGBoost artifact returns real inference output and its
-  retained synthetic held-out metrics (MAE 4.37, RMSE 6.57, R² 0.985). These
-  metrics describe the deterministic synthetic FYP dataset, not production
-  marketplace accuracy.
+- Python: 13/13 FastAPI, dataset and training tests pass in the Python 3.11
+  environment. The latest mixed-source run reports selected-strategy MAE 10.64,
+  RMSE 24.43 and R² 0.981 on 784 grouped test rows, with 90.56% interval coverage.
+  The dataset contains only 13 real observations versus 5,000 explicitly labelled
+  synthetic observations, so these figures are development evidence and not a
+  production-accuracy claim.
 
 ## Lifecycle automation and health follow-up
 

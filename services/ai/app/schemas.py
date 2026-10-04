@@ -68,14 +68,18 @@ class Recommendation(BaseModel):
 
 
 class PriceRecommendationRequest(BaseModel):
+    schema_version: Literal['renthub-price-v2'] = 'renthub-price-v2'
     item_profile: dict[str, Any]
-    similar_active_average: float = Field(ge=0)
-    historical_completed_average: float = Field(ge=0)
-    supply_demand_ratio: float = Field(gt=0)
-    seasonal_day_factor: float = Field(gt=0)
+    market_evidence: dict[str, Any] = Field(default_factory=dict)
+    similar_active_average: float | None = Field(default=None, ge=0)
+    historical_completed_average: float | None = Field(default=None, ge=0)
+    supply_demand_ratio: float | None = Field(default=None, ge=0)
+    seasonal_day_factor: float | None = Field(default=None, gt=0)
     rental_duration_days: int = Field(ge=1)
     owner_trust_score: float = Field(ge=0, le=100)
     owner_average_rating: float = Field(default=0, ge=0, le=5)
+    owner_completed_rentals: int = Field(default=0, ge=0)
+    prediction_month: int = Field(default=1, ge=1, le=12)
 
 
 class PriceRecommendationResponse(BaseModel):
@@ -84,10 +88,15 @@ class PriceRecommendationResponse(BaseModel):
     lower_bound: float | None = None
     upper_bound: float | None = None
     confidence: float = Field(ge=0, le=1)
+    confidence_label: str = 'low'
+    currency: str = 'MYR'
     adapter: str
+    model_source: str = 'unavailable'
     model_version: str | None = None
     explanation: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    evidence: dict[str, Any] = Field(default_factory=dict)
     evaluation: dict[str, Any] = Field(default_factory=dict)
-    similar_listing_average: float
-    historical_average: float
+    similar_listing_average: float | None = None
+    historical_average: float | None = None
     error: str | None = None

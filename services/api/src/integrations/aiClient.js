@@ -76,11 +76,16 @@ export const aiClient = {
     return request('/recommend/price', payload, {
       available: false,
       confidence: 0,
-      adapter: 'ai-service-unavailable',
+      confidence_label: 'low',
+      currency: 'MYR',
+      adapter: 'xgboost-v2',
+      model_source: 'unavailable',
       explanation: [],
+      warnings: ['The AI pricing service is unavailable.'],
+      evidence: payload.market_evidence ?? {},
       evaluation: {},
-      similar_listing_average: payload.similar_active_average,
-      historical_average: payload.historical_completed_average,
+      similar_listing_average: payload.market_evidence?.comparable_active_mean ?? null,
+      historical_average: payload.market_evidence?.historical_rental_mean ?? null,
     });
   },
 };

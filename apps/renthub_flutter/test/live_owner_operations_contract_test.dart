@@ -111,11 +111,14 @@ void main() {
 
     final result = await controller.getPriceRecommendation(
       category: 'Devices',
+      subcategory: 'Cameras',
       condition: 'Excellent',
       state: 'Kuala Lumpur',
       brand: 'Sony',
+      productModel: 'Alpha a7S III',
       itemAgeYears: 2.5,
       rentalDurationDays: 3,
+      excludeListingId: 'l-camera',
     );
 
     expect(result['suggested_daily_price'], 92.5);
@@ -125,8 +128,11 @@ void main() {
     expect(body.containsKey('supplyDemandRatio'), isFalse);
     expect(body.containsKey('ownerAverageRating'), isFalse);
     expect((body['itemProfile'] as Map)['brand'], 'Sony');
+    expect((body['itemProfile'] as Map)['subcategory'], 'Cameras');
+    expect((body['itemProfile'] as Map)['product_model'], 'Alpha a7S III');
     expect((body['itemProfile'] as Map)['item_age_years'], 2.5);
     expect(body['rentalDurationDays'], 3);
+    expect(body['excludeListingId'], 'l-camera');
   });
 
   test('availability, promotion and bundle use live Owner endpoints', () async {

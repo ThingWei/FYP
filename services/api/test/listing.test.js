@@ -167,9 +167,10 @@ test('builds an AI price request from marketplace data without a current price',
       lower_bound: 82,
       upper_bound: 94,
       confidence: 0.9,
+      confidence_label: 'high',
+      model_source: 'global_xgboost',
       explanation: [],
-      similar_listing_average: payload.similar_active_average,
-      historical_average: payload.historical_completed_average,
+      evidence: payload.market_evidence,
     };
   };
   try {
@@ -187,33 +188,43 @@ test('builds an AI price request from marketplace data without a current price',
           item_age_years: 2,
         },
         rentalDurationDays: 3,
+        marketEvidence: { comparable_active_mean: 99999 },
+        supplyDemandRatio: 999,
       });
 
     assert.equal(response.status, 200);
     assert.equal(response.body.data.suggested_daily_price, 88);
-    assert.equal(received.similar_active_average, 90);
-    assert.equal(received.historical_completed_average, 75);
+    assert.equal(received.schema_version, 'renthub-price-v2');
+    assert.equal(received.market_evidence.comparable_active_mean, 90);
+    assert.notEqual(received.market_evidence.comparable_active_mean, 99999);
+    assert.equal(received.market_evidence.historical_rental_count, 0);
     assert.equal(received.owner_trust_score, 50);
     assert.equal(received.rental_duration_days, 3);
-    assert.equal(response.body.data.market_context.activeComparableCount, 1);
+    assert.equal(received.market_evidence.active_comparable_tier, 'category_wide');
   } finally {
     aiClient.recommendPrice = original;
   }
 });
 
-test('blends an exact iPhone market comparable into the AI price', async () => {
+test('uses a labelled statistical fallback only with sufficient database evidence', async () => {
   await startOwner();
+  await Promise.all([
+    activeListing({ publicId: 'l-stat-1', dailyPrice: 60 }),
+    activeListing({ publicId: 'l-stat-2', dailyPrice: 80 }),
+    activeListing({ publicId: 'l-stat-3', dailyPrice: 100 }),
+    activeListing({ publicId: 'l-stat-4', dailyPrice: 120 }),
+  ]);
   const original = aiClient.recommendPrice;
   aiClient.recommendPrice = async (payload) => ({
-    available: true,
-    suggested_daily_price: 75,
-    lower_bound: 68,
-    upper_bound: 82,
-    confidence: 0.9,
-    adapter: 'xgboost-v1',
+    available: false,
+    confidence: 0,
+    confidence_label: 'low',
+    adapter: 'xgboost-v2',
+    model_source: 'unavailable',
     explanation: [],
-    similar_listing_average: payload.similar_active_average,
-    historical_average: payload.historical_completed_average,
+    warnings: ['artifact missing'],
+    evidence: payload.market_evidence,
+    error: 'artifact missing',
   });
   try {
     const response = await request(app)
@@ -222,10 +233,10 @@ test('blends an exact iPhone market comparable into the AI price', async () => {
       .send({
         itemProfile: {
           category: 'Devices',
-          subcategory: 'Smartphones',
-          condition: 'Good',
-          brand: 'Apple',
-          product_model: 'iPhone 13 Pro 256GB',
+          subcategory: 'Cameras',
+          condition: 'Excellent',
+          brand: 'Sony',
+          product_model: 'Alpha a7S III',
           state: 'Kuala Lumpur',
           item_age_years: 1,
         },
@@ -233,10 +244,62 @@ test('blends an exact iPhone market comparable into the AI price', async () => {
       });
 
     assert.equal(response.status, 200);
-    assert.equal(response.body.data.suggested_daily_price, 89.63);
-    assert.equal(response.body.data.market_context.externalComparableCount, 1);
-    assert.equal(response.body.data.market_context.externalComparableAverage, 97.5);
-    assert.match(response.body.data.adapter, /market-comparables-v1/);
+    assert.equal(response.body.data.suggested_daily_price, 90);
+    assert.equal(response.body.data.lower_bound, 75);
+    assert.equal(response.body.data.upper_bound, 105);
+    assert.equal(response.body.data.model_source, 'active_listing_median');
+    assert.match(response.body.data.warnings[0], /not an AI prediction/i);
+  } finally {
+    aiClient.recommendPrice = original;
+  }
+});
+
+test('only excludes the requesting Owner listing from comparable evidence', async () => {
+  await startOwner();
+  await Promise.all([
+    activeListing({ publicId: 'l-owned-edit', dailyPrice: 70 }),
+    activeListing({
+      publicId: 'l-another-owner',
+      ownerId: 'u-another-owner',
+      ownerName: 'Another Owner',
+      dailyPrice: 120,
+    }),
+  ]);
+  const original = aiClient.recommendPrice;
+  const received = [];
+  aiClient.recommendPrice = async (payload) => {
+    received.push(payload.market_evidence);
+    return {
+      available: false,
+      confidence: 0,
+      confidence_label: 'low',
+      adapter: 'xgboost-v2',
+      model_source: 'unavailable',
+      warnings: [],
+      evidence: payload.market_evidence,
+    };
+  };
+  const requestBody = {
+    itemProfile: {
+      category: 'Devices',
+      condition: 'Excellent',
+      state: 'Kuala Lumpur',
+    },
+  };
+  try {
+    await request(app)
+      .post('/api/v1/listings/price-recommendation')
+      .set(ownerHeaders)
+      .send({ ...requestBody, excludeListingId: 'l-owned-edit' });
+    await request(app)
+      .post('/api/v1/listings/price-recommendation')
+      .set(ownerHeaders)
+      .send({ ...requestBody, excludeListingId: 'l-another-owner' });
+
+    assert.equal(received[0].comparable_active_count, 1);
+    assert.equal(received[0].comparable_active_mean, 120);
+    assert.equal(received[1].comparable_active_count, 2);
+    assert.equal(received[1].comparable_active_mean, 95);
   } finally {
     aiClient.recommendPrice = original;
   }

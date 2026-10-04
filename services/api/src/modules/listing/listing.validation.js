@@ -166,7 +166,10 @@ export const recommendationValidation = [
 
 export const priceRecommendationValidation = [
   body('itemProfile').isObject(),
-  body('itemProfile.category').isIn(LISTING_CATEGORIES),
+  body('excludeListingId').optional().trim().matches(/^l-[a-z\d-]+$/i),
+  body('itemProfile.category').isIn(
+    LISTING_CATEGORIES.filter((category) => category !== 'Services'),
+  ),
   body('itemProfile.subcategory').optional().trim().isLength({ max: 100 }),
   body('itemProfile.condition')
     .isIn(['Fair', 'Good', 'Very good', 'Excellent', 'Like New']),

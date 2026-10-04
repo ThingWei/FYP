@@ -70,7 +70,20 @@ paths:
   /listings/price-recommendation:
     post:
       security: [{ bearerAuth: [] }]
-      responses: { '200': { description: Artifact-backed XGBoost price recommendation or unavailable state } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PriceRecommendationRequest' }
+      responses:
+        '200':
+          description: Artifact-backed XGBoost recommendation, labelled statistical fallback, or unavailable state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/PriceRecommendation' }
   /bookings:
     post:
       security: [{ bearerAuth: [] }]
@@ -190,6 +203,44 @@ components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   schemas:
+    PriceRecommendationRequest:
+      type: object
+      required: [itemProfile]
+      additionalProperties: false
+      properties:
+        excludeListingId: { type: string, pattern: '^l-[a-zA-Z0-9-]+$' }
+        rentalDurationDays: { type: integer, minimum: 1, maximum: 365 }
+        itemProfile:
+          type: object
+          required: [category, condition]
+          properties:
+            category: { type: string, enum: [Clothing, Vehicles, Devices, Books, Equipment] }
+            subcategory: { type: string, maxLength: 100 }
+            condition: { type: string, enum: [Fair, Good, Very good, Excellent, Like New] }
+            brand: { type: string, maxLength: 100 }
+            product_model: { type: string, maxLength: 120 }
+            state: { type: string, maxLength: 80 }
+            item_age_years: { type: number, minimum: 0, maximum: 100 }
+    PriceRecommendation:
+      type: object
+      required: [available, confidence, confidence_label, currency, model_source, evidence, explanation, warnings]
+      properties:
+        available: { type: boolean }
+        suggested_daily_price: { type: number, nullable: true, minimum: 0 }
+        lower_bound: { type: number, nullable: true, minimum: 0 }
+        upper_bound: { type: number, nullable: true, minimum: 0 }
+        currency: { type: string, enum: [MYR] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        confidence_label: { type: string, enum: [low, medium, high] }
+        model_source:
+          type: string
+          enum: [category_xgboost, global_xgboost, completed_rental_median, active_listing_median, unavailable, incompatible_schema, insufficient_data]
+        model_version: { type: string, nullable: true }
+        evidence: { type: object, additionalProperties: true }
+        explanation: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
+        evaluation: { type: object, additionalProperties: true }
+        error: { type: string, nullable: true }
     LoginRequest:
       type: object
       required: [email, password, role]

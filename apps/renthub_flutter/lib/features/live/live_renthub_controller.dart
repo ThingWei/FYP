@@ -1133,6 +1133,7 @@ class LiveRentHubController extends ChangeNotifier {
     required String productModel,
     required double itemAgeYears,
     required int rentalDurationDays,
+    String? excludeListingId,
   }) =>
       _perform(() async => await api.request(
             'POST',
@@ -1148,6 +1149,8 @@ class LiveRentHubController extends ChangeNotifier {
                 'item_age_years': itemAgeYears,
               },
               'rentalDurationDays': rentalDurationDays,
+              if (excludeListingId != null)
+                'excludeListingId': excludeListingId,
             },
           ) as Map<String, dynamic>);
 

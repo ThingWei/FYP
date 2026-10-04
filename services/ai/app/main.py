@@ -5,19 +5,16 @@ from fastapi import FastAPI
 
 from .routers.recommendation import router as recommendation_router
 from .routers.verification import router as verification_router
+from .services.pricing import _artifact as pricing_artifact
 
 app = FastAPI(title='RentHub AI Service', version='2.0.0')
 
 
 @app.get('/health')
 def health():
+    price_bundle, price_path, price_error = pricing_artifact()
     artifacts = {
-        'price_model': Path(
-            os.getenv(
-                'PRICE_MODEL_PATH',
-                str(Path(__file__).resolve().parents[1] / 'models' / 'price_xgboost.joblib'),
-            )
-        ).is_file(),
+        'price_model': price_bundle is not None,
         'recommendation_model': Path(
             os.getenv('RECOMMENDATION_MODEL_PATH', 'models/recommendation_svd.pkl')
         ).is_file(),
@@ -33,6 +30,11 @@ def health():
         'artifacts': artifacts,
         'ready_artifact_count': sum(artifacts.values()),
         'required_artifact_count': len(artifacts),
+        'price_model_status': {
+            'compatible': price_bundle is not None,
+            'path': str(price_path),
+            'error': price_error,
+        },
     }
 
 

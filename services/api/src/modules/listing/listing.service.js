@@ -12,7 +12,16 @@ import {
 } from './listing.model.js';
 import { listingRepository } from './listing.repository.js';
 import { uploadService } from '../upload/upload.service.js';
-import { externalMarketComparables } from './marketPriceComparables.js';
+import {
+  PRICING_EVIDENCE_QUERY_LIMIT,
+  PRICING_EVIDENCE_WINDOW_DAYS,
+  PRICING_FALLBACK_MIN_OBSERVATIONS,
+  PRICING_COMPLETED_PAYMENT_STATUSES,
+  robustPriceStats,
+  selectComparableTier,
+  statisticalFallback,
+  statisticalFallbackConfidence,
+} from './pricingEvidence.js';
 
 function pageOptions(query) {
   return {
@@ -23,23 +32,6 @@ function pageOptions(query) {
 
 function escapedPattern(value) {
   return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-}
-
-function exactPattern(value) {
-  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^${escaped}$`, 'i');
-}
-
-const categoryPriceFallback = {
-  Clothing: 28,
-  Vehicles: 165,
-  Devices: 75,
-  Books: 12,
-  Equipment: 95,
-};
-
-function clamp(value, minimum, maximum) {
-  return Math.min(Math.max(value, minimum), maximum);
 }
 
 function rentalDays(booking) {
@@ -187,32 +179,41 @@ export const listingService = {
   async recommendPrice(input, identity) {
     const owner = await requireOwner(identity);
     const profile = input.itemProfile;
-    const broadSimilarFilter = {
-      status: 'active',
-      category: profile.category,
-      listingType: 'physical',
-      ...(profile.state && { state: profile.state }),
-    };
-    const exactSimilarFilter = {
-      ...broadSimilarFilter,
-      ...(profile.subcategory && { subcategory: exactPattern(profile.subcategory) }),
-      ...(profile.brand && { brand: exactPattern(profile.brand) }),
-      ...(profile.product_model && { productModel: exactPattern(profile.product_model) }),
-      ...(profile.condition && { condition: profile.condition }),
-    };
-    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-    const [similar, completedBookings, ownerRating] = await Promise.all([
-      ListingModel.aggregate([
-        { $match: exactSimilarFilter },
-        { $group: { _id: null, average: { $avg: '$dailyPrice' }, count: { $sum: 1 } } },
-      ]),
+    const evidenceStart = new Date(
+      Date.now() - PRICING_EVIDENCE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const [activeCandidates, completedBookings, ownerRating, ownerCompletedRentals] =
+      await Promise.all([
+        ListingModel.find({
+          status: 'active',
+          category: profile.category,
+          listingType: 'physical',
+          ...(input.excludeListingId && {
+            $nor: [{
+              publicId: input.excludeListingId,
+              ownerId: owner.authId,
+            }],
+          }),
+        })
+          .select(
+            'publicId subcategory brand productModel condition state dailyPrice updatedAt',
+          )
+          .sort({ updatedAt: -1 })
+          .limit(PRICING_EVIDENCE_QUERY_LIMIT)
+          .lean(),
       BookingModel.find({
         listingType: 'physical',
         status: 'completed',
-        createdAt: { $gte: ninetyDaysAgo },
+        paymentStatus: { $in: PRICING_COMPLETED_PAYMENT_STATUSES },
+        'pricing.baseAmount': { $gt: 0 },
+        $or: [
+          { completedAt: { $gte: evidenceStart } },
+          { completedAt: { $exists: false }, createdAt: { $gte: evidenceStart } },
+        ],
       })
-        .select('listingId startDate endDate pricing.baseAmount')
-        .limit(5000)
+        .select('listingId startDate endDate pricing.baseAmount completedAt')
+        .sort({ completedAt: -1 })
+        .limit(PRICING_EVIDENCE_QUERY_LIMIT)
         .lean(),
       ReviewModel.aggregate([
         {
@@ -230,6 +231,11 @@ export const listingService = {
           },
         },
       ]),
+      BookingModel.countDocuments({
+        ownerId: owner.authId,
+        status: 'completed',
+        paymentStatus: { $in: PRICING_COMPLETED_PAYMENT_STATUSES },
+      }),
     ]);
     const completedListingIds = [
       ...new Set(completedBookings.map((booking) => booking.listingId)),
@@ -238,122 +244,102 @@ export const listingService = {
       publicId: { $in: completedListingIds },
       category: profile.category,
       listingType: 'physical',
-      ...(profile.state && { state: profile.state }),
-      ...(profile.subcategory && { subcategory: exactPattern(profile.subcategory) }),
-      ...(profile.brand && { brand: exactPattern(profile.brand) }),
-      ...(profile.product_model && { productModel: exactPattern(profile.product_model) }),
-      ...(profile.condition && { condition: profile.condition }),
     })
-      .select('publicId')
+      .select('publicId subcategory brand productModel condition state')
       .lean();
-    const eligibleIds = new Set(
-      completedListings.map((listing) => listing.publicId),
+    const activeTier = selectComparableTier(activeCandidates, profile);
+    const completedById = new Map(
+      completedListings.map((listing) => [listing.publicId, listing]),
     );
-    const historicalDailyPrices = completedBookings
-      .filter((booking) => eligibleIds.has(booking.listingId))
-      .map((booking) => booking.pricing.baseAmount / rentalDays(booking));
-    const fallback = categoryPriceFallback[profile.category] ?? 50;
-    const similarAverage = similar[0]?.average ?? fallback;
-    const historicalAverage = historicalDailyPrices.length
-      ? historicalDailyPrices.reduce((sum, value) => sum + value, 0) /
-        historicalDailyPrices.length
-      : fallback;
-    const supplyCount = similar[0]?.count ?? 0;
-    const demandCount = historicalDailyPrices.length;
-    const external = externalMarketComparables(
-      profile,
-      input.rentalDurationDays ?? 1,
+    const completedCandidates = completedBookings.flatMap((booking) => {
+      const listing = completedById.get(booking.listingId);
+      if (!listing) return [];
+      const dailyPrice = booking.pricing.baseAmount / rentalDays(booking);
+      return Number.isFinite(dailyPrice) && dailyPrice > 0
+        ? [{ ...listing, dailyPrice, observedAt: booking.completedAt }]
+        : [];
+    });
+    const historicalTier = selectComparableTier(completedCandidates, profile);
+    const activeStats = robustPriceStats(
+      activeTier.items.map((listing) => listing.dailyPrice),
     );
-    const supplyDemandRatio = clamp(
-      0.85 + demandCount / Math.max(supplyCount * 8, 8),
-      0.75,
-      1.45,
+    const historicalStats = robustPriceStats(
+      historicalTier.items.map((listing) => listing.dailyPrice),
     );
+    const evidenceDates = [
+      ...activeTier.items.map((listing) => listing.updatedAt),
+      ...historicalTier.items.map((listing) => listing.observedAt),
+    ].filter(Boolean);
+    const freshest = evidenceDates.length
+      ? Math.max(...evidenceDates.map((date) => new Date(date).getTime()))
+      : null;
+    const marketEvidence = {
+      comparable_active_count: activeStats.count,
+      comparable_active_median: activeStats.median,
+      comparable_active_mean: activeStats.mean,
+      comparable_active_iqr: activeStats.iqr,
+      historical_rental_count: historicalStats.count,
+      historical_rental_median: historicalStats.median,
+      historical_rental_mean: historicalStats.mean,
+      historical_rental_iqr: historicalStats.iqr,
+      market_freshness_days: freshest === null
+        ? null
+        : Math.max(0, Math.floor((Date.now() - freshest) / 86_400_000)),
+      demand_supply_ratio: historicalStats.count / Math.max(activeStats.count, 1),
+      active_comparable_tier: activeTier.name,
+      historical_comparable_tier: historicalTier.name,
+      evidence_window_days: PRICING_EVIDENCE_WINDOW_DAYS,
+    };
     const recommendation = await aiClient.recommendPrice({
+      schema_version: 'renthub-price-v2',
       item_profile: profile,
-      similar_active_average: similarAverage,
-      historical_completed_average: historicalAverage,
-      supply_demand_ratio: supplyDemandRatio,
-      seasonal_day_factor: 1,
+      market_evidence: marketEvidence,
       rental_duration_days: input.rentalDurationDays ?? 1,
       owner_trust_score: owner.trustScore,
       owner_average_rating: ownerRating[0]?.average ?? 0,
+      owner_completed_rentals: ownerCompletedRentals,
+      prediction_month: new Date().getUTCMonth() + 1,
     });
-    if (recommendation.available && external.adjustedAverage !== null) {
-      const modelSuggestion = Number(recommendation.suggested_daily_price);
-      const hasDirectRentalEvidence = external.directRentalCount > 0;
-      const externalWeight = hasDirectRentalEvidence
-        ? external.count >= 2
-          ? 0.75
-          : 0.65
-        : external.count >= 2
-          ? 0.5
-          : 0.4;
-      const blended =
-        external.adjustedAverage * externalWeight +
-        modelSuggestion * (1 - externalWeight);
-      const spread = Math.max(
-        blended * (external.count >= 2 ? 0.1 : 0.14),
-        Number(recommendation.upper_bound ?? blended) - modelSuggestion,
-      );
-      recommendation.suggested_daily_price = Math.round(blended * 100) / 100;
-      recommendation.lower_bound = Math.round(Math.max(1, blended - spread) * 100) / 100;
-      recommendation.upper_bound = Math.round((blended + spread) * 100) / 100;
-      recommendation.adapter = `${recommendation.adapter}+market-comparables-v1`;
-      recommendation.explanation = [
-        ...(hasDirectRentalEvidence
-          ? [
-              `Matched ${external.directRentalCount} dated Malaysian short-term rental comparable(s) for ${profile.brand} ${profile.product_model}`,
-            ]
-          : [
-              `No exact rental listing was available; ${external.resaleDerivedCount} dated Malaysian resale comparable(s) were converted to a daily rental anchor`,
-            ]),
-        `Category, condition, item age and ${input.rentalDurationDays ?? 1}-day duration were applied to the market anchor`,
-        ...(recommendation.explanation ?? []),
-      ];
+    if (recommendation.available) return recommendation;
+    const fallback = statisticalFallback(activeStats, historicalStats);
+    if (!fallback) {
+      return {
+        ...recommendation,
+        model_source: 'insufficient_data',
+        evidence: marketEvidence,
+        warnings: [
+          ...(recommendation.warnings ?? []),
+          'Not enough current marketplace evidence for a statistical fallback.',
+        ],
+      };
     }
-    const localCoverage =
-      (supplyCount > 0 ? 0.5 : 0) + (demandCount > 0 ? 0.5 : 0);
-    const externalCoverage = external.directRentalCount
-      ? external.count >= 2
-        ? 1
-        : 0.5
-      : external.resaleDerivedCount >= 2
-        ? 0.5
-        : external.resaleDerivedCount === 1
-          ? 0.25
-          : 0;
-    const marketCoverage = Math.max(localCoverage, externalCoverage);
-    const confidence = recommendation.available
-      ? Math.round(
-          recommendation.confidence * (0.7 + 0.3 * marketCoverage) * 10_000,
-        ) / 10_000
-      : recommendation.confidence;
+    const fallbackUsesHistory = historicalStats.count >= PRICING_FALLBACK_MIN_OBSERVATIONS;
+    const fallbackStats = fallbackUsesHistory ? historicalStats : activeStats;
+    const fallbackConfidence = statisticalFallbackConfidence(
+      fallbackStats,
+      marketEvidence.market_freshness_days,
+    );
     return {
-      ...recommendation,
-      confidence,
+      available: true,
+      ...fallback,
+      confidence: fallbackConfidence.score,
+      confidence_label: fallbackConfidence.label,
+      currency: 'MYR',
+      adapter: 'market-statistical-fallback-v1',
+      model_source: fallback.source,
+      model_version: null,
+      evidence: marketEvidence,
+      evaluation: {},
       explanation: [
-        ...(supplyCount === 0
-          ? ['No active local comparable was available; a category baseline was used']
-          : []),
-        ...(demandCount === 0
-          ? ['No recent matching completed rental was available; a category baseline was used']
-          : []),
-        ...(recommendation.explanation ?? []),
+        `The AI model was unavailable, so the ${fallback.source.replaceAll('_', ' ')} was used.`,
+        `Evidence tier: ${fallbackUsesHistory ? historicalTier.name : activeTier.name}.`,
       ],
-      market_context: {
-        activeComparableCount: supplyCount,
-        completedRentalCount: demandCount,
-        supplyDemandRatio,
-        ownerReviewCount: ownerRating[0]?.count ?? 0,
-        externalComparableCount: external.count,
-        externalComparableAverage: external.adjustedAverage,
-        directRentalComparableCount: external.directRentalCount ?? 0,
-        resaleDerivedComparableCount: external.resaleDerivedCount ?? 0,
-        externalEvidenceTypes: external.evidenceTypes ?? [],
-        externalSources: external.sources,
-        coverage: marketCoverage,
-      },
+      warnings: [
+        'This is a market-statistical fallback, not an AI prediction.',
+        ...(recommendation.error ? [recommendation.error] : []),
+      ],
+      similar_listing_average: activeStats.mean,
+      historical_average: historicalStats.mean,
     };
   },
 

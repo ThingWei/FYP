@@ -1,9 +1,152 @@
 {
-  "dataset": "deterministic-synthetic-v1",
-  "rows": 5000,
-  "testRows": 1000,
-  "mae": 4.372198680906295,
-  "rmse": 6.572687208886728,
-  "r2": 0.9849508419029924,
-  "seed": 42
+  "schemaVersion": "renthub-price-v2",
+  "dataset": {
+    "rows": 5013,
+    "sourceTypes": {
+      "synthetic": 5000,
+      "real": 13
+    },
+    "targetSources": {
+      "synthetic_seed": 5000,
+      "active_asking": 11,
+      "completed_rental": 1,
+      "accepted_booking": 1
+    },
+    "categories": {
+      "Vehicles": 1033,
+      "Equipment": 1018,
+      "Devices": 995,
+      "Books": 988,
+      "Clothing": 979
+    },
+    "target": {
+      "minimum": 1.0,
+      "median": 59.66,
+      "maximum": 1422.07
+    },
+    "nullRates": {
+      "category": 0.0,
+      "subcategory": 0.0,
+      "condition": 0.0,
+      "brand": 0.0,
+      "product_model": 0.0,
+      "state": 0.0,
+      "item_age_years": 0.0026,
+      "rental_duration_days": 0.0,
+      "comparable_active_count": 0.0,
+      "comparable_active_median": 0.0305,
+      "comparable_active_mean": 0.0305,
+      "comparable_active_iqr": 0.1127,
+      "historical_rental_count": 0.0,
+      "historical_rental_median": 0.0172,
+      "historical_rental_mean": 0.0172,
+      "historical_rental_iqr": 0.0712,
+      "market_freshness_days": 0.0022,
+      "demand_supply_ratio": 0.0,
+      "owner_trust_score": 0.0026,
+      "owner_average_rating": 0.0,
+      "owner_completed_rentals": 0.0,
+      "prediction_month": 0.0
+    },
+    "duplicates": 0,
+    "highOutliersAboveThreeIqr": 65,
+    "fingerprintSha256": "c62c56316afa01a43f47bdcb5b25524c9e2d5c4a184defe2d133165055ad4879",
+    "seed": 42
+  },
+  "split": {
+    "strategy": "grouped-by-product-model",
+    "trainRows": 3471,
+    "validationRows": 758,
+    "testRows": 784
+  },
+  "globalModel": {
+    "rows": 784,
+    "mae": 10.308302270289587,
+    "rmse": 23.998397918326663,
+    "r2": 0.9814987487677361
+  },
+  "selectedModelStrategy": {
+    "rows": 784,
+    "mae": 10.641028186323085,
+    "rmse": 24.425197308641508,
+    "r2": 0.9808348262150959
+  },
+  "baseline": {
+    "rows": 784,
+    "mae": 71.29813775510203,
+    "rmse": 132.9171066575683,
+    "r2": 0.4324575399978714
+  },
+  "categories": {
+    "Books": {
+      "rows": 216,
+      "mae": 0.6037516905091428,
+      "rmse": 0.8879425441955687,
+      "r2": 0.9542829393797418,
+      "selectedCategoryModel": true,
+      "validationMae": 0.6273062553576061
+    },
+    "Clothing": {
+      "rows": 148,
+      "mae": 1.4056730771709132,
+      "rmse": 2.2441321762705235,
+      "r2": 0.9588707789367016,
+      "selectedCategoryModel": true,
+      "validationMae": 1.5477191522598264
+    },
+    "Devices": {
+      "rows": 108,
+      "mae": 9.931393475709138,
+      "rmse": 15.251778907257,
+      "r2": 0.9744285542406129,
+      "selectedCategoryModel": false
+    },
+    "Equipment": {
+      "rows": 126,
+      "mae": 15.617680704555816,
+      "rmse": 24.15296157324502,
+      "r2": 0.965979611352542,
+      "selectedCategoryModel": false
+    },
+    "Vehicles": {
+      "rows": 186,
+      "mae": 26.686547598684992,
+      "rmse": 44.491417943562716,
+      "r2": 0.9640531725791451,
+      "selectedCategoryModel": true,
+      "validationMae": 26.242686291933058
+    }
+  },
+  "sourceTypes": {
+    "real": {
+      "rows": 3,
+      "mae": 28.87908935546875,
+      "rmse": 29.277321141560492,
+      "r2": -2.509760600106727
+    },
+    "synthetic": {
+      "rows": 781,
+      "mae": 10.23696762079466,
+      "rmse": 23.97587957461651,
+      "r2": 0.9815876252279941
+    }
+  },
+  "predictionInterval": {
+    "quantile": 0.9,
+    "testCoverage": 0.9056122448979592
+  },
+  "seed": 42,
+  "targetSourceWeights": {
+    "completed_rental": 1.0,
+    "accepted_booking": 0.75,
+    "active_asking": 0.45,
+    "synthetic_seed": 0.35
+  },
+  "trainingSeconds": 1.76,
+  "versions": {
+    "sklearn": "1.5.2",
+    "xgboost": "2.1.3",
+    "pandas": "2.2.3",
+    "numpy": "1.26.4"
+  }
 }
