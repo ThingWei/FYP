@@ -14,12 +14,18 @@ def price_payload():
             'condition': 'Excellent', 'brand': 'Sony',
             'product_model': 'Alpha A7', 'state': 'Kuala Lumpur',
             'item_age_years': 2,
+            'canonicalProductId': 'wikidata:Q123',
+            'productMatchType': 'exact_catalog_match',
+            'catalogSource': 'wikidata',
         },
         'market_evidence': {
             'comparable_active_count': 8, 'comparable_active_median': 85,
             'comparable_active_mean': 87, 'comparable_active_iqr': 12,
             'historical_rental_count': 12, 'historical_rental_median': 82,
             'historical_rental_mean': 83, 'historical_rental_iqr': 9,
+            'exact_active_count': 3, 'similar_active_count': 5,
+            'exact_completed_rental_count': 4,
+            'similar_completed_rental_count': 8,
             'market_freshness_days': 5, 'demand_supply_ratio': 1.5,
         },
         'rental_duration_days': 3, 'owner_trust_score': 80,
@@ -58,6 +64,8 @@ def test_price_contract():
     assert result['model_source'] in {'global_xgboost', 'category_xgboost'}
     assert result['confidence_label'] in {'low', 'medium', 'high'}
     assert result['evaluation']['globalModel']['mae'] > 0
+    assert result['product_match']['type'] == 'exact_catalog_match'
+    assert result['product_match']['canonicalProductId'] == 'wikidata:Q123'
 
 
 def test_price_contract_handles_supported_categories_and_unknown_values():
@@ -76,6 +84,8 @@ def test_price_contract_handles_supported_categories_and_unknown_values():
         'category': 'Musical Instruments',
         'brand': '',
         'product_model': '',
+        'canonicalProductId': None,
+        'productMatchType': 'manual_entry',
     })
     result = client.post('/recommend/price', json=unknown).json()
     assert result['available'] is True
@@ -90,6 +100,22 @@ def test_price_confidence_decreases_when_market_evidence_is_sparse():
     sparse = client.post('/recommend/price', json=sparse_payload).json()
     assert sparse['confidence'] < strong['confidence']
     assert any('No matching completed-rental' in warning for warning in sparse['warnings'])
+
+
+def test_manual_product_identity_reduces_confidence_without_changing_features():
+    exact_payload = price_payload()
+    exact = client.post('/recommend/price', json=exact_payload).json()
+    manual_payload = price_payload()
+    manual_payload['item_profile'].update({
+        'canonicalProductId': None,
+        'productMatchType': 'manual_entry',
+        'catalogSource': None,
+    })
+    manual = client.post('/recommend/price', json=manual_payload).json()
+
+    assert manual['suggested_daily_price'] == exact['suggested_daily_price']
+    assert manual['confidence'] < exact['confidence']
+    assert any('entered manually' in warning for warning in manual['warnings'])
 
 
 def test_price_missing_artifact_is_explicit(tmp_path):

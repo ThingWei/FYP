@@ -11,43 +11,127 @@ function same(value, expected) {
   return Boolean(normalized(expected)) && normalized(value) === normalized(expected);
 }
 
+function canonicalSame(item, profile) {
+  return Boolean(profile.canonicalProductId) &&
+    item.canonicalProductId === profile.canonicalProductId;
+}
+
+function sameProductText(item, profile) {
+  return same(item.subcategory, profile.subcategory) &&
+    same(item.brand, profile.brand) &&
+    same(item.productModel, profile.product_model);
+}
+
 const hierarchy = [
   {
-    name: 'exact_product_local',
+    name: 'exact_canonical_city',
+    minimum: 1,
     match: (item, profile) =>
-      same(item.subcategory, profile.subcategory) &&
-      same(item.brand, profile.brand) &&
-      same(item.productModel, profile.product_model) &&
+      canonicalSame(item, profile) && same(item.location, profile.location),
+  },
+  {
+    name: 'exact_canonical_state',
+    minimum: 1,
+    match: (item, profile) =>
+      canonicalSame(item, profile) && same(item.state, profile.state),
+  },
+  {
+    name: 'exact_canonical_malaysia',
+    minimum: 1,
+    match: canonicalSame,
+  },
+  {
+    name: 'exact_product_local',
+    minimum: 1,
+    match: (item, profile) =>
+      sameProductText(item, profile) &&
       same(item.state, profile.state) &&
       same(item.condition, profile.condition),
   },
   {
-    name: 'subcategory_brand_local',
+    name: 'subcategory_brand_condition_state',
+    minimum: 2,
     match: (item, profile) =>
       same(item.subcategory, profile.subcategory) &&
       same(item.brand, profile.brand) &&
+      same(item.condition, profile.condition) &&
       same(item.state, profile.state),
   },
   {
+    name: 'subcategory_brand_malaysia',
+    minimum: 2,
+    match: (item, profile) =>
+      same(item.subcategory, profile.subcategory) && same(item.brand, profile.brand),
+  },
+  {
     name: 'subcategory_local',
+    minimum: 3,
     match: (item, profile) =>
       same(item.subcategory, profile.subcategory) && same(item.state, profile.state),
   },
   {
+    name: 'subcategory_malaysia',
+    minimum: 3,
+    match: (item, profile) => same(item.subcategory, profile.subcategory),
+  },
+  {
     name: 'category_local',
+    minimum: 3,
     match: (item, profile) => same(item.state, profile.state),
   },
-  { name: 'category_wide', match: () => true },
+  { name: 'category_wide', minimum: 3, match: () => true },
 ];
 
-export function selectComparableTier(items, profile, minimum = 3) {
+export function evidenceRelevance(item, profile) {
+  let score = 0;
+  if (canonicalSame(item, profile)) score += 40;
+  else if (sameProductText(item, profile)) score += 32;
+  if (same(item.subcategory, profile.subcategory)) score += 20;
+  if (same(item.brand, profile.brand)) score += 15;
+  if (same(item.condition, profile.condition)) score += 8;
+  if (same(item.location, profile.location)) score += 10;
+  else if (same(item.state, profile.state)) score += 6;
+  const itemAge = Number(item.itemAgeYears ?? item.item_age_years);
+  const requestedAge = Number(profile.item_age_years);
+  if (Number.isFinite(itemAge) && Number.isFinite(requestedAge)) {
+    score += Math.max(0, 5 - Math.abs(itemAge - requestedAge));
+  }
+  const itemDuration = Number(
+    item.rentalDurationDays ?? item.rental_duration_days,
+  );
+  const requestedDuration = Number(profile.rental_duration_days);
+  if (Number.isFinite(itemDuration) && Number.isFinite(requestedDuration)) {
+    score += Math.max(0, 4 - Math.abs(itemDuration - requestedDuration));
+  }
+  const observedAt = item.observedAt ?? item.updatedAt;
+  const timestamp = observedAt ? new Date(observedAt).getTime() : Number.NaN;
+  if (Number.isFinite(timestamp)) {
+    const ageDays = Math.max(0, (Date.now() - timestamp) / 86_400_000);
+    score += Math.max(0, 4 - ageDays / 90);
+  }
+  return score;
+}
+
+export function selectComparableTier(items, profile, minimum) {
   let last = { name: 'category_wide', items: [] };
   for (const level of hierarchy) {
-    const matches = items.filter((item) => level.match(item, profile));
+    const matches = items
+      .filter((item) => level.match(item, profile))
+      .sort((left, right) =>
+        evidenceRelevance(right, profile) - evidenceRelevance(left, profile));
     last = { name: level.name, items: matches };
-    if (matches.length >= minimum) return last;
+    if (matches.length >= (minimum ?? level.minimum)) return last;
   }
   return last;
+}
+
+export function evidenceCounts(items, profile) {
+  const exact = items.filter((item) =>
+    canonicalSame(item, profile) || sameProductText(item, profile));
+  return {
+    exact: exact.length,
+    similar: Math.max(0, items.length - exact.length),
+  };
 }
 
 function quantile(sorted, position) {
@@ -105,7 +189,11 @@ export function statisticalFallback(activeStats, historicalStats) {
   };
 }
 
-export function statisticalFallbackConfidence(stats, freshnessDays) {
+export function statisticalFallbackConfidence(
+  stats,
+  freshnessDays,
+  productMatchType = 'exact_catalog_match',
+) {
   if (!stats || stats.count < PRICING_FALLBACK_MIN_OBSERVATIONS || !stats.median) {
     return { score: 0, label: 'low' };
   }
@@ -116,8 +204,15 @@ export function statisticalFallbackConfidence(stats, freshnessDays) {
     : 0;
   const relativeSpread = (stats.iqr ?? 0) / Math.max(stats.median, 1);
   const consistencyScore = Math.max(0, 1 - Math.min(1, relativeSpread));
+  const matchQuality = {
+    exact_catalog_match: 1,
+    fuzzy_catalog_match: 0.85,
+    catalog_brand_match_model_manual: 0.65,
+    manual_entry: 0.45,
+  }[productMatchType] ?? 0.45;
   const score = Math.round(
     Math.min(0.7, 0.15 + 0.35 * evidenceScore + 0.2 * freshnessScore + 0.3 * consistencyScore)
+      * (0.75 + 0.25 * matchQuality)
       * 10_000,
   ) / 10_000;
   return { score, label: score >= 0.5 ? 'medium' : 'low' };

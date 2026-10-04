@@ -79,6 +79,19 @@ const listingSchema = new mongoose.Schema(
     subcategory: { type: String, trim: true, maxlength: 100, default: '' },
     brand: { type: String, trim: true, maxlength: 100, default: '' },
     productModel: { type: String, trim: true, maxlength: 120, default: '' },
+    canonicalProductId: { type: String, trim: true, maxlength: 160, default: null },
+    catalogBrandId: { type: String, trim: true, maxlength: 160, default: null },
+    productMatchType: {
+      type: String,
+      enum: [
+        'exact_catalog_match',
+        'fuzzy_catalog_match',
+        'manual_entry',
+        'catalog_brand_match_model_manual',
+      ],
+      default: 'manual_entry',
+    },
+    catalogSource: { type: String, trim: true, maxlength: 80, default: null },
     itemAgeYears: { type: Number, min: 0, max: 100 },
     listingType: { type: String, required: true, enum: LISTING_TYPES, index: true },
     dailyPrice: { type: Number, required: true, min: 1, max: 1_000_000 },
@@ -145,6 +158,14 @@ const listingSchema = new mongoose.Schema(
         return value;
       },
     },
+  },
+);
+
+listingSchema.index(
+  { canonicalProductId: 1, status: 1, state: 1 },
+  {
+    partialFilterExpression: { canonicalProductId: { $type: 'string' } },
+    name: 'pricing_canonical_product_evidence',
   },
 );
 

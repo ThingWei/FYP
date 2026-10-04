@@ -101,7 +101,12 @@ void main() {
     ];
 
     for (final page in pages) {
-      await tester.pumpWidget(MaterialApp(home: page));
+      await tester.pumpWidget(
+        ChangeNotifierProvider(
+          create: (_) => AuthController(MockAuthRepository()),
+          child: MaterialApp(home: page),
+        ),
+      );
       await tester.pump();
       expect(tester.takeException(), isNull);
     }

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  evidenceCounts,
+  evidenceRelevance,
   robustPriceStats,
   selectComparableTier,
   statisticalFallback,
@@ -49,4 +51,94 @@ test('derives fallback confidence from evidence volume, freshness and spread', (
   const strongConfidence = statisticalFallbackConfidence(consistent, 1);
   assert.ok(strongConfidence.score > smallConfidence.score);
   assert.equal(strongConfidence.label, 'medium');
+});
+
+test('prefers an exact canonical product across Malaysia over local broad matches', () => {
+  const canonicalProfile = {
+    ...profile,
+    canonicalProductId: 'wikidata:Q-talon-2',
+    location: 'Kuala Lumpur',
+  };
+  const items = [
+    {
+      canonicalProductId: 'wikidata:Q-talon-2',
+      subcategory: 'Bicycles',
+      brand: 'Giant',
+      productModel: 'Talon 2',
+      state: 'Johor',
+      location: 'Johor Bahru',
+      condition: 'Excellent',
+      dailyPrice: 70,
+    },
+    {
+      subcategory: 'Cameras',
+      brand: 'Canon',
+      productModel: 'R6',
+      state: 'Kuala Lumpur',
+      location: 'Kuala Lumpur',
+      condition: 'Excellent',
+      dailyPrice: 90,
+    },
+  ];
+  const selected = selectComparableTier(items, canonicalProfile);
+  assert.equal(selected.name, 'exact_canonical_malaysia');
+  assert.equal(selected.items[0].dailyPrice, 70);
+  assert.deepEqual(evidenceCounts(items, canonicalProfile), { exact: 1, similar: 1 });
+});
+
+test('progressively falls back through brand, subcategory and category evidence', () => {
+  const brandMatches = [1, 2].map((index) => ({
+    subcategory: 'Cameras',
+    brand: 'Sony',
+    productModel: `Other ${index}`,
+    state: 'Johor',
+    condition: 'Good',
+  }));
+  assert.equal(
+    selectComparableTier(brandMatches, profile).name,
+    'subcategory_brand_malaysia',
+  );
+
+  const subcategoryMatches = [1, 2, 3].map((index) => ({
+    subcategory: 'Cameras',
+    brand: `Maker ${index}`,
+    productModel: `Camera ${index}`,
+    state: 'Johor',
+  }));
+  assert.equal(
+    selectComparableTier(subcategoryMatches, profile).name,
+    'subcategory_malaysia',
+  );
+
+  const broadMatches = [1, 2, 3].map((index) => ({
+    subcategory: 'Audio',
+    brand: `Maker ${index}`,
+    productModel: `Speaker ${index}`,
+    state: 'Johor',
+  }));
+  assert.equal(selectComparableTier(broadMatches, profile).name, 'category_wide');
+});
+
+test('condition, age, duration and recency improve evidence relevance without price rules', () => {
+  const close = {
+    subcategory: 'Cameras', brand: 'Sony', productModel: 'Other',
+    state: 'Kuala Lumpur', condition: 'Excellent', itemAgeYears: 2,
+    rentalDurationDays: 3, observedAt: new Date(),
+  };
+  const distant = {
+    ...close,
+    condition: 'Fair',
+    itemAgeYears: 9,
+    rentalDurationDays: 14,
+    observedAt: new Date('2020-01-01T00:00:00Z'),
+  };
+  const ageProfile = { ...profile, item_age_years: 2, rental_duration_days: 3 };
+  assert.ok(evidenceRelevance(close, ageProfile) > evidenceRelevance(distant, ageProfile));
+});
+
+test('manual product identity reduces statistical fallback confidence', () => {
+  const stats = robustPriceStats([80, 85, 90, 95, 100]);
+  const exact = statisticalFallbackConfidence(stats, 1, 'exact_catalog_match');
+  const manual = statisticalFallbackConfidence(stats, 1, 'manual_entry');
+  assert.ok(manual.score < exact.score);
 });

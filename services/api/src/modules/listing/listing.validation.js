@@ -13,6 +13,10 @@ const editableFields = new Set([
   'subcategory',
   'brand',
   'productModel',
+  'canonicalProductId',
+  'catalogBrandId',
+  'productMatchType',
+  'catalogSource',
   'itemAgeYears',
   'listingType',
   'dailyPrice',
@@ -46,6 +50,23 @@ const listingFields = [
   body('subcategory').optional().trim().isLength({ max: 100 }),
   body('brand').optional().trim().isLength({ max: 100 }),
   body('productModel').optional().trim().isLength({ max: 120 }),
+  body('canonicalProductId')
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ min: 3, max: 160 }),
+  body('catalogBrandId')
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ min: 3, max: 160 }),
+  body('productMatchType')
+    .optional()
+    .isIn([
+      'exact_catalog_match',
+      'fuzzy_catalog_match',
+      'manual_entry',
+      'catalog_brand_match_model_manual',
+    ]),
+  body('catalogSource').optional({ nullable: true }).trim().isLength({ max: 80 }),
   body('itemAgeYears').optional().isFloat({ min: 0, max: 100 }).toFloat(),
   body('listingType').optional().isIn(LISTING_TYPES),
   body('dailyPrice').optional().isFloat({ min: 1, max: 1_000_000 }).toFloat(),
@@ -175,6 +196,27 @@ export const priceRecommendationValidation = [
     .isIn(['Fair', 'Good', 'Very good', 'Excellent', 'Like New']),
   body('itemProfile.brand').optional().trim().isLength({ max: 100 }),
   body('itemProfile.product_model').optional().trim().isLength({ max: 120 }),
+  body('itemProfile.canonicalProductId')
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ min: 3, max: 160 }),
+  body('itemProfile.catalogBrandId')
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ min: 3, max: 160 }),
+  body('itemProfile.productMatchType')
+    .optional()
+    .isIn([
+      'exact_catalog_match',
+      'fuzzy_catalog_match',
+      'manual_entry',
+      'catalog_brand_match_model_manual',
+    ]),
+  body('itemProfile.catalogSource')
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 80 }),
+  body('itemProfile.location').optional().trim().isLength({ max: 160 }),
   body('itemProfile.state').optional().trim().isLength({ max: 80 }),
   body('itemProfile.item_age_years')
     .optional()

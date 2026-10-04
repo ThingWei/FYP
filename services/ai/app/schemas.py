@@ -96,6 +96,7 @@ class PriceRecommendationResponse(BaseModel):
     explanation: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     evidence: dict[str, Any] = Field(default_factory=dict)
+    product_match: dict[str, Any] = Field(default_factory=dict)
     evaluation: dict[str, Any] = Field(default_factory=dict)
     similar_listing_average: float | None = None
     historical_average: float | None = None

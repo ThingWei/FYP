@@ -35,7 +35,7 @@ def _number(value):
     return parsed if math.isfinite(parsed) else None
 
 
-def _confidence(prediction, half_width, evidence, row, supported):
+def _confidence(prediction, half_width, evidence, row, supported, match_type):
     active = int(evidence.get('comparable_active_count') or 0)
     historical = int(evidence.get('historical_rental_count') or 0)
     evidence_score = min(1.0, math.log1p(active + historical) / math.log1p(40))
@@ -46,6 +46,13 @@ def _confidence(prediction, half_width, evidence, row, supported):
     important = ['subcategory', 'condition', 'brand', 'product_model', 'state']
     completeness = sum(bool(row.get(key) and row[key] != 'Unknown') for key in important) / len(important)
     score = 0.45 * reliability + 0.35 * evidence_score + 0.1 * freshness + 0.1 * completeness
+    match_quality = {
+        'exact_catalog_match': 1.0,
+        'fuzzy_catalog_match': 0.85,
+        'catalog_brand_match_model_manual': 0.65,
+        'manual_entry': 0.45,
+    }.get(match_type, 0.45)
+    score *= 0.75 + 0.25 * match_quality
     if row['category'] not in supported:
         score *= 0.65
     score = round(max(0, min(0.95, score)), 4)
@@ -71,6 +78,14 @@ class XGBoostPriceService:
                 historical_average=request.historical_completed_average,
             )
         profile = request.item_profile
+        match_type = str(profile.get('productMatchType') or 'manual_entry')
+        product_match = {
+            'type': match_type,
+            'brand': str(profile.get('brand') or ''),
+            'model': str(profile.get('product_model') or ''),
+            'canonicalProductId': profile.get('canonicalProductId'),
+            'source': profile.get('catalogSource'),
+        }
         row = {
             'category': str(profile.get('category') or 'Unknown'),
             'subcategory': str(profile.get('subcategory') or 'Unknown'),
@@ -133,7 +148,7 @@ class XGBoostPriceService:
         upper = max(prediction, prediction + half_width)
         supported = set(bundle.get('supported_categories', []))
         confidence, confidence_label = _confidence(
-            prediction, half_width, evidence, row, supported,
+            prediction, half_width, evidence, row, supported, match_type,
         )
         warnings = []
         if row['category'] not in supported:
@@ -142,6 +157,12 @@ class XGBoostPriceService:
             warnings.append('Brand or exact product information is missing.')
         if int(evidence.get('historical_rental_count') or 0) == 0:
             warnings.append('No matching completed-rental evidence was available.')
+        if match_type == 'manual_entry':
+            warnings.append('The product was entered manually, so broader market evidence was used.')
+        elif match_type == 'catalog_brand_match_model_manual':
+            warnings.append('The brand was recognised but the model was entered manually.')
+        elif match_type == 'fuzzy_catalog_match':
+            warnings.append('The product was selected from a fuzzy catalog match.')
         metrics = bundle.get('metrics', {})
         return PriceRecommendationResponse(
             available=True,
@@ -163,12 +184,19 @@ class XGBoostPriceService:
                 'datasetSourceTypes': metrics.get('dataset', {}).get('sourceTypes', {}),
             },
             explanation=[
+                (
+                    f'Product recognised as {row["brand"]} {row["product_model"]}.'
+                    if match_type in {'exact_catalog_match', 'fuzzy_catalog_match'}
+                    else 'Pricing used a manually entered product identity.'
+                ),
                 f'Selected {model_source.replace("_", " ")} for {row["category"]}.',
-                f'Used {row["comparable_active_count"]} active comparable listing(s) and {row["historical_rental_count"]} completed rental(s).',
+                f'Used {evidence.get("exact_active_count", 0)} exact and {evidence.get("similar_active_count", row["comparable_active_count"])} similar active listing(s).',
+                f'Used {evidence.get("exact_completed_rental_count", 0)} exact and {evidence.get("similar_completed_rental_count", row["historical_rental_count"])} similar completed rental(s).',
                 f'The range uses the {int(calibration.get("quantile", 0.9) * 100)}th-percentile held-out absolute residual.',
             ],
             warnings=warnings,
             evidence=evidence,
+            product_match=product_match,
             similar_listing_average=row['comparable_active_mean'],
             historical_average=row['historical_rental_mean'],
         )

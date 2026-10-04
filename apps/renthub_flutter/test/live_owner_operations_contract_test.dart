@@ -15,7 +15,9 @@ class RecordingOwnerApiClient extends ApiClient {
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     calls.add((method, path, body));
-    return responses.removeAt(0);
+    final response = responses.removeAt(0);
+    if (response is Exception) throw response;
+    return response;
   }
 }
 
@@ -119,6 +121,11 @@ void main() {
       itemAgeYears: 2.5,
       rentalDurationDays: 3,
       excludeListingId: 'l-camera',
+      canonicalProductId: 'wikidata:Q123',
+      catalogBrandId: 'wikidata:Q41187',
+      productMatchType: 'exact_catalog_match',
+      catalogSource: 'wikidata',
+      location: 'Bukit Bintang, Kuala Lumpur',
     );
 
     expect(result['suggested_daily_price'], 92.5);
@@ -131,8 +138,58 @@ void main() {
     expect((body['itemProfile'] as Map)['subcategory'], 'Cameras');
     expect((body['itemProfile'] as Map)['product_model'], 'Alpha a7S III');
     expect((body['itemProfile'] as Map)['item_age_years'], 2.5);
+    expect((body['itemProfile'] as Map)['canonicalProductId'], 'wikidata:Q123');
+    expect((body['itemProfile'] as Map)['catalogBrandId'], 'wikidata:Q41187');
+    expect((body['itemProfile'] as Map)['productMatchType'],
+        'exact_catalog_match');
+    expect((body['itemProfile'] as Map)['catalogSource'], 'wikidata');
+    expect((body['itemProfile'] as Map)['location'],
+        'Bukit Bintang, Kuala Lumpur');
     expect(body['rentalDurationDays'], 3);
     expect(body['excludeListingId'], 'l-camera');
+  });
+
+  test('catalog searches encode brand and model queries for the live API',
+      () async {
+    final api = RecordingOwnerApiClient([
+      [
+        {
+          'entityType': 'brand',
+          'brand': 'Sony Group',
+          'catalogBrandId': 'wikidata:Q41187',
+        },
+      ],
+      [
+        {
+          'entityType': 'product',
+          'brand': 'Sony Group',
+          'model': 'Sony Alpha 7S III',
+          'canonicalProductId': 'wikidata:Q123',
+        },
+      ],
+    ]);
+    final controller = LiveRentHubController(api);
+    addTearDown(controller.dispose);
+
+    final brands = await controller.searchCatalogBrands(
+      category: 'Devices',
+      subcategory: 'Cameras',
+      query: 'Sony & Co',
+    );
+    final models = await controller.searchCatalogModels(
+      category: 'Devices',
+      subcategory: 'Cameras',
+      brand: 'Sony Group',
+      query: 'Alpha 7S III',
+      catalogBrandId: 'wikidata:Q41187',
+    );
+
+    expect(brands.single['brand'], 'Sony Group');
+    expect(models.single['canonicalProductId'], 'wikidata:Q123');
+    expect(api.calls.first.$2, contains('/catalog/brands?'));
+    expect(api.calls.first.$2, contains('query=Sony+%26+Co'));
+    expect(api.calls.last.$2, contains('/catalog/models?'));
+    expect(api.calls.last.$2, contains('catalogBrandId=wikidata%3AQ41187'));
   });
 
   test('availability, promotion and bundle use live Owner endpoints', () async {
@@ -223,6 +280,169 @@ void main() {
 
     expect(api.calls.single.$2, '/listings/l-camera/promotion');
     expect(controller.ownerListings.single.promotionActive, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'Owner selects a catalog product and can accept or override AI price',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = RecordingOwnerApiClient([
+      [
+        {
+          'entityType': 'brand',
+          'brand': 'Sony Group',
+          'catalogBrandId': 'wikidata:Q41187',
+          'catalogSource': 'wikidata',
+          'description': 'Japanese electronics company',
+          'queryMatch': 'fuzzy',
+        },
+      ],
+      [
+        {
+          'entityType': 'product',
+          'brand': 'Sony Group',
+          'model': 'Sony Alpha 7S III',
+          'canonicalProductId': 'wikidata:Q123',
+          'catalogBrandId': 'wikidata:Q41187',
+          'catalogSource': 'wikidata',
+          'description': 'Mirrorless camera',
+          'queryMatch': 'exact',
+        },
+      ],
+      {
+        'available': true,
+        'suggested_daily_price': 92.5,
+        'lower_bound': 84.0,
+        'upper_bound': 101.0,
+        'confidence': 0.82,
+        'confidence_label': 'high',
+        'model_source': 'category_xgboost',
+        'product_match': {
+          'type': 'exact_catalog_match',
+          'brand': 'Sony Group',
+          'model': 'Sony Alpha 7S III',
+        },
+        'evidence': {
+          'exact_active_count': 2,
+          'similar_active_count': 4,
+          'historical_rental_count': 3,
+        },
+        'warnings': <String>[],
+        'explanation': ['Used the Devices pricing model.'],
+      },
+    ]);
+    final controller = LiveRentHubController(api);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: controller,
+        child: const MaterialApp(home: LiveListingForm(isService: false)),
+      ),
+    );
+    final brandField = find.widgetWithText(TextFormField, 'Brand / maker');
+    await tester.ensureVisible(brandField);
+    await tester.enterText(brandField, 'Sony');
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
+    expect(
+      find.text('Catalog matches found. Select the correct result.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Sony Group'));
+    await tester.pump();
+
+    final modelField =
+        find.widgetWithText(TextFormField, 'Exact product / model');
+    await tester.enterText(modelField, 'Sony Alpha 7S III');
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
+    await tester.tap(find.text('Sony Alpha 7S III').last);
+    await tester.pump();
+
+    final suggestButton = find.text('Get AI price suggestion');
+    await tester.ensureVisible(suggestButton);
+    await tester.tap(suggestButton);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Suggested RM 92.50'), findsOneWidget);
+
+    final acceptButton = find.text('Use suggested price');
+    final acceptControl = find.ancestor(
+      of: acceptButton,
+      matching: find.byType(TextButton),
+    );
+    tester.widget<TextButton>(acceptControl).onPressed!();
+    await tester.pump();
+    final priceField = find.widgetWithText(
+      TextFormField,
+      'Daily price (RM)',
+      skipOffstage: false,
+    );
+    expect(tester.widget<TextFormField>(priceField).controller?.text, '92.50');
+
+    tester.widget<TextFormField>(priceField).controller?.text = '105';
+    await tester.pump();
+    expect(tester.widget<TextFormField>(priceField).controller?.text, '105');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('catalog no-match and unavailable states are not conflated',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final noMatchApi = RecordingOwnerApiClient([<Map<String, dynamic>>[]]);
+    final noMatchController = LiveRentHubController(noMatchApi);
+    addTearDown(noMatchController.dispose);
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: noMatchController,
+        child: const MaterialApp(home: LiveListingForm(isService: false)),
+      ),
+    );
+    final brandField = find.widgetWithText(TextFormField, 'Brand / maker');
+    await tester.ensureVisible(brandField);
+    await tester.enterText(brandField, 'Unknown maker');
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
+    expect(
+      find.text('No catalog match found. Manual entry is still available.'),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.cloud_off_outlined), findsNothing);
+
+    final unavailableApi = RecordingOwnerApiClient([
+      ApiException(
+        503,
+        'The product catalog is temporarily unavailable. Manual entry remains available.',
+        code: 'CATALOG_UNAVAILABLE',
+      ),
+    ]);
+    final unavailableController = LiveRentHubController(unavailableApi);
+    addTearDown(unavailableController.dispose);
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: unavailableController,
+        child: const MaterialApp(home: LiveListingForm(isService: false)),
+      ),
+    );
+    final unavailableBrandField =
+        find.widgetWithText(TextFormField, 'Brand / maker');
+    await tester.ensureVisible(unavailableBrandField);
+    await tester.enterText(unavailableBrandField, 'Toyota');
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
+    expect(find.byIcon(Icons.cloud_off_outlined), findsOneWidget);
+    expect(
+      find.textContaining('temporarily unavailable'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('No catalog match found. Manual entry is still available.'),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
   });
 }

@@ -117,6 +117,10 @@ class Listing {
     this.subcategory = '',
     this.brand = '',
     this.productModel = '',
+    this.canonicalProductId = '',
+    this.catalogBrandId = '',
+    this.productMatchType = 'manual_entry',
+    this.catalogSource = '',
     this.itemAgeYears,
     this.condition = 'Good',
     this.ownerName = 'RentHub Owner',
@@ -152,6 +156,10 @@ class Listing {
   });
   final String id, title, category, condition, ownerName, location;
   final String subcategory, brand, productModel;
+  final String canonicalProductId,
+      catalogBrandId,
+      productMatchType,
+      catalogSource;
   final double? itemAgeYears;
   final String description, status, ownerId, priceUnit;
   final double dailyPrice, rating, ownerTrustScore;
@@ -188,6 +196,10 @@ class Listing {
       subcategory: j['subcategory'] as String? ?? '',
       brand: j['brand'] as String? ?? '',
       productModel: j['productModel'] as String? ?? '',
+      canonicalProductId: j['canonicalProductId'] as String? ?? '',
+      catalogBrandId: j['catalogBrandId'] as String? ?? '',
+      productMatchType: j['productMatchType'] as String? ?? 'manual_entry',
+      catalogSource: j['catalogSource'] as String? ?? '',
       itemAgeYears: (j['itemAgeYears'] as num?)?.toDouble(),
       dailyPrice: (j['dailyPrice'] as num).toDouble(),
       condition: j['condition'] ?? 'Good',

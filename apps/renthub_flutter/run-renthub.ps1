@@ -39,7 +39,8 @@ function Test-RentHubApiReady {
         $response = Invoke-RestMethod `
             -Uri 'http://localhost:3000/api/v1/ready' `
             -TimeoutSec 2
-        return $response.success -eq $true
+        return $response.success -eq $true -and `
+            $response.data.capabilities -contains 'product-catalog-v1'
     }
     catch {
         return $false
@@ -311,6 +312,9 @@ try {
         Write-Host 'RentHub API is already ready on port 3000.' -ForegroundColor Green
     }
     else {
+        if (Test-RentHubTcpPort -HostName 'localhost' -Port 3000) {
+            throw 'Port 3000 is occupied by an outdated or unhealthy API process. Stop that process and run this launcher again so the product-catalog routes are loaded.'
+        }
         New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
         Write-Host 'Starting the RentHub API...' -ForegroundColor Cyan
         $apiProcess = Start-Process `

@@ -9,6 +9,7 @@ import {
 } from '../src/config/database.js';
 import { AvailabilityModel } from '../src/modules/listing/availability.model.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
+import { ProductCatalogModel } from '../src/modules/catalog/productCatalog.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
 import { aiClient } from '../src/integrations/aiClient.js';
 
@@ -77,7 +78,12 @@ async function activeListing(overrides = {}) {
 before(async () => {
   mongodb = await MongoMemoryServer.create();
   await connectDatabase(mongodb.getUri());
-  await Promise.all([UserModel.init(), ListingModel.init(), AvailabilityModel.init()]);
+  await Promise.all([
+    UserModel.init(),
+    ListingModel.init(),
+    AvailabilityModel.init(),
+    ProductCatalogModel.init(),
+  ]);
 });
 
 beforeEach(async () => {
@@ -85,7 +91,47 @@ beforeEach(async () => {
     UserModel.deleteMany({}),
     ListingModel.deleteMany({}),
     AvailabilityModel.deleteMany({}),
+    ProductCatalogModel.deleteMany({}),
   ]);
+});
+
+test('persists only a server-verified canonical product identity', async () => {
+  await startOwner();
+  await ProductCatalogModel.create({
+    entityType: 'product',
+    catalogEntityId: 'wikidata:QCAMERA',
+    canonicalProductId: 'wikidata:QCAMERA',
+    canonicalBrandId: 'wikidata:QSONY',
+    category: 'Devices',
+    subcategory: 'Cameras',
+    brand: 'Sony',
+    model: 'Alpha a7S III',
+    normalizedBrand: 'sony',
+    normalizedModel: 'alpha a7s iii',
+    source: 'wikidata',
+    lastSyncedAt: new Date(),
+  });
+
+  const response = await request(app)
+    .post('/api/v1/listings')
+    .set(ownerHeaders)
+    .send({
+      ...cameraInput,
+      subcategory: 'Cameras',
+      brand: 'SONY',
+      productModel: 'Alpha a7S III',
+      canonicalProductId: 'wikidata:QCAMERA',
+      catalogBrandId: 'wikidata:QSONY',
+      productMatchType: 'exact_catalog_match',
+      catalogSource: 'untrusted-client-value',
+    });
+
+  assert.equal(response.status, 201);
+  assert.equal(response.body.data.brand, 'Sony');
+  assert.equal(response.body.data.canonicalProductId, 'wikidata:QCAMERA');
+  assert.equal(response.body.data.catalogBrandId, 'wikidata:QSONY');
+  assert.equal(response.body.data.productMatchType, 'exact_catalog_match');
+  assert.equal(response.body.data.catalogSource, 'wikidata');
 });
 
 after(async () => {
@@ -200,7 +246,8 @@ test('builds an AI price request from marketplace data without a current price',
     assert.equal(received.market_evidence.historical_rental_count, 0);
     assert.equal(received.owner_trust_score, 50);
     assert.equal(received.rental_duration_days, 3);
-    assert.equal(received.market_evidence.active_comparable_tier, 'category_wide');
+    assert.equal(received.market_evidence.active_comparable_tier, 'exact_product_local');
+    assert.equal(received.market_evidence.exact_active_count, 1);
   } finally {
     aiClient.recommendPrice = original;
   }

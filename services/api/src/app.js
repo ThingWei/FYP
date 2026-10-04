@@ -17,8 +17,10 @@ import { disputeModule } from './modules/dispute/index.js';
 import { loyaltyModule } from './modules/loyalty/index.js';
 import { adminModule } from './modules/admin/index.js';
 import { uploadModule } from './modules/upload/index.js';
+import { catalogModule } from './modules/catalog/index.js';
 
 export const app = express();
+const apiCapabilities = ['product-catalog-v1'];
 app.use(
   helmet(),
   cors({ origin: env.corsOrigins }),
@@ -28,14 +30,21 @@ app.use(
 );
 const api = express.Router();
 api.get('/health', (_req, res) =>
-  res.json({ success: true, data: { status: 'ok' } }),
+  res.json({
+    success: true,
+    data: { status: 'ok', capabilities: apiCapabilities },
+  }),
 );
 api.get('/ready', (_req, res) => {
   const database = databaseHealth();
   const ready = database.status === 'up';
   return res.status(ready ? 200 : 503).json({
     success: ready,
-    data: { status: ready ? 'ready' : 'not_ready', database },
+    data: {
+      status: ready ? 'ready' : 'not_ready',
+      database,
+      capabilities: apiCapabilities,
+    },
   });
 });
 for (const [path, module] of Object.entries({
@@ -50,6 +59,7 @@ for (const [path, module] of Object.entries({
   rewards: loyaltyModule,
   admin: adminModule,
   uploads: uploadModule,
+  catalog: catalogModule,
 })) {
   api.use(`/${path}`, module.router);
 }

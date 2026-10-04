@@ -84,6 +84,39 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/PriceRecommendation' }
+  /catalog/brands:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: category, required: true, schema: { type: string } }
+        - { in: query, name: subcategory, required: true, schema: { type: string } }
+        - { in: query, name: query, required: true, schema: { type: string, minLength: 2 } }
+      responses:
+        '200': { description: Cached or provider-backed brand suggestions }
+        '503': { description: Catalog provider unavailable and no cached results exist }
+  /catalog/models:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: category, required: true, schema: { type: string } }
+        - { in: query, name: subcategory, required: true, schema: { type: string } }
+        - { in: query, name: brand, required: true, schema: { type: string } }
+        - { in: query, name: query, required: true, schema: { type: string, minLength: 2 } }
+        - { in: query, name: catalogBrandId, schema: { type: string } }
+      responses:
+        '200': { description: Brand-filtered cached or provider-backed model suggestions }
+        '503': { description: Catalog provider unavailable and no cached results exist }
+  /catalog/search:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: category, required: true, schema: { type: string } }
+        - { in: query, name: subcategory, required: true, schema: { type: string } }
+        - { in: query, name: query, required: true, schema: { type: string, minLength: 2 } }
+        - { in: query, name: brand, schema: { type: string } }
+      responses:
+        '200': { description: General product-catalog suggestions }
+        '503': { description: Catalog provider unavailable and no cached results exist }
   /bookings:
     post:
       security: [{ bearerAuth: [] }]
@@ -219,6 +252,13 @@ components:
             condition: { type: string, enum: [Fair, Good, Very good, Excellent, Like New] }
             brand: { type: string, maxLength: 100 }
             product_model: { type: string, maxLength: 120 }
+            canonicalProductId: { type: string, nullable: true, maxLength: 160 }
+            catalogBrandId: { type: string, nullable: true, maxLength: 160 }
+            productMatchType:
+              type: string
+              enum: [exact_catalog_match, fuzzy_catalog_match, manual_entry, catalog_brand_match_model_manual]
+            catalogSource: { type: string, nullable: true, maxLength: 80 }
+            location: { type: string, maxLength: 160 }
             state: { type: string, maxLength: 80 }
             item_age_years: { type: number, minimum: 0, maximum: 100 }
     PriceRecommendation:
@@ -237,6 +277,16 @@ components:
           enum: [category_xgboost, global_xgboost, completed_rental_median, active_listing_median, unavailable, incompatible_schema, insufficient_data]
         model_version: { type: string, nullable: true }
         evidence: { type: object, additionalProperties: true }
+        product_match:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [exact_catalog_match, fuzzy_catalog_match, manual_entry, catalog_brand_match_model_manual]
+            brand: { type: string }
+            model: { type: string }
+            canonicalProductId: { type: string, nullable: true }
+            source: { type: string, nullable: true }
         explanation: { type: array, items: { type: string } }
         warnings: { type: array, items: { type: string } }
         evaluation: { type: object, additionalProperties: true }

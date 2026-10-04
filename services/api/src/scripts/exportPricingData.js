@@ -38,7 +38,10 @@ function baseRow(listing, observedAt, dailyPrice, targetSource) {
     condition: listing.condition || 'Unknown',
     brand: listing.brand || 'Unknown',
     product_model: listing.productModel || listing.title,
+    canonicalProductId: listing.canonicalProductId ?? null,
+    productMatchType: listing.productMatchType ?? 'manual_entry',
     state: listing.state || 'Unknown',
+    location: listing.location || listing.state || 'Unknown',
     item_age_years: listing.itemAgeYears ?? null,
     // No point-in-time trust-score snapshot exists yet; leave it missing rather
     // than leaking the Owner's current score into a historical observation.
@@ -58,7 +61,7 @@ function baseRow(listing, observedAt, dailyPrice, targetSource) {
 async function exportRows() {
   const [listings, bookings, ownerReviews] = await Promise.all([
     ListingModel.find({ listingType: 'physical' })
-      .select('publicId ownerId title category subcategory condition brand productModel itemAgeYears state dailyPrice status createdAt updatedAt')
+      .select('publicId ownerId title category subcategory condition brand productModel canonicalProductId productMatchType itemAgeYears location state dailyPrice status createdAt updatedAt')
       .lean(),
     BookingModel.find({
       listingType: 'physical',

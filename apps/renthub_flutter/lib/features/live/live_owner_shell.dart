@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/renthub_categories.dart';
+import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
@@ -529,6 +532,21 @@ class _LiveListingFormState extends State<LiveListingForm> {
   String condition = 'Excellent';
   bool saving = false;
   bool suggestingPrice = false;
+  bool catalogLoading = false;
+  bool brandSearchAttempted = false;
+  bool modelSearchAttempted = false;
+  String? brandCatalogError;
+  String? modelCatalogError;
+  bool manualBrand = false;
+  bool manualModel = false;
+  Timer? brandDebounce;
+  Timer? modelDebounce;
+  List<Map<String, dynamic>> brandSuggestions = [];
+  List<Map<String, dynamic>> modelSuggestions = [];
+  String? catalogBrandId;
+  String? canonicalProductId;
+  String? catalogSource;
+  String selectedCatalogMatchType = 'manual_entry';
   Map<String, dynamic>? priceRecommendation;
   late final List<String> images;
 
@@ -571,6 +589,252 @@ class _LiveListingFormState extends State<LiveListingForm> {
     if (priceRecommendation != null) {
       setState(() => priceRecommendation = null);
     }
+  }
+
+  String get _productMatchType {
+    if (canonicalProductId != null) return selectedCatalogMatchType;
+    if (catalogBrandId != null) return 'catalog_brand_match_model_manual';
+    return 'manual_entry';
+  }
+
+  void _clearCatalogIdentity() {
+    brandDebounce?.cancel();
+    modelDebounce?.cancel();
+    brand.clear();
+    productModel.clear();
+    brandSuggestions = [];
+    modelSuggestions = [];
+    catalogBrandId = null;
+    canonicalProductId = null;
+    catalogSource = null;
+    selectedCatalogMatchType = 'manual_entry';
+    manualBrand = false;
+    manualModel = false;
+    brandSearchAttempted = false;
+    modelSearchAttempted = false;
+    brandCatalogError = null;
+    modelCatalogError = null;
+  }
+
+  String _catalogErrorMessage(Object exception) {
+    if (exception is ApiException) {
+      if (exception.code == 'NOT_FOUND') {
+        return 'The product catalog API is not loaded. Restart RentHub and try again. Manual entry remains available.';
+      }
+      if (exception.code == 'CATALOG_UNAVAILABLE') return exception.message;
+      if (exception.status == 401 || exception.status == 403) {
+        return 'The product catalog could not be accessed for this account. Sign in again or use manual entry.';
+      }
+    }
+    return 'The product catalog request failed. Check the API connection and try again, or use manual entry.';
+  }
+
+  void _onBrandChanged(String value) {
+    _clearPriceRecommendation();
+    brandDebounce?.cancel();
+    setState(() {
+      catalogBrandId = null;
+      canonicalProductId = null;
+      catalogSource = null;
+      selectedCatalogMatchType = 'manual_entry';
+      productModel.clear();
+      modelSuggestions = [];
+      brandSuggestions = [];
+      brandSearchAttempted = false;
+      modelSearchAttempted = false;
+      brandCatalogError = null;
+      modelCatalogError = null;
+    });
+    if (manualBrand || value.trim().length < 2) return;
+    brandDebounce = Timer(const Duration(milliseconds: 400), () async {
+      if (mounted) setState(() => catalogLoading = true);
+      try {
+        final results =
+            await context.read<LiveRentHubController>().searchCatalogBrands(
+                  category: category,
+                  subcategory: subcategory,
+                  query: value.trim(),
+                );
+        if (mounted && brand.text.trim() == value.trim()) {
+          setState(() {
+            brandSuggestions = results;
+            brandSearchAttempted = true;
+            brandCatalogError = null;
+          });
+        }
+      } catch (exception) {
+        if (mounted && brand.text.trim() == value.trim()) {
+          setState(() {
+            brandSearchAttempted = true;
+            brandCatalogError = _catalogErrorMessage(exception);
+          });
+        }
+      } finally {
+        if (mounted) setState(() => catalogLoading = false);
+      }
+    });
+  }
+
+  void _selectBrand(Map<String, dynamic> result) {
+    setState(() {
+      brand.text = result['brand'] as String? ?? '';
+      catalogBrandId = result['catalogBrandId'] as String?;
+      catalogSource = result['catalogSource'] as String?;
+      manualBrand = false;
+      manualModel = false;
+      brandSuggestions = [];
+      brandSearchAttempted = false;
+      brandCatalogError = null;
+      modelCatalogError = null;
+      productModel.clear();
+      canonicalProductId = null;
+    });
+  }
+
+  void _onModelChanged(String value) {
+    _clearPriceRecommendation();
+    modelDebounce?.cancel();
+    setState(() {
+      canonicalProductId = null;
+      selectedCatalogMatchType = 'manual_entry';
+      modelSuggestions = [];
+      modelSearchAttempted = false;
+      modelCatalogError = null;
+    });
+    if (manualModel || catalogBrandId == null || value.trim().length < 2) {
+      return;
+    }
+    modelDebounce = Timer(const Duration(milliseconds: 400), () async {
+      if (mounted) setState(() => catalogLoading = true);
+      try {
+        final results =
+            await context.read<LiveRentHubController>().searchCatalogModels(
+                  category: category,
+                  subcategory: subcategory,
+                  brand: brand.text.trim(),
+                  query: value.trim(),
+                  catalogBrandId: catalogBrandId,
+                );
+        if (mounted && productModel.text.trim() == value.trim()) {
+          setState(() {
+            modelSuggestions = results;
+            modelSearchAttempted = true;
+            modelCatalogError = null;
+          });
+        }
+      } catch (exception) {
+        if (mounted && productModel.text.trim() == value.trim()) {
+          setState(() {
+            modelSearchAttempted = true;
+            modelCatalogError = _catalogErrorMessage(exception);
+          });
+        }
+      } finally {
+        if (mounted) setState(() => catalogLoading = false);
+      }
+    });
+  }
+
+  void _selectModel(Map<String, dynamic> result) {
+    setState(() {
+      productModel.text = result['model'] as String? ?? '';
+      canonicalProductId = result['canonicalProductId'] as String?;
+      catalogSource = result['catalogSource'] as String?;
+      selectedCatalogMatchType = result['queryMatch'] == 'exact'
+          ? 'exact_catalog_match'
+          : 'fuzzy_catalog_match';
+      manualModel = false;
+      modelSuggestions = [];
+      modelSearchAttempted = false;
+      modelCatalogError = null;
+    });
+  }
+
+  Widget _catalogResults(
+    List<Map<String, dynamic>> results,
+    void Function(Map<String, dynamic>) onSelected,
+  ) {
+    if (results.isEmpty) return const SizedBox.shrink();
+    return Card(
+      margin: const EdgeInsets.only(top: 4),
+      child: Column(
+        children: results
+            .take(6)
+            .map(
+              (item) => ListTile(
+                dense: true,
+                leading: const Icon(Icons.inventory_2_outlined),
+                title: Text(
+                  item['entityType'] == 'brand'
+                      ? item['brand'] as String
+                      : item['model'] as String,
+                ),
+                subtitle: Text(item['description'] as String? ?? ''),
+                onTap: () => onSelected(item),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _catalogSearchState({
+    required List<Map<String, dynamic>> results,
+    required bool attempted,
+    required bool manual,
+    required String emptyMessage,
+    required VoidCallback onRetry,
+    String? error,
+  }) {
+    if (manual) return const SizedBox.shrink();
+    if (error != null) {
+      return Container(
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.error.withValues(alpha: 0.06),
+          border: Border.all(color: AppColors.error.withValues(alpha: 0.35)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.cloud_off_outlined, color: AppColors.error),
+            const SizedBox(width: 8),
+            Expanded(child: Text(error)),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    if (results.isNotEmpty) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 6),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_outline,
+                size: 18, color: AppColors.success),
+            SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Catalog matches found. Select the correct result.',
+                style: TextStyle(color: AppColors.success),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (attempted) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(
+          emptyMessage,
+          style: const TextStyle(color: AppColors.secondaryText),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   String _listingState() {
@@ -639,6 +903,11 @@ class _LiveListingFormState extends State<LiveListingForm> {
                 rentalDurationDays: rentalDays,
                 state: _listingState(),
                 excludeListingId: widget.listing?.id,
+                canonicalProductId: canonicalProductId,
+                catalogBrandId: catalogBrandId,
+                productMatchType: _productMatchType,
+                catalogSource: catalogSource,
+                location: location.text.trim(),
               );
       if (mounted) setState(() => priceRecommendation = suggestion);
     } catch (exception) {
@@ -685,6 +954,24 @@ class _LiveListingFormState extends State<LiveListingForm> {
   void initState() {
     super.initState();
     images = [...?widget.listing?.images];
+    catalogBrandId = widget.listing?.catalogBrandId.isEmpty == false
+        ? widget.listing!.catalogBrandId
+        : null;
+    canonicalProductId = widget.listing?.canonicalProductId.isEmpty == false
+        ? widget.listing!.canonicalProductId
+        : null;
+    catalogSource = widget.listing?.catalogSource.isEmpty == false
+        ? widget.listing!.catalogSource
+        : null;
+    selectedCatalogMatchType =
+        widget.listing?.productMatchType ?? 'manual_entry';
+    // New listings start in catalogue-search mode. Existing manual listings
+    // stay editable as manual data until their owner opts into catalogue search.
+    manualBrand =
+        widget.listing != null && selectedCatalogMatchType == 'manual_entry';
+    manualModel = widget.listing != null &&
+        (selectedCatalogMatchType == 'manual_entry' ||
+            selectedCatalogMatchType == 'catalog_brand_match_model_manual');
     if (widget.isService) {
       category = RentHubCategories.services;
     } else if (widget.listing != null) {
@@ -701,6 +988,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   @override
   void dispose() {
+    brandDebounce?.cancel();
+    modelDebounce?.cancel();
     title.dispose();
     description.dispose();
     price.dispose();
@@ -746,6 +1035,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
         'subcategory': subcategory,
         'brand': brand.text.trim(),
         'productModel': productModel.text.trim(),
+        'canonicalProductId': canonicalProductId,
+        'catalogBrandId': catalogBrandId,
+        'productMatchType': _productMatchType,
+        'catalogSource': catalogSource,
         'itemAgeYears': double.parse(itemAge.text),
         'priceUnit': 'day',
         'condition': condition,
@@ -875,6 +1168,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                       category = value!;
                       subcategory = subcategories[category]!.first;
                       priceRecommendation = null;
+                      _clearCatalogIdentity();
                     }),
                   ),
                 if (!widget.isService) const SizedBox(height: 12),
@@ -896,6 +1190,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                     onChanged: (value) => setState(() {
                       subcategory = value!;
                       priceRecommendation = null;
+                      _clearCatalogIdentity();
                     }),
                   ),
                   const SizedBox(height: 12),
@@ -920,7 +1215,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: brand,
-                    onChanged: (_) => _clearPriceRecommendation(),
+                    onChanged: _onBrandChanged,
                     decoration: InputDecoration(
                       labelText: category == RentHubCategories.books
                           ? 'Author / publisher'
@@ -928,12 +1223,58 @@ class _LiveListingFormState extends State<LiveListingForm> {
                       hintText: category == RentHubCategories.books
                           ? 'For example, J.R.R. Tolkien'
                           : 'For example, Apple, Sony or Canon',
+                      suffixIcon: catalogLoading
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.search),
+                    ),
+                  ),
+                  _catalogSearchState(
+                    results: brandSuggestions,
+                    attempted: brandSearchAttempted,
+                    manual: manualBrand,
+                    error: brandCatalogError,
+                    emptyMessage:
+                        'No catalog match found. Manual entry is still available.',
+                    onRetry: () => _onBrandChanged(brand.text),
+                  ),
+                  _catalogResults(brandSuggestions, _selectBrand),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => setState(() {
+                        brandDebounce?.cancel();
+                        modelDebounce?.cancel();
+                        manualBrand = !manualBrand;
+                        manualModel = manualBrand;
+                        catalogBrandId = null;
+                        canonicalProductId = null;
+                        catalogSource = null;
+                        selectedCatalogMatchType = 'manual_entry';
+                        brandSuggestions = [];
+                        modelSuggestions = [];
+                        brandSearchAttempted = false;
+                        modelSearchAttempted = false;
+                        brandCatalogError = null;
+                        modelCatalogError = null;
+                        brand.clear();
+                        productModel.clear();
+                      }),
+                      child: Text(
+                        manualBrand
+                            ? 'Search the product catalog instead'
+                            : "Can't find your brand? Enter manually",
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: productModel,
-                    onChanged: (_) => _clearPriceRecommendation(),
+                    enabled: brand.text.trim().isNotEmpty &&
+                        (manualBrand || catalogBrandId != null),
+                    onChanged: _onModelChanged,
                     decoration: InputDecoration(
                       labelText: category == RentHubCategories.books
                           ? 'Exact title / edition'
@@ -943,6 +1284,59 @@ class _LiveListingFormState extends State<LiveListingForm> {
                           : 'For example, iPhone 15 Pro Max 256GB',
                     ),
                   ),
+                  _catalogSearchState(
+                    results: modelSuggestions,
+                    attempted: modelSearchAttempted,
+                    manual: manualModel,
+                    error: modelCatalogError,
+                    emptyMessage:
+                        'No model match found. You can enter the model manually.',
+                    onRetry: () => _onModelChanged(productModel.text),
+                  ),
+                  _catalogResults(modelSuggestions, _selectModel),
+                  if (catalogBrandId != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => setState(() {
+                          modelDebounce?.cancel();
+                          manualModel = !manualModel;
+                          canonicalProductId = null;
+                          selectedCatalogMatchType = 'manual_entry';
+                          modelSuggestions = [];
+                          modelSearchAttempted = false;
+                          modelCatalogError = null;
+                          productModel.clear();
+                        }),
+                        child: Text(
+                          manualModel
+                              ? 'Search catalog models instead'
+                              : "Can't find the model? Enter manually",
+                        ),
+                      ),
+                    ),
+                  if (canonicalProductId != null)
+                    const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.verified_outlined,
+                        color: AppColors.success,
+                      ),
+                      title: Text('Product recognised'),
+                      subtitle: Text(
+                        'The canonical product identity will improve comparable matching.',
+                      ),
+                    )
+                  else if (brand.text.trim().isNotEmpty &&
+                      productModel.text.trim().isNotEmpty)
+                    const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.info_outline),
+                      title: Text('Manual product entry'),
+                      subtitle: Text(
+                        'Pricing will use broader brand, subcategory and category evidence.',
+                      ),
+                    ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -1032,6 +1426,37 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                     'Range ${formatMoney((priceRecommendation!['lower_bound'] as num).toDouble())}–${formatMoney((priceRecommendation!['upper_bound'] as num).toDouble())}',
                                   ),
                                   const SizedBox(height: 4),
+                                  Builder(builder: (context) {
+                                    final match =
+                                        priceRecommendation!['product_match']
+                                                as Map? ??
+                                            const {};
+                                    final recognised = {
+                                      'exact_catalog_match',
+                                      'fuzzy_catalog_match',
+                                    }.contains(match['type']);
+                                    return Row(
+                                      children: [
+                                        Icon(
+                                          recognised
+                                              ? Icons.verified_outlined
+                                              : Icons.edit_outlined,
+                                          size: 18,
+                                          color: recognised
+                                              ? AppColors.success
+                                              : AppColors.warning,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            recognised
+                                                ? 'Product recognised as ${match['brand']} ${match['model']}'
+                                                : 'Product identity is manual; broader evidence was used',
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }),
                                   Text(
                                     '${(priceRecommendation!['confidence_label'] as String? ?? 'low').toUpperCase()} confidence ${(((priceRecommendation!['confidence'] as num?)?.toDouble() ?? 0) * 100).round()}% · ${(priceRecommendation!['model_source'] as String? ?? 'unknown').replaceAll('_', ' ')}',
                                   ),
@@ -1047,7 +1472,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                         evidence['historical_rental_median']
                                             as num?;
                                     return Text(
-                                      '${evidence['comparable_active_count'] ?? 0} active comparable(s)${activeMedian == null ? '' : ' · median ${formatMoney(activeMedian.toDouble())}'}; ${evidence['historical_rental_count'] ?? 0} completed rental(s)${historicalMedian == null ? '' : ' · median ${formatMoney(historicalMedian.toDouble())}'}',
+                                      '${evidence['exact_active_count'] ?? 0} exact and ${evidence['similar_active_count'] ?? evidence['comparable_active_count'] ?? 0} similar active listing(s)${activeMedian == null ? '' : ' · selected median ${formatMoney(activeMedian.toDouble())}'}; ${evidence['exact_completed_rental_count'] ?? 0} exact and ${evidence['similar_completed_rental_count'] ?? evidence['historical_rental_count'] ?? 0} similar completed rental(s)${historicalMedian == null ? '' : ' · selected median ${formatMoney(historicalMedian.toDouble())}'}',
                                       style: const TextStyle(
                                         color: AppColors.secondaryText,
                                         fontSize: 12,

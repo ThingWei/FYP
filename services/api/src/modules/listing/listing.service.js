@@ -12,11 +12,13 @@ import {
 } from './listing.model.js';
 import { listingRepository } from './listing.repository.js';
 import { uploadService } from '../upload/upload.service.js';
+import { resolveProductIdentity } from '../catalog/catalog.service.js';
 import {
   PRICING_EVIDENCE_QUERY_LIMIT,
   PRICING_EVIDENCE_WINDOW_DAYS,
   PRICING_FALLBACK_MIN_OBSERVATIONS,
   PRICING_COMPLETED_PAYMENT_STATUSES,
+  evidenceCounts,
   robustPriceStats,
   selectComparableTier,
   statisticalFallback,
@@ -49,6 +51,14 @@ function listingInput(input) {
     ...(input.subcategory !== undefined && { subcategory: input.subcategory }),
     ...(input.brand !== undefined && { brand: input.brand }),
     ...(input.productModel !== undefined && { productModel: input.productModel }),
+    ...(input.canonicalProductId !== undefined && {
+      canonicalProductId: input.canonicalProductId,
+    }),
+    ...(input.catalogBrandId !== undefined && { catalogBrandId: input.catalogBrandId }),
+    ...(input.productMatchType !== undefined && {
+      productMatchType: input.productMatchType,
+    }),
+    ...(input.catalogSource !== undefined && { catalogSource: input.catalogSource }),
     ...(input.itemAgeYears !== undefined && { itemAgeYears: input.itemAgeYears }),
     listingType,
     ...(input.dailyPrice !== undefined && { dailyPrice: input.dailyPrice }),
@@ -72,6 +82,39 @@ function listingInput(input) {
     ...(input.location !== undefined && { location: input.location }),
     ...(input.state !== undefined && { state: input.state }),
     ...(input.images !== undefined && { images: input.images }),
+  };
+}
+
+async function withResolvedProductIdentity(input, existing = {}) {
+  const listingType = input.listingType ?? existing.listingType ??
+    (input.category === 'Services' ? 'service' : 'physical');
+  if (listingType !== 'physical') return input;
+  const requestedMatchType = input.productMatchType ?? existing.productMatchType;
+  const manualProduct = requestedMatchType === 'manual_entry';
+  const manualModel = requestedMatchType === 'catalog_brand_match_model_manual';
+  const identity = await resolveProductIdentity({
+    category: input.category ?? existing.category,
+    subcategory: input.subcategory ?? existing.subcategory,
+    brand: input.brand ?? existing.brand,
+    productModel: input.productModel ?? existing.productModel,
+    // A user can deliberately switch a previously recognised listing back to
+    // manual entry. Do not silently resurrect its old canonical identifiers.
+    canonicalProductId: manualProduct || manualModel
+      ? null
+      : input.canonicalProductId ?? existing.canonicalProductId,
+    catalogBrandId: manualProduct
+      ? null
+      : input.catalogBrandId ?? existing.catalogBrandId,
+    productMatchType: requestedMatchType,
+  });
+  return {
+    ...input,
+    brand: identity.brand,
+    productModel: identity.model,
+    canonicalProductId: identity.canonicalProductId,
+    catalogBrandId: identity.catalogBrandId,
+    productMatchType: identity.productMatchType,
+    catalogSource: identity.catalogSource,
   };
 }
 
@@ -178,7 +221,25 @@ export const listingService = {
 
   async recommendPrice(input, identity) {
     const owner = await requireOwner(identity);
-    const profile = input.itemProfile;
+    const requestedProfile = input.itemProfile;
+    const productIdentity = await resolveProductIdentity(requestedProfile);
+    const profile = {
+      ...requestedProfile,
+      brand: productIdentity.brand,
+      product_model: productIdentity.model,
+      canonicalProductId: productIdentity.canonicalProductId,
+      catalogBrandId: productIdentity.catalogBrandId,
+      productMatchType: productIdentity.productMatchType,
+      catalogSource: productIdentity.catalogSource,
+      rental_duration_days: input.rentalDurationDays ?? 1,
+    };
+    const productMatch = {
+      type: profile.productMatchType,
+      brand: profile.brand,
+      model: profile.product_model,
+      canonicalProductId: profile.canonicalProductId,
+      source: profile.catalogSource,
+    };
     const evidenceStart = new Date(
       Date.now() - PRICING_EVIDENCE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
     );
@@ -196,7 +257,7 @@ export const listingService = {
           }),
         })
           .select(
-            'publicId subcategory brand productModel condition state dailyPrice updatedAt',
+            'publicId subcategory brand productModel canonicalProductId condition itemAgeYears location state dailyPrice updatedAt',
           )
           .sort({ updatedAt: -1 })
           .limit(PRICING_EVIDENCE_QUERY_LIMIT)
@@ -245,7 +306,7 @@ export const listingService = {
       category: profile.category,
       listingType: 'physical',
     })
-      .select('publicId subcategory brand productModel condition state')
+      .select('publicId subcategory brand productModel canonicalProductId condition itemAgeYears location state')
       .lean();
     const activeTier = selectComparableTier(activeCandidates, profile);
     const completedById = new Map(
@@ -256,10 +317,17 @@ export const listingService = {
       if (!listing) return [];
       const dailyPrice = booking.pricing.baseAmount / rentalDays(booking);
       return Number.isFinite(dailyPrice) && dailyPrice > 0
-        ? [{ ...listing, dailyPrice, observedAt: booking.completedAt }]
+        ? [{
+            ...listing,
+            dailyPrice,
+            rentalDurationDays: rentalDays(booking),
+            observedAt: booking.completedAt,
+          }]
         : [];
     });
     const historicalTier = selectComparableTier(completedCandidates, profile);
+    const activeEvidenceCounts = evidenceCounts(activeCandidates, profile);
+    const historicalEvidenceCounts = evidenceCounts(completedCandidates, profile);
     const activeStats = robustPriceStats(
       activeTier.items.map((listing) => listing.dailyPrice),
     );
@@ -282,6 +350,10 @@ export const listingService = {
       historical_rental_median: historicalStats.median,
       historical_rental_mean: historicalStats.mean,
       historical_rental_iqr: historicalStats.iqr,
+      exact_active_count: activeEvidenceCounts.exact,
+      similar_active_count: activeEvidenceCounts.similar,
+      exact_completed_rental_count: historicalEvidenceCounts.exact,
+      similar_completed_rental_count: historicalEvidenceCounts.similar,
       market_freshness_days: freshest === null
         ? null
         : Math.max(0, Math.floor((Date.now() - freshest) / 86_400_000)),
@@ -300,13 +372,16 @@ export const listingService = {
       owner_completed_rentals: ownerCompletedRentals,
       prediction_month: new Date().getUTCMonth() + 1,
     });
-    if (recommendation.available) return recommendation;
+    if (recommendation.available) {
+      return { ...recommendation, product_match: productMatch };
+    }
     const fallback = statisticalFallback(activeStats, historicalStats);
     if (!fallback) {
       return {
         ...recommendation,
         model_source: 'insufficient_data',
         evidence: marketEvidence,
+        product_match: productMatch,
         warnings: [
           ...(recommendation.warnings ?? []),
           'Not enough current marketplace evidence for a statistical fallback.',
@@ -318,6 +393,7 @@ export const listingService = {
     const fallbackConfidence = statisticalFallbackConfidence(
       fallbackStats,
       marketEvidence.market_freshness_days,
+      profile.productMatchType,
     );
     return {
       available: true,
@@ -329,6 +405,7 @@ export const listingService = {
       model_source: fallback.source,
       model_version: null,
       evidence: marketEvidence,
+      product_match: productMatch,
       evaluation: {},
       explanation: [
         `The AI model was unavailable, so the ${fallback.source.replaceAll('_', ' ')} was used.`,
@@ -416,8 +493,9 @@ export const listingService = {
   async create(input, identity) {
     const owner = await requireOwner(identity);
     await uploadService.assertOwnedReferences(identity, input.images, ['listing_image']);
+    const normalizedInput = await withResolvedProductIdentity(input);
     return listingRepository.create({
-      ...listingInput(input),
+      ...listingInput(normalizedInput),
       ownerId: owner.authId,
       ownerName: owner.displayName,
       ownerTrustScore: owner.trustScore,
@@ -460,7 +538,11 @@ export const listingService = {
         'INVALID_LISTING_STATE',
       );
     }
-    listing.set(listingInput({ ...input, listingType: listing.listingType }));
+    const normalizedInput = await withResolvedProductIdentity(input, listing);
+    listing.set(listingInput({
+      ...normalizedInput,
+      listingType: listing.listingType,
+    }));
     if (listing.status === 'active' || listing.status === 'rejected') {
       listing.status = 'draft';
       listing.moderationReason = '';

@@ -62,6 +62,13 @@ export const env = {
     process.env.OPENSTREETMAP_MIN_INTERVAL_MS,
     1000,
   ),
+  catalogMode: process.env.CATALOG_MODE ?? 'wikidata',
+  catalogProviderUrl:
+    process.env.CATALOG_PROVIDER_URL ?? 'https://www.wikidata.org/w/api.php',
+  catalogCacheTtlHours: integer(process.env.CATALOG_CACHE_TTL_HOURS, 168),
+  catalogTimeoutMs: integer(process.env.CATALOG_TIMEOUT_MS, 4000),
+  catalogMinIntervalMs: integer(process.env.CATALOG_MIN_INTERVAL_MS, 250),
+  catalogMaxResults: integer(process.env.CATALOG_MAX_RESULTS, 12),
   aiUrl: process.env.AI_SERVICE_URL ?? 'http://localhost:8001',
   aiTimeoutMs: integer(process.env.AI_TIMEOUT_MS, 5000),
   aiEnforcementMode: process.env.AI_ENFORCEMENT_MODE ?? 'advisory',
@@ -98,6 +105,13 @@ export function validateEnv(config = env) {
     config.openStreetMapUserAgent ?? 'RentHub/1.0';
   const openStreetMapMinIntervalMs =
     config.openStreetMapMinIntervalMs ?? 1000;
+  const catalogMode = config.catalogMode ?? 'wikidata';
+  const catalogProviderUrl =
+    config.catalogProviderUrl ?? 'https://www.wikidata.org/w/api.php';
+  const catalogCacheTtlHours = config.catalogCacheTtlHours ?? 168;
+  const catalogTimeoutMs = config.catalogTimeoutMs ?? 4000;
+  const catalogMinIntervalMs = config.catalogMinIntervalMs ?? 250;
+  const catalogMaxResults = config.catalogMaxResults ?? 12;
   const maxUploadBytes = config.maxUploadBytes ?? 10 * 1024 * 1024;
   const aiTimeoutMs = config.aiTimeoutMs ?? 5000;
   const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
@@ -232,6 +246,29 @@ export function validateEnv(config = env) {
         'OPENSTREETMAP_MIN_INTERVAL_MS must be an integer of at least 1000',
       );
     }
+  }
+  if (!['disabled', 'wikidata'].includes(catalogMode)) {
+    errors.push('CATALOG_MODE must be disabled or wikidata');
+  }
+  if (catalogMode === 'wikidata') {
+    try {
+      const url = new URL(catalogProviderUrl);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+    } catch {
+      errors.push('CATALOG_PROVIDER_URL must be a valid HTTP or HTTPS URL');
+    }
+  }
+  if (!Number.isInteger(catalogCacheTtlHours) || catalogCacheTtlHours < 1) {
+    errors.push('CATALOG_CACHE_TTL_HOURS must be a positive integer');
+  }
+  if (!Number.isInteger(catalogTimeoutMs) || catalogTimeoutMs < 500) {
+    errors.push('CATALOG_TIMEOUT_MS must be an integer of at least 500');
+  }
+  if (!Number.isInteger(catalogMinIntervalMs) || catalogMinIntervalMs < 0) {
+    errors.push('CATALOG_MIN_INTERVAL_MS must be a non-negative integer');
+  }
+  if (!Number.isInteger(catalogMaxResults) || catalogMaxResults < 1 || catalogMaxResults > 50) {
+    errors.push('CATALOG_MAX_RESULTS must be an integer from 1 to 50');
   }
   if (!Number.isInteger(aiTimeoutMs) || aiTimeoutMs < 500) {
     errors.push('AI_TIMEOUT_MS must be an integer of at least 500');

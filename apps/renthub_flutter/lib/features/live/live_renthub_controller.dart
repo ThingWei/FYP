@@ -1134,6 +1134,11 @@ class LiveRentHubController extends ChangeNotifier {
     required double itemAgeYears,
     required int rentalDurationDays,
     String? excludeListingId,
+    String? canonicalProductId,
+    String? catalogBrandId,
+    String productMatchType = 'manual_entry',
+    String? catalogSource,
+    String? location,
   }) =>
       _perform(() async => await api.request(
             'POST',
@@ -1147,12 +1152,55 @@ class LiveRentHubController extends ChangeNotifier {
                 'product_model': productModel.trim(),
                 'state': state,
                 'item_age_years': itemAgeYears,
+                'productMatchType': productMatchType,
+                if (canonicalProductId?.isNotEmpty ?? false)
+                  'canonicalProductId': canonicalProductId,
+                if (catalogBrandId?.isNotEmpty ?? false)
+                  'catalogBrandId': catalogBrandId,
+                if (catalogSource?.isNotEmpty ?? false)
+                  'catalogSource': catalogSource,
+                if (location?.isNotEmpty ?? false) 'location': location,
               },
               'rentalDurationDays': rentalDurationDays,
               if (excludeListingId != null)
                 'excludeListingId': excludeListingId,
             },
           ) as Map<String, dynamic>);
+
+  Future<List<Map<String, dynamic>>> searchCatalogBrands({
+    required String category,
+    required String subcategory,
+    required String query,
+  }) async {
+    final parameters = Uri(queryParameters: {
+      'category': category,
+      'subcategory': subcategory,
+      'query': query,
+    }).query;
+    return (await api.request('GET', '/catalog/brands?$parameters') as List)
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> searchCatalogModels({
+    required String category,
+    required String subcategory,
+    required String brand,
+    required String query,
+    String? catalogBrandId,
+  }) async {
+    final parameters = Uri(queryParameters: {
+      'category': category,
+      'subcategory': subcategory,
+      'brand': brand,
+      'query': query,
+      if (catalogBrandId?.isNotEmpty ?? false)
+        'catalogBrandId': catalogBrandId!,
+    }).query;
+    return (await api.request('GET', '/catalog/models?$parameters') as List)
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
+  }
 
   void _replaceOwnerListing(Listing listing) {
     final index = ownerListings.indexWhere((item) => item.id == listing.id);
