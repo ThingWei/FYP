@@ -1,6 +1,6 @@
 # RentHub core-technology implementation result
 
-Last updated: 2026-10-02
+Last updated: 2026-10-04
 
 This implementation follows the decisions and gaps recorded in
 `SCOPE_ALIGNMENT_AUDIT_RESULT.md`.
@@ -17,8 +17,12 @@ This implementation follows the decisions and gaps recorded in
   exists. Missing weights create a manual-review result, never a fake pass.
 - Recommendations: renter home loads a dedicated authenticated endpoint using a
   60% TF-IDF/cosine content score and 40% Surprise SVD score. Marketplace-wide
-  MongoDB interactions support live IDs; a compatible artifact is preferred and
-  the response names the rating/popularity fallback during cold start.
+  MongoDB saved, booking, completed-rental, and published-review interactions are
+  canonicalized, pseudonymized, and used with live IDs. A compatible evaluated
+  artifact is preferred; request-time SVD and explicitly named content/popularity
+  fallbacks cover cold start. Active candidate filtering excludes own, blocked,
+  and restricted-Owner listings. The reproducible export/training pipeline and
+  measured results are documented in `RECOMMENDATION_AI_RESULT.md`.
 - Pricing: the Owner form sends category, specific category, brand, exact model,
   condition, item age, Malaysian state and expected rental duration without
   requiring an Owner-entered price. Express independently derives current active
@@ -50,23 +54,23 @@ outside Docker Compose and can be enabled with `BLOCKCHAIN_MODE=ganache`.
 
 ## Verification performed
 
-- Express API: 81/81 tests passed with external blockchain and push adapters
-  disabled for the isolated test run.
-- Flutter: full analyzer clean. The pricing-focused suite passes 6/6. The broader
-  suite currently records 80 passes, two existing conditional skips and one
-  unrelated account-page test failure because `SecurityPage` is mounted without
-  its required `AuthController` provider. Pricing does not modify authentication.
-  Previously verified renter/Owner and separate administrator web builds remain
-  unchanged by this implementation.
+- Express API: 109 passed with 3 intentional environment-dependent skips and no
+  failures, using isolated mock authentication and local storage.
+- Flutter: full analyzer clean; 92 tests passed with 2 conditional skips and no
+  failures. The renter Home contract test parses and renders recommendation
+  reasons.
 - Solidity: 4/4 Hardhat tests passed.
 - Ganache: deploy/sign, dispute/dismiss, dispute/resolve, complete, and cancel
   smoke lifecycle passed against the JSON-RPC node.
-- Python: 13/13 FastAPI, dataset and training tests pass in the Python 3.11
-  environment. The latest mixed-source run reports selected-strategy MAE 10.64,
+- Python: 27/27 FastAPI, dataset and training tests pass in the Python 3.11
+  environment. The latest pricing mixed-source run reports selected-strategy MAE 10.64,
   RMSE 24.43 and R² 0.981 on 784 grouped test rows, with 90.56% interval coverage.
   The dataset contains only 13 real observations versus 5,000 explicitly labelled
   synthetic observations, so these figures are development evidence and not a
   production-accuracy claim.
+  The recommendation run contains 8 real and 3,360 synthetic interactions; it
+  reports RMSE 0.9011, MAE 0.7127, Precision@5 0.0182, and Recall@5 0.0578.
+  These are also development, not production, results.
 
 ## Lifecycle automation and health follow-up
 

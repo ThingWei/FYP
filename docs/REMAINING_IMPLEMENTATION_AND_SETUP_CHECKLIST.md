@@ -1,6 +1,6 @@
 # RentHub remaining implementation and setup checklist
 
-Last verified: 2 October 2026
+Last verified: 4 October 2026
 
 This checklist separates code that exists from external services, credentials,
 model artifacts, and production checks that still have to be supplied. No secret
@@ -52,6 +52,11 @@ values are recorded here.
 - [x] Added protected image messages with authenticated upload/download,
   participant-only access, Socket.IO delivery, conversation previews, full-size
   viewing, attachment cleanup on failed sends, and server-side ownership checks.
+- [x] Added a privacy-limited MongoDB recommendation-interaction export,
+  canonical precedence rules, deterministic SVD training/evaluation, atomic
+  artifact validation, truthful cold-start adapters, eligibility filtering, and
+  renter Home reason rendering. Current metrics and limitations are recorded in
+  `RECOMMENDATION_AI_RESULT.md`.
 
 ## Immediate local setup still required
 
@@ -175,7 +180,8 @@ artifacts are not present. Docker remains optional for this local workflow.
 - [x] Install Python 3.11 and create a virtual environment in `services/ai`.
 - [x] Install `services/ai/requirements.txt`.
 - [ ] Start FastAPI on port 8001 and confirm its health endpoint.
-- [ ] Generate and review the XGBoost price artifact and Surprise SVD artifact:
+- [ ] Generate and review the XGBoost price artifact. The Surprise SVD artifact
+  has been generated and smoke-verified from the current development export:
 
   ```powershell
   python -m app.training.train_tabular_models
@@ -184,12 +190,16 @@ artifacts are not present. Docker remains optional for this local workflow.
 - [ ] Obtain reviewed, labelled image datasets with documented provenance.
 - [ ] Train/evaluate the EfficientNet-B0 image-risk model and YOLO item detector.
 - [ ] Install EasyOCR model files, or intentionally enable the first download.
-- [ ] Produce and retain held-out metrics; label synthetic tabular evaluation as
-  synthetic in the FYP report.
+- [x] Produce and retain recommendation held-out metrics with real, demo-seed,
+  and synthetic counts reported separately.
+- [ ] Produce and retain the remaining image-model held-out metrics; keep all
+  synthetic tabular evaluation labelled as synthetic in the FYP report.
 - [ ] Keep `AI_ENFORCEMENT_MODE=advisory` until image artifacts and thresholds
   have been evaluated. Do not enable strict mode merely because files exist.
-- [ ] Run the FastAPI tests and an end-to-end document/item/pricing/recommendation
-  flow after the Python runtime and artifacts are installed.
+- [x] Run FastAPI tests and a live development Express -> FastAPI recommendation
+  request using current MongoDB state.
+- [ ] Run the end-to-end document/item/pricing flows after the remaining image
+  artifacts are installed.
 
 Expected runtime paths are listed in `services/ai/.env.example` and
 `services/ai/README.md`.
@@ -248,7 +258,9 @@ Expected runtime paths are listed in `services/ai/.env.example` and
 
 - [ ] Run the production preflight with real Atlas/Auth0/Supabase credentials.
 - [ ] Run the Phase 13 write/restart/read E2E drill.
-- [ ] Run Python tests and capture model metrics after installing Python.
+- [x] Run Python tests and capture recommendation model metrics.
+- [ ] Capture final pricing and image-model metrics after their reviewed
+  artifacts and datasets are complete.
 - [ ] Repeat Hardhat and Ganache smoke tests with the final environment.
 - [x] Full Flutter tests pass with 74 tests and two existing environment-dependent
   skips. The administrator web build also passes; the existing Socket.IO WASM

@@ -80,6 +80,10 @@ export const env = {
     process.env.PRICING_INCLUDE_DEMO_SEED,
     false,
   ),
+  recommendationIncludeDemoSeed: boolean(
+    process.env.RECOMMENDATION_INCLUDE_DEMO_SEED,
+    false,
+  ),
   aiUrl: process.env.AI_SERVICE_URL ?? 'http://localhost:8001',
   aiTimeoutMs: integer(process.env.AI_TIMEOUT_MS, 5000),
   aiEnforcementMode: process.env.AI_ENFORCEMENT_MODE ?? 'advisory',
@@ -139,6 +143,8 @@ export function validateEnv(config = env) {
   const catalogMinIntervalMs = config.catalogMinIntervalMs ?? 250;
   const catalogMaxResults = config.catalogMaxResults ?? 12;
   const pricingIncludeDemoSeed = config.pricingIncludeDemoSeed ?? false;
+  const recommendationIncludeDemoSeed =
+    config.recommendationIncludeDemoSeed ?? false;
   const maxUploadBytes = config.maxUploadBytes ?? 10 * 1024 * 1024;
   const aiTimeoutMs = config.aiTimeoutMs ?? 5000;
   const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
@@ -301,6 +307,11 @@ export function validateEnv(config = env) {
   }
   if (config.nodeEnv === 'production' && pricingIncludeDemoSeed) {
     errors.push('PRICING_INCLUDE_DEMO_SEED must be false in production');
+  }
+  if (config.nodeEnv === 'production' && recommendationIncludeDemoSeed) {
+    errors.push(
+      'RECOMMENDATION_INCLUDE_DEMO_SEED must be false in production',
+    );
   }
   if (!Number.isInteger(aiTimeoutMs) || aiTimeoutMs < 500) {
     errors.push('AI_TIMEOUT_MS must be an integer of at least 500');

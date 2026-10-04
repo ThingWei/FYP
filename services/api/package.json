@@ -9,6 +9,7 @@
     "seed": "node src/scripts/seed.js",
     "seed:pricing-demo": "node src/scripts/seedDemoPricingHistory.js",
     "export:pricing-data": "node src/scripts/exportPricingData.js",
+    "export:recommendation-data": "node src/scripts/exportRecommendationData.js",
     "preflight": "node src/scripts/preflight.js",
     "preflight:production": "node src/scripts/preflight.js --require-production --write-probe"
   },

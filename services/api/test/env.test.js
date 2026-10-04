@@ -84,6 +84,23 @@ test('accepts Supabase as production storage', () => {
   assert.equal(validateEnv(production), production);
 });
 
+test('rejects demo recommendation interactions in production', () => {
+  assert.throws(
+    () => validateEnv({
+      ...valid,
+      nodeEnv: 'production',
+      authMode: 'local',
+      localJwtSecret: 'a-production-jwt-secret-with-32-characters',
+      storageMode: 'supabase',
+      supabaseUrl: 'https://project-ref.supabase.co',
+      supabaseSecretKey: 'server-only-secret',
+      supabaseStorageBucket: 'renthub-files',
+      recommendationIncludeDemoSeed: true,
+    }),
+    /RECOMMENDATION_INCLUDE_DEMO_SEED must be false in production/,
+  );
+});
+
 test('rejects an OpenStreetMap request interval below one second', () => {
   assert.throws(
     () =>

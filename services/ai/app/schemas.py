@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -35,6 +36,9 @@ class RecommendationCandidate(BaseModel):
     item_id: str
     title: str
     category: str
+    subcategory: str = ''
+    brand: str = ''
+    product_model: str = ''
     description: str = ''
     location: str = ''
     condition: str = ''
@@ -48,6 +52,15 @@ class UserInteraction(BaseModel):
     user_id: str
     item_id: str
     rating: float = Field(ge=1, le=5)
+    interaction_type: Literal[
+        'saved',
+        'booking',
+        'completed_rental',
+        'published_review',
+        'synthetic_preference',
+    ] = 'saved'
+    observed_at: datetime | None = None
+    source_type: Literal['marketplace', 'demo_seed', 'synthetic'] = 'marketplace'
 
 
 class ItemRecommendationRequest(BaseModel):

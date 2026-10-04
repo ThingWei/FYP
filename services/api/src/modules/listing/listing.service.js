@@ -14,6 +14,11 @@ import { listingRepository } from './listing.repository.js';
 import { uploadService } from '../upload/upload.service.js';
 import { resolveProductIdentity } from '../catalog/catalog.service.js';
 import {
+  buildRecommendationInteractions,
+  modelInteraction,
+  recommendationUserId,
+} from './recommendationInteractions.js';
+import {
   PRICING_EVIDENCE_QUERY_LIMIT,
   PRICING_EVIDENCE_WINDOW_DAYS,
   PRICING_FALLBACK_MIN_OBSERVATIONS,
@@ -146,48 +151,70 @@ export const listingService = {
       throw new AppError('Renter role is required', 403, 'FORBIDDEN');
     }
     const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 30);
-    const [candidates, bookings, reviews] = await Promise.all([
-      ListingModel.find({ status: 'active', ownerId: { $ne: identity.authId } })
+    const restrictedOwnerIds = await UserModel.distinct('authId', {
+      accountStatus: { $ne: 'active' },
+    });
+    const excludedOwnerIds = [...new Set([
+      identity.authId,
+      ...(user.blockedUserIds ?? []),
+      ...restrictedOwnerIds,
+    ])];
+    const [candidates, interactionUsers, bookings, reviews] = await Promise.all([
+      ListingModel.find({
+        status: 'active',
+        ownerId: { $nin: excludedOwnerIds },
+      })
         .sort({ promoted: -1, rating: -1, createdAt: -1 })
         .limit(200),
+      UserModel.find({ 'savedListingIds.0': { $exists: true } })
+        .select('authId savedListingIds createdAt updatedAt')
+        .limit(5000)
+        .lean(),
       BookingModel.find({})
-        .select('renterId listingId status')
+        .select([
+          'publicId',
+          'renterId',
+          'listingId',
+          'status',
+          'sourceType',
+          'createdAt',
+          'decidedAt',
+          'completedAt',
+        ].join(' '))
+        .sort({ createdAt: -1 })
         .limit(5000)
         .lean(),
       ReviewModel.find({ authorRole: 'renter', status: 'published' })
-        .select('authorId listingId overallRating')
+        .select([
+          'bookingId',
+          'authorId',
+          'authorRole',
+          'listingId',
+          'overallRating',
+          'status',
+          'createdAt',
+          'updatedAt',
+        ].join(' '))
+        .sort({ createdAt: -1 })
         .limit(5000)
         .lean(),
     ]);
-    const interactionMap = new Map();
-    for (const listingId of user.savedListingIds) {
-      interactionMap.set(`${identity.authId}:${listingId}`, {
-        userId: identity.authId,
-        itemId: listingId,
-        rating: 4,
-      });
-    }
-    for (const booking of bookings) {
-      interactionMap.set(`${booking.renterId}:${booking.listingId}`, {
-        userId: booking.renterId,
-        itemId: booking.listingId,
-        rating: booking.status === 'completed' ? 4.5 : 4.2,
-      });
-    }
-    for (const review of reviews) {
-      interactionMap.set(`${review.authorId}:${review.listingId}`, {
-        userId: review.authorId,
-        itemId: review.listingId,
-        rating: review.overallRating,
-      });
-    }
+    const interactions = buildRecommendationInteractions({
+      users: interactionUsers,
+      bookings,
+      reviews,
+      includeDemoSeed: env.recommendationIncludeDemoSeed,
+    });
     const recommendations = await aiClient.recommendItems({
-      user_id: identity.authId,
+      user_id: recommendationUserId(identity.authId),
       limit,
       candidates: candidates.map((item) => ({
         item_id: item.publicId,
         title: item.title,
         category: item.category,
+        subcategory: item.subcategory,
+        brand: item.brand,
+        product_model: item.productModel,
         description: item.description,
         location: item.location,
         condition: item.condition ?? '',
@@ -196,11 +223,7 @@ export const listingService = {
         popularity: item.reviewCount + (item.promoted ? 5 : 0),
         available: true,
       })),
-      interactions: [...interactionMap.values()].map((interaction) => ({
-        user_id: interaction.userId,
-        item_id: interaction.itemId,
-        rating: interaction.rating,
-      })),
+      interactions: interactions.map(modelInteraction),
       context: {},
     });
     if (!Array.isArray(recommendations) || !recommendations.length) {
@@ -208,7 +231,8 @@ export const listingService = {
         ...item.toJSON(),
         recommendation: {
           available: false,
-          reason: 'AI ranking is unavailable; marketplace ordering is shown',
+          adapter: 'marketplace-ordering-fallback-v1',
+          reason: 'Personalized ranking is unavailable; active marketplace highlights are shown',
         },
       }));
     }

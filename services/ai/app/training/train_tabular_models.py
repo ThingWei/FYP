@@ -24,8 +24,6 @@ from sklearn.model_selection import GroupShuffleSplit
 from sklearn.inspection import permutation_importance
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
-from surprise import Dataset, Reader, SVD, accuracy, dump
-from surprise.model_selection import train_test_split as surprise_split
 from xgboost import XGBRegressor
 
 from .pricing_dataset import (
@@ -34,6 +32,7 @@ from .pricing_dataset import (
     NUMERIC_FEATURES,
     prepare_dataset,
 )
+from .train_recommendation import train_recommendation_artifact
 
 
 SCHEMA_VERSION = 'renthub-price-v2'
@@ -364,31 +363,19 @@ def train_price(frame: pd.DataFrame, models: Path, metrics_dir: Path, seed: int,
     return metrics
 
 
-def train_recommendation(data_dir: Path, models: Path, metrics_dir: Path, seed: int):
-    rng = np.random.default_rng(seed)
-    rows = []
-    for user in range(120):
-        preference = int(rng.integers(0, 6))
-        for item in rng.choice(180, size=28, replace=False):
-            category = item % 6
-            rating = np.clip(3.1 + (1.25 if category == preference else 0) + rng.normal(0, 0.75), 1, 5)
-            rows.append({'user_id': f'u-{user}', 'item_id': f'l-{item}', 'rating': round(float(rating), 2)})
-    frame = pd.DataFrame(rows)
-    frame.to_csv(data_dir / 'recommendation_ratings.csv', index=False)
-    dataset = Dataset.load_from_df(frame[['user_id', 'item_id', 'rating']], Reader(rating_scale=(1, 5)))
-    trainset, testset = surprise_split(dataset, test_size=0.2, random_state=seed)
-    model = SVD(n_factors=60, n_epochs=30, random_state=seed)
-    model.fit(trainset)
-    predictions = model.test(testset)
-    metrics = {
-        'dataset': 'deterministic-synthetic-v1', 'ratings': len(frame),
-        'testRatings': len(testset),
-        'rmse': float(accuracy.rmse(predictions, verbose=False)),
-        'mae': float(accuracy.mae(predictions, verbose=False)), 'seed': seed,
-    }
-    dump.dump(str(models / 'recommendation_svd.pkl'), algo=model)
-    (metrics_dir / 'recommendation_metrics.json').write_text(
-        json.dumps(metrics, indent=2), encoding='utf-8',
+def train_recommendation(
+    data_dir: Path,
+    models: Path,
+    metrics_dir: Path,
+    seed: int,
+    real_export: Path | None = None,
+):
+    return train_recommendation_artifact(
+        real_export=real_export,
+        models_dir=models,
+        metrics_dir=metrics_dir,
+        data_dir=data_dir,
+        seed=seed,
     )
 
 
@@ -396,6 +383,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--synthetic-rows', type=int, default=5000)
     parser.add_argument('--real-export', type=Path)
+    parser.add_argument('--recommendation-export', type=Path)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--skip-recommendation', action='store_true')
     args = parser.parse_args()
@@ -412,7 +400,13 @@ def main():
     )
     train_price(frame.copy(), models, metrics_dir, args.seed, summary)
     if not args.skip_recommendation:
-        train_recommendation(data_dir, models, metrics_dir, args.seed)
+        train_recommendation(
+            data_dir,
+            models,
+            metrics_dir,
+            args.seed,
+            args.recommendation_export,
+        )
 
 
 if __name__ == '__main__':

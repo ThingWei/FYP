@@ -59,6 +59,27 @@ models/easyocr/                 # downloaded separately or with explicit opt-in
 metrics/*.json
 ```
 
+## Recommendation dataset and artifact
+
+The recommendation export is separate from pricing data and includes only a
+hashed user ID, listing ID, canonical rating, interaction type, timestamp, and
+provenance label:
+
+```powershell
+cd ..\api
+npm.cmd run export:recommendation-data
+
+cd ..\ai
+.\.venv\Scripts\python.exe -m app.training.train_recommendation
+```
+
+The trainer uses a reproducible per-user chronological holdout, reports RMSE,
+MAE, Precision@5, Recall@5, and HitRate@5, and labels marketplace, demo-seed,
+and deterministic synthetic rows separately. It saves the SVD artifact only
+after atomic write, reload, and smoke inference succeed. See
+`../../docs/RECOMMENDATION_AI_RESULT.md` for the current measured results and
+cold-start limitations.
+
 Set `EASYOCR_ALLOW_DOWNLOAD=true` only when an intentional first-run model
 download is acceptable. All uploads are sent to this service as authenticated
 base64 bytes by the API; private storage URLs are not exposed.

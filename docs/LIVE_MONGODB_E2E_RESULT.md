@@ -76,7 +76,10 @@ The principal renter/Owner lifecycle above is live. RentHub is not yet fully liv
 - The live Reports destination now combines persistent user, listing, review, and message safety reports with audited resolution actions. Downloadable analytics exports remain deferred.
 - Platform Settings now persists marketplace, category, policy, notification-template, verification-threshold, moderation-threshold, maintenance, loyalty, and referral rules.
 - Wishlist, listing comparison, availability filtering, promoted-only discovery, verified-Owner filtering, price/location/type/category filters, and discovery sorting now use the live API and MongoDB-backed user state.
-- Personalized or machine-learned recommendations remain deferred; the current recommended order uses promotion, rating, and recency signals.
+- Historical note: personalized recommendations were deferred during this older
+  E2E run. They were implemented and reverified on 4 October 2026 using current
+  MongoDB interactions, TF-IDF/cosine, Surprise SVD, and truthful cold-start
+  fallback; see `RECOMMENDATION_AI_RESULT.md`.
 - Owner availability, listing editing/resubmission, promotion configuration, and physical-item bundle management are now connected through the live controller. Bundle checkout remains a future extension; the current renter UI presents the offer on the listing.
 - Evidence and listing images use local placeholder references. Firebase/object storage upload is not integrated.
 - Referral sharing produces a visible local action but does not invoke an operating-system share provider.

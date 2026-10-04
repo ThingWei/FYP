@@ -403,6 +403,34 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                                       fontSize: 12,
                                     ),
                                   ),
+                                  if (widget.featuredOnly &&
+                                      listing.recommendationReason.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(
+                                            Icons.auto_awesome_outlined,
+                                            size: 14,
+                                            color: AppColors.info,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              listing.recommendationReason,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: AppColors.secondaryText,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   const SizedBox(height: 7),
                                   Wrap(
                                     spacing: 8,
