@@ -4,274 +4,267 @@ Date: 4 October 2026
 
 ## Outcome
 
-RentHub now adds catalog-assisted product identity to the existing AI pricing
-pipeline. A new physical listing searches for a brand first, enables model search
-only after a brand is selected, stores a server-verified canonical identity, and
-uses that identity to find stronger MongoDB comparables. An owner can always use
-manual brand/model entry when coverage is missing or the external provider is
-unavailable.
+RentHub now routes catalog searches through a product-domain provider selected by
+the Express API. Flutter never contacts an external catalog directly. Brand and
+model results are constrained by category, subcategory, and the selected
+canonical brand; a provider failure is different from a valid zero-result search.
 
-The product catalog identifies products only. It does not supply a rental price
-and there are no fixed price rules for a brand, model, condition, or match type.
-The predicted price is still produced by the trained XGBoost pipeline, using
-dynamic marketplace evidence calculated by Express.
+The catalog provides identity only. It does not provide or scrape rental prices.
+Price recommendations continue to use MongoDB marketplace evidence followed by
+the trained FastAPI XGBoost pipeline.
 
-## Final architecture
+## Provider and domain strategy
+
+| RentHub domain | Provider | Validation rule |
+| --- | --- | --- |
+| `Vehicles -> Cars` | NHTSA vPIC | Makes come from the vPIC car make list; models are requested by the selected vPIC make ID. |
+| `Devices -> Smartphones` | Wikidata Query Service | SPARQL only returns manufacturers connected to smartphone model/model-series classes; models must have the selected manufacturer ID and an allowed smartphone type. |
+| `Books -> *` | Open Library | The first field resolves an author ID; titles come from that author's Works endpoint. |
+| Other physical subcategories | validated Wikidata fallback | Results must contain category/subcategory semantics and an entity-type marker. Unvalidated text matches are discarded. |
+
+Provider selection is generic and based on RentHub taxonomy, not on individual
+brands. There is no Apple, Toyota, or other manufacturer-specific API branch.
+
+The main endpoints are:
 
 ```text
-Flutter Owner listing form
-  -> authenticated Express catalog endpoints
-  -> fresh MongoDB product_catalog cache
-  -> Wikidata entity search when cache is missing/stale
-  -> user confirms a result or chooses manual entry
-  -> Express verifies and stores canonical identity
-
-Flutter price request
-  -> Express verifies canonical identity again
-  -> MongoDB active/completed-rental evidence hierarchy
-  -> FastAPI renthub-price-v2 contract
-  -> trained XGBoost artifact
-  -> suggestion + calibrated range + confidence + explanation
-  -> owner accepts or overrides the price
+GET /api/v1/catalog/brands?category=...&subcategory=...&query=...
+GET /api/v1/catalog/models?category=...&subcategory=...&brand=...&catalogBrandId=...&query=...
 ```
 
-Flutter never calls Wikidata directly. Provider configuration remains in the
-Express environment, and the client cannot make an arbitrary canonical ID trusted.
+`query` is optional for the model endpoint. This permits the first model page to
+load immediately after a canonical brand is selected. Entering two or more model
+characters still performs debounced autocomplete.
 
-## Product catalog source
+MongoDB cache entries are scoped to category, subcategory, entity type, and
+provider source. Old generic Wikidata car/smartphone cache records therefore do
+not override the domain provider. Fresh cache lifetime is 168 hours by default;
+stale cache may be used only when its matching provider is unavailable.
 
-The provider adapter currently uses the open Wikidata `wbsearchentities` API.
-The adapter can be replaced behind the same Express service. It is enabled for
-all RentHub physical categories: Books, Clothing, Devices, Equipment, and
-Vehicles. Coverage varies by product: major companies and notable products are
-usually represented, while local, new, obscure, or variant-specific products may
-not be.
+Configuration:
 
-RentHub applies these controls:
+```text
+CATALOG_MODE=domain
+CATALOG_PROVIDER_URL=https://www.wikidata.org/w/api.php
+CATALOG_WIKIDATA_SPARQL_URL=https://query.wikidata.org/sparql
+CATALOG_VEHICLE_PROVIDER_URL=https://vpic.nhtsa.dot.gov
+CATALOG_BOOK_PROVIDER_URL=https://openlibrary.org
+CATALOG_CACHE_TTL_HOURS=168
+CATALOG_TIMEOUT_MS=4000
+CATALOG_MIN_INTERVAL_MS=250
+CATALOG_MAX_RESULTS=12
+```
 
-- MongoDB cache collection: `product_catalog`;
-- fresh-cache lifetime: 168 hours by default;
-- minimum provider request interval: 250 ms by default;
-- provider timeout: 4,000 ms by default;
-- maximum returned records: 12 by default;
-- stale-cache fallback when the provider fails;
-- manual entry when neither provider nor cache has a useful match.
+`CATALOG_MODE=wikidata` remains accepted for configuration compatibility, but
+the router still applies the domain strategy. `disabled` disables all providers.
 
-When the provider fails and no cache entry exists, Express returns
-`503 CATALOG_UNAVAILABLE`. A successful provider search with zero rows remains a
-normal `200` no-match response. Flutter therefore no longer presents API,
-authentication, or provider failures as "No catalog match found".
+## Filtering behavior and UI states
 
-These values are configurable through `CATALOG_MODE`, `CATALOG_PROVIDER_URL`,
-`CATALOG_CACHE_TTL_HOURS`, `CATALOG_TIMEOUT_MS`,
-`CATALOG_MIN_INTERVAL_MS`, and `CATALOG_MAX_RESULTS`.
+The old implementation ranked every result returned by Wikidata text search.
+That allowed labels such as Apple Music, application software, Applied Physics
+Letters, and microbiology journals to appear in a smartphone brand field.
 
-Wikidata is entity-oriented rather than a complete commercial SKU catalog. Its
-search can return organisations, products, or unrelated entities with the same
-name. The UI therefore shows the description and requires the owner to select a
-result. A weak result is never silently selected.
+The smartphone path no longer uses generic text results. A manufacturer must be
+linked by Wikidata's manufacturer property to an entity classified as a
+smartphone model, smartphone model series, or mobile-phone series. Model queries
+use the selected canonical manufacturer ID. The general fallback separately
+requires both domain terms and a brand/product entity marker before ranking.
+
+Flutter presents three different outcomes:
+
+1. match found: selectable canonical results are displayed;
+2. no match found: the provider succeeded with zero valid results and manual
+   entry remains available;
+3. catalog unavailable/error: an error card and retry action are displayed.
+
+Express returns `503 CATALOG_UNAVAILABLE` when a provider fails and no matching
+stale cache exists. It never converts that condition to an empty array.
+
+## Apple smartphone verification
+
+The live integration test requested:
+
+```text
+Devices -> Smartphones -> "appl"
+```
+
+It returned canonical `Apple` (`wikidata-smartphones:Q312`) and no journal,
+software, or streaming-service entity. A query-less model request using that
+canonical brand returned an initial page containing iPhone models. Every model
+was retrieved through the smartphone type + manufacturer graph constraint.
+
+## Toyota car verification
+
+The live integration test requested:
+
+```text
+Vehicles -> Cars -> "toyota"
+```
+
+It returned canonical `Toyota` (`nhtsa-vpic:448`). Model lookup used that make ID
+and retrieved common Toyota models including Camry and Corolla. Lowercase brand
+input is normalized case-insensitively; display casing comes from the provider.
 
 ## Product matching and persistence
 
-The implementation supports four match types:
+Listings store `canonicalProductId`, `catalogBrandId`, `productMatchType`, and
+`catalogSource`. Express verifies the selected identity against its cache before
+trusting it. A mismatched ID degrades to manual entry.
 
-- `exact_catalog_match`: the selected result matches the entered label or alias
-  after case, punctuation, whitespace, and compact-token normalisation;
-- `fuzzy_catalog_match`: the owner explicitly selected a non-exact suggestion;
-- `catalog_brand_match_model_manual`: the brand is recognised but the model was
-  entered manually;
-- `manual_entry`: both identity fields are treated as manual.
+Supported match types remain:
 
-Examples such as `Talon 2`, `Talon-2`, and `talon2` resolve consistently after a
-confirmed catalog selection. Listings store `canonicalProductId`,
-`catalogBrandId`, `productMatchType`, and `catalogSource`. Express looks up the
-selected identity in its cache and replaces client-supplied labels/source with
-the trusted cached values. Invalid or mismatched IDs degrade to manual entry
-instead of being accepted as canonical.
+- `exact_catalog_match`;
+- `fuzzy_catalog_match`;
+- `catalog_brand_match_model_manual`;
+- `manual_entry`.
 
-## Flutter owner flow
+## Completed-rental evidence and cold start
 
-The physical listing editor now provides:
+The configured development MongoDB was inspected read-only on 4 October 2026:
 
-- 400 ms debounced brand and model searches;
-- catalog search enabled by default for a new listing;
-- a disabled model field until a catalog brand is selected or manual-brand mode
-  is chosen;
-- result descriptions and explicit selection;
-- separate manual fallbacks for brand and model;
-- a `Product recognised` state for canonical products;
-- a manual-product state explaining that broader evidence will be used;
-- suggestion, range, confidence, model source, exact/similar evidence counts,
-  warnings, and explanations;
-- explicit `Use suggested price`, while preserving free price override.
+| Check | Count |
+| --- | ---: |
+| Eligible completed rentals (`captured` or `settled`) | 1 |
+| Eligible completed Toyota/Cars rentals | 0 |
+| Cached Toyota/Cars catalog records before provider migration | 13 |
 
-Search feedback has three distinct states: matches found, a successful search
-with no match, and catalog unavailable/error with a retry action. An old API
-process that does not advertise the `product-catalog-v1` capability is rejected
-by the launcher instead of being silently reused.
+Toyota/Camry's zero historical-rental result is therefore correct. Catalog
+records identify products; they are not transactions and cannot be counted as
+completed rentals.
 
-Existing manual listings remain editable in manual mode until their owner opts
-into catalog search. This avoids changing saved data without confirmation.
+Completed and active evidence are queried separately. Each source uses this
+narrow-to-wide hierarchy:
 
-## Historical evidence hierarchy
-
-Active listings and completed rentals are queried separately. Completed-rental
-effective daily prices remain the stronger historical signal. Within each source,
-the narrowest tier with enough observations is selected:
-
-1. exact canonical product + same city;
-2. exact canonical product + same state;
-3. exact canonical product + Malaysia-wide;
-4. exact normalised product text + same state and condition;
+1. exact canonical product, city;
+2. exact canonical product, state;
+3. exact canonical product, Malaysia-wide;
+4. exact normalized brand + model, Malaysia-wide;
 5. same subcategory + brand + condition + state;
-6. same subcategory + brand + Malaysia-wide;
+6. same subcategory + brand, Malaysia-wide;
 7. same subcategory + state;
-8. same subcategory + Malaysia-wide;
+8. same subcategory, Malaysia-wide;
 9. same category + state;
 10. category-wide.
 
-Exact canonical and exact text tiers can be used with one observation. Brand
-tiers require two and broad subcategory/category tiers require three. Within a
-tier, relevance considers canonical/text identity, subcategory, brand, condition,
-city/state, item-age distance, rental-duration distance, and record recency. These
-signals rank evidence; they do not add fixed Ringgit adjustments.
+The price flow prefers sufficient completed-rental statistics, then sufficient
+active comparable listings, and otherwise relies on XGBoost with low-confidence
+cold-start warnings. No completed rental is fabricated.
 
-Express dynamically returns counts, median, mean, IQR, freshness, demand/supply
-ratio, selected tiers, and exact-versus-similar counts. If FastAPI is unavailable,
-Express only emits a clearly labelled robust statistical median when sufficient
-evidence and non-zero spread exist. Otherwise it returns `insufficient_data`.
+### Optional demo history
 
-## XGBoost implementation
+Development-only history can be created explicitly:
 
-The price model remains a genuine `XGBRegressor` inside a persisted scikit-learn
-pipeline. Categorical fields—category, subcategory, condition, brand, model, and
-Malaysian state—use one-hot encoding with unknown-value support. Numeric fields
-include item age, expected rental duration, active comparable statistics,
-completed-rental statistics, evidence freshness, demand/supply ratio, owner trust
-and rating, completed-rental count, and prediction month.
-
-The target is effective daily rental price, not total booking price. The canonical
-catalog ID is used to select market evidence and is deliberately not used as an
-ordinal ML feature. The artifact remains:
-
-```text
-services/ai/models/price_xgboost.joblib
+```powershell
+cd services/api
+npm.cmd run seed:pricing-demo
 ```
 
-Prediction ranges use the 90th-percentile held-out absolute residual rather than
-an arbitrary percentage.
+Every inserted listing and booking is marked `sourceType=demo_seed`. It is
+excluded from live pricing by default. A developer may opt in locally with:
 
-## Dataset provenance and evaluation
+```text
+PRICING_INCLUDE_DEMO_SEED=true
+```
 
-The current evaluated dataset contains 5,013 rows:
+Production configuration rejects that option. Pricing exports label these rows
+as `source_type=demo_seed` and use separate `demo_seed_*` target sources, so they
+cannot be reported as real transactions. API responses also report marketplace
+and demo-seed completed counts separately and warn when demo evidence is used.
 
-| Source | Rows | Meaning |
-| --- | ---: | --- |
-| Synthetic | 5,000 | Deterministic FYP development data |
-| Real RentHub | 13 | Read-only observations from the configured MongoDB |
-| Real active asking | 11 | Current listing daily prices |
-| Real completed rental | 1 | Completed booking effective daily price |
-| Real accepted booking | 1 | Accepted booking effective daily price |
+## Item-age audit
 
-No scraped/catalog price is used. The catalog provides identity only.
+The end-to-end contract is:
 
-Held-out grouped evaluation from `services/ai/metrics/price_metrics.json`:
+```text
+Flutter item age
+  -> Express itemProfile.item_age_years
+  -> FastAPI item_profile.item_age_years
+  -> numeric__item_age_years in the fitted pipeline
+  -> XGBoost prediction
+```
 
-| Evaluator | Rows | MAE (RM) | RMSE (RM) | R-squared |
+The Flutter/API regression tests assert that the entered value reaches the AI
+request. FastAPI controlled tests keep product identity, condition, duration,
+market evidence, owner fields, state, and month fixed while changing only age.
+
+The previous artifact barely reacted: ages 0, 1, 3, 5, and 8 produced about
+RM101.03, RM100.99, RM100.99, RM100.99, and RM100.59. Native age importance was
+only 0.00131. The cause was training leakage: comparable medians were generated
+from the same age-adjusted latent target, so the model could ignore age.
+
+Synthetic bootstrap generation now keeps wider-market comparable medians
+separate from subject-item depreciation. It uses category-specific training-data
+relationships. Devices and Vehicles have category-specific non-increasing age
+constraints; Books have no such global constraint because fiction and
+collectibles may be stable or appreciate. There is no inference-time rule such
+as subtracting a fixed Ringgit amount per year.
+
+Controlled predictions from the retrained artifact:
+
+| Age (years) | Devices / Smartphones (RM/day) | Vehicles / Cars (RM/day) |
+| ---: | ---: | ---: |
+| 0 | 81.05 | 94.65 |
+| 1 | 78.14 | 91.43 |
+| 3 | 68.39 | 72.51 |
+| 5 | 57.05 | 66.09 |
+| 8 | 42.35 | 51.96 |
+
+Held-out permutation importance measured the mean MAE increase when item age was
+shuffled:
+
+- global: RM13.80;
+- Devices: RM22.11;
+- Vehicles: RM32.80;
+- Books: RM0.33.
+
+Native XGBoost importance for `numeric__item_age_years` is 0.02391. The much
+smaller Books permutation effect is expected and confirms that a single global
+depreciation rule was not imposed.
+
+The reproducible audit command is:
+
+```powershell
+cd services/ai
+.\.venv\Scripts\python.exe -m app.training.audit_price_age --category Devices
+```
+
+## Dataset and evaluation
+
+The retrained dataset contains 5,013 rows: 5,000 deterministic synthetic
+bootstrap rows and 13 MongoDB observations (11 active asking prices, one
+completed rental, and one accepted booking). No catalog price is used.
+
+| Evaluator | Test rows | MAE (RM) | RMSE (RM) | R-squared |
 | --- | ---: | ---: | ---: | ---: |
-| Selected global/category strategy | 784 | 10.64 | 24.43 | 0.981 |
-| Global XGBoost | 784 | 10.31 | 24.00 | 0.981 |
-| Category/subcategory median baseline | 784 | 71.30 | 132.92 | 0.432 |
+| Selected global/category strategy | 808 | 10.39 | 24.72 | 0.978 |
+| Global XGBoost | 808 | 10.36 | 24.14 | 0.979 |
+| Category/subcategory median baseline | 808 | 66.10 | 128.37 | 0.394 |
 
-The held-out 90% interval coverage is 90.56%. Only three real-source rows landed
-in the test split, so these results mainly describe synthetic-data fit and must
-not be presented as production Malaysian market accuracy.
-
-## Confidence
-
-FastAPI confidence combines calibrated relative model uncertainty, active and
-completed evidence volume, evidence freshness, input completeness, supported
-category status, and product-match quality. Product quality multipliers rank
-exact catalog, fuzzy catalog, recognised-brand/manual-model, and fully manual
-identity in that order. Express's emergency statistical fallback separately uses
-evidence volume, freshness, spread, and the same product-quality ordering.
-
-Confidence does not alter the predicted price. It communicates how much support
-the prediction has. An exact product with no completed history can still be low
-confidence when the calibrated model range is wide.
-
-## Complete Giant Talon 2 E2E example
-
-The automated E2E test ran the real chain from Express through MongoDB evidence to
-the live FastAPI XGBoost artifact with this input:
-
-```text
-Category: Vehicles
-Specific category: Bicycles
-Brand: Giant
-Model: Talon 2
-Condition: Excellent
-Age: 1 year
-Location: Kuala Lumpur
-Expected rental duration: 1 day
-```
-
-Observed result from the current development artifact and test evidence:
-
-```json
-{
-  "catalogMatchType": "exact_catalog_match",
-  "exactActiveListings": 2,
-  "selectedActiveTier": "exact_canonical_city",
-  "exactCompletedRentals": 0,
-  "similarCompletedRentals": 0,
-  "suggestedDailyPrice": 117.99,
-  "range": [56.81, 179.16],
-  "confidence": 0.482,
-  "confidenceLabel": "low",
-  "modelSource": "category_xgboost"
-}
-```
-
-The explanation reported the recognised product, two exact active listings, no
-completed-rental evidence, the Vehicles category XGBoost model, and the calibrated
-residual range. This is a deterministic integration fixture, not a current market
-quotation.
-
-## Live Toyota catalog verification
-
-The configured Wikidata provider was exercised through the complete Express API
-and an isolated MongoDB cache using `Vehicles -> Cars -> toyota`. The search
-returned the canonical `Toyota` automotive manufacturer (`Q53268`), normalised
-the lowercase query case-insensitively, and retrieved Corolla, Camry, Vios, and
-Hilux model records. Generic category/subcategory relevance ranking places
-automotive manufacturers and vehicle models above same-name places or unrelated
-entities. There is no Toyota-specific branch or seed record in application code.
-
-## Verification performed
-
-- live Wikidata smoke searches returned records for Sony, Giant, Apple, and Canon;
-- complete API suite: 92 passing, 2 optional live E2E tests skipped;
-- live Wikidata Toyota API/cache E2E: 1 passing;
-- complete Express + MongoDB + FastAPI + XGBoost E2E: 1 passing;
-- FastAPI training and contract suite: 14 passing;
-- complete Flutter suite: 84 passing, 2 intentionally skipped;
-- Flutter analyzer: no issues;
-- OpenAPI YAML: parsed successfully.
+Held-out 90% interval coverage is 90.10%. These metrics mainly measure the
+synthetic bootstrap distribution and must not be presented as production
+Malaysian-market accuracy.
 
 ## Remaining limitations
 
-- Wikidata is not a complete Malaysian retail product/SKU catalog and may return
-  ambiguous entities.
-- Catalog identity does not provide current Malaysian rental-market prices.
-- Marketplace history is still extremely small: one completed-rental observation
-  in the current real export.
-- Most model training data is synthetic, so real-world accuracy is unproven.
-- Manual and brand-only products necessarily use broader evidence and lower
-  confidence.
-- City matching currently uses normalised place text; it does not calculate a
-  geographic distance radius.
-- Category-specific specifications such as bicycle frame material or camera
-  sensor type are not yet structured in the listing schema.
-- Automatic retraining/monitoring and a reviewed production catalog provider are
+- NHTSA vPIC is authoritative vehicle metadata but is US-oriented; some
+  Malaysia-only makes/models may be absent.
+- Wikidata's structured smartphone coverage is incomplete and may omit new or
+  poorly modelled devices.
+- Open Library's author/work model does not provide a complete publisher or
+  edition/SKU catalog; manual entry remains necessary.
+- The validated fallback intentionally prefers false negatives over unrelated
+  entities.
+- Real RentHub history remains too small for production price validation.
+- The item-age effect is learned mainly from explicitly labelled synthetic
+  bootstrap data until sufficient reviewed marketplace observations exist.
+- Automatic retraining, drift monitoring, and production catalog SLAs remain
   future operational work.
+
+## Verification performed
+
+- Express/API: 105 passed, 3 optional E2E tests skipped;
+- live NHTSA + Wikidata catalog E2E: 2 passed;
+- FastAPI/AI: 16 passed (one dependency deprecation warning);
+- Flutter: 91 passed, 2 intentionally skipped;
+- Flutter analyzer: no issues;
+- OpenAPI YAML: parsed successfully.

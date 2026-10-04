@@ -62,13 +62,24 @@ export const env = {
     process.env.OPENSTREETMAP_MIN_INTERVAL_MS,
     1000,
   ),
-  catalogMode: process.env.CATALOG_MODE ?? 'wikidata',
+  catalogMode: process.env.CATALOG_MODE ?? 'domain',
   catalogProviderUrl:
     process.env.CATALOG_PROVIDER_URL ?? 'https://www.wikidata.org/w/api.php',
+  catalogWikidataSparqlUrl:
+    process.env.CATALOG_WIKIDATA_SPARQL_URL ??
+    'https://query.wikidata.org/sparql',
+  catalogVehicleProviderUrl:
+    process.env.CATALOG_VEHICLE_PROVIDER_URL ?? 'https://vpic.nhtsa.dot.gov',
+  catalogBookProviderUrl:
+    process.env.CATALOG_BOOK_PROVIDER_URL ?? 'https://openlibrary.org',
   catalogCacheTtlHours: integer(process.env.CATALOG_CACHE_TTL_HOURS, 168),
   catalogTimeoutMs: integer(process.env.CATALOG_TIMEOUT_MS, 4000),
   catalogMinIntervalMs: integer(process.env.CATALOG_MIN_INTERVAL_MS, 250),
   catalogMaxResults: integer(process.env.CATALOG_MAX_RESULTS, 12),
+  pricingIncludeDemoSeed: boolean(
+    process.env.PRICING_INCLUDE_DEMO_SEED,
+    false,
+  ),
   aiUrl: process.env.AI_SERVICE_URL ?? 'http://localhost:8001',
   aiTimeoutMs: integer(process.env.AI_TIMEOUT_MS, 5000),
   aiEnforcementMode: process.env.AI_ENFORCEMENT_MODE ?? 'advisory',
@@ -105,13 +116,29 @@ export function validateEnv(config = env) {
     config.openStreetMapUserAgent ?? 'RentHub/1.0';
   const openStreetMapMinIntervalMs =
     config.openStreetMapMinIntervalMs ?? 1000;
-  const catalogMode = config.catalogMode ?? 'wikidata';
+  const catalogMode = config.catalogMode ?? 'domain';
   const catalogProviderUrl =
     config.catalogProviderUrl ?? 'https://www.wikidata.org/w/api.php';
+  const catalogProviderUrls = [
+    ['CATALOG_PROVIDER_URL', catalogProviderUrl],
+    [
+      'CATALOG_WIKIDATA_SPARQL_URL',
+      config.catalogWikidataSparqlUrl ?? 'https://query.wikidata.org/sparql',
+    ],
+    [
+      'CATALOG_VEHICLE_PROVIDER_URL',
+      config.catalogVehicleProviderUrl ?? 'https://vpic.nhtsa.dot.gov',
+    ],
+    [
+      'CATALOG_BOOK_PROVIDER_URL',
+      config.catalogBookProviderUrl ?? 'https://openlibrary.org',
+    ],
+  ];
   const catalogCacheTtlHours = config.catalogCacheTtlHours ?? 168;
   const catalogTimeoutMs = config.catalogTimeoutMs ?? 4000;
   const catalogMinIntervalMs = config.catalogMinIntervalMs ?? 250;
   const catalogMaxResults = config.catalogMaxResults ?? 12;
+  const pricingIncludeDemoSeed = config.pricingIncludeDemoSeed ?? false;
   const maxUploadBytes = config.maxUploadBytes ?? 10 * 1024 * 1024;
   const aiTimeoutMs = config.aiTimeoutMs ?? 5000;
   const aiEnforcementMode = config.aiEnforcementMode ?? 'advisory';
@@ -247,15 +274,17 @@ export function validateEnv(config = env) {
       );
     }
   }
-  if (!['disabled', 'wikidata'].includes(catalogMode)) {
-    errors.push('CATALOG_MODE must be disabled or wikidata');
+  if (!['disabled', 'domain', 'wikidata'].includes(catalogMode)) {
+    errors.push('CATALOG_MODE must be disabled, domain, or wikidata');
   }
-  if (catalogMode === 'wikidata') {
-    try {
-      const url = new URL(catalogProviderUrl);
-      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
-    } catch {
-      errors.push('CATALOG_PROVIDER_URL must be a valid HTTP or HTTPS URL');
+  if (catalogMode !== 'disabled') {
+    for (const [name, value] of catalogProviderUrls) {
+      try {
+        const url = new URL(value);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+      } catch {
+        errors.push(`${name} must be a valid HTTP or HTTPS URL`);
+      }
     }
   }
   if (!Number.isInteger(catalogCacheTtlHours) || catalogCacheTtlHours < 1) {
@@ -269,6 +298,9 @@ export function validateEnv(config = env) {
   }
   if (!Number.isInteger(catalogMaxResults) || catalogMaxResults < 1 || catalogMaxResults > 50) {
     errors.push('CATALOG_MAX_RESULTS must be an integer from 1 to 50');
+  }
+  if (config.nodeEnv === 'production' && pricingIncludeDemoSeed) {
+    errors.push('PRICING_INCLUDE_DEMO_SEED must be false in production');
   }
   if (!Number.isInteger(aiTimeoutMs) || aiTimeoutMs < 500) {
     errors.push('AI_TIMEOUT_MS must be an integer of at least 500');

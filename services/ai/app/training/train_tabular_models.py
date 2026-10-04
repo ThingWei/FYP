@@ -21,6 +21,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GroupShuffleSplit
+from sklearn.inspection import permutation_importance
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from surprise import Dataset, Reader, SVD, accuracy, dump
@@ -45,20 +46,24 @@ TARGET_SOURCE_WEIGHTS = {
     'accepted_booking': 0.75,
     'active_asking': 0.45,
     'synthetic_seed': 0.35,
+    'demo_seed_completed_rental': 0.35,
+    'demo_seed_accepted_booking': 0.25,
+    'demo_seed_active_asking': 0.15,
 }
 
 
-def _pipeline(seed: int) -> Pipeline:
+def _pipeline(seed: int, monotone_age: bool = False) -> Pipeline:
     categorical = Pipeline([
         ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
-        ('encoder', OneHotEncoder(handle_unknown='ignore')),
+        ('encoder', OneHotEncoder(handle_unknown='ignore', sparse_output=False)),
     ])
     numeric = Pipeline([('imputer', SimpleImputer(strategy='median'))])
+    features = ColumnTransformer([
+        ('categorical', categorical, CATEGORICAL_FEATURES),
+        ('numeric', numeric, NUMERIC_FEATURES),
+    ]).set_output(transform='pandas')
     return Pipeline([
-        ('features', ColumnTransformer([
-            ('categorical', categorical, CATEGORICAL_FEATURES),
-            ('numeric', numeric, NUMERIC_FEATURES),
-        ])),
+        ('features', features),
         ('model', XGBRegressor(
             n_estimators=360,
             max_depth=6,
@@ -70,6 +75,9 @@ def _pipeline(seed: int) -> Pipeline:
             objective='reg:squarederror',
             random_state=seed,
             n_jobs=1,
+            monotone_constraints=(
+                {'numeric__item_age_years': -1} if monotone_age else None
+            ),
         )),
     ])
 
@@ -110,6 +118,46 @@ def _baseline_predict(train: pd.DataFrame, target: pd.DataFrame) -> np.ndarray:
 
 def _sample_weights(frame: pd.DataFrame) -> np.ndarray:
     return frame['target_source'].map(TARGET_SOURCE_WEIGHTS).fillna(0.25).to_numpy()
+
+
+def _feature_importance(model: Pipeline, frame: pd.DataFrame, seed: int) -> dict:
+    sample = frame.sample(min(len(frame), 1000), random_state=seed)
+    permutation = permutation_importance(
+        model,
+        sample[FEATURES],
+        sample['daily_price'],
+        scoring='neg_mean_absolute_error',
+        n_repeats=5,
+        random_state=seed,
+        n_jobs=1,
+    )
+    permutation_values = {
+        feature: float(value)
+        for feature, value in zip(FEATURES, permutation.importances_mean)
+    }
+    transformed_names = model.named_steps['features'].get_feature_names_out()
+    native_values = model.named_steps['model'].feature_importances_
+    native = sorted(
+        (
+            {'feature': str(feature), 'importance': float(value)}
+            for feature, value in zip(transformed_names, native_values)
+        ),
+        key=lambda item: item['importance'],
+        reverse=True,
+    )
+    return {
+        'method': 'held-out permutation MAE increase; native XGBoost gain',
+        'permutationMeanMaeIncrease': permutation_values,
+        'itemAgePermutationMeanMaeIncrease': permutation_values['item_age_years'],
+        'itemAgeNativeImportance': next(
+            (
+                item['importance'] for item in native
+                if item['feature'].endswith('__item_age_years')
+            ),
+            0.0,
+        ),
+        'topNativeFeatures': native[:20],
+    }
 
 
 def _atomic_joblib(payload: dict, target: Path):
@@ -194,7 +242,8 @@ def train_price(frame: pd.DataFrame, models: Path, metrics_dir: Path, seed: int,
             len(validation_category) < CATEGORY_MODEL_MIN_VALIDATION_ROWS
         ):
             continue
-        candidate = _pipeline(seed)
+        monotone_age = category in {'Devices', 'Vehicles'}
+        candidate = _pipeline(seed, monotone_age=monotone_age)
         candidate.fit(
             train_category[FEATURES],
             train_category['daily_price'],
@@ -208,7 +257,11 @@ def train_price(frame: pd.DataFrame, models: Path, metrics_dir: Path, seed: int,
             validation_category['daily_price'],
             global_model.predict(validation_category[FEATURES]),
         )
-        if candidate_mae <= global_mae * (1 - CATEGORY_MODEL_REQUIRED_IMPROVEMENT):
+        meets_accuracy_threshold = (
+            candidate_mae <= global_mae * (1 - CATEGORY_MODEL_REQUIRED_IMPROVEMENT)
+            or (monotone_age and candidate_mae <= global_mae * 1.02)
+        )
+        if meets_accuracy_threshold:
             category_models[category] = candidate
             candidate_residuals = np.abs(
                 validation_category['daily_price'].to_numpy() -
@@ -239,6 +292,16 @@ def train_price(frame: pd.DataFrame, models: Path, metrics_dir: Path, seed: int,
         (test['daily_price'].to_numpy() >= final_test_prediction - half_widths) &
         (test['daily_price'].to_numpy() <= final_test_prediction + half_widths)
     ))
+    feature_importance = _feature_importance(global_model, test, seed)
+    feature_importance['itemAgePermutationByCategory'] = {
+        category: _feature_importance(
+            category_models.get(category, global_model),
+            test[test['category'] == category],
+            seed,
+        )['itemAgePermutationMeanMaeIncrease']
+        for category in sorted(test['category'].unique())
+        if len(test[test['category'] == category]) >= 20
+    }
     metrics = {
         'schemaVersion': SCHEMA_VERSION,
         'dataset': summary,
@@ -266,6 +329,7 @@ def train_price(frame: pd.DataFrame, models: Path, metrics_dir: Path, seed: int,
         },
         'seed': seed,
         'targetSourceWeights': TARGET_SOURCE_WEIGHTS,
+        'featureImportance': feature_importance,
         'trainingSeconds': round(time.perf_counter() - started, 3),
         'versions': {
             'sklearn': sklearn.__version__,

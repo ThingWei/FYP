@@ -265,6 +265,9 @@ export const listingService = {
       BookingModel.find({
         listingType: 'physical',
         status: 'completed',
+        ...(env.pricingIncludeDemoSeed
+          ? { sourceType: { $in: ['marketplace', 'demo_seed'] } }
+          : { sourceType: { $ne: 'demo_seed' } }),
         paymentStatus: { $in: PRICING_COMPLETED_PAYMENT_STATUSES },
         'pricing.baseAmount': { $gt: 0 },
         $or: [
@@ -272,7 +275,7 @@ export const listingService = {
           { completedAt: { $exists: false }, createdAt: { $gte: evidenceStart } },
         ],
       })
-        .select('listingId startDate endDate pricing.baseAmount completedAt')
+        .select('listingId startDate endDate pricing.baseAmount completedAt sourceType')
         .sort({ completedAt: -1 })
         .limit(PRICING_EVIDENCE_QUERY_LIMIT)
         .lean(),
@@ -322,12 +325,19 @@ export const listingService = {
             dailyPrice,
             rentalDurationDays: rentalDays(booking),
             observedAt: booking.completedAt,
+            sourceType: booking.sourceType ?? 'marketplace',
           }]
         : [];
     });
     const historicalTier = selectComparableTier(completedCandidates, profile);
     const activeEvidenceCounts = evidenceCounts(activeCandidates, profile);
     const historicalEvidenceCounts = evidenceCounts(completedCandidates, profile);
+    const marketplaceCompletedCount = historicalTier.items.filter(
+      (item) => item.sourceType !== 'demo_seed',
+    ).length;
+    const demoSeedCompletedCount = historicalTier.items.filter(
+      (item) => item.sourceType === 'demo_seed',
+    ).length;
     const activeStats = robustPriceStats(
       activeTier.items.map((listing) => listing.dailyPrice),
     );
@@ -354,6 +364,8 @@ export const listingService = {
       similar_active_count: activeEvidenceCounts.similar,
       exact_completed_rental_count: historicalEvidenceCounts.exact,
       similar_completed_rental_count: historicalEvidenceCounts.similar,
+      marketplace_completed_rental_count: marketplaceCompletedCount,
+      demo_seed_completed_rental_count: demoSeedCompletedCount,
       market_freshness_days: freshest === null
         ? null
         : Math.max(0, Math.floor((Date.now() - freshest) / 86_400_000)),

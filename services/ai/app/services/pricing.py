@@ -157,6 +157,12 @@ class XGBoostPriceService:
             warnings.append('Brand or exact product information is missing.')
         if int(evidence.get('historical_rental_count') or 0) == 0:
             warnings.append('No matching completed-rental evidence was available.')
+        demo_seed_count = int(evidence.get('demo_seed_completed_rental_count') or 0)
+        if demo_seed_count:
+            warnings.append(
+                f'Includes {demo_seed_count} development demo-seed completed rental(s); '
+                'these are not real marketplace transactions.',
+            )
         if match_type == 'manual_entry':
             warnings.append('The product was entered manually, so broader market evidence was used.')
         elif match_type == 'catalog_brand_match_model_manual':
@@ -192,6 +198,7 @@ class XGBoostPriceService:
                 f'Selected {model_source.replace("_", " ")} for {row["category"]}.',
                 f'Used {evidence.get("exact_active_count", 0)} exact and {evidence.get("similar_active_count", row["comparable_active_count"])} similar active listing(s).',
                 f'Used {evidence.get("exact_completed_rental_count", 0)} exact and {evidence.get("similar_completed_rental_count", row["historical_rental_count"])} similar completed rental(s).',
+                f'Completed-rental provenance: {evidence.get("marketplace_completed_rental_count", row["historical_rental_count"])} marketplace and {demo_seed_count} demo seed.',
                 f'The range uses the {int(calibration.get("quantile", 0.9) * 100)}th-percentile held-out absolute residual.',
             ],
             warnings=warnings,

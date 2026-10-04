@@ -5,7 +5,26 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+
+class Auth0TokenException implements Exception {
+  const Auth0TokenException({
+    required this.statusCode,
+    required this.message,
+    this.errorCode,
+  });
+
+  final int statusCode;
+  final String message;
+  final String? errorCode;
+
+  bool get invalidSession =>
+      errorCode == 'invalid_grant' || statusCode == 401 || statusCode == 403;
+
+  @override
+  String toString() => message;
+}
 
 class Auth0Session {
   const Auth0Session({required this.accessToken});
@@ -13,25 +32,43 @@ class Auth0Session {
 }
 
 class Auth0Gateway {
+  static const secureStorageProviderKey = 'renthub_auth0_session_provider';
+  static const secureStorageRefreshTokenKey =
+      'renthub_auth0_session_refresh_token';
+
   Auth0Gateway({
     required String domain,
     required this.clientId,
     required this.audience,
     required this.callbackUrl,
     required this.databaseConnection,
-  }) : domain = domain
+    FlutterSecureStorage? secureStorage,
+    http.Client? httpClient,
+    Future<void> Function(Uri uri)? browserLauncher,
+    DateTime Function()? now,
+  })  : domain = domain
             .replaceFirst(RegExp(r'^https?://'), '')
-            .replaceFirst(RegExp(r'/$'), '');
+            .replaceFirst(RegExp(r'/$'), ''),
+        _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+        _httpClient = httpClient ?? http.Client(),
+        _browserLauncher = browserLauncher,
+        _now = now ?? DateTime.now;
 
   final String domain;
   final String clientId;
   final String audience;
   final String callbackUrl;
   final String databaseConnection;
+  final FlutterSecureStorage _secureStorage;
+  final http.Client _httpClient;
+  final Future<void> Function(Uri uri)? _browserLauncher;
+  final DateTime Function() _now;
   String? _accessToken;
   String? _refreshToken;
   DateTime? _expiresAt;
+  bool _persistedCredentialsLoaded = false;
   Future<Auth0Session>? _loginInProgress;
+  Future<String?>? _tokenInProgress;
   HttpServer? _activeCallbackServer;
 
   String _randomValue([int length = 32]) {
@@ -43,6 +80,11 @@ class Auth0Gateway {
   }
 
   Future<void> _openBrowser(Uri uri) async {
+    final browserLauncher = _browserLauncher;
+    if (browserLauncher != null) {
+      await browserLauncher(uri);
+      return;
+    }
     if (!Platform.isWindows) {
       throw UnsupportedError(
         'This RentHub build currently supports Auth0 on Web and Windows.',
@@ -91,15 +133,26 @@ class Auth0Gateway {
   }
 
   Future<Map<String, dynamic>> _tokenRequest(Map<String, dynamic> body) async {
-    final response = await http.post(
+    final response = await _httpClient.post(
       Uri.https(domain, '/oauth/token'),
       headers: {'content-type': 'application/json'},
       body: jsonEncode(body),
     );
-    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    Map<String, dynamic> payload = const {};
+    try {
+      if (response.body.isNotEmpty) {
+        payload = Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+      }
+    } catch (_) {
+      if (response.statusCode < 400) {
+        throw StateError('Auth0 returned an invalid token response.');
+      }
+    }
     if (response.statusCode >= 400) {
-      throw StateError(
-        payload['error_description'] as String? ??
+      throw Auth0TokenException(
+        statusCode: response.statusCode,
+        errorCode: payload['error'] as String?,
+        message: payload['error_description'] as String? ??
             payload['error'] as String? ??
             'Auth0 token exchange failed.',
       );
@@ -107,11 +160,69 @@ class Auth0Gateway {
     return payload;
   }
 
-  void _storeTokens(Map<String, dynamic> payload) {
+  Future<void> _storeTokens(
+    Map<String, dynamic> payload, {
+    required bool preserveExistingRefreshToken,
+  }) async {
     _accessToken = payload['access_token'] as String?;
-    _refreshToken = payload['refresh_token'] as String? ?? _refreshToken;
-    final expiresIn = (payload['expires_in'] as num?)?.toInt() ?? 3600;
-    _expiresAt = DateTime.now().add(Duration(seconds: expiresIn));
+    if (_accessToken == null || _accessToken!.isEmpty) {
+      throw StateError('Auth0 did not return an API access token.');
+    }
+    final rotatedRefreshToken = payload['refresh_token'] as String?;
+    _refreshToken =
+        rotatedRefreshToken != null && rotatedRefreshToken.isNotEmpty
+            ? rotatedRefreshToken
+            : preserveExistingRefreshToken
+                ? _refreshToken
+                : null;
+    final rawExpiresIn = payload['expires_in'];
+    final expiresIn = rawExpiresIn is num
+        ? rawExpiresIn.toInt()
+        : int.tryParse(rawExpiresIn?.toString() ?? '') ?? 3600;
+    _expiresAt = _now().add(Duration(seconds: expiresIn));
+    _persistedCredentialsLoaded = true;
+    final refreshToken = _refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      await _deletePersistedCredentials();
+      return;
+    }
+    await Future.wait([
+      _secureStorage.write(
+        key: secureStorageProviderKey,
+        value: 'auth0',
+      ),
+      _secureStorage.write(
+        key: secureStorageRefreshTokenKey,
+        value: refreshToken,
+      ),
+    ]);
+  }
+
+  Future<void> _loadPersistedCredentials() async {
+    if (_persistedCredentialsLoaded) return;
+    _persistedCredentialsLoaded = true;
+    final values = await Future.wait([
+      _secureStorage.read(key: secureStorageProviderKey),
+      _secureStorage.read(key: secureStorageRefreshTokenKey),
+    ]);
+    if (values[0] == 'auth0' && values[1]?.isNotEmpty == true) {
+      _refreshToken = values[1];
+    }
+  }
+
+  Future<void> _deletePersistedCredentials() async {
+    await Future.wait([
+      _secureStorage.delete(key: secureStorageProviderKey),
+      _secureStorage.delete(key: secureStorageRefreshTokenKey),
+    ]);
+  }
+
+  Future<void> _clearTokens() async {
+    _accessToken = null;
+    _refreshToken = null;
+    _expiresAt = null;
+    _persistedCredentialsLoaded = true;
+    await _deletePersistedCredentials();
   }
 
   Future<Auth0Session> login({
@@ -180,16 +291,16 @@ class Auth0Gateway {
       if (code == null || code.isEmpty) {
         throw StateError('Auth0 did not return an authorization code.');
       }
-      _storeTokens(await _tokenRequest({
-        'grant_type': 'authorization_code',
-        'client_id': clientId,
-        'code': code,
-        'code_verifier': verifier,
-        'redirect_uri': callback.toString(),
-      }));
-      if (_accessToken == null) {
-        throw StateError('Auth0 did not return an API access token.');
-      }
+      await _storeTokens(
+        await _tokenRequest({
+          'grant_type': 'authorization_code',
+          'client_id': clientId,
+          'code': code,
+          'code_verifier': verifier,
+          'redirect_uri': callback.toString(),
+        }),
+        preserveExistingRefreshToken: false,
+      );
       return Auth0Session(accessToken: _accessToken!);
     } finally {
       if (identical(_activeCallbackServer, server)) {
@@ -204,18 +315,35 @@ class Auth0Gateway {
     if (server != null) await server.close(force: true);
   }
 
-  Future<String?> token() async {
-    if (_accessToken == null) return null;
-    if (_expiresAt?.isAfter(DateTime.now().add(const Duration(minutes: 1))) ??
-        false) {
+  Future<String?> token() {
+    final activeRequest = _tokenInProgress;
+    if (activeRequest != null) return activeRequest;
+    final request = _token().whenComplete(() => _tokenInProgress = null);
+    _tokenInProgress = request;
+    return request;
+  }
+
+  Future<String?> _token() async {
+    await _loadPersistedCredentials();
+    if (_accessToken != null &&
+        (_expiresAt?.isAfter(_now().add(const Duration(minutes: 1))) ??
+            false)) {
       return _accessToken;
     }
     if (_refreshToken == null) return null;
-    _storeTokens(await _tokenRequest({
-      'grant_type': 'refresh_token',
-      'client_id': clientId,
-      'refresh_token': _refreshToken,
-    }));
+    try {
+      await _storeTokens(
+        await _tokenRequest({
+          'grant_type': 'refresh_token',
+          'client_id': clientId,
+          'refresh_token': _refreshToken,
+        }),
+        preserveExistingRefreshToken: true,
+      );
+    } on Auth0TokenException catch (error) {
+      if (error.invalidSession) await _clearTokens();
+      rethrow;
+    }
     return _accessToken;
   }
 
@@ -242,8 +370,8 @@ class Auth0Gateway {
   }
 
   Future<void> logout() async {
-    _accessToken = null;
-    _refreshToken = null;
-    _expiresAt = null;
+    await _clearTokens();
   }
+
+  Future<void> clearPersistedSession() => _clearTokens();
 }

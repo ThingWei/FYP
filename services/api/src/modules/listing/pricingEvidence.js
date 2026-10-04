@@ -41,12 +41,9 @@ const hierarchy = [
     match: canonicalSame,
   },
   {
-    name: 'exact_product_local',
+    name: 'exact_product_malaysia',
     minimum: 1,
-    match: (item, profile) =>
-      sameProductText(item, profile) &&
-      same(item.state, profile.state) &&
-      same(item.condition, profile.condition),
+    match: sameProductText,
   },
   {
     name: 'subcategory_brand_condition_state',

@@ -311,6 +311,18 @@ void main() {
           'queryMatch': 'exact',
         },
       ],
+      [
+        {
+          'entityType': 'product',
+          'brand': 'Sony Group',
+          'model': 'Sony Alpha 7S III',
+          'canonicalProductId': 'wikidata:Q123',
+          'catalogBrandId': 'wikidata:Q41187',
+          'catalogSource': 'wikidata',
+          'description': 'Mirrorless camera',
+          'queryMatch': 'fuzzy',
+        },
+      ],
       {
         'available': true,
         'suggested_daily_price': 92.5,
@@ -353,6 +365,8 @@ void main() {
     );
     await tester.tap(find.text('Sony Group'));
     await tester.pump();
+    await tester.pump();
+    expect(find.text('Sony Alpha 7S III'), findsOneWidget);
 
     final modelField =
         find.widgetWithText(TextFormField, 'Exact product / model');

@@ -3,6 +3,7 @@ import pytest
 from xgboost import XGBRegressor
 
 from app.training.pricing_dataset import prepare_dataset, validate_dataset
+from app.training.audit_price_age import controlled_predictions
 from app.training.train_tabular_models import _pipeline, _split
 
 
@@ -43,3 +44,21 @@ def test_pipeline_contains_real_xgboost_regressor_and_handles_unknowns():
     unknown.loc[:, 'brand'] = 'Unknown future brand'
     prediction = float(model.predict(unknown)[0])
     assert np.isfinite(prediction)
+
+
+def test_device_age_is_learned_with_fixed_market_evidence():
+    frame, _ = prepare_dataset(None, 2500, seed=31)
+    frame = frame[frame.category == 'Devices'].reset_index(drop=True)
+    model = _pipeline(seed=31, monotone_age=True)
+    features = frame.drop(columns=[
+        'daily_price', 'source_type', 'target_source', 'observed_at', 'group_id',
+    ])
+    model.fit(features, frame.daily_price)
+    result = controlled_predictions({
+        'global_model': model,
+        'category_models': {'Devices': model},
+        'feature_schema': {'ordered': list(features.columns)},
+        'metrics': {},
+    }, 'Devices')
+    predictions = [item['suggestedDailyPrice'] for item in result['predictions']]
+    assert predictions[-1] < predictions[0] * 0.9

@@ -35,6 +35,12 @@ const bookingSchema = new mongoose.Schema(
     listingId: { type: String, required: true, index: true },
     listingTitle: { type: String, required: true, trim: true },
     listingType: { type: String, enum: ['physical', 'service'], required: true },
+    sourceType: {
+      type: String,
+      enum: ['marketplace', 'demo_seed'],
+      default: 'marketplace',
+      index: true,
+    },
     renterId: { type: String, required: true, index: true },
     idempotencyKey: {
       type: String,

@@ -246,7 +246,8 @@ test('builds an AI price request from marketplace data without a current price',
     assert.equal(received.market_evidence.historical_rental_count, 0);
     assert.equal(received.owner_trust_score, 50);
     assert.equal(received.rental_duration_days, 3);
-    assert.equal(received.market_evidence.active_comparable_tier, 'exact_product_local');
+    assert.equal(received.item_profile.item_age_years, 2);
+    assert.equal(received.market_evidence.active_comparable_tier, 'exact_product_malaysia');
     assert.equal(received.market_evidence.exact_active_count, 1);
   } finally {
     aiClient.recommendPrice = original;

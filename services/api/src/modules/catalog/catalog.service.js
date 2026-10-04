@@ -39,18 +39,29 @@ function publicItem(record, query) {
     catalogEntityId: record.catalogEntityId,
     catalogSource: record.source,
     description: record.description,
+    specifications: record.specifications ?? {},
     queryMatch: matchesCatalogText(query, [label, ...(record.aliases ?? [])])
       ? 'exact'
       : 'fuzzy',
   };
 }
 
-function cacheFilter({ entityType, category, subcategory, brand, query, freshOnly }) {
+function cacheFilter({
+  entityType,
+  category,
+  subcategory,
+  brand,
+  query,
+  freshOnly,
+  primaryOnly,
+}) {
+  const sources = catalogProvider.sourcesFor({ category, subcategory });
   const normalizedQuery = normalizeCatalogText(query);
   const filter = {
     entityType,
     category,
     subcategory,
+    source: { $in: primaryOnly ? sources.slice(0, 1) : sources },
     ...(freshOnly && {
       lastSyncedAt: {
         $gte: new Date(Date.now() - env.catalogCacheTtlHours * 3_600_000),
@@ -65,8 +76,12 @@ function cacheFilter({ entityType, category, subcategory, brand, query, freshOnl
   return filter;
 }
 
-async function cached(input, freshOnly) {
-  return ProductCatalogModel.find(cacheFilter({ ...input, freshOnly }))
+async function cached(input, freshOnly, primaryOnly = false) {
+  return ProductCatalogModel.find(cacheFilter({
+    ...input,
+    freshOnly,
+    primaryOnly,
+  }))
     .sort({ lastSyncedAt: -1 })
     .limit(env.catalogMaxResults)
     .lean();
@@ -79,7 +94,11 @@ async function storeProviderItems(input, items) {
     const isBrand = input.entityType === 'brand';
     const brand = isBrand ? item.label : input.brand;
     const model = isBrand ? '' : item.label;
-    const canonicalBrandId = isBrand ? entityId : input.catalogBrandId ?? null;
+    const canonicalBrandId = isBrand
+      ? entityId
+      : item.brandId
+        ? `${item.source}:${item.brandId}`
+        : input.catalogBrandId ?? null;
     const canonicalProductId = isBrand ? null : entityId;
     const record = await ProductCatalogModel.findOneAndUpdate(
       {
@@ -99,6 +118,7 @@ async function storeProviderItems(input, items) {
           normalizedModel: normalizeCatalogText(model),
           aliases: [...new Set([item.label, ...(item.aliases ?? [])])],
           description: item.description,
+          specifications: item.specifications ?? {},
           lastSyncedAt: new Date(),
         },
         $setOnInsert: {
@@ -117,7 +137,9 @@ async function storeProviderItems(input, items) {
 }
 
 async function search(input) {
-  const fresh = await cached(input, true);
+  // Only a fresh primary-provider record may short-circuit the provider chain.
+  // A prior general fallback must not prevent a domain provider from running.
+  const fresh = await cached(input, true, true);
   if (fresh.length) {
     return {
       items: fresh.map((item) => publicItem(item, input.query)),
@@ -127,11 +149,17 @@ async function search(input) {
     };
   }
   try {
-    const providerItems = await catalogProvider.search(input);
+    const providerResult = await catalogProvider.search(input);
+    const providerItems = Array.isArray(providerResult)
+      ? providerResult
+      : providerResult.items;
+    const providerName = Array.isArray(providerResult)
+      ? catalogProvider.strategy(input)
+      : providerResult.provider;
     const stored = await storeProviderItems(input, providerItems);
     return {
       items: stored.map((item) => publicItem(item, input.query)),
-      provider: 'wikidata',
+      provider: providerName,
       providerAvailable: true,
       stale: false,
     };
@@ -142,7 +170,7 @@ async function search(input) {
         'The product catalog is temporarily unavailable. Manual entry remains available.',
         503,
         'CATALOG_UNAVAILABLE',
-        { provider: env.catalogMode, cacheHit: false },
+        { provider: catalogProvider.strategy(input), cacheHit: false },
       );
     }
     return {

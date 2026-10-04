@@ -31,7 +31,7 @@ function anonymousGroup(value) {
   return createHash('sha256').update(String(value)).digest('hex').slice(0, 20);
 }
 
-function baseRow(listing, observedAt, dailyPrice, targetSource) {
+function baseRow(listing, observedAt, dailyPrice, targetSource, sourceType) {
   return {
     category: listing.category,
     subcategory: listing.subcategory || 'Unknown',
@@ -49,7 +49,7 @@ function baseRow(listing, observedAt, dailyPrice, targetSource) {
     owner_average_rating: 0,
     owner_completed_rentals: 0,
     daily_price: dailyPrice,
-    source_type: 'real',
+    source_type: sourceType === 'demo_seed' ? 'demo_seed' : 'real',
     target_source: targetSource,
     observed_at: observedAt.toISOString(),
     group_id: `listing:${anonymousGroup(listing.publicId)}`,
@@ -61,7 +61,7 @@ function baseRow(listing, observedAt, dailyPrice, targetSource) {
 async function exportRows() {
   const [listings, bookings, ownerReviews] = await Promise.all([
     ListingModel.find({ listingType: 'physical' })
-      .select('publicId ownerId title category subcategory condition brand productModel canonicalProductId productMatchType itemAgeYears location state dailyPrice status createdAt updatedAt')
+      .select('publicId ownerId title category subcategory condition brand productModel canonicalProductId productMatchType itemAgeYears location state dailyPrice status sourceType createdAt updatedAt')
       .lean(),
     BookingModel.find({
       listingType: 'physical',
@@ -69,7 +69,7 @@ async function exportRows() {
       paymentStatus: { $in: ELIGIBLE_BOOKING_PAYMENT_STATUSES },
       'pricing.baseAmount': { $gt: 0 },
     })
-      .select('listingId status startDate endDate pricing.baseAmount completedAt decidedAt createdAt')
+      .select('listingId status startDate endDate pricing.baseAmount completedAt decidedAt sourceType createdAt')
       .lean(),
     ReviewModel.find({
       subjectRole: 'owner',
@@ -97,7 +97,10 @@ async function exportRows() {
         listing,
         observedAt,
         dailyPrice,
-        completed ? 'completed_rental' : 'accepted_booking',
+        booking.sourceType === 'demo_seed'
+          ? completed ? 'demo_seed_completed_rental' : 'demo_seed_accepted_booking'
+          : completed ? 'completed_rental' : 'accepted_booking',
+        booking.sourceType,
       ),
       rental_duration_days: rentalDays(booking),
     });
@@ -106,7 +109,15 @@ async function exportRows() {
     const observedAt = safeDate(listing.updatedAt, listing.createdAt);
     if (!observedAt || !Number.isFinite(listing.dailyPrice) || listing.dailyPrice <= 0) continue;
     observations.push({
-      ...baseRow(listing, observedAt, listing.dailyPrice, 'active_asking'),
+      ...baseRow(
+        listing,
+        observedAt,
+        listing.dailyPrice,
+        listing.sourceType === 'demo_seed'
+          ? 'demo_seed_active_asking'
+          : 'active_asking',
+        listing.sourceType,
+      ),
       rental_duration_days: 1,
     });
   }
@@ -125,7 +136,7 @@ async function exportRows() {
       product_model: observation.product_model,
     };
     const activeTier = selectComparableTier(
-      prior.filter((item) => item.target_source === 'active_asking').map((item) => ({
+      prior.filter((item) => ['active_asking', 'demo_seed_active_asking'].includes(item.target_source)).map((item) => ({
         ...item,
         productModel: item.product_model,
         dailyPrice: item.daily_price,
@@ -133,7 +144,7 @@ async function exportRows() {
       profile,
     );
     const historicalTier = selectComparableTier(
-      prior.filter((item) => item.target_source === 'completed_rental').map((item) => ({
+      prior.filter((item) => ['completed_rental', 'demo_seed_completed_rental'].includes(item.target_source)).map((item) => ({
         ...item,
         productModel: item.product_model,
         dailyPrice: item.daily_price,
@@ -160,7 +171,7 @@ async function exportRows() {
     const ownerCompletedRentals = prior.filter(
       (candidate) =>
         candidate.ownerId === observation.ownerId &&
-        candidate.target_source === 'completed_rental',
+        ['completed_rental', 'demo_seed_completed_rental'].includes(candidate.target_source),
     ).length;
     prepared.push({
       ...observation,

@@ -305,12 +305,19 @@ class Auth0AuthRepository implements AuthRepository {
     try {
       final token = await gateway.token();
       if (token == null || token.isEmpty) return null;
+      await session.clearPersisted();
       session.setAccessToken(token);
       final user = User.fromJson(
         await api.request('POST', '/users/session') as Map<String, dynamic>,
       );
       await _remember(user);
       return user;
+    } on ApiException catch (error) {
+      if (error.status == 401 || error.status == 403) {
+        await gateway.logout();
+      }
+      session.clear();
+      return null;
     } catch (_) {
       session.clear();
       return null;
@@ -327,6 +334,7 @@ class Auth0AuthRepository implements AuthRepository {
         UserRole.admin => null,
       },
     );
+    await session.clearPersisted();
     session.setAccessToken(auth0Session.accessToken);
     try {
       final user = User.fromJson(
@@ -341,6 +349,12 @@ class Auth0AuthRepository implements AuthRepository {
       }
       await _remember(user, selectedRole: requestedRole);
       return user;
+    } on ApiException catch (error) {
+      if (error.status == 401 || error.status == 403) {
+        await gateway.logout();
+      }
+      session.clear();
+      rethrow;
     } catch (_) {
       session.clear();
       rethrow;
@@ -429,7 +443,10 @@ class HybridAuthRepository implements AuthRepository {
   Future<User?> restoreSession() async {
     _externalSession = false;
     final localUser = await local.restoreSession();
-    if (localUser != null) return localUser;
+    if (localUser != null) {
+      await gateway.clearPersistedSession();
+      return localUser;
+    }
     _externalSession = true;
     final externalUser = await external.restoreSession();
     if (externalUser != null) return externalUser;
@@ -440,7 +457,9 @@ class HybridAuthRepository implements AuthRepository {
   @override
   Future<User> login(String email, String password, UserRole role) async {
     _externalSession = false;
-    return local.login(email, password, role);
+    final user = await local.login(email, password, role);
+    await gateway.clearPersistedSession();
+    return user;
   }
 
   @override
@@ -465,7 +484,9 @@ class HybridAuthRepository implements AuthRepository {
     UserRole role,
   ) async {
     _externalSession = false;
-    return local.register(name, email, password, role);
+    final user = await local.register(name, email, password, role);
+    await gateway.clearPersistedSession();
+    return user;
   }
 
   @override

@@ -22,6 +22,7 @@ const productCatalogSchema = new mongoose.Schema(
     aliases: { type: [String], default: [] },
     source: { type: String, required: true, trim: true },
     description: { type: String, trim: true, maxlength: 500, default: '' },
+    specifications: { type: mongoose.Schema.Types.Mixed, default: {} },
     lastSyncedAt: { type: Date, required: true, index: true },
   },
   { timestamps: true, strict: 'throw' },

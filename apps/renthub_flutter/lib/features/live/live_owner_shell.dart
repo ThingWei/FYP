@@ -689,6 +689,45 @@ class _LiveListingFormState extends State<LiveListingForm> {
       productModel.clear();
       canonicalProductId = null;
     });
+    unawaited(_loadModelSuggestions(''));
+  }
+
+  Future<void> _loadModelSuggestions(String query) async {
+    final requestedBrandId = catalogBrandId;
+    final requestedBrand = brand.text.trim();
+    if (manualModel || requestedBrandId == null) return;
+    if (mounted) setState(() => catalogLoading = true);
+    try {
+      final results =
+          await context.read<LiveRentHubController>().searchCatalogModels(
+                category: category,
+                subcategory: subcategory,
+                brand: requestedBrand,
+                query: query,
+                catalogBrandId: requestedBrandId,
+              );
+      if (mounted &&
+          catalogBrandId == requestedBrandId &&
+          brand.text.trim() == requestedBrand &&
+          productModel.text.trim() == query) {
+        setState(() {
+          modelSuggestions = results;
+          modelSearchAttempted = true;
+          modelCatalogError = null;
+        });
+      }
+    } catch (exception) {
+      if (mounted &&
+          catalogBrandId == requestedBrandId &&
+          productModel.text.trim() == query) {
+        setState(() {
+          modelSearchAttempted = true;
+          modelCatalogError = _catalogErrorMessage(exception);
+        });
+      }
+    } finally {
+      if (mounted) setState(() => catalogLoading = false);
+    }
   }
 
   void _onModelChanged(String value) {
@@ -704,41 +743,17 @@ class _LiveListingFormState extends State<LiveListingForm> {
     if (manualModel || catalogBrandId == null || value.trim().length < 2) {
       return;
     }
-    modelDebounce = Timer(const Duration(milliseconds: 400), () async {
-      if (mounted) setState(() => catalogLoading = true);
-      try {
-        final results =
-            await context.read<LiveRentHubController>().searchCatalogModels(
-                  category: category,
-                  subcategory: subcategory,
-                  brand: brand.text.trim(),
-                  query: value.trim(),
-                  catalogBrandId: catalogBrandId,
-                );
-        if (mounted && productModel.text.trim() == value.trim()) {
-          setState(() {
-            modelSuggestions = results;
-            modelSearchAttempted = true;
-            modelCatalogError = null;
-          });
-        }
-      } catch (exception) {
-        if (mounted && productModel.text.trim() == value.trim()) {
-          setState(() {
-            modelSearchAttempted = true;
-            modelCatalogError = _catalogErrorMessage(exception);
-          });
-        }
-      } finally {
-        if (mounted) setState(() => catalogLoading = false);
-      }
-    });
+    modelDebounce = Timer(
+      const Duration(milliseconds: 400),
+      () => _loadModelSuggestions(value.trim()),
+    );
   }
 
   void _selectModel(Map<String, dynamic> result) {
     setState(() {
       productModel.text = result['model'] as String? ?? '';
       canonicalProductId = result['canonicalProductId'] as String?;
+      catalogBrandId = result['catalogBrandId'] as String? ?? catalogBrandId;
       catalogSource = result['catalogSource'] as String?;
       selectedCatalogMatchType = result['queryMatch'] == 'exact'
           ? 'exact_catalog_match'
@@ -1291,7 +1306,9 @@ class _LiveListingFormState extends State<LiveListingForm> {
                     error: modelCatalogError,
                     emptyMessage:
                         'No model match found. You can enter the model manually.',
-                    onRetry: () => _onModelChanged(productModel.text),
+                    onRetry: () => productModel.text.trim().isEmpty
+                        ? unawaited(_loadModelSuggestions(''))
+                        : _onModelChanged(productModel.text),
                   ),
                   _catalogResults(modelSuggestions, _selectModel),
                   if (catalogBrandId != null)

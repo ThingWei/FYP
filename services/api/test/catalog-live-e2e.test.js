@@ -31,7 +31,7 @@ after(async () => {
   await mongodb.stop();
 });
 
-test('live Wikidata supports Vehicles Cars Toyota and common models', {
+test('live vehicle provider supports Vehicles Cars Toyota and common models', {
   skip: !enabled,
 }, async () => {
   const brandResponse = await request(app)
@@ -39,11 +39,11 @@ test('live Wikidata supports Vehicles Cars Toyota and common models', {
     .set(ownerHeaders);
   assert.equal(brandResponse.status, 200);
   const toyota = brandResponse.body.data.find((item) =>
-    item.brand.toLowerCase() === 'toyota' &&
-    item.description.toLowerCase().includes('automotive'));
-  assert.ok(toyota, 'Toyota automotive manufacturer was not returned');
+    item.brand.toLowerCase() === 'toyota');
+  assert.ok(toyota, 'Toyota vehicle make was not returned');
+  assert.equal(brandResponse.body.meta.provider, 'nhtsa-vpic');
 
-  for (const model of ['Corolla', 'Camry', 'Vios', 'Hilux']) {
+  for (const model of ['Corolla', 'Camry']) {
     const response = await request(app)
       .get(`/api/v1/catalog/models?category=Vehicles&subcategory=Cars&brand=Toyota&query=${model}&catalogBrandId=${encodeURIComponent(toyota.catalogBrandId)}`)
       .set(ownerHeaders);
@@ -60,5 +60,30 @@ test('live Wikidata supports Vehicles Cars Toyota and common models', {
     subcategory: 'Cars',
     normalizedBrand: 'toyota',
   });
-  assert.ok(cachedToyota >= 5);
+  assert.ok(cachedToyota >= 3);
+});
+
+test('live smartphone provider excludes generic appl matches and preloads iPhones', {
+  skip: !enabled,
+}, async () => {
+  const brandResponse = await request(app)
+    .get('/api/v1/catalog/brands?category=Devices&subcategory=Smartphones&query=appl')
+    .set(ownerHeaders);
+  assert.equal(brandResponse.status, 200);
+  assert.equal(brandResponse.body.meta.provider, 'wikidata-smartphones');
+  assert.ok(brandResponse.body.data.length > 0);
+  assert.ok(brandResponse.body.data.every((item) =>
+    !/(journal|software|music streaming)/i.test(
+      `${item.brand} ${item.description}`,
+    )));
+  const apple = brandResponse.body.data.find((item) =>
+    item.brand.toLowerCase() === 'apple');
+  assert.ok(apple, 'Apple smartphone manufacturer was not returned');
+
+  const models = await request(app)
+    .get(`/api/v1/catalog/models?category=Devices&subcategory=Smartphones&brand=Apple&catalogBrandId=${encodeURIComponent(apple.catalogBrandId)}`)
+    .set(ownerHeaders);
+  assert.equal(models.status, 200);
+  assert.ok(models.body.data.some((item) => /iphone/i.test(item.model)));
+  assert.ok(models.body.data.every((item) => /smartphone/i.test(item.description)));
 });

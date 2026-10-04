@@ -94,6 +94,12 @@ const listingSchema = new mongoose.Schema(
     catalogSource: { type: String, trim: true, maxlength: 80, default: null },
     itemAgeYears: { type: Number, min: 0, max: 100 },
     listingType: { type: String, required: true, enum: LISTING_TYPES, index: true },
+    sourceType: {
+      type: String,
+      enum: ['marketplace', 'demo_seed'],
+      default: 'marketplace',
+      index: true,
+    },
     dailyPrice: { type: Number, required: true, min: 1, max: 1_000_000 },
     priceUnit: {
       type: String,

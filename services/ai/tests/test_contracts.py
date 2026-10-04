@@ -150,3 +150,19 @@ def test_price_rejects_invalid_duration():
     })
     assert response.status_code == 422
 
+
+def test_item_age_reaches_artifact_inference_with_other_inputs_fixed():
+    results = []
+    for age in [0, 1, 3, 5, 8]:
+        payload = price_payload()
+        payload['item_profile'].update({
+            'subcategory': 'Smartphones',
+            'brand': 'Apple',
+            'product_model': 'iPhone 15',
+            'item_age_years': age,
+        })
+        response = client.post('/recommend/price', json=payload)
+        assert response.status_code == 200
+        results.append(response.json()['suggested_daily_price'])
+    assert results[-1] < results[0] * 0.9
+

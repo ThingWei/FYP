@@ -2,7 +2,26 @@ import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:convert';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+
+class Auth0TokenException implements Exception {
+  const Auth0TokenException({
+    required this.statusCode,
+    required this.message,
+    this.errorCode,
+  });
+
+  final int statusCode;
+  final String message;
+  final String? errorCode;
+
+  bool get invalidSession =>
+      errorCode == 'invalid_grant' || statusCode == 401 || statusCode == 403;
+
+  @override
+  String toString() => message;
+}
 
 @JS('auth0.createAuth0Client')
 external JSPromise<JSObject> _createAuth0Client(JSAny? options);
@@ -13,12 +32,20 @@ class Auth0Session {
 }
 
 class Auth0Gateway {
+  static const secureStorageProviderKey = 'renthub_auth0_session_provider';
+  static const secureStorageRefreshTokenKey =
+      'renthub_auth0_session_refresh_token';
+
   Auth0Gateway({
     required String domain,
     required this.clientId,
     required this.audience,
     required this.callbackUrl,
     required this.databaseConnection,
+    FlutterSecureStorage? secureStorage,
+    http.Client? httpClient,
+    Future<void> Function(Uri uri)? browserLauncher,
+    DateTime Function()? now,
   }) : domain = domain
             .replaceFirst(RegExp(r'^https?://'), '')
             .replaceFirst(RegExp(r'/$'), '');
@@ -121,5 +148,10 @@ class Auth0Gateway {
           }.jsify(),
         )
         .toDart;
+  }
+
+  Future<void> clearPersistedSession() async {
+    // Native secure-storage credentials do not exist on web. Keep the Auth0
+    // browser SDK's existing persistence behavior unchanged.
   }
 }

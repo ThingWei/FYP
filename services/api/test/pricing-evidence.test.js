@@ -24,7 +24,7 @@ test('uses the narrowest comparable tier with enough evidence', () => {
     state: 'Kuala Lumpur', condition: 'Good', dailyPrice: 70,
   }];
   const selected = selectComparableTier([...exact, ...wider], profile);
-  assert.equal(selected.name, 'exact_product_local');
+  assert.equal(selected.name, 'exact_product_malaysia');
   assert.equal(selected.items.length, 3);
 });
 
@@ -117,6 +117,34 @@ test('progressively falls back through brand, subcategory and category evidence'
     state: 'Johor',
   }));
   assert.equal(selectComparableTier(broadMatches, profile).name, 'category_wide');
+});
+
+test('completed-rental hierarchy separates exact, brand, subcategory and broad tiers', () => {
+  const exact = [{
+    canonicalProductId: 'catalog:camera-a7',
+    subcategory: 'Cameras', brand: 'Sony', productModel: 'A7 III', state: 'Johor',
+  }];
+  assert.equal(selectComparableTier(exact, {
+    ...profile, canonicalProductId: 'catalog:camera-a7',
+  }).name, 'exact_canonical_malaysia');
+
+  const sameBrand = [1, 2].map((index) => ({
+    subcategory: 'Cameras', brand: 'Sony', productModel: `A7 sibling ${index}`,
+    state: 'Johor', condition: 'Good',
+  }));
+  assert.equal(selectComparableTier(sameBrand, profile).name,
+    'subcategory_brand_malaysia');
+
+  const sameSubcategory = [1, 2, 3].map((index) => ({
+    subcategory: 'Cameras', brand: `Brand ${index}`, state: 'Johor',
+  }));
+  assert.equal(selectComparableTier(sameSubcategory, profile).name,
+    'subcategory_malaysia');
+
+  const broad = [1, 2, 3].map((index) => ({
+    subcategory: 'Audio', brand: `Brand ${index}`, state: 'Johor',
+  }));
+  assert.equal(selectComparableTier(broad, profile).name, 'category_wide');
 });
 
 test('condition, age, duration and recency improve evidence relevance without price rules', () => {

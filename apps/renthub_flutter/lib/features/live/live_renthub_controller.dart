@@ -1186,7 +1186,7 @@ class LiveRentHubController extends ChangeNotifier {
     required String category,
     required String subcategory,
     required String brand,
-    required String query,
+    String query = '',
     String? catalogBrandId,
   }) async {
     final parameters = Uri(queryParameters: {

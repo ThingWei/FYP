@@ -53,15 +53,6 @@ REQUIRED_COLUMNS = FEATURES + [
 def _synthetic_rows(rows: int, seed: int) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     output: list[dict] = []
-    model_catalogue = {
-        category: [
-            f'{brand} {subcategory} {variant}'
-            for brand in BRANDS[category]
-            for subcategory in subcategories
-            for variant in range(1, 7)
-        ]
-        for category, subcategories in CATEGORIES.items()
-    }
     replacement_ranges = {
         'Clothing': (60, 850), 'Vehicles': (900, 95_000),
         'Devices': (250, 12_000), 'Books': (18, 380),
@@ -80,29 +71,53 @@ def _synthetic_rows(rows: int, seed: int) -> pd.DataFrame:
         brand = str(rng.choice(BRANDS[category]))
         condition = str(rng.choice(CONDITIONS))
         state = str(rng.choice(STATES))
-        model = str(rng.choice(model_catalogue[category]))
+        model = f'{brand} {subcategory} {int(rng.integers(1, 7))}'
         age = float(rng.uniform(0, 10))
         duration = int(rng.integers(1, 22))
         replacement = float(rng.uniform(*replacement_ranges[category]))
         utilization = float(rng.uniform(*utilization_ranges[category]))
-        latent_market = replacement * utilization * condition_retention[condition]
-        latent_market *= max(0.55, 1 - age * float(rng.uniform(0.015, 0.045)))
-        latent_market *= float(rng.lognormal(0, 0.12))
+        base_market = replacement * utilization * condition_retention[condition]
+        base_market *= float(rng.lognormal(0, 0.12))
+        depreciation_ranges = {
+            'Vehicles': (0.045, 0.09),
+            'Devices': (0.075, 0.15),
+            'Equipment': (0.035, 0.075),
+            'Clothing': (0.02, 0.055),
+        }
+        if category == 'Books':
+            # Textbooks and reference works often lose rental demand as editions
+            # age. Fiction may be stable or collectible, so it deliberately has
+            # no globally forced monotonic relationship.
+            depreciation_range = {
+                'Textbooks': (0.04, 0.09),
+                'Reference books': (0.015, 0.045),
+                'Fiction': (-0.008, 0.012),
+            }[subcategory]
+        else:
+            depreciation_range = depreciation_ranges[category]
+        depreciation_rate = float(rng.uniform(*depreciation_range))
+        age_retention = float(np.exp(-depreciation_rate * age))
+        age_retention = float(np.clip(age_retention, 0.35, 1.12))
         active_count = int(rng.integers(0, 35))
         history_count = int(rng.integers(0, 55))
-        active_median = latent_market * float(rng.uniform(0.88, 1.14))
-        history_median = latent_market * float(rng.uniform(0.9, 1.1))
+        # Comparable evidence represents the wider market rather than copying
+        # this subject item's age-adjusted target. This prevents leakage and
+        # makes the model learn age separately from market medians.
+        active_median = base_market * float(rng.uniform(0.88, 1.14))
+        history_median = base_market * float(rng.uniform(0.9, 1.1))
         active_iqr = active_median * float(rng.uniform(0.08, 0.35))
         history_iqr = history_median * float(rng.uniform(0.06, 0.28))
         observed_at = start + pd.Timedelta(days=int(rng.integers(0, 900)))
         market_anchor = np.nanmedian([
             active_median if active_count else np.nan,
             history_median if history_count else np.nan,
-            latent_market,
+            base_market,
         ])
         duration_effect = float(rng.uniform(0.82, 1.0)) if duration > 5 else 1.0
         daily_price = max(
-            1, market_anchor * duration_effect * float(rng.lognormal(0, 0.08)),
+            1,
+            market_anchor * age_retention * duration_effect *
+            float(rng.lognormal(0, 0.06)),
         )
         output.append({
             'category': category, 'subcategory': subcategory,
