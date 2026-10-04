@@ -66,7 +66,33 @@ paths:
   /listings/recommended:
     get:
       security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 100 } }
+        - { in: query, name: category, schema: { type: string, enum: [Clothing, Vehicles, Devices, Books, Equipment] } }
+        - { in: query, name: type, schema: { type: string, enum: [physical, service] } }
+        - { in: query, name: location, schema: { type: string, maxLength: 100 } }
+        - { in: query, name: verified, schema: { type: boolean } }
+        - { in: query, name: promoted, schema: { type: boolean } }
+        - { in: query, name: minPrice, schema: { type: number, minimum: 0 } }
+        - { in: query, name: maxPrice, schema: { type: number, minimum: 0 } }
+        - { in: query, name: availableFrom, schema: { type: string, format: date-time } }
+        - { in: query, name: availableTo, schema: { type: string, format: date-time } }
       responses: { '200': { description: Personalized hybrid-ranked listings or an explicitly labelled fallback } }
+  /listings/{listingId}/availability:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: listingId, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Owner blackouts and hard booking occupancy merged into the listing availability policy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ListingAvailability' }
   /listings/price-recommendation:
     post:
       security: [{ bearerAuth: [] }]
@@ -236,6 +262,35 @@ components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   schemas:
+    ListingUnavailableRange:
+      type: object
+      required: [start, end, source, allDay]
+      properties:
+        start: { type: string, format: date-time }
+        end:
+          type: string
+          format: date-time
+          description: Exclusive range end. A physical booking ending on 22 September is returned as 23 September 00:00.
+        source: { type: string, enum: [owner_blackout, booking] }
+        reason: { type: string, nullable: true }
+        allDay: { type: boolean }
+    ListingAvailability:
+      type: object
+      required: [listingId, weeklyHours, unavailableRanges, manualUnavailableRanges, bufferHours, minimumNoticeHours]
+      properties:
+        listingId: { type: string }
+        weeklyHours: { type: array, items: { type: object, additionalProperties: true } }
+        unavailableRanges:
+          type: array
+          description: Combined owner blackouts and approved, active, or qualifying disputed booking occupancy.
+          items: { $ref: '#/components/schemas/ListingUnavailableRange' }
+        manualUnavailableRanges:
+          type: array
+          description: Owner-authored blackouts only; used by the Owner editor to avoid persisting booking-derived ranges.
+          items: { $ref: '#/components/schemas/ListingUnavailableRange' }
+        bufferHours: { type: number, minimum: 0 }
+        minimumNoticeHours: { type: number, minimum: 0 }
+        nextAvailableDate: { type: string, format: date-time, nullable: true }
     PriceRecommendationRequest:
       type: object
       required: [itemProfile]

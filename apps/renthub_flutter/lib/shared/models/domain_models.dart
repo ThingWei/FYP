@@ -150,7 +150,11 @@ class Listing {
     this.bundleActive = false,
     this.images = const [],
     this.recommendationReason = '',
+    this.recommendationAdapter = '',
+    this.recommendationAvailable = true,
     this.recommendationScore,
+    this.recommendationContentScore,
+    this.recommendationCollaborativeScore,
     this.itemVerificationOutcome = '',
     this.itemVerificationReasons = const [],
   });
@@ -175,8 +179,12 @@ class Listing {
   final DateTime? promotionStartsAt, promotionEndsAt;
   final List<String> bundleListingIds;
   final List<String> images;
-  final String recommendationReason, itemVerificationOutcome;
-  final double? recommendationScore;
+  final String recommendationReason, recommendationAdapter;
+  final bool recommendationAvailable;
+  final String itemVerificationOutcome;
+  final double? recommendationScore,
+      recommendationContentScore,
+      recommendationCollaborativeScore;
   final List<String> itemVerificationReasons;
 
   double get displayPrice => promotionalPrice ?? dailyPrice;
@@ -245,12 +253,118 @@ class Listing {
           .map((item) => item as String)
           .toList(),
       recommendationReason: recommendation['reason'] as String? ?? '',
+      recommendationAdapter: recommendation['adapter'] as String? ?? '',
+      recommendationAvailable: recommendation['available'] as bool? ?? true,
       recommendationScore: (recommendation['score'] as num?)?.toDouble(),
+      recommendationContentScore:
+          (recommendation['content_score'] as num?)?.toDouble(),
+      recommendationCollaborativeScore:
+          (recommendation['collaborative_score'] as num?)?.toDouble(),
       itemVerificationOutcome: verification['outcome'] as String? ?? '',
       itemVerificationReasons:
           (verification['reasons'] as List? ?? const []).cast<String>(),
     );
   }
+}
+
+class UnavailableRange {
+  const UnavailableRange({
+    required this.start,
+    required this.end,
+    required this.source,
+    this.reason = '',
+    this.allDay = true,
+  });
+
+  final DateTime start;
+  final DateTime end;
+  final String source;
+  final String reason;
+  final bool allDay;
+
+  DateTime get startDay {
+    final local = start.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
+
+  DateTime get exclusiveEndDay {
+    final local = end.toLocal();
+    final date = DateTime(local.year, local.month, local.day);
+    final hasTime = local.hour != 0 ||
+        local.minute != 0 ||
+        local.second != 0 ||
+        local.millisecond != 0 ||
+        local.microsecond != 0;
+    return !allDay && hasTime ? date.add(const Duration(days: 1)) : date;
+  }
+
+  DateTime get displayEndDay =>
+      exclusiveEndDay.subtract(const Duration(days: 1));
+
+  bool overlaps(DateTime selectedStart, DateTime selectedEnd) {
+    final startDate = DateTime(
+      selectedStart.year,
+      selectedStart.month,
+      selectedStart.day,
+    );
+    final endExclusive = DateTime(
+      selectedEnd.year,
+      selectedEnd.month,
+      selectedEnd.day + 1,
+    );
+    return startDay.isBefore(endExclusive) &&
+        exclusiveEndDay.isAfter(startDate);
+  }
+
+  factory UnavailableRange.fromJson(Map<String, dynamic> json) =>
+      UnavailableRange(
+        start: DateTime.parse(json['start'] as String),
+        end: DateTime.parse(json['end'] as String),
+        source: json['source'] as String? ?? 'owner_blackout',
+        reason: json['reason'] as String? ?? '',
+        allDay: json['allDay'] as bool? ?? true,
+      );
+}
+
+class ListingAvailability {
+  const ListingAvailability({
+    required this.listingId,
+    required this.unavailableRanges,
+    this.nextAvailableDate,
+  });
+
+  final String listingId;
+  final List<UnavailableRange> unavailableRanges;
+  final DateTime? nextAvailableDate;
+
+  bool isDayAvailable(DateTime day) =>
+      !unavailableRanges.any((range) => range.overlaps(day, day));
+
+  bool isRangeAvailable(DateTime start, DateTime end) =>
+      !end.isBefore(start) &&
+      !unavailableRanges.any((range) => range.overlaps(start, end));
+
+  UnavailableRange? rangeContaining(DateTime day) {
+    for (final range in unavailableRanges) {
+      if (range.overlaps(day, day)) return range;
+    }
+    return null;
+  }
+
+  factory ListingAvailability.fromJson(Map<String, dynamic> json) =>
+      ListingAvailability(
+        listingId: json['listingId'] as String,
+        unavailableRanges: ((json['unavailableRanges'] as List?) ?? const [])
+            .map(
+              (item) => UnavailableRange.fromJson(
+                Map<String, dynamic>.from(item as Map),
+              ),
+            )
+            .toList(),
+        nextAvailableDate: json['nextAvailableDate'] == null
+            ? null
+            : DateTime.parse(json['nextAvailableDate'] as String),
+      );
 }
 
 class Booking {

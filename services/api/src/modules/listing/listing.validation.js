@@ -183,6 +183,28 @@ export const listMineValidation = [
 
 export const recommendationValidation = [
   query('limit').optional().isInt({ min: 1, max: 30 }).toInt(),
+  query('search').optional().trim().isLength({ max: 100 }),
+  query('category').optional().isIn(LISTING_CATEGORIES),
+  query('type').optional().isIn(LISTING_TYPES),
+  query('location').optional().trim().isLength({ max: 100 }),
+  query('verified').optional().isBoolean(),
+  query('promoted').optional().isBoolean(),
+  query('minPrice').optional().isFloat({ min: 0 }),
+  query('maxPrice').optional().isFloat({ min: 0 }),
+  query('availableFrom').optional().isISO8601(),
+  query('availableTo').optional().isISO8601(),
+  query().custom((value) => {
+    if (value.minPrice && value.maxPrice && Number(value.minPrice) > Number(value.maxPrice)) {
+      throw new Error('minPrice cannot exceed maxPrice');
+    }
+    if ((value.availableFrom && !value.availableTo) || (!value.availableFrom && value.availableTo)) {
+      throw new Error('availableFrom and availableTo must be used together');
+    }
+    if (value.availableFrom && new Date(value.availableFrom) >= new Date(value.availableTo)) {
+      throw new Error('availableTo must be after availableFrom');
+    }
+    return true;
+  }),
 ];
 
 export const priceRecommendationValidation = [

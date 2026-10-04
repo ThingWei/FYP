@@ -141,10 +141,11 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
 
   Future<void> _applyFilters({String? quickCategory}) async {
     final nextCategory = quickCategory ?? category;
+    final useRecommendations =
+        widget.featuredOnly && filters.sort == 'recommended';
     setState(() => searching = true);
     try {
-      final found =
-          await context.read<LiveRentHubController>().discoverListings({
+      final parameters = <String, String>{
         'search': queryController.text,
         if (nextCategory != 'All') 'category': nextCategory,
         if (filters.type != 'all') 'type': filters.type,
@@ -153,14 +154,23 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
         'maxPrice': filters.maximumPrice,
         if (filters.verifiedOnly) 'verified': 'true',
         if (filters.promotionsOnly) 'promoted': 'true',
-        'sort': filters.sort,
         if (filters.dates != null)
           'availableFrom': filters.dates!.start.toIso8601String(),
         if (filters.dates != null)
           'availableTo':
               filters.dates!.end.add(const Duration(days: 1)).toIso8601String(),
-        'limit': '100',
-      });
+      };
+      final controller = context.read<LiveRentHubController>();
+      final found = useRecommendations
+          ? await controller.recommendListings({
+              ...parameters,
+              'limit': '30',
+            })
+          : await controller.discoverListings({
+              ...parameters,
+              'sort': filters.sort,
+              'limit': '100',
+            });
       if (mounted) {
         setState(() {
           category = nextCategory;
@@ -197,6 +207,8 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
+    final showingAiRecommendations =
+        widget.featuredOnly && filters.sort == 'recommended';
     var listings = (results ??
             (widget.featuredOnly && controller.recommendedListings.isNotEmpty
                 ? controller.recommendedListings
@@ -317,9 +329,12 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
             if (searching) const SizedBox(height: 8),
             if (widget.featuredOnly)
               Text(
-                controller.recommendedListings.isEmpty
-                    ? 'Marketplace highlights'
-                    : 'Recommended for you',
+                showingAiRecommendations
+                    ? ((results == null &&
+                            controller.recommendedListings.isEmpty)
+                        ? 'Marketplace highlights'
+                        : 'Recommended for you')
+                    : 'Marketplace results',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             Text(
@@ -403,7 +418,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                                       fontSize: 12,
                                     ),
                                   ),
-                                  if (widget.featuredOnly &&
+                                  if (showingAiRecommendations &&
                                       listing.recommendationReason.isNotEmpty)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 4),
@@ -914,6 +929,10 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   final venue = TextEditingController(text: 'Kuala Lumpur');
   final note = TextEditingController();
   bool submitting = false;
+  bool availabilityLoading = true;
+  bool availabilityRequested = false;
+  String? availabilityError;
+  ListingAvailability? availability;
   late final String checkoutIdempotencyKey = newCheckoutIdempotencyKey();
   Future<List<Review>>? reviewFuture;
 
@@ -930,6 +949,52 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     super.didChangeDependencies();
     reviewFuture ??=
         context.read<LiveRentHubController>().listingReviews(widget.listing.id);
+    if (!availabilityRequested) {
+      availabilityRequested = true;
+      _loadAvailability();
+    }
+  }
+
+  Future<void> _loadAvailability() async {
+    if (mounted) {
+      setState(() {
+        availabilityLoading = true;
+        availabilityError = null;
+      });
+    }
+    try {
+      final loaded = await context
+          .read<LiveRentHubController>()
+          .getRenterListingAvailability(widget.listing.id);
+      if (mounted) setState(() => availability = loaded);
+    } catch (exception) {
+      if (mounted) setState(() => availabilityError = exception.toString());
+    } finally {
+      if (mounted) setState(() => availabilityLoading = false);
+    }
+  }
+
+  bool get selectedDatesAvailable =>
+      availability?.isRangeAvailable(
+        start,
+        widget.listing.isService ? start : end,
+      ) ??
+      false;
+
+  DateTime _firstAvailableOnOrAfter(DateTime preferred) {
+    final first = DateTime(preferred.year, preferred.month, preferred.day);
+    final model = availability;
+    if (model == null) return first;
+    for (var offset = 0; offset <= 730; offset += 1) {
+      final candidate = first.add(Duration(days: offset));
+      if (model.isDayAvailable(candidate)) return candidate;
+    }
+    return first;
+  }
+
+  String _dateLabel(DateTime date) {
+    final local = date.toLocal();
+    return '${local.day}/${local.month}/${local.year}';
   }
 
   @override
@@ -1055,11 +1120,18 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
 
   Future<void> _pick(bool startDate) async {
     final current = startDate ? start : end;
+    final today = DateTime.now();
+    final firstDate = DateTime(today.year, today.month, today.day);
+    final initial = _firstAvailableOnOrAfter(
+      current.isBefore(firstDate) ? firstDate : current,
+    );
     final selected = await showDatePicker(
       context: context,
-      initialDate: current,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 730)),
+      initialDate: initial,
+      firstDate: firstDate,
+      lastDate: firstDate.add(const Duration(days: 730)),
+      selectableDayPredicate: (day) =>
+          availability?.isDayAvailable(day) ?? false,
     );
     if (selected == null) return;
     setState(() {
@@ -1082,6 +1154,14 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
 
   Future<void> _submit() async {
     if (submitting || end.isBefore(start)) return;
+    if (!selectedDatesAvailable) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Choose dates that do not overlap unavailable dates.'),
+        ),
+      );
+      return;
+    }
     if (!agreementAccepted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Review and accept the agreement first.')),
@@ -1091,6 +1171,32 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     if (widget.listing.isService && venue.text.trim().length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter the service venue.')),
+      );
+      return;
+    }
+    try {
+      final latest = await context
+          .read<LiveRentHubController>()
+          .getRenterListingAvailability(widget.listing.id);
+      if (!mounted) return;
+      setState(() => availability = latest);
+      if (!latest.isRangeAvailable(
+        start,
+        widget.listing.isService ? start : end,
+      )) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Those dates just became unavailable. Please choose another range.',
+            ),
+          ),
+        );
+        return;
+      }
+    } catch (exception) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not recheck availability: $exception')),
       );
       return;
     }
@@ -1209,7 +1315,12 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               ? 'Request & Authorize'
               : 'Accept Agreement to Continue',
           loading: submitting,
-          onPressed: submitting || !agreementAccepted ? null : _submit,
+          onPressed: submitting ||
+                  !agreementAccepted ||
+                  availabilityLoading ||
+                  !selectedDatesAvailable
+              ? null
+              : _submit,
         ),
       ),
       body: SafeArea(
@@ -1263,6 +1374,106 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            if (availabilityLoading)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text('Checking current availability...'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (availabilityError != null)
+              Card(
+                child: ListTile(
+                  leading:
+                      const Icon(Icons.error_outline, color: AppColors.error),
+                  title: const Text('Availability could not be loaded'),
+                  subtitle: Text(availabilityError!),
+                  trailing: TextButton(
+                    onPressed: _loadAvailability,
+                    child: const Text('Retry'),
+                  ),
+                ),
+              )
+            else if (availability != null)
+              Builder(
+                builder: (context) {
+                  final today = DateTime.now();
+                  final current = availability!.rangeContaining(today);
+                  return Card(
+                    color: current == null
+                        ? AppColors.success.withValues(alpha: 0.06)
+                        : AppColors.warning.withValues(alpha: 0.08),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                current == null
+                                    ? Icons.event_available_outlined
+                                    : Icons.event_busy_outlined,
+                                color: current == null
+                                    ? AppColors.success
+                                    : AppColors.warning,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  current == null
+                                      ? 'Available now'
+                                      : current.source == 'booking'
+                                          ? 'Currently rented until ${_dateLabel(current.displayEndDay)}'
+                                          : 'Currently unavailable until ${_dateLabel(current.displayEndDay)}',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (current != null &&
+                              availability!.nextAvailableDate != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Next available: ${_dateLabel(availability!.nextAvailableDate!)}',
+                            ),
+                          ],
+                          if (availability!.unavailableRanges.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Unavailable dates',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            for (final range
+                                in availability!.unavailableRanges.take(3))
+                              Text(
+                                '${_dateLabel(range.startDay)} - ${_dateLabel(range.displayEndDay)}'
+                                '${range.source == 'booking' ? ' · Reserved' : ' · Owner blocked'}',
+                                style: const TextStyle(
+                                  color: AppColors.secondaryText,
+                                ),
+                              ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             const SizedBox(height: 12),
             if (listing.promotionActive || listing.bundleActive) ...[
               Card(
@@ -1378,6 +1589,17 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                         subtitle: Text('${end.day}/${end.month}/${end.year}'),
                         trailing: const Icon(Icons.calendar_today_outlined),
                         onTap: () => _pick(false),
+                      ),
+                    if (!availabilityLoading && !selectedDatesAvailable)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          'The selected range overlaps unavailable dates.',
+                          style: TextStyle(
+                            color: AppColors.error,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     if (listing.isService)
                       ListTile(

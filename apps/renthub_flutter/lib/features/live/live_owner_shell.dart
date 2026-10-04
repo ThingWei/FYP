@@ -1652,7 +1652,9 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
       final data = await context
           .read<LiveRentHubController>()
           .getListingAvailability(widget.listing.id);
-      ranges = ((data['unavailableRanges'] as List?) ?? const [])
+      ranges = ((data['manualUnavailableRanges'] as List?) ??
+              (data['unavailableRanges'] as List?) ??
+              const [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList();
       weeklyHours = ((data['weeklyHours'] as List?) ?? const [])

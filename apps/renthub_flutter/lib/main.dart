@@ -9,6 +9,7 @@ import 'modules/booking/controllers/booking_controller.dart';
 import 'modules/loyalty/controllers/loyalty_controller.dart';
 import 'features/live/live_renthub_controller.dart';
 import 'core/notifications/push_notification_service.dart';
+import 'core/persistence/onboarding_preferences.dart';
 import 'shared/models/domain_models.dart';
 
 Future<void> main() async {
@@ -21,6 +22,9 @@ Future<void> main() async {
   );
   await authController.restoreSession(
     allowedRoles: const {UserRole.renter, UserRole.owner},
+  );
+  final onboardingCompleted = await OnboardingPreferences.resolveCompleted(
+    hasRestoredSession: authController.authenticated,
   );
   runApp(
     MultiProvider(
@@ -56,7 +60,7 @@ Future<void> main() async {
           ),
         ),
       ],
-      child: const RentHubApp(),
+      child: RentHubApp(showIntroduction: !onboardingCompleted),
     ),
   );
 }

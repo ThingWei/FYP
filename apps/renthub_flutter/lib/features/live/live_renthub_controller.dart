@@ -311,6 +311,22 @@ class LiveRentHubController extends ChangeNotifier {
     );
   }
 
+  Future<List<Listing>> recommendListings(
+    Map<String, String> parameters,
+  ) async {
+    final query = Uri(queryParameters: {
+      for (final entry in parameters.entries)
+        if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
+    }).query;
+    return _models(
+      await api.request(
+        'GET',
+        '/listings/recommended${query.isEmpty ? '' : '?$query'}',
+      ),
+      Listing.fromJson,
+    );
+  }
+
   bool isSaved(String listingId) =>
       savedListings.any((listing) => listing.id == listingId);
 
@@ -1229,6 +1245,12 @@ class LiveRentHubController extends ChangeNotifier {
   Future<Map<String, dynamic>> getListingAvailability(String id) async =>
       await api.request('GET', '/listings/$id/availability')
           as Map<String, dynamic>;
+
+  Future<ListingAvailability> getRenterListingAvailability(String id) async =>
+      ListingAvailability.fromJson(
+        await api.request('GET', '/listings/$id/availability')
+            as Map<String, dynamic>,
+      );
 
   Future<void> saveListingAvailability(
     String id,

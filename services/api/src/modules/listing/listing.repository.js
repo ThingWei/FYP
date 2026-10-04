@@ -1,6 +1,11 @@
 import mongoose from 'mongoose';
+import { BookingModel } from '../booking/booking.model.js';
 import { AvailabilityModel } from './availability.model.js';
 import { ListingModel } from './listing.model.js';
+import {
+  blockingBookingCriteria,
+  bookingDateOverlapCriteria,
+} from './availabilityRules.js';
 
 function identifiers(id) {
   const values = [{ publicId: id }];
@@ -59,6 +64,15 @@ export const listingRepository = {
   findAvailability: (listingId) =>
     AvailabilityModel.findOne({ listingId }).lean(),
 
+  findBookingUnavailableRanges: (listingId) =>
+    BookingModel.find({
+      listingId,
+      ...blockingBookingCriteria(),
+    })
+      .select('publicId listingType status startDate endDate')
+      .sort({ startDate: 1 })
+      .lean(),
+
   async saveAvailability(listingId, ownerId, data) {
     const record =
       (await AvailabilityModel.findOne({ listingId })) ??
@@ -69,13 +83,22 @@ export const listingRepository = {
   },
 
   findUnavailableListingIds: async (start, end) => {
-    const records = await AvailabilityModel.find({
-      unavailableRanges: {
-        $elemMatch: { start: { $lt: end }, end: { $gt: start } },
-      },
-    })
-      .select('listingId')
-      .lean();
-    return records.map((record) => record.listingId);
+    const [manualRecords, bookingListingIds] = await Promise.all([
+      AvailabilityModel.find({
+        unavailableRanges: {
+          $elemMatch: { start: { $lt: end }, end: { $gt: start } },
+        },
+      })
+        .select('listingId')
+        .lean(),
+      BookingModel.distinct('listingId', {
+        ...blockingBookingCriteria(),
+        ...bookingDateOverlapCriteria(start, end),
+      }),
+    ]);
+    return [...new Set([
+      ...manualRecords.map((record) => record.listingId),
+      ...bookingListingIds,
+    ])];
   },
 };

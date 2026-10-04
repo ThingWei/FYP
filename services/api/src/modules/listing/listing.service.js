@@ -18,6 +18,7 @@ import {
   modelInteraction,
   recommendationUserId,
 } from './recommendationInteractions.js';
+import { nextAvailableDate } from './availabilityRules.js';
 import {
   PRICING_EVIDENCE_QUERY_LIMIT,
   PRICING_EVIDENCE_WINDOW_DAYS,
@@ -44,6 +45,38 @@ function escapedPattern(value) {
 function rentalDays(booking) {
   const milliseconds = new Date(booking.endDate) - new Date(booking.startDate);
   return Math.max(1, Math.floor(milliseconds / 86_400_000) + 1);
+}
+
+function availabilityPayload(listing, manualRecord, occupiedBookings) {
+  const manualRanges = (manualRecord?.unavailableRanges ?? []).map((range) => ({
+    start: new Date(range.start),
+    end: new Date(range.end),
+    reason: range.reason ?? '',
+    source: 'owner_blackout',
+    allDay: true,
+  }));
+  const bookingRanges = occupiedBookings.map((booking) => ({
+    start: new Date(booking.startDate),
+    end: booking.listingType === 'physical'
+      ? new Date(new Date(booking.endDate).getTime() + 86_400_000)
+      : new Date(booking.endDate),
+    reason: booking.listingType === 'physical'
+      ? 'Reserved rental dates'
+      : 'Reserved service time',
+    source: 'booking',
+    allDay: booking.listingType === 'physical',
+  }));
+  const unavailableRanges = [...manualRanges, ...bookingRanges]
+    .sort((left, right) => left.start - right.start);
+  return {
+    listingId: listing.publicId,
+    unavailableRanges,
+    manualUnavailableRanges: manualRanges,
+    nextAvailableDate: nextAvailableDate(unavailableRanges),
+    weeklyHours: manualRecord?.weeklyHours ?? [],
+    minimumNoticeHours: manualRecord?.minimumNoticeHours ?? 0,
+    bufferHours: manualRecord?.bufferHours ?? 0,
+  };
 }
 
 function listingInput(input) {
@@ -159,11 +192,51 @@ export const listingService = {
       ...(user.blockedUserIds ?? []),
       ...restrictedOwnerIds,
     ])];
+    const candidateFilter = {
+      status: 'active',
+      ownerId: { $nin: excludedOwnerIds },
+    };
+    if (query.search?.trim()) {
+      const pattern = escapedPattern(query.search.trim());
+      candidateFilter.$or = [
+        { title: pattern },
+        { description: pattern },
+        { location: pattern },
+      ];
+    }
+    if (LISTING_CATEGORIES.includes(query.category)) {
+      candidateFilter.category = query.category;
+    }
+    if (['physical', 'service'].includes(query.type)) {
+      candidateFilter.listingType = query.type;
+    }
+    if (query.location?.trim()) {
+      candidateFilter.location = escapedPattern(query.location.trim());
+    }
+    if (query.verified !== undefined) {
+      candidateFilter.verified = query.verified === 'true';
+    }
+    if (query.promoted === 'true') {
+      const now = new Date();
+      candidateFilter['promotion.enabled'] = true;
+      candidateFilter['promotion.startsAt'] = { $lte: now };
+      candidateFilter['promotion.endsAt'] = { $gte: now };
+    }
+    if (query.minPrice !== undefined || query.maxPrice !== undefined) {
+      candidateFilter.dailyPrice = {
+        ...(query.minPrice !== undefined && { $gte: Number(query.minPrice) }),
+        ...(query.maxPrice !== undefined && { $lte: Number(query.maxPrice) }),
+      };
+    }
+    if (query.availableFrom && query.availableTo) {
+      const unavailableIds = await listingRepository.findUnavailableListingIds(
+        new Date(query.availableFrom),
+        new Date(query.availableTo),
+      );
+      if (unavailableIds.length) candidateFilter.publicId = { $nin: unavailableIds };
+    }
     const [candidates, interactionUsers, bookings, reviews] = await Promise.all([
-      ListingModel.find({
-        status: 'active',
-        ownerId: { $nin: excludedOwnerIds },
-      })
+      ListingModel.find(candidateFilter)
         .sort({ promoted: -1, rating: -1, createdAt: -1 })
         .limit(200),
       UserModel.find({ 'savedListingIds.0': { $exists: true } })
@@ -661,15 +734,11 @@ export const listingService = {
   async getAvailability(id) {
     const listing = await listingRepository.findPublicById(id);
     if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
-    return (
-      (await listingRepository.findAvailability(listing.publicId)) ?? {
-        listingId: listing.publicId,
-        unavailableRanges: [],
-        weeklyHours: [],
-        minimumNoticeHours: 0,
-        bufferHours: 0,
-      }
-    );
+    const [manualRecord, occupiedBookings] = await Promise.all([
+      listingRepository.findAvailability(listing.publicId),
+      listingRepository.findBookingUnavailableRanges(listing.publicId),
+    ]);
+    return availabilityPayload(listing, manualRecord, occupiedBookings);
   },
 
   async setAvailability(id, input, identity) {

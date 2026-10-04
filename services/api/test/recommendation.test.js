@@ -171,6 +171,13 @@ test('recommendation endpoint sends eligible listings and canonical signals', as
   ]);
   await Promise.all([
     ListingModel.create(listing('l-eligible', 'u-active-owner')),
+    ListingModel.create(listing('l-vehicle', 'u-active-owner', {
+      title: 'Toyota Corolla',
+      category: 'Vehicles',
+      subcategory: 'Cars',
+      brand: 'Toyota',
+      productModel: 'Corolla',
+    })),
     ListingModel.create(listing('l-own', 'u-renter')),
     ListingModel.create(listing('l-inactive', 'u-active-owner', {
       status: 'inactive',
@@ -193,7 +200,7 @@ test('recommendation endpoint sends eligible listings and canonical signals', as
   };
   try {
     const response = await request(app)
-      .get('/api/v1/listings/recommended?limit=10')
+      .get('/api/v1/listings/recommended?limit=10&category=Devices')
       .set(renterHeaders);
     assert.equal(response.status, 200);
     assert.deepEqual(

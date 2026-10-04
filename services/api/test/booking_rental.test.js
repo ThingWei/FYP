@@ -439,6 +439,169 @@ test('locks approved dates against another booking', async () => {
 
   assert.equal(conflict.status, 409);
   assert.equal(conflict.body.error.code, 'AVAILABILITY_CONFLICT');
+
+  await AvailabilityModel.create({
+    listingId: 'l-camera',
+    ownerId: 'u-owner',
+    unavailableRanges: [{
+      start: new Date('2026-11-01T00:00:00.000Z'),
+      end: new Date('2026-11-03T00:00:00.000Z'),
+      reason: 'Maintenance',
+    }],
+  });
+
+  const availability = await request(app)
+    .get('/api/v1/listings/l-camera/availability');
+  assert.equal(availability.status, 200);
+  assert.equal(availability.body.data.unavailableRanges.length, 2);
+  assert.equal(availability.body.data.manualUnavailableRanges.length, 1);
+  const bookingRange = availability.body.data.unavailableRanges.find(
+    (range) => range.source === 'booking',
+  );
+  assert.ok(bookingRange);
+  assert.equal(
+    bookingRange.end,
+    '2026-09-23T00:00:00.000Z',
+  );
+
+  const unavailableInExplore = await request(app).get(
+    '/api/v1/listings?availableFrom=2026-09-22T00:00:00.000Z&availableTo=2026-09-23T00:00:00.000Z',
+  );
+  assert.equal(
+    unavailableInExplore.body.data.some((item) => item.id === 'l-camera'),
+    false,
+  );
+
+  const adjacentFuture = await request(app)
+    .post('/api/v1/bookings')
+    .set({ ...renter, 'x-user-id': 'u-renter-two' })
+    .send({
+      listingId: 'l-camera',
+      idempotencyKey: 'booking-test:adjacent-future',
+      startDate: '2026-09-23T00:00:00.000Z',
+      endDate: '2026-09-25T00:00:00.000Z',
+      fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
+    });
+  assert.equal(adjacentFuture.status, 201, JSON.stringify(adjacentFuture.body));
+});
+
+test('released booking states do not occupy listing availability', async () => {
+  const releasedStatuses = ['completed', 'cancelled', 'rejected', 'expired'];
+  await BookingModel.insertMany(releasedStatuses.map((status, index) => ({
+    publicId: `RH-BKG-2026-RELEASE${index}`,
+    listingId: 'l-camera',
+    listingTitle: 'Sony Alpha Camera',
+    listingType: 'physical',
+    renterId: `u-released-${index}`,
+    renterName: `Released ${index}`,
+    ownerId: 'u-owner',
+    startDate: new Date('2026-10-10T00:00:00.000Z'),
+    endDate: new Date('2026-10-15T00:00:00.000Z'),
+    fulfilmentMethod: 'pickup',
+    pricing: {
+      baseAmount: 510,
+      securityDeposit: 300,
+      damageWaiverFee: 0,
+      platformFee: 0,
+      total: 810,
+      currency: 'MYR',
+    },
+    status,
+  })));
+
+  const availability = await request(app)
+    .get('/api/v1/listings/l-camera/availability');
+  assert.equal(availability.status, 200);
+  assert.equal(availability.body.data.unavailableRanges.length, 0);
+
+  const explore = await request(app).get(
+    '/api/v1/listings?availableFrom=2026-10-10T00:00:00.000Z&availableTo=2026-10-16T00:00:00.000Z',
+  );
+  assert.equal(
+    explore.body.data.some((item) => item.id === 'l-camera'),
+    true,
+  );
+});
+
+test('active and unresolved disputed physical rentals occupy dates', async () => {
+  for (const status of ['active', 'disputed']) {
+    const booking = await BookingModel.create({
+      publicId: `RH-BKG-2026-${status.toUpperCase()}`,
+      listingId: 'l-camera',
+      listingTitle: 'Sony Alpha Camera',
+      listingType: 'physical',
+      renterId: `u-${status}`,
+      renterName: status,
+      ownerId: 'u-owner',
+      startDate: new Date('2026-10-10T00:00:00.000Z'),
+      endDate: new Date('2026-10-15T00:00:00.000Z'),
+      fulfilmentMethod: 'pickup',
+      pricing: {
+        baseAmount: 510,
+        securityDeposit: 300,
+        damageWaiverFee: 0,
+        platformFee: 0,
+        total: 810,
+        currency: 'MYR',
+      },
+      status,
+    });
+    const explore = await request(app).get(
+      '/api/v1/listings?availableFrom=2026-10-12T00:00:00.000Z&availableTo=2026-10-15T00:00:00.000Z',
+    );
+    assert.equal(
+      explore.body.data.some((item) => item.id === 'l-camera'),
+      false,
+      status,
+    );
+    await BookingModel.deleteOne({ publicId: booking.publicId });
+  }
+});
+
+test('approval-time recheck prevents two pending requests being approved', async () => {
+  await request(app)
+    .post('/api/v1/users/session')
+    .set({
+      ...renter,
+      'x-user-id': 'u-renter-two',
+      'x-user-email': 'renter2@renthub.my',
+      'x-user-name': 'Mei Ling',
+    });
+  const first = await createCameraBooking({
+    idempotencyKey: 'booking-test:approval-race-a',
+  });
+  const second = await request(app)
+    .post('/api/v1/bookings')
+    .set({ ...renter, 'x-user-id': 'u-renter-two' })
+    .send({
+      listingId: 'l-camera',
+      idempotencyKey: 'booking-test:approval-race-b',
+      startDate: '2026-09-20T00:00:00.000Z',
+      endDate: '2026-09-22T00:00:00.000Z',
+      fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
+    });
+  assert.equal(first.status, 201);
+  assert.equal(second.status, 201);
+  await authorizeBooking(first.body.data.id);
+  await authorizeBooking(second.body.data.id, {
+    ...renter,
+    'x-user-id': 'u-renter-two',
+  });
+  const firstApproval = await request(app)
+    .patch(`/api/v1/bookings/${first.body.data.id}/decision`)
+    .set(owner)
+    .send({ status: 'approved' });
+  assert.equal(firstApproval.status, 200);
+  const secondApproval = await request(app)
+    .patch(`/api/v1/bookings/${second.body.data.id}/decision`)
+    .set(owner)
+    .send({ status: 'approved' });
+  assert.equal(secondApproval.status, 409);
+  assert.equal(secondApproval.body.error.code, 'AVAILABILITY_CONFLICT');
 });
 
 test('runs service approval, delivery and renter completion lifecycle', async () => {

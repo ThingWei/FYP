@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../core/theme/app_theme.dart';
 import '../core/config/backend_mode.dart';
 import '../core/notifications/push_notification_service.dart';
+import '../core/persistence/onboarding_preferences.dart';
 import '../features/live/live_renthub_controller.dart';
 import '../features/live/live_shared_pages.dart';
 import '../features/live/live_owner_shell.dart';
@@ -19,11 +20,16 @@ import '../modules/user/views/login_screen.dart';
 import '../shared/models/domain_models.dart';
 
 class RentHubApp extends StatefulWidget {
-  const RentHubApp({super.key, this.showIntroduction = true});
+  const RentHubApp({
+    super.key,
+    this.showIntroduction = true,
+    this.markOnboardingCompleted = OnboardingPreferences.markCompleted,
+  });
 
   // Nullable so a hot reload from a build that predates this field can safely
   // migrate the existing widget instance. New instances still default to true.
   final bool? showIntroduction;
+  final Future<void> Function() markOnboardingCompleted;
 
   @override
   State<RentHubApp> createState() => _RentHubAppState();
@@ -124,6 +130,13 @@ class _RentHubAppState extends State<RentHubApp> {
     } catch (_) {}
   }
 
+  Future<void> _completeOnboarding() async {
+    try {
+      await widget.markOnboardingCompleted();
+    } catch (_) {}
+    if (mounted) setState(() => stage = _EntryStage.application);
+  }
+
   @override
   void dispose() {
     pushSubscription?.cancel();
@@ -154,7 +167,7 @@ class _RentHubAppState extends State<RentHubApp> {
               onFinished: () => setState(() => stage = _EntryStage.onboarding),
             ),
           _EntryStage.onboarding => OnboardingPage(
-              onFinished: () => setState(() => stage = _EntryStage.application),
+              onFinished: () => unawaited(_completeOnboarding()),
             ),
           _EntryStage.application => Consumer<AuthController>(
               builder: (_, auth, __) {

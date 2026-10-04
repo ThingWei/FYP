@@ -47,7 +47,7 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => AuthController(MockAuthRepository()),
-        child: const RentHubApp(),
+        child: RentHubApp(markOnboardingCompleted: () async {}),
       ),
     );
     expect(find.text('Rent with confidence across Malaysia'), findsOneWidget);

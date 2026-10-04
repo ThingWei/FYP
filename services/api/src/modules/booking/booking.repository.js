@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { AvailabilityModel } from '../listing/availability.model.js';
+import { blockingBookingCriteria } from '../listing/availabilityRules.js';
 import { BookingModel } from './booking.model.js';
 
 function identifiers(id) {
@@ -56,7 +57,7 @@ export const bookingRepository = {
   findConflict: ({ listingId, startDate, endDate, excludeId }) =>
     BookingModel.findOne({
       listingId,
-      status: { $in: ['approved', 'active'] },
+      ...blockingBookingCriteria(),
       startDate: { $lte: endDate },
       endDate: { $gte: startDate },
       ...(excludeId && { publicId: { $ne: excludeId } }),
