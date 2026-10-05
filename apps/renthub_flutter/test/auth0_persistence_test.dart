@@ -21,6 +21,8 @@ Auth0Gateway _gateway({
   String callbackUrl = 'http://127.0.0.1:53124/callback',
   Stream<Uri>? callbackLinks,
   Future<Uri?> Function()? initialLinkProvider,
+  Future<Uri?> Function()? latestLinkProvider,
+  Duration mobileLinkPollInterval = const Duration(milliseconds: 350),
   bool? androidOverride,
   DateTime Function()? now,
 }) =>
@@ -36,6 +38,9 @@ Auth0Gateway _gateway({
       callbackLinks: callbackLinks,
       initialLinkProvider: initialLinkProvider ??
           (androidOverride == true ? () async => null : null),
+      latestLinkProvider: latestLinkProvider ??
+          (androidOverride == true ? () async => null : null),
+      mobileLinkPollInterval: mobileLinkPollInterval,
       androidOverride: androidOverride,
       now: now,
     );
@@ -307,6 +312,89 @@ void main() {
     final session = await gateway.login();
 
     expect(session.accessToken, 'current-access-token');
+    expect(tokenRequests, 1);
+    await links.close();
+  });
+
+  test('Android warm resume falls back to the latest link when stream misses it',
+      () async {
+    final links = StreamController<Uri>.broadcast();
+    Uri? latestLink;
+    var tokenRequests = 0;
+    final gateway = _gateway(
+      callbackUrl: 'com.weith.renthub://login-callback',
+      androidOverride: true,
+      callbackLinks: links.stream,
+      initialLinkProvider: () async => null,
+      latestLinkProvider: () async => latestLink,
+      mobileLinkPollInterval: const Duration(milliseconds: 5),
+      client: MockClient((request) async {
+        tokenRequests += 1;
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['code'], 'latest-link-code');
+        return http.Response(
+          jsonEncode({
+            'access_token': 'latest-link-access-token',
+            'refresh_token': 'latest-link-refresh-token',
+            'expires_in': 3600,
+          }),
+          200,
+        );
+      }),
+      browserLauncher: (authorization) async {
+        latestLink = _androidCallback(
+          authorization.queryParameters['state']!,
+          code: 'latest-link-code',
+        );
+      },
+    );
+
+    final session = await gateway.login();
+
+    expect(session.accessToken, 'latest-link-access-token');
+    expect(tokenRequests, 1);
+    await links.close();
+  });
+
+  test('Android accepts a callback normalized with a trailing slash', () async {
+    final links = StreamController<Uri>.broadcast();
+    var tokenRequests = 0;
+    final gateway = _gateway(
+      callbackUrl: 'com.weith.renthub://login-callback',
+      androidOverride: true,
+      callbackLinks: links.stream,
+      client: MockClient((request) async {
+        tokenRequests += 1;
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['code'], 'slash-code');
+        expect(
+          body['redirect_uri'],
+          'com.weith.renthub://login-callback',
+        );
+        return http.Response(
+          jsonEncode({
+            'access_token': 'slash-access-token',
+            'refresh_token': 'slash-refresh-token',
+            'expires_in': 3600,
+          }),
+          200,
+        );
+      }),
+      browserLauncher: (authorization) async {
+        links.add(
+          Uri.parse('com.weith.renthub://login-callback/').replace(
+            queryParameters: {
+              'state': authorization.queryParameters['state']!,
+              'code': 'slash-code',
+            },
+          ),
+        );
+      },
+    );
+
+    final session = await gateway.login();
+
+    expect(session.accessToken, 'slash-access-token');
     expect(tokenRequests, 1);
     await links.close();
   });
