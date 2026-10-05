@@ -100,6 +100,8 @@ class Auth0Gateway {
     Future<void> Function(Uri uri)? browserLauncher,
     Stream<Uri>? callbackLinks,
     Future<Uri?> Function()? initialLinkProvider,
+    Future<Uri?> Function()? latestLinkProvider,
+    Duration mobileLinkPollInterval = const Duration(milliseconds: 350),
     bool? androidOverride,
     DateTime Function()? now,
   })  : domain = domain
@@ -116,6 +118,11 @@ class Auth0Gateway {
             ((androidOverride ?? Platform.isAndroid)
                 ? AppLinks().getInitialLink
                 : _noInitialLink),
+        _latestLinkProvider = latestLinkProvider ??
+            ((androidOverride ?? Platform.isAndroid)
+                ? AppLinks().getLatestLink
+                : _noInitialLink),
+        _mobileLinkPollInterval = mobileLinkPollInterval,
         _isAndroid = androidOverride ?? Platform.isAndroid,
         _now = now ?? DateTime.now;
 
@@ -129,6 +136,8 @@ class Auth0Gateway {
   final Future<void> Function(Uri uri)? _browserLauncher;
   final Stream<Uri> _callbackLinks;
   final Future<Uri?> Function() _initialLinkProvider;
+  final Future<Uri?> Function() _latestLinkProvider;
+  final Duration _mobileLinkPollInterval;
   final bool _isAndroid;
   final DateTime Function() _now;
   String? _accessToken;
@@ -210,10 +219,11 @@ class Auth0Gateway {
 
   bool _matchesConfiguredCallback(Uri received) {
     final expected = Uri.parse(callbackUrl);
+    String normalizedPath(Uri uri) => uri.path == '/' ? '' : uri.path;
     return received.scheme.toLowerCase() == expected.scheme.toLowerCase() &&
         received.host.toLowerCase() == expected.host.toLowerCase() &&
         received.port == expected.port &&
-        received.path == expected.path;
+        normalizedPath(received) == normalizedPath(expected);
   }
 
   bool _matchesTransaction(
@@ -261,6 +271,22 @@ class Auth0Gateway {
     return transaction;
   }
 
+  Future<Uri?> _readMatchingMobileLink(
+    _PendingAuth0Transaction transaction,
+    Future<Uri?> Function() provider,
+  ) async {
+    try {
+      final link = await provider();
+      return link != null && _matchesTransaction(link, transaction)
+          ? link
+          : null;
+    } catch (_) {
+      // The live stream remains authoritative. Initial/latest-link reads are
+      // best-effort fallbacks for Android lifecycle transitions.
+      return null;
+    }
+  }
+
   Future<Uri> _waitForMobileCallback(
     _PendingAuth0Transaction transaction,
   ) {
@@ -273,36 +299,61 @@ class Auth0Gateway {
         'AUTH0_CALLBACK_URL must be a configured Android custom URI, for example com.weith.renthub://login-callback.',
       );
     }
+
     final completer = Completer<Uri>();
     _activeMobileCallback = completer;
+    Timer? latestPoller;
+    var latestReadInProgress = false;
+
+    void accept(Uri? uri) {
+      if (uri != null &&
+          _matchesTransaction(uri, transaction) &&
+          !completer.isCompleted) {
+        completer.complete(uri);
+      }
+    }
+
+    Future<void> probeLatest() async {
+      if (latestReadInProgress || completer.isCompleted) return;
+      latestReadInProgress = true;
+      try {
+        accept(
+          await _readMatchingMobileLink(
+            transaction,
+            _latestLinkProvider,
+          ),
+        );
+      } finally {
+        latestReadInProgress = false;
+      }
+    }
+
     late final StreamSubscription<Uri> subscription;
     subscription = _callbackLinks.listen(
-      (uri) {
-        if (_matchesTransaction(uri, transaction) && !completer.isCompleted) {
-          completer.complete(uri);
-        }
-      },
+      accept,
       onError: (Object error, StackTrace stackTrace) {
         if (!completer.isCompleted) completer.completeError(error, stackTrace);
       },
     );
     _activeMobileSubscription = subscription;
+
     unawaited(() async {
-      try {
-        final initialLink = await _initialLinkProvider();
-        if (initialLink != null &&
-            _matchesTransaction(initialLink, transaction) &&
-            !completer.isCompleted) {
-          completer.complete(initialLink);
-        }
-      } catch (error, stackTrace) {
-        if (!completer.isCompleted) {
-          completer.completeError(error, stackTrace);
-        }
-      }
+      accept(
+        await _readMatchingMobileLink(
+          transaction,
+          _initialLinkProvider,
+        ),
+      );
+      if (!completer.isCompleted) await probeLatest();
     }());
+
+    latestPoller = Timer.periodic(_mobileLinkPollInterval, (_) {
+      unawaited(probeLatest());
+    });
+
     return completer.future.timeout(const Duration(minutes: 3)).whenComplete(
       () async {
+        latestPoller?.cancel();
         await subscription.cancel();
         if (identical(_activeMobileSubscription, subscription)) {
           _activeMobileSubscription = null;
@@ -350,12 +401,20 @@ class Auth0Gateway {
   Future<String?> _resumeAndroidPendingTransaction() async {
     final transaction = await _loadPendingTransaction();
     if (transaction == null) return null;
-    final initialLink = await _initialLinkProvider();
-    if (initialLink == null || !_matchesTransaction(initialLink, transaction)) {
-      return null;
-    }
+
+    final initialLink = await _readMatchingMobileLink(
+      transaction,
+      _initialLinkProvider,
+    );
+    final response = initialLink ??
+        await _readMatchingMobileLink(
+          transaction,
+          _latestLinkProvider,
+        );
+    if (response == null) return null;
+
     try {
-      return (await _completeAndroidTransaction(transaction, initialLink))
+      return (await _completeAndroidTransaction(transaction, response))
           .accessToken;
     } finally {
       await _clearPendingTransaction();
