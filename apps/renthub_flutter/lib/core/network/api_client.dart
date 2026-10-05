@@ -62,11 +62,31 @@ class ApiClient {
     final response = await http.Response.fromStream(await request.send());
     final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
     if (response.statusCode >= 400) {
+      final errorPayload = decoded?['error'];
+      final rawMessage = errorPayload?['message']?.toString() ?? 'Request failed';
+      final errorDetails = errorPayload?['details'];
+      String message = rawMessage;
+      if (errorDetails is List && errorDetails.isNotEmpty) {
+        final parts = errorDetails.map((item) {
+          if (item is Map) {
+            final field = item['field']?.toString();
+            final detail = item['message']?.toString();
+            if ((field ?? '').isNotEmpty && (detail ?? '').isNotEmpty) {
+              return '$field: $detail';
+            }
+            if ((detail ?? '').isNotEmpty) return detail!;
+          }
+          return item.toString();
+        }).where((item) => item.isNotEmpty).toList();
+        if (parts.isNotEmpty) {
+          message = '$rawMessage (${parts.join('; ')})';
+        }
+      }
       throw ApiException(
         response.statusCode,
-        decoded?['error']?['message'] ?? 'Request failed',
-        code: decoded?['error']?['code'],
-        details: decoded?['error']?['details'],
+        message,
+        code: errorPayload?['code'],
+        details: errorDetails,
       );
     }
     return decoded?['data'];
