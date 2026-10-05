@@ -23,9 +23,14 @@ UTC creation timestamp
 ```
 
 The transaction expires after ten minutes. RentHub subscribes to the live link
-stream and also reads `AppLinks.getInitialLink()` for a cold start. A URI is
-allowed to complete the transaction only when both the exact callback URI and
-the persisted state match. Wrong paths are ignored; stale/wrong states are
+stream, reads `AppLinks.getInitialLink()` for a cold start, and probes
+`AppLinks.getLatestLink()` while a browser login is pending so Android
+warm-resume/task lifecycle races do not strand a valid callback. The activity
+uses `singleTask` so the browser callback is delivered into the existing
+RentHub task. A URI is allowed to complete the transaction only when its
+callback route and persisted OAuth state match. An empty callback path and a
+single trailing slash are treated equivalently, while the originally configured
+redirect URI is still used for the PKCE token exchange. Stale/wrong states are
 ignored without consuming the current transaction; duplicate matching events
 can complete it only once. The authorization code is never persisted.
 
@@ -124,6 +129,19 @@ Create or use an Auth0 application of type **Native** for Android. Then:
    refresh tokens; RentHub supports both rotated and unrotated responses.
 6. Keep the Android application ID as `com.weith.renthub`.
 
+If Universal Login offers **GitHub**, remember that there are two different
+callbacks:
+
+```text
+GitHub OAuth App -> https://YOUR_AUTH0_DOMAIN/login/callback
+Auth0 Android Native App -> com.weith.renthub://login-callback
+```
+
+The GitHub OAuth App's **Authorization callback URL** must point back to Auth0,
+not directly to RentHub. A GitHub 404 or blank page happens before RentHub can
+complete the OAuth transaction and usually means the GitHub/Auth0 social
+connection callback is misconfigured.
+
 No Android logout URL is required by this implementation because RentHub logout
 clears local credentials and does not open Auth0 hosted logout. The browser may
 therefore retain Auth0 SSO and offer the same account on the next explicit
@@ -152,8 +170,9 @@ through the host firewall:
 ## Automated verification
 
 `test/auth0_persistence_test.dart` covers the Android custom callback, ignored
-unrelated links, stale-state-then-current-state ordering, cold-start initial
-links, gateway/process recreation with the original persisted verifier,
+unrelated links, stale-state-then-current-state ordering, warm-resume latest
+link fallback, trailing-slash callback normalization, cold-start initial links,
+gateway/process recreation with the original persisted verifier,
 transaction expiry and cleanup, cancellation cleanup, PKCE authorization
 parameters, exact redirect URI, authorization-code exchange, secure
 refresh-token persistence, token restoration/rotation, invalid-grant cleanup,
@@ -199,3 +218,18 @@ Known limitation: a custom URI scheme can be claimed by another installed app.
 OAuth state and PKCE prevent that app from completing or exchanging this
 client's login, but an HTTPS Android App Link with a verified domain would offer
 stronger callback ownership for a production deployment.
+
+
+## Physical-device follow-up: return-to-app did not complete login
+
+A later physical Android test showed that after the invalid-state fix, Universal
+Login could return to RentHub but the pending login sometimes remained waiting.
+The follow-up fix keeps the live `uriLinkStream` listener, adds a
+`getLatestLink()` fallback during the pending browser transaction, and changes
+the Android activity launch mode from `singleTop` to `singleTask`. This is
+intended to cover warm-resume cases where Android has already delivered the
+custom-scheme intent while the Dart stream is transitioning.
+
+Repository tests were extended for a missed-stream/latest-link callback and for
+a trailing-slash variant of the custom callback. The real Auth0 tenant and
+physical phone still require one final local E2E run after pulling these changes.
