@@ -253,8 +253,8 @@ export const priceRecommendationValidation = [
 export const availabilityValidation = [
   listingId,
   body('unavailableRanges').optional().isArray({ max: 100 }),
-  body('unavailableRanges.*.start').optional().isISO8601().toDate(),
-  body('unavailableRanges.*.end').optional().isISO8601().toDate(),
+  body('unavailableRanges.*.start').optional().isISO8601(),
+  body('unavailableRanges.*.end').optional().isISO8601(),
   body('unavailableRanges.*.reason').optional().trim().isLength({ max: 120 }),
   body('weeklyHours').optional().isArray({ max: 14 }),
   body('weeklyHours.*.weekday').optional().isInt({ min: 0, max: 6 }).toInt(),

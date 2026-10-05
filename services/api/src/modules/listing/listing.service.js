@@ -1,4 +1,5 @@
 import { AppError } from '../../core/errors.js';
+import { physicalRentalDate } from '../../core/calendarDate.js';
 import { env } from '../../config/env.js';
 import { aiClient } from '../../integrations/aiClient.js';
 import { PlatformSettingModel } from '../admin/platformSetting.model.js';
@@ -743,8 +744,17 @@ export const listingService = {
 
   async setAvailability(id, input, identity) {
     const listing = await requireOwnedListing(id, identity);
+    const unavailableRanges = (input.unavailableRanges ?? []).map((range) =>
+      listing.listingType === 'physical'
+        ? {
+            ...range,
+            start: physicalRentalDate(range.start),
+            end: physicalRentalDate(range.end),
+          }
+        : range,
+    );
     const data = {
-      unavailableRanges: input.unavailableRanges ?? [],
+      unavailableRanges,
       weeklyHours: listing.listingType === 'service' ? input.weeklyHours ?? [] : [],
       minimumNoticeHours: input.minimumNoticeHours ?? 0,
       bufferHours: input.bufferHours ?? 0,

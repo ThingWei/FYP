@@ -1,5 +1,6 @@
 import '../../../core/network/api_client.dart';
 import '../../../core/network/idempotency_key.dart';
+import '../../../core/utils/calendar_date.dart';
 import '../../../shared/models/domain_models.dart';
 
 abstract interface class BookingRepository {
@@ -41,8 +42,11 @@ class LiveBookingRepository implements BookingRepository {
     final payload = <String, dynamic>{
       'listingId': listingId,
       'idempotencyKey': newCheckoutIdempotencyKey(),
-      'startDate': start.toUtc().toIso8601String(),
-      'endDate': end.toUtc().toIso8601String(),
+      'startDate': isService
+          ? start.toUtc().toIso8601String()
+          : calendarDateApiValue(start),
+      'endDate':
+          isService ? end.toUtc().toIso8601String() : calendarDateApiValue(end),
       'agreementAccepted': true,
       'agreementVersion': 'renthub-booking-v1',
       if (isService)

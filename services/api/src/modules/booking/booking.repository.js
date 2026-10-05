@@ -63,6 +63,29 @@ export const bookingRepository = {
       ...(excludeId && { publicId: { $ne: excludeId } }),
     }).lean(),
 
+  findCompetingPending: ({ listingId, startDate, endDate, excludeId }) =>
+    BookingModel.find({
+      listingId,
+      listingType: 'physical',
+      status: 'pending',
+      startDate: { $lte: endDate },
+      endDate: { $gte: startDate },
+      publicId: { $ne: excludeId },
+    }),
+
+  claimPendingAsExpired: (id, expiredAt, reason) =>
+    BookingModel.findOneAndUpdate(
+      { publicId: id, status: 'pending' },
+      {
+        $set: {
+          status: 'expired',
+          expiredAt,
+          cancellationReason: reason,
+        },
+      },
+      { new: true },
+    ),
+
   findBlackout: (listingId, startDate, exclusiveEnd) =>
     AvailabilityModel.findOne({
       listingId,

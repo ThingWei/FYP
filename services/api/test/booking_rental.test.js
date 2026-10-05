@@ -215,6 +215,44 @@ test('calculates the authoritative camera total and exposes both participant vie
   assert.equal(adminBookings.body.meta.total, 1);
 });
 
+test('normalizes physical rental input to Malaysian calendar dates without a one-day shift', async () => {
+  const dateOnly = await request(app)
+    .post('/api/v1/bookings')
+    .set(renter)
+    .send({
+      listingId: 'l-camera',
+      idempotencyKey: 'booking-test:date-only',
+      startDate: '2026-10-05',
+      endDate: '2026-10-05',
+      fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
+    });
+  assert.equal(dateOnly.status, 201, JSON.stringify(dateOnly.body));
+  assert.equal(dateOnly.body.data.startDate, '2026-10-05T00:00:00.000Z');
+  assert.equal(dateOnly.body.data.endDate, '2026-10-05T00:00:00.000Z');
+  assert.equal(dateOnly.body.data.pricing.baseAmount, 85);
+
+  const legacyTimestamp = await request(app)
+    .post('/api/v1/bookings')
+    .set(renter)
+    .send({
+      listingId: 'l-camera',
+      idempotencyKey: 'booking-test:legacy-malaysia-midnight',
+      startDate: '2026-10-05T16:00:00.000Z',
+      endDate: '2026-10-05T16:00:00.000Z',
+      fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
+    });
+  assert.equal(legacyTimestamp.status, 201, JSON.stringify(legacyTimestamp.body));
+  assert.equal(
+    legacyTimestamp.body.data.startDate,
+    '2026-10-06T00:00:00.000Z',
+  );
+  assert.equal(legacyTimestamp.body.data.endDate, '2026-10-06T00:00:00.000Z');
+});
+
 test('requires the current booking agreement before creating a request', async () => {
   const response = await request(app)
     .post('/api/v1/bookings')
@@ -581,7 +619,7 @@ test('active and unresolved disputed physical rentals occupy dates', async () =>
   }
 });
 
-test('approval-time recheck prevents two pending requests being approved', async () => {
+test('approval expires only competing pending physical requests and releases authorization', async () => {
   await request(app)
     .post('/api/v1/users/session')
     .set({
@@ -605,8 +643,21 @@ test('approval-time recheck prevents two pending requests being approved', async
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });
+  const nonOverlapping = await request(app)
+    .post('/api/v1/bookings')
+    .set({ ...renter, 'x-user-id': 'u-renter-two' })
+    .send({
+      listingId: 'l-camera',
+      idempotencyKey: 'booking-test:approval-race-non-overlap',
+      startDate: '2026-09-23',
+      endDate: '2026-09-24',
+      fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
+    });
   assert.equal(first.status, 201);
   assert.equal(second.status, 201);
+  assert.equal(nonOverlapping.status, 201);
   await authorizeBooking(first.body.data.id);
   await authorizeBooking(second.body.data.id, {
     ...renter,
@@ -617,12 +668,34 @@ test('approval-time recheck prevents two pending requests being approved', async
     .set(owner)
     .send({ status: 'approved' });
   assert.equal(firstApproval.status, 200);
+  const competing = await BookingModel.findOne({
+    publicId: second.body.data.id,
+  }).lean();
+  const unaffected = await BookingModel.findOne({
+    publicId: nonOverlapping.body.data.id,
+  }).lean();
+  assert.equal(competing.status, 'expired');
+  assert.equal(competing.paymentStatus, 'voided');
+  assert.match(competing.cancellationReason, /another overlapping request/i);
+  assert.ok(competing.expiredAt);
+  assert.equal(unaffected.status, 'pending');
+  const authorization = await PaymentModel.findOne({
+    bookingId: second.body.data.id,
+    type: 'authorization',
+  }).lean();
+  assert.equal(authorization.status, 'voided');
+  const notification = await NotificationModel.findOne({
+    userId: 'u-renter-two',
+    entityId: second.body.data.id,
+    type: 'booking_dates_unavailable',
+  }).lean();
+  assert.ok(notification);
   const secondApproval = await request(app)
     .patch(`/api/v1/bookings/${second.body.data.id}/decision`)
     .set(owner)
     .send({ status: 'approved' });
   assert.equal(secondApproval.status, 409);
-  assert.equal(secondApproval.body.error.code, 'AVAILABILITY_CONFLICT');
+  assert.equal(secondApproval.body.error.code, 'INVALID_BOOKING_STATE');
 });
 
 test('runs service approval, delivery and renter completion lifecycle', async () => {

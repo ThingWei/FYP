@@ -8,6 +8,7 @@ import '../../core/network/api_client.dart';
 import '../../core/network/idempotency_key.dart';
 import '../../core/network/socket_service.dart';
 import '../../core/notifications/push_notification_service.dart';
+import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
 
 class LiveRentHubController extends ChangeNotifier {
@@ -790,8 +791,12 @@ class LiveRentHubController extends ChangeNotifier {
           body: {
             'listingId': listing.id,
             'idempotencyKey': checkoutKey,
-            'startDate': start.toUtc().toIso8601String(),
-            'endDate': end.toUtc().toIso8601String(),
+            'startDate': listing.isService
+                ? start.toUtc().toIso8601String()
+                : calendarDateApiValue(start),
+            'endDate': listing.isService
+                ? end.toUtc().toIso8601String()
+                : calendarDateApiValue(end),
             if (listing.isService) 'serviceVenue': serviceVenue,
             if (!listing.isService) 'fulfilmentMethod': fulfilmentMethod,
             if (!listing.isService)
@@ -952,7 +957,7 @@ class LiveRentHubController extends ChangeNotifier {
           ) as Map<String, dynamic>,
         );
         _replaceBooking(updated);
-        if (status == 'approved') await _reloadOwnerRentals();
+        if (status == 'approved') await _reloadOwnerBookingState();
       });
 
   void _replaceBooking(Booking booking) {
@@ -965,11 +970,13 @@ class LiveRentHubController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _reloadOwnerRentals() async {
-    rentals = _models(
-      await api.request('GET', '/rentals/owner'),
-      Rental.fromJson,
-    );
+  Future<void> _reloadOwnerBookingState() async {
+    final results = await Future.wait([
+      api.request('GET', '/bookings/owner'),
+      api.request('GET', '/rentals/owner'),
+    ]);
+    bookings = _models(results[0], Booking.fromJson);
+    rentals = _models(results[1], Rental.fromJson);
     notifyListeners();
   }
 

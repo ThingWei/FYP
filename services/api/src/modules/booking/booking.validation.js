@@ -29,8 +29,10 @@ export const createBookingValidation = [
     .trim()
     .isLength({ min: 8, max: 100 })
     .matches(/^[a-zA-Z0-9:_-]+$/),
-  body('startDate').isISO8601().toDate(),
-  body('endDate').isISO8601().toDate(),
+  // Keep the original representation. Physical rentals use calendar-date
+  // semantics and are normalized only after the listing type is known.
+  body('startDate').isISO8601(),
+  body('endDate').isISO8601(),
   body('fulfilmentMethod').optional().isIn(['pickup', 'owner_delivery']),
   body('serviceVenue').optional().trim().isLength({ min: 2, max: 240 }),
   body('damageWaiverSelected').optional().isBoolean().toBoolean(),

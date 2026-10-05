@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/renthub_categories.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
@@ -1723,13 +1724,13 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
     if (value == null) return;
     setState(() {
       ranges.add({
-        'start': start.toUtc().toIso8601String(),
-        'end': lastDay.add(const Duration(days: 1)).toUtc().toIso8601String(),
+        'start': calendarDateApiValue(start),
+        'end': calendarDateApiValue(lastDay.add(const Duration(days: 1))),
         'reason': value,
       });
       ranges.sort(
-        (left, right) => DateTime.parse(left['start'] as String)
-            .compareTo(DateTime.parse(right['start'] as String)),
+        (left, right) => parseApiCalendarDate(left['start'] as String)
+            .compareTo(parseApiCalendarDate(right['start'] as String)),
       );
     });
   }
@@ -1769,7 +1770,7 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
   }
 
   String _date(String value, {bool exclusiveEnd = false}) {
-    var date = DateTime.parse(value).toLocal();
+    var date = parseApiCalendarDate(value);
     if (exclusiveEnd) date = date.subtract(const Duration(days: 1));
     return '${date.day}/${date.month}/${date.year}';
   }

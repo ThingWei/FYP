@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import mongoose from 'mongoose';
 import { env } from '../../config/env.js';
+import { physicalRentalDate } from '../../core/calendarDate.js';
 import { AppError } from '../../core/errors.js';
 import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { ListingModel } from '../listing/listing.model.js';
@@ -30,11 +31,11 @@ function money(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function requestFingerprint(input) {
+function requestFingerprint(input, dates) {
   const normalized = {
     listingId: input.listingId,
-    startDate: new Date(input.startDate).toISOString(),
-    endDate: new Date(input.endDate).toISOString(),
+    startDate: dates.startDate.toISOString(),
+    endDate: dates.endDate.toISOString(),
     fulfilmentMethod: input.fulfilmentMethod ?? null,
     serviceVenue: input.serviceVenue?.trim() || null,
     damageWaiverSelected: Boolean(input.damageWaiverSelected),
@@ -89,14 +90,54 @@ async function requireActiveUser(identity, role) {
 }
 
 function bookingDates(listing, input) {
-  const startDate = new Date(input.startDate);
-  let endDate = new Date(input.endDate);
+  const startDate = listing.listingType === 'physical'
+    ? physicalRentalDate(input.startDate)
+    : new Date(input.startDate);
+  let endDate = listing.listingType === 'physical'
+    ? physicalRentalDate(input.endDate)
+    : new Date(input.endDate);
   if (listing.listingType === 'service') {
     endDate = new Date(
       startDate.getTime() + listing.serviceDetails.durationMinutes * 60 * 1000,
     );
   }
   return { startDate, endDate };
+}
+
+async function expireCompetingPhysicalRequests(approvedBooking) {
+  if (approvedBooking.listingType !== 'physical') return [];
+  const candidates = await bookingRepository.findCompetingPending({
+    listingId: approvedBooking.listingId,
+    startDate: approvedBooking.startDate,
+    endDate: approvedBooking.endDate,
+    excludeId: approvedBooking.publicId,
+  });
+  const expired = [];
+  const expiredAt = new Date();
+  const reason =
+    'Automatically expired because another overlapping request was approved.';
+  for (const candidate of candidates) {
+    const claimed = await bookingRepository.claimPendingAsExpired(
+      candidate.publicId,
+      expiredAt,
+      reason,
+    );
+    if (!claimed) continue;
+    await voidBookingPayment(claimed);
+    await claimed.save();
+    await notifyUser({
+      userId: claimed.renterId,
+      category: 'booking',
+      type: 'booking_dates_unavailable',
+      title: 'Requested dates are no longer available',
+      body: `${claimed.listingTitle} was confirmed for another renter on overlapping dates. Your authorization was released.`,
+      entityType: 'booking',
+      entityId: claimed.publicId,
+      dedupeKey: `booking_dates_unavailable:${claimed.publicId}:${claimed.renterId}`,
+    });
+    expired.push(claimed);
+  }
+  return expired;
 }
 
 function effectiveDailyPrice(listing) {
@@ -168,13 +209,6 @@ async function assertAvailable(listing, startDate, endDate, excludeId) {
 export const bookingService = {
   async create(input, identity) {
     const renter = await requireActiveUser(identity, 'renter');
-    const fingerprint = requestFingerprint(input);
-    const replay = await findIdempotentBooking(
-      renter.authId,
-      input.idempotencyKey,
-      fingerprint,
-    );
-    if (replay) return replay;
     const listing = await ListingModel.findOne({
       publicId: input.listingId,
       status: 'active',
@@ -187,6 +221,13 @@ export const bookingService = {
       throw new AppError('This Owner is blocked', 409, 'OWNER_BLOCKED');
     }
     const { startDate, endDate } = bookingDates(listing, input);
+    const fingerprint = requestFingerprint(input, { startDate, endDate });
+    const replay = await findIdempotentBooking(
+      renter.authId,
+      input.idempotencyKey,
+      fingerprint,
+    );
+    if (replay) return replay;
     await assertAvailable(listing, startDate, endDate);
     if (
       listing.listingType === 'physical' &&
@@ -360,6 +401,9 @@ export const bookingService = {
     booking.ownerDecisionReason = input.reason?.trim() ?? '';
     booking.decidedAt = new Date();
     await booking.save();
+    if (booking.status === 'approved') {
+      await expireCompetingPhysicalRequests(booking);
+    }
     await notifyUser({
       userId: booking.renterId,
       category: 'booking',

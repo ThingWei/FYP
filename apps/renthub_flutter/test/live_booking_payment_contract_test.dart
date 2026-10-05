@@ -58,6 +58,14 @@ void main() {
       (api.calls[1].$3 as Map<String, dynamic>)['idempotencyKey'],
       matches(RegExp(r'^checkout:\d+:[a-f0-9]{8}$')),
     );
+    expect(
+      (api.calls[1].$3 as Map<String, dynamic>)['startDate'],
+      '2026-09-20',
+    );
+    expect(
+      (api.calls[1].$3 as Map<String, dynamic>)['endDate'],
+      '2026-09-22',
+    );
   });
 
   test('live payment repository sends no client-controlled amount', () async {
@@ -132,11 +140,28 @@ void main() {
     final bookingBody = api.calls[0].$3 as Map<String, dynamic>;
     expect(bookingBody['idempotencyKey'], 'checkout:test-attempt-123');
     expect(bookingBody['agreementAccepted'], isTrue);
+    expect(bookingBody['startDate'], '2026-09-20');
+    expect(bookingBody['endDate'], '2026-09-22');
     expect(paymentBody['idempotencyKey'], bookingBody['idempotencyKey']);
     expect(paymentBody.containsKey('amount'), isFalse);
     expect(booking.paymentStatus, 'authorized');
     expect(booking.total, 570);
     expect(controller.bookings.single.id, booking.id);
+  });
+
+  test('physical booking response dates retain calendar-day semantics', () {
+    final booking = Booking.fromJson({
+      'publicId': 'RH-BKG-2026-DATE0001',
+      'listingId': 'l-camera',
+      'listingType': 'physical',
+      'startDate': '2026-10-05T00:00:00.000Z',
+      'endDate': '2026-10-05T00:00:00.000Z',
+      'status': 'pending',
+    });
+
+    expect(booking.start, DateTime(2026, 10, 5));
+    expect(booking.end, DateTime(2026, 10, 5));
+    expect(booking.start.isUtc, isFalse);
   });
 
   test('final UI submits a service review without physical condition data',

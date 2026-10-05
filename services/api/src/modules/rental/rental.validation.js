@@ -32,7 +32,7 @@ export const returnSubmissionValidation = [rentalId, ...evidenceFields];
 
 export const extensionRequestValidation = [
   rentalId,
-  body('requestedEndDate').isISO8601().toDate(),
+  body('requestedEndDate').isISO8601(),
   body('reason').trim().isLength({ min: 3, max: 500 }),
 ];
 

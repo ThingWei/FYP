@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/network/idempotency_key.dart';
+import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
@@ -154,10 +155,11 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
         if (filters.verifiedOnly) 'verified': 'true',
         if (filters.promotionsOnly) 'promoted': 'true',
         if (filters.dates != null)
-          'availableFrom': filters.dates!.start.toIso8601String(),
+          'availableFrom': calendarDateApiValue(filters.dates!.start),
         if (filters.dates != null)
-          'availableTo':
-              filters.dates!.end.add(const Duration(days: 1)).toIso8601String(),
+          'availableTo': calendarDateApiValue(
+            filters.dates!.end.add(const Duration(days: 1)),
+          ),
       };
       final controller = context.read<LiveRentHubController>();
       final found = useRecommendations
@@ -2028,8 +2030,7 @@ class _RenterRentalActions extends StatelessWidget {
                         context,
                         'extension',
                         {
-                          'requestedEndDate':
-                              requested.toUtc().toIso8601String(),
+                          'requestedEndDate': calendarDateApiValue(requested),
                           'reason':
                               'I need the item for additional project work',
                         },

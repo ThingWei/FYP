@@ -1,4 +1,5 @@
 import { AppError } from '../../core/errors.js';
+import { physicalRentalDate } from '../../core/calendarDate.js';
 import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { AvailabilityModel } from '../listing/availability.model.js';
@@ -213,7 +214,7 @@ export const rentalService = {
     if (rental.extension.status === 'pending') {
       throw new AppError('An extension is already pending', 409, 'EXTENSION_PENDING');
     }
-    const requestedEndDate = new Date(input.requestedEndDate);
+    const requestedEndDate = physicalRentalDate(input.requestedEndDate);
     if (requestedEndDate <= rental.endDate) {
       throw new AppError(
         'The requested end date must be later',

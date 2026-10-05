@@ -1,3 +1,5 @@
+import '../../core/utils/calendar_date.dart';
+
 enum UserRole { renter, owner, admin }
 
 UserRole? _userRoleFromJson(dynamic value) {
@@ -316,14 +318,20 @@ class UnavailableRange {
         exclusiveEndDay.isAfter(startDate);
   }
 
-  factory UnavailableRange.fromJson(Map<String, dynamic> json) =>
-      UnavailableRange(
-        start: DateTime.parse(json['start'] as String),
-        end: DateTime.parse(json['end'] as String),
-        source: json['source'] as String? ?? 'owner_blackout',
-        reason: json['reason'] as String? ?? '',
-        allDay: json['allDay'] as bool? ?? true,
-      );
+  factory UnavailableRange.fromJson(Map<String, dynamic> json) {
+    final allDay = json['allDay'] as bool? ?? true;
+    return UnavailableRange(
+      start: allDay
+          ? parseApiCalendarDate(json['start'] as String)
+          : DateTime.parse(json['start'] as String),
+      end: allDay
+          ? parseApiCalendarDate(json['end'] as String)
+          : DateTime.parse(json['end'] as String),
+      source: json['source'] as String? ?? 'owner_blackout',
+      reason: json['reason'] as String? ?? '',
+      allDay: allDay,
+    );
+  }
 }
 
 class ListingAvailability {
@@ -393,34 +401,43 @@ class Booking {
   final double total;
   final DateTime start, end;
 
-  factory Booking.fromJson(Map<String, dynamic> json) => Booking(
-        id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
-        listingId: json['listingId'] as String,
-        start: DateTime.parse((json['startDate'] ?? json['start']) as String),
-        end: DateTime.parse((json['endDate'] ?? json['end']) as String),
-        status: json['status'] as String,
-        listingTitle: json['listingTitle'] as String? ?? '',
-        listingType: json['listingType'] as String? ?? 'physical',
-        renterName: json['renterName'] as String? ?? '',
-        ownerId: json['ownerId'] as String? ?? '',
-        paymentStatus: json['paymentStatus'] as String? ?? 'unpaid',
-        total: ((json['pricing'] as Map<String, dynamic>?)?['total'] as num?)
-                ?.toDouble() ??
-            (json['total'] as num?)?.toDouble() ??
-            0,
-        fulfilmentMethod: json['fulfilmentMethod'] as String?,
-        serviceVenue: json['serviceVenue'] as String?,
-        agreementVersion: (json['agreement']
-                as Map<String, dynamic>?)?['version'] as String? ??
-            '',
-        agreementAcceptedAt:
-            (json['agreement'] as Map<String, dynamic>?)?['acceptedAt'] == null
-                ? null
-                : DateTime.parse(
-                    (json['agreement'] as Map<String, dynamic>)['acceptedAt']
-                        as String,
-                  ),
-      );
+  factory Booking.fromJson(Map<String, dynamic> json) {
+    final listingType = json['listingType'] as String? ?? 'physical';
+    final startValue = (json['startDate'] ?? json['start']) as String;
+    final endValue = (json['endDate'] ?? json['end']) as String;
+    return Booking(
+      id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
+      listingId: json['listingId'] as String,
+      start: listingType == 'physical'
+          ? parseApiCalendarDate(startValue)
+          : DateTime.parse(startValue),
+      end: listingType == 'physical'
+          ? parseApiCalendarDate(endValue)
+          : DateTime.parse(endValue),
+      status: json['status'] as String,
+      listingTitle: json['listingTitle'] as String? ?? '',
+      listingType: listingType,
+      renterName: json['renterName'] as String? ?? '',
+      ownerId: json['ownerId'] as String? ?? '',
+      paymentStatus: json['paymentStatus'] as String? ?? 'unpaid',
+      total: ((json['pricing'] as Map<String, dynamic>?)?['total'] as num?)
+              ?.toDouble() ??
+          (json['total'] as num?)?.toDouble() ??
+          0,
+      fulfilmentMethod: json['fulfilmentMethod'] as String?,
+      serviceVenue: json['serviceVenue'] as String?,
+      agreementVersion:
+          (json['agreement'] as Map<String, dynamic>?)?['version'] as String? ??
+              '',
+      agreementAcceptedAt:
+          (json['agreement'] as Map<String, dynamic>?)?['acceptedAt'] == null
+              ? null
+              : DateTime.parse(
+                  (json['agreement'] as Map<String, dynamic>)['acceptedAt']
+                      as String,
+                ),
+    );
+  }
 
   Booking copyWith({String? status}) => Booking(
         id: id,
@@ -472,20 +489,25 @@ class Rental {
 
   factory Rental.fromJson(Map<String, dynamic> json) {
     final blockchain = json['blockchain'] as Map<String, dynamic>? ?? const {};
+    final listingType = json['listingType'] as String? ?? 'physical';
     return Rental(
       (json['publicId'] ?? json['id'] ?? json['_id']) as String,
       json['status'] as String,
       bookingId: json['bookingId'] as String? ?? '',
       listingId: json['listingId'] as String? ?? '',
-      listingType: json['listingType'] as String? ?? 'physical',
+      listingType: listingType,
       renterId: json['renterId'] as String? ?? '',
       ownerId: json['ownerId'] as String? ?? '',
       start: json['startDate'] == null
           ? null
-          : DateTime.parse(json['startDate'] as String),
+          : listingType == 'physical'
+              ? parseApiCalendarDate(json['startDate'] as String)
+              : DateTime.parse(json['startDate'] as String),
       end: json['endDate'] == null
           ? null
-          : DateTime.parse(json['endDate'] as String),
+          : listingType == 'physical'
+              ? parseApiCalendarDate(json['endDate'] as String)
+              : DateTime.parse(json['endDate'] as String),
       extensionStatus:
           (json['extension'] as Map<String, dynamic>?)?['status'] as String? ??
               'none',
