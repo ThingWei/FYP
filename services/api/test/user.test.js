@@ -34,6 +34,7 @@ import { adminModule } from '../src/modules/admin/index.js';
 import { hashPassword } from '../src/core/password.js';
 import { emailClient } from '../src/integrations/emailClient.js';
 import { env } from '../src/config/env.js';
+import { identityFromPayload } from '../src/middleware/auth.js';
 
 let mongodb;
 const runFile = promisify(execFile);
@@ -118,6 +119,66 @@ test('Auth0-style sessions sanitize missing social profile claims', async () => 
   );
   assert.equal(response.body.data.displayName, 'RentHub User');
   assert.deepEqual(response.body.data.roles, ['renter', 'owner']);
+});
+
+test('Auth0 JWT name mapping always supplies a valid display name', () => {
+  const oidcIdentity = identityFromPayload({
+    sub: 'auth0|mobile-user',
+    email: 'mobile.user@example.com',
+    given_name: 'Mobile',
+    family_name: 'User',
+  });
+  assert.equal(oidcIdentity.displayName, 'Mobile User');
+
+  const minimalIdentity = identityFromPayload({ sub: 'auth0|minimal-user' });
+  assert.equal(minimalIdentity.displayName, 'RentHub User');
+  assert.ok(minimalIdentity.displayName.length >= 2);
+
+  const placeholderNameIdentity = identityFromPayload({
+    sub: 'auth0|placeholder-name',
+    'https://renthub/name': 'RentHub User',
+    'https://renthub/email': 'chngthingwei@gmail.com',
+  });
+  assert.equal(placeholderNameIdentity.displayName, 'chngthingwei');
+});
+
+test('repairs a placeholder Auth0 profile name when a later login supplies one', async () => {
+  const headers = identity({
+    id: 'auth0|profile-name-repair',
+    email: 'personal@example.com',
+    name: 'RentHub User',
+  });
+  const firstLogin = await request(app)
+    .post('/api/v1/users/session')
+    .set(headers);
+  assert.equal(firstLogin.status, 201);
+  assert.equal(firstLogin.body.data.displayName, 'RentHub User');
+
+  const refreshedHeaders = identity({
+    id: 'auth0|profile-name-repair',
+    email: 'personal@example.com',
+    name: 'Personal Account Name',
+  });
+  const nextLogin = await request(app)
+    .post('/api/v1/users/session')
+    .set(refreshedHeaders);
+  assert.equal(nextLogin.status, 200);
+  assert.equal(nextLogin.body.data.displayName, 'Personal Account Name');
+
+  const editedNameHeaders = identity({
+    id: 'auth0|profile-name-repair',
+    email: 'personal@example.com',
+    name: 'Different Auth0 Name',
+  });
+  await request(app)
+    .patch('/api/v1/users/me')
+    .set(editedNameHeaders)
+    .send({ displayName: 'RentHub Profile Name' });
+  const subsequentLogin = await request(app)
+    .post('/api/v1/users/session')
+    .set(editedNameHeaders);
+  assert.equal(subsequentLogin.status, 200);
+  assert.equal(subsequentLogin.body.data.displayName, 'RentHub Profile Name');
 });
 
 test('local registration assigns both roles and preserves the starting interface', async () => {

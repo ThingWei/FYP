@@ -574,6 +574,7 @@ class Auth0Gateway {
         'client_id': clientId,
         'response_type': 'code',
         'redirect_uri': callbackUrl,
+        'prompt': 'login',
         'scope': 'openid profile email offline_access',
         'audience': audience,
         'state': state,

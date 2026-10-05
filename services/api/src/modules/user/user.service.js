@@ -390,6 +390,14 @@ export const userService = {
       : preferredRole(data.roles);
     const updated = await userRepository.updateByAuthId(data.authId, {
       email: data.email,
+      // A profile may have been created before Auth0 returned usable profile
+      // claims (for example, an Android login that initially only supplied a
+      // subject). Repair that placeholder when a later login provides a real
+      // name, but do not overwrite a name the user has edited in RentHub.
+      ...(user.displayName === 'RentHub User' &&
+        data.displayName !== 'RentHub User' && {
+          displayName: data.displayName,
+        }),
       roles: data.roles,
       activeRole,
       lastLoginAt: new Date(),

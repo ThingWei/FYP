@@ -21,22 +21,36 @@ export function identityFromPayload(payload) {
     throw new AppError('Invalid access token subject', 401, 'UNAUTHENTICATED');
   }
   const configuredName = payload[env.authNameClaim];
-  const fallbackName =
-    typeof configuredName === 'string' && configuredName.trim()
-      ? configuredName.trim()
-      : [payload.name, payload.nickname, payload.preferred_username]
-          .find((value) => typeof value === 'string' && value.trim())
-          ?.trim();
-  const email =
-    typeof payload[env.authEmailClaim] === 'string'
-      ? payload[env.authEmailClaim].trim()
-      : '';
-  const displayName =
-    fallbackName && fallbackName.length >= 2
-      ? fallbackName.slice(0, 80)
-      : email.includes('@')
-        ? email.split('@')[0].slice(0, 80)
-        : 'RentHub User';
+  const emailClaim = payload[env.authEmailClaim];
+  const email = [emailClaim, payload.email].find(
+    (value) => typeof value === 'string' && value.trim(),
+  )?.trim() ?? '';
+  const givenName =
+    typeof payload.given_name === 'string' ? payload.given_name.trim() : '';
+  const familyName =
+    typeof payload.family_name === 'string' ? payload.family_name.trim() : '';
+  const fallbackName = [
+    configuredName,
+    payload.name,
+    payload.nickname,
+    payload.preferred_username,
+    [givenName, familyName].filter(Boolean).join(' '),
+    payload.user_metadata?.displayName,
+    payload.user_metadata?.name,
+  ].find(
+    (value) =>
+      typeof value === 'string' &&
+      value.trim() &&
+      value.trim().toLowerCase() !== 'renthub user',
+  )?.trim();
+  const candidateName = fallbackName && fallbackName.length >= 2
+    ? fallbackName
+    : email.includes('@')
+      ? email.split('@')[0]
+      : 'RentHub User';
+  // Keep this invariant at the JWT boundary: a verified identity must never
+  // reach Mongoose with an absent or too-short required displayName.
+  const displayName = candidateName.slice(0, 80) || 'RentHub User';
 
   return {
     id: payload.sub,
