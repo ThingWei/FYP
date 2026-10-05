@@ -98,6 +98,28 @@ test('starts a session and creates a role-aware MongoDB profile', async () => {
   assert.equal(stored.email, 'renter@renthub.my');
 });
 
+test('Auth0-style sessions sanitize missing social profile claims', async () => {
+  const response = await request(app)
+    .post('/api/v1/users/session')
+    .set(
+      identity({
+        id: 'github|123456789',
+        email: '',
+        name: 'A',
+        roles: 'renter,owner',
+      }),
+    );
+
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.equal(response.body.data.authId, 'github|123456789');
+  assert.match(
+    response.body.data.email,
+    /^auth0-[a-f\d]{24}@users\.renthub\.local$/,
+  );
+  assert.equal(response.body.data.displayName, 'RentHub User');
+  assert.deepEqual(response.body.data.roles, ['renter', 'owner']);
+});
+
 test('local registration assigns both roles and preserves the starting interface', async () => {
   for (const role of ['renter', 'owner']) {
     const response = await request(app)
