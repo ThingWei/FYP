@@ -29,7 +29,7 @@ function user(authId, overrides = {}) {
     authId,
     email: `${authId}@renthub.my`,
     displayName: authId,
-    roles: ['owner'],
+    roles: ['renter', 'owner'],
     activeRole: 'owner',
     ...overrides,
   };
@@ -229,7 +229,7 @@ test('AI failure returns truthful active-marketplace fallback metadata', async (
   await Promise.all([
     UserModel.create(user('u-renter', {
       email: 'renter@renthub.my',
-      roles: ['renter'],
+      roles: ['renter', 'owner'],
       activeRole: 'renter',
     })),
     UserModel.create(user('u-active-owner')),

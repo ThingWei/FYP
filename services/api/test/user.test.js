@@ -96,13 +96,76 @@ test('starts a session and creates a role-aware MongoDB profile', async () => {
   assert.equal(stored.email, 'renter@renthub.my');
 });
 
+test('local registration assigns both roles and preserves the starting interface', async () => {
+  for (const role of ['renter', 'owner']) {
+    const response = await request(app)
+      .post('/api/v1/users/local-register')
+      .send({
+        displayName: `${role} Starter`,
+        email: `${role}-starter@renthub.my`,
+        password: 'Correct123!',
+        role,
+      });
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+    const user = response.body.data.user ?? response.body.data;
+    assert.deepEqual(user.roles, ['renter', 'owner']);
+    assert.equal(user.activeRole, role);
+  }
+
+  const ownerLogin = await request(app).post('/api/v1/users/local-login').send({
+    email: 'renter-starter@renthub.my',
+    password: 'Correct123!',
+    role: 'owner',
+  });
+  assert.equal(ownerLogin.status, 200);
+  assert.equal(
+    (ownerLogin.body.data.user ?? ownerLogin.body.data).activeRole,
+    'owner',
+  );
+});
+
+test('session claims cannot narrow public roles and mixed claims are rejected', async () => {
+  const renterClaim = identity({ id: 'u-normalized', roles: 'renter' });
+  const created = await request(app)
+    .post('/api/v1/users/session')
+    .set(renterClaim);
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.body.data.roles, ['renter', 'owner']);
+
+  const ownerClaim = identity({ id: 'u-normalized', roles: 'owner' });
+  const refreshed = await request(app)
+    .post('/api/v1/users/session')
+    .set(ownerClaim);
+  assert.equal(refreshed.status, 200);
+  assert.deepEqual(refreshed.body.data.roles, ['renter', 'owner']);
+
+  const mixed = await request(app)
+    .post('/api/v1/users/session')
+    .set(identity({ id: 'u-mixed', roles: 'admin,renter' }));
+  assert.equal(mixed.status, 403);
+  assert.equal(mixed.body.error.code, 'CONTRADICTORY_ROLE_CLAIMS');
+});
+
+test('administrator sessions remain isolated from marketplace role switching', async () => {
+  const headers = identity({ id: 'u-admin-only', roles: 'admin' });
+  const created = await request(app).post('/api/v1/users/session').set(headers);
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.body.data.roles, ['admin']);
+  const switched = await request(app)
+    .patch('/api/v1/users/me/active-role')
+    .set(headers)
+    .send({ role: 'renter' });
+  assert.equal(switched.status, 403);
+  assert.equal(switched.body.error.code, 'ROLE_SWITCH_NOT_AVAILABLE');
+});
+
 test('local login accepts the stored password and rejects a wrong password', async () => {
   await UserModel.create({
     authId: 'u-password-test',
     email: 'password-test@renthub.my',
     displayName: 'Password Test',
     passwordHash: await hashPassword('Correct123!'),
-    roles: ['renter'],
+    roles: ['renter', 'owner'],
     activeRole: 'renter',
   });
 
@@ -130,7 +193,7 @@ test('hybrid auth accepts, rotates, and revokes local bearer sessions', async ()
     email: 'local-session@renthub.my',
     displayName: 'Local Session',
     passwordHash: await hashPassword('Correct123!'),
-    roles: ['renter'],
+    roles: ['renter', 'owner'],
     activeRole: 'renter',
   });
   const original = {
@@ -258,7 +321,7 @@ test('emails a one-time code and changes a local account password', async () => 
     email: 'reset-test@renthub.my',
     displayName: 'Reset Test',
     passwordHash: await hashPassword('OldPassword123!'),
-    roles: ['renter'],
+    roles: ['renter', 'owner'],
     activeRole: 'renter',
   });
   const original = {
@@ -558,7 +621,7 @@ test('rejects more than one default address', async () => {
   assert.equal(response.body.error.code, 'VALIDATION_ERROR');
 });
 
-test('prevents a renter from selecting an unassigned role', async () => {
+test('allows every marketplace account to select the Owner interface', async () => {
   const headers = identity();
   await request(app).post('/api/v1/users/session').set(headers);
 
@@ -567,8 +630,9 @@ test('prevents a renter from selecting an unassigned role', async () => {
     .set(headers)
     .send({ role: 'owner' });
 
-  assert.equal(response.status, 403);
-  assert.equal(response.body.error.code, 'ROLE_NOT_ASSIGNED');
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.data.roles, ['renter', 'owner']);
+  assert.equal(response.body.data.activeRole, 'owner');
 });
 
 test('blocks and unblocks an existing Owner', async () => {

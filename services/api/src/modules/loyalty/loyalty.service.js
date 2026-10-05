@@ -62,19 +62,37 @@ async function grantPoints({
 }) {
   const existing = await loyaltyRepository.findEntryBySourceKey(sourceKey);
   if (existing) return existing;
-  const account = await ensureLoyaltyAccount(userId);
-  account.points += points;
-  if (points > 0) account.totalEarned += points;
-  if (account.points < 0) {
-    throw new AppError('Not enough loyalty points', 409, 'INSUFFICIENT_POINTS');
+  await ensureLoyaltyAccount(userId);
+  let account = await loyaltyRepository.applyAccountOperation({
+    userId,
+    sourceKey,
+    points,
+  });
+  if (!account) {
+    account = await loyaltyRepository.findAccountWithOperations(userId);
+    const operation = account?.appliedOperations?.find(
+      (item) => item.sourceKey === sourceKey,
+    );
+    if (!operation) {
+      if (points < 0) {
+        throw new AppError('Not enough loyalty points', 409, 'INSUFFICIENT_POINTS');
+      }
+      throw new AppError(
+        'The loyalty operation could not be applied',
+        409,
+        'LOYALTY_OPERATION_FAILED',
+      );
+    }
   }
-  await account.save();
-  return loyaltyRepository.createEntry({
+  const operation = account.appliedOperations.find(
+    (item) => item.sourceKey === sourceKey,
+  );
+  return loyaltyRepository.upsertEntry({
     publicId: id('RH-RWD'),
     userId,
     type,
     points,
-    balanceAfter: account.points,
+    balanceAfter: operation.balanceAfter,
     description,
     sourceType,
     sourceId,
@@ -83,14 +101,89 @@ async function grantPoints({
   });
 }
 
-async function completeReferral(booking, config) {
-  const referral = await loyaltyRepository.findReferralForReferee(booking.renterId);
-  if (!referral || referral.status !== 'pending') return;
-  const completedBookings = await BookingModel.countDocuments({
-    renterId: booking.renterId,
-    status: 'completed',
-  });
-  if (completedBookings !== 1) return;
+function referralDocument(referral) {
+  return referral?.toJSON ? referral.toJSON() : referral;
+}
+
+function referralProgress({ referral, config, completedBooking, openBooking }) {
+  if (!referral) return null;
+  const value = referralDocument(referral);
+  let progressState;
+  let nextAction;
+  let nextActionMessage;
+  if (value.status === 'rewarded') {
+    progressState = 'rewarded';
+    nextAction = 'view_reward';
+    nextActionMessage = 'Your referral reward is ready in your rewards history.';
+  } else if (!config.enabled) {
+    progressState = 'programme_paused';
+    nextAction = 'wait_for_programme';
+    nextActionMessage =
+      'The loyalty programme is paused. Your pending referral is retained and will be checked when it resumes.';
+  } else if (
+    completedBooking?.completedAt &&
+    new Date(completedBooking.completedAt) < new Date(value.appliedAt)
+  ) {
+    progressState = 'invalid_application';
+    nextAction = 'none';
+    nextActionMessage =
+      'This referral was applied after the first completed booking and cannot qualify automatically.';
+  } else if (completedBooking) {
+    progressState = 'eligible_for_reconciliation';
+    nextAction = 'none';
+    nextActionMessage = 'Your completed booking is being checked for referral rewards.';
+  } else if (openBooking) {
+    progressState = 'waiting_for_completion';
+    nextAction = 'view_booking';
+    nextActionMessage =
+      'Complete your first RentHub booking to unlock the referral rewards. No separate approval is required.';
+  } else {
+    progressState = 'waiting_for_booking';
+    nextAction = 'browse_listings';
+    nextActionMessage =
+      'Complete your first RentHub booking to unlock the referral rewards. No separate approval is required.';
+  }
+  return {
+    ...value,
+    completionTrigger: 'first_completed_booking',
+    progressState,
+    nextAction,
+    nextActionMessage,
+  };
+}
+
+async function bookingProgress(refereeId) {
+  const [completedBooking, openBooking] = await Promise.all([
+    BookingModel.findOne({
+      renterId: refereeId,
+      status: 'completed',
+      completedAt: { $type: 'date' },
+    })
+      .sort({ completedAt: 1, publicId: 1 })
+      .lean(),
+    BookingModel.findOne({
+      renterId: refereeId,
+      status: { $in: ['pending', 'approved', 'active', 'disputed'] },
+    })
+      .sort({ createdAt: 1, publicId: 1 })
+      .lean(),
+  ]);
+  return { completedBooking, openBooking };
+}
+
+export async function reconcileReferralForReferee(refereeId, suppliedConfig) {
+  const referral = await loyaltyRepository.findReferralForReferee(refereeId);
+  if (!referral || referral.status !== 'pending') return referral;
+  const config = suppliedConfig ?? (await loyaltyRepository.ensureConfig());
+  if (!config.enabled) return referral;
+  const { completedBooking } = await bookingProgress(refereeId);
+  if (!completedBooking) return referral;
+  if (new Date(completedBooking.completedAt) < new Date(referral.appliedAt)) {
+    return referral;
+  }
+  referral.qualifyingBookingId = completedBooking.publicId;
+  referral.qualifyingCompletedAt = completedBooking.completedAt;
+  await referral.save();
   await grantPoints({
     userId: referral.referrerId,
     points: config.referralRewardPoints,
@@ -120,7 +213,7 @@ async function completeReferral(booking, config) {
   referral.rewardedAt = new Date();
   referral.refereeRewardAmount = config.refereeDiscountAmount;
   await referral.save();
-  await Promise.all([
+  const notifications = await Promise.allSettled([
     notifyUser({
       userId: referral.referrerId,
       category: 'loyalty',
@@ -129,6 +222,7 @@ async function completeReferral(booking, config) {
       body: `You earned ${config.referralRewardPoints} loyalty points.`,
       entityType: 'referral',
       entityId: referral.publicId,
+      dedupeKey: `referral:${referral.publicId}:referrer`,
     }),
     notifyUser({
       userId: referral.refereeId,
@@ -138,8 +232,18 @@ async function completeReferral(booking, config) {
       body: `Your RM ${config.refereeDiscountAmount.toFixed(2)} referral reward is ready.`,
       entityType: 'reward',
       entityId: welcomeCode,
+      dedupeKey: `referral:${referral.publicId}:referee`,
     }),
   ]);
+  for (const result of notifications) {
+    if (result.status === 'rejected') {
+      console.error('Referral notification delivery failed', {
+        referralId: referral.publicId,
+        message: result.reason?.message,
+      });
+    }
+  }
+  return referral;
 }
 
 export async function awardRentalCompletion(rental, booking) {
@@ -148,7 +252,7 @@ export async function awardRentalCompletion(rental, booking) {
   const sourceKey = `completion:${rental.publicId}`;
   const existing = await loyaltyRepository.findEntryBySourceKey(sourceKey);
   if (existing) {
-    await completeReferral(booking, config);
+    await reconcileReferralForReferee(booking.renterId, config);
     return existing;
   }
   const points =
@@ -176,19 +280,30 @@ export async function awardRentalCompletion(rental, booking) {
       body: `You earned ${points} points for completing ${booking.listingTitle}.`,
       entityType: 'reward',
       entityId: entry.publicId,
+      dedupeKey: `loyalty:${sourceKey}`,
     });
   }
-  await completeReferral(booking, config);
+  await reconcileReferralForReferee(booking.renterId, config);
   return entry;
 }
 
 async function summaryFor(userId) {
-  const [account, entries, config, referral, completedBooking] = await Promise.all([
+  const config = await loyaltyRepository.ensureConfig();
+  if (config.enabled) {
+    try {
+      await reconcileReferralForReferee(userId, config);
+    } catch (error) {
+      console.error('Referral reconciliation failed', {
+        refereeId: userId,
+        message: error.message,
+      });
+    }
+  }
+  const [account, entries, referral, progress] = await Promise.all([
     ensureLoyaltyAccount(userId),
     loyaltyRepository.listEntries(userId),
-    loyaltyRepository.ensureConfig(),
     loyaltyRepository.findReferralForReferee(userId),
-    BookingModel.exists({ renterId: userId, status: 'completed' }),
+    bookingProgress(userId),
   ]);
   return {
     points: account.points,
@@ -197,8 +312,10 @@ async function summaryFor(userId) {
     totalRedeemed: account.totalRedeemed,
     ledger: entries,
     redemptionOptions: config.redemptionOptions,
-    referral,
-    canApplyReferral: !referral && !completedBooking,
+    referral: referralProgress({ referral, config, ...progress }),
+    canApplyReferral: Boolean(
+      config.enabled && !referral && !progress.completedBooking,
+    ),
     rules: {
       enabled: config.enabled,
       physicalCompletionPoints: config.physicalCompletionPoints,
@@ -264,6 +381,14 @@ export const loyaltyService = {
 
   async applyReferral(input, identity) {
     await activeUser(identity);
+    const config = await loyaltyRepository.ensureConfig();
+    if (!config.enabled) {
+      throw new AppError(
+        'The loyalty programme is currently disabled',
+        409,
+        'LOYALTY_DISABLED',
+      );
+    }
     if (await loyaltyRepository.findReferralForReferee(identity.authId)) {
       throw new AppError('A referral code was already applied', 409, 'REFERRAL_EXISTS');
     }
@@ -292,7 +417,8 @@ export const loyaltyService = {
       refereeId: identity.authId,
       status: 'pending',
     });
-    return referral;
+    const progress = await bookingProgress(identity.authId);
+    return referralProgress({ referral, config, ...progress });
   },
 
   async getConfig() {
@@ -336,6 +462,16 @@ export const loyaltyService = {
       limit,
       status: query.status,
     });
-    return { items, meta: { page, limit, total } };
+    const config = await loyaltyRepository.ensureConfig();
+    const decorated = await Promise.all(
+      items.map(async (referral) => ({
+        ...referralProgress({
+          referral,
+          config,
+          ...(await bookingProgress(referral.refereeId)),
+        }),
+      })),
+    );
+    return { items: decorated, meta: { page, limit, total } };
   },
 };

@@ -144,7 +144,7 @@ test('only an Owner can create strict physical and service drafts', async () => 
 
   const forbidden = await request(app)
     .post('/api/v1/listings')
-    .set(renterHeaders)
+    .set(adminHeaders)
     .send(cameraInput);
   assert.equal(forbidden.status, 403);
 

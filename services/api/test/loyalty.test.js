@@ -111,6 +111,7 @@ test('awards completion and first-booking referral rewards idempotently', async 
     },
     paymentStatus: 'settled',
     status: 'completed',
+    completedAt: new Date(Date.now() + 1000),
   });
   const rental = await RentalModel.create({
     publicId: 'RH-RNT-2026-LOYAL001',
@@ -124,8 +125,11 @@ test('awards completion and first-booking referral rewards idempotently', async 
     status: 'completed',
   });
 
-  await awardRentalCompletion(rental, booking);
-  await awardRentalCompletion(rental, booking);
+  await Promise.all([
+    awardRentalCompletion(rental, booking),
+    awardRentalCompletion(rental, booking),
+    awardRentalCompletion(rental, booking),
+  ]);
 
   const renterSummary = await request(app)
     .get('/api/v1/rewards/summary')
@@ -136,6 +140,11 @@ test('awards completion and first-booking referral rewards idempotently', async 
   assert.equal(renterSummary.body.data.points, 100);
   assert.equal(updatedReferrer.body.data.points, 250);
   assert.equal(renterSummary.body.data.referral.status, 'rewarded');
+  assert.equal(
+    renterSummary.body.data.referral.qualifyingBookingId,
+    booking.publicId,
+  );
+  assert.equal(renterSummary.body.data.referral.nextAction, 'view_reward');
   assert.equal(
     renterSummary.body.data.ledger.filter(
       (entry) => entry.type === 'service_completed',
@@ -263,4 +272,120 @@ test('rejects self-referrals and duplicate redemption costs', async () => {
       ],
     });
   assert.equal(invalidConfig.status, 422);
+});
+
+test('reports actionable pending progress and rejects applications while paused', async () => {
+  const referrerSummary = await request(app)
+    .get('/api/v1/rewards/summary')
+    .set(referrer);
+  const applied = await request(app)
+    .post('/api/v1/rewards/referrals/apply')
+    .set(renter)
+    .send({ referralCode: referrerSummary.body.data.referralCode });
+  assert.equal(applied.status, 201);
+  assert.equal(applied.body.data.nextAction, 'browse_listings');
+  assert.equal(applied.body.data.completionTrigger, 'first_completed_booking');
+
+  await BookingModel.create({
+    publicId: 'RH-BKG-2026-OPEN001',
+    listingId: 'l-open',
+    listingTitle: 'Open Test Booking',
+    listingType: 'service',
+    renterId: 'u-renter',
+    renterName: 'Alex Tan',
+    ownerId: 'u-referrer',
+    startDate: new Date('2026-10-10T00:00:00Z'),
+    endDate: new Date('2026-10-10T02:00:00Z'),
+    serviceVenue: 'Kuala Lumpur',
+    pricing: {
+      baseAmount: 50,
+      securityDeposit: 0,
+      damageWaiverFee: 0,
+      platformFee: 0,
+      total: 50,
+      currency: 'MYR',
+    },
+    status: 'pending',
+  });
+  const pending = await request(app).get('/api/v1/rewards/summary').set(renter);
+  assert.equal(pending.body.data.referral.nextAction, 'view_booking');
+  assert.match(pending.body.data.referral.nextActionMessage, /No separate approval/i);
+
+  await LoyaltyConfigModel.findOneAndUpdate(
+    { key: 'default' },
+    { $set: { enabled: false } },
+    { upsert: true },
+  );
+  const paused = await request(app).get('/api/v1/rewards/summary').set(renter);
+  assert.equal(paused.body.data.referral.nextAction, 'wait_for_programme');
+
+  const other = identity('u-other', 'renter', 'Other User');
+  await request(app).post('/api/v1/users/session').set(other);
+  const rejected = await request(app)
+    .post('/api/v1/rewards/referrals/apply')
+    .set(other)
+    .send({ referralCode: referrerSummary.body.data.referralCode });
+  assert.equal(rejected.status, 409);
+  assert.equal(rejected.body.error.code, 'LOYALTY_DISABLED');
+});
+
+test('summary self-heals a delayed pending referral using the earliest completion once', async () => {
+  const referrerSummary = await request(app)
+    .get('/api/v1/rewards/summary')
+    .set(referrer);
+  await request(app)
+    .post('/api/v1/rewards/referrals/apply')
+    .set(renter)
+    .send({ referralCode: referrerSummary.body.data.referralCode });
+  const referral = await ReferralModel.findOne({ refereeId: 'u-renter' });
+  const firstCompletedAt = new Date(referral.appliedAt.getTime() + 1000);
+  const common = {
+    listingId: 'l-recovery',
+    listingTitle: 'Recovery Booking',
+    listingType: 'service',
+    renterId: 'u-renter',
+    renterName: 'Alex Tan',
+    ownerId: 'u-referrer',
+    startDate: new Date('2026-10-11T00:00:00Z'),
+    endDate: new Date('2026-10-11T02:00:00Z'),
+    serviceVenue: 'Kuala Lumpur',
+    pricing: {
+      baseAmount: 80,
+      securityDeposit: 0,
+      damageWaiverFee: 0,
+      platformFee: 0,
+      total: 80,
+      currency: 'MYR',
+    },
+    status: 'completed',
+  };
+  await BookingModel.create([
+    {
+      ...common,
+      publicId: 'RH-BKG-2026-RECOVERY002',
+      completedAt: new Date(firstCompletedAt.getTime() + 1000),
+    },
+    {
+      ...common,
+      publicId: 'RH-BKG-2026-RECOVERY001',
+      completedAt: firstCompletedAt,
+    },
+  ]);
+
+  const healed = await request(app).get('/api/v1/rewards/summary').set(renter);
+  const repeated = await request(app).get('/api/v1/rewards/summary').set(renter);
+  assert.equal(healed.body.data.referral.status, 'rewarded');
+  assert.equal(
+    healed.body.data.referral.qualifyingBookingId,
+    'RH-BKG-2026-RECOVERY001',
+  );
+  assert.equal(repeated.body.data.referral.status, 'rewarded');
+  assert.equal(
+    await RewardLedgerModel.countDocuments({
+      sourceType: 'referral',
+      sourceId: referral.publicId,
+    }),
+    2,
+  );
+  assert.equal((await LoyaltyAccountModel.findOne({ userId: 'u-referrer' })).points, 250);
 });

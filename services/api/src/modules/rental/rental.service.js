@@ -91,6 +91,18 @@ async function complete(rental, booking) {
   return rental;
 }
 
+async function runPostCompletionTasks(tasks, rentalId) {
+  const results = await Promise.allSettled(tasks);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.error('Post-completion task failed', {
+        rentalId,
+        message: result.reason?.message,
+      });
+    }
+  }
+}
+
 export const rentalService = {
   async get(id, identity) {
     const rental = await rentalRepository.findParticipantRental(id, identity);
@@ -322,16 +334,22 @@ export const rentalService = {
     rental.transactionHash = chainResult.lastTransactionHash ?? rental.transactionHash;
     await recordPhysicalSettlement(booking, input.depositDeduction);
     const completedRental = await complete(rental, booking);
-    await notifyUser({
-      userId: rental.renterId,
-      category: 'rental',
-      type: 'rental_completed',
-      title: 'Rental completed',
-      body: `${booking.listingTitle} return was confirmed.`,
-      entityType: 'rental',
-      entityId: rental.publicId,
-    });
-    await awardRentalCompletion(completedRental, booking);
+    await runPostCompletionTasks(
+      [
+        notifyUser({
+          userId: rental.renterId,
+          category: 'rental',
+          type: 'rental_completed',
+          title: 'Rental completed',
+          body: `${booking.listingTitle} return was confirmed.`,
+          entityType: 'rental',
+          entityId: rental.publicId,
+          dedupeKey: `rental:${rental.publicId}:completed`,
+        }),
+        awardRentalCompletion(completedRental, booking),
+      ],
+      rental.publicId,
+    );
     return completedRental;
   },
 
@@ -364,16 +382,22 @@ export const rentalService = {
     const booking = await linkedBooking(rental);
     await recordServiceSettlement(booking);
     const completedRental = await complete(rental, booking);
-    await notifyUser({
-      userId: rental.ownerId,
-      category: 'rental',
-      type: 'service_completed',
-      title: 'Service completion confirmed',
-      body: `${booking.listingTitle} was confirmed complete by the renter.`,
-      entityType: 'rental',
-      entityId: rental.publicId,
-    });
-    await awardRentalCompletion(completedRental, booking);
+    await runPostCompletionTasks(
+      [
+        notifyUser({
+          userId: rental.ownerId,
+          category: 'rental',
+          type: 'service_completed',
+          title: 'Service completion confirmed',
+          body: `${booking.listingTitle} was confirmed complete by the renter.`,
+          entityType: 'rental',
+          entityId: rental.publicId,
+          dedupeKey: `rental:${rental.publicId}:service-completed`,
+        }),
+        awardRentalCompletion(completedRental, booking),
+      ],
+      rental.publicId,
+    );
     return completedRental;
   },
 };

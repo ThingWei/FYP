@@ -37,27 +37,16 @@ Firebase Admin uses Application Default Credentials. Set `GOOGLE_APPLICATION_CRE
 
 ## Auth0 Action
 
-Add a post-login Auth0 Action that places the application roles and safe profile fields into the API access token. RentHub sends the selected Renter or Owner role as `ext-renthub-role`; the Action validates and persists those self-service roles. The application never sends `admin`, which must still be assigned by an administrator in Auth0.
+Add a post-login Auth0 Action that places the application roles and safe profile fields into the API access token. Every ordinary marketplace identity receives both public capabilities. `ext-renthub-role` selects the first interface in Flutter; it does not grant a capability. The application never sends `admin`, which must still be assigned through the trusted Auth0 administrator role.
 
 ```javascript
 exports.onExecutePostLogin = async (event, api) => {
   const namespace = 'https://renthub';
-  const selfServiceRoles = ['renter', 'owner'];
-  const requestedRole = String(
-    event.request.query?.['ext-renthub-role'] ?? '',
-  ).toLowerCase();
   const auth0Roles = Array.isArray(event.authorization?.roles)
     ? event.authorization.roles
     : [];
-  const storedRoles = Array.isArray(event.user.app_metadata?.roles)
-    ? event.user.app_metadata.roles
-    : [];
-  const roles = [...new Set([...auth0Roles, ...storedRoles])];
-  if (selfServiceRoles.includes(requestedRole)) roles.push(requestedRole);
-  const finalRoles = [...new Set(roles)].filter(
-    (role) => ['renter', 'owner', 'admin'].includes(role),
-  );
-  if (finalRoles.length === 0) finalRoles.push('renter');
+  const isAdmin = auth0Roles.includes('admin');
+  const finalRoles = isAdmin ? ['admin'] : ['renter', 'owner'];
 
   api.user.setAppMetadata('roles', finalRoles);
   api.accessToken.setCustomClaim(`${namespace}/roles`, finalRoles);
@@ -65,6 +54,8 @@ exports.onExecutePostLogin = async (event, api) => {
   api.accessToken.setCustomClaim(`${namespace}/name`, event.user.name ?? event.user.email);
 };
 ```
+
+The API repeats this policy after token verification. It rejects contradictory claims such as `[admin, renter]` with `CONTRADICTORY_ROLE_CLAIMS`, logs a structured security event, and never exposes both portals. Flutter persists an explicit marketplace starting choice through `PATCH /users/me/active-role` before completing Auth0 login.
 
 The API identifier in Auth0 must exactly match `AUTH0_AUDIENCE`. Use RS256 and register the client as a Single Page Application for Flutter Web.
 

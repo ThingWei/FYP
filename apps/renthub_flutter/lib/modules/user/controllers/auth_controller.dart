@@ -31,15 +31,33 @@ class AuthController extends LoadableController {
             restoredRole != null && permittedRoles.contains(restoredRole)
                 ? restoredRole
                 : permittedRoles.first;
-        if (selectedRole != restoredRole) repository.selectRole(selectedRole);
+        if (selectedRole != restoredRole) {
+          user = await repository.selectRole(selectedRole);
+        }
         if (user?.pushNotifications ?? false) {
           await pushNotifications?.enableForCurrentUser();
         }
       });
-  void selectRole(UserRole role) {
-    selectedRole = role;
-    repository.selectRole(role);
+  Future<void> selectRole(UserRole role) async {
+    if (user == null) {
+      selectedRole = role;
+      notifyListeners();
+      return;
+    }
+    loading = true;
+    error = null;
     notifyListeners();
+    try {
+      final updated = await repository.selectRole(role);
+      user = updated;
+      selectedRole = updated.activeRole ?? role;
+    } catch (exception) {
+      error = exception.toString();
+      rethrow;
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> login(String email, String password) => run(() async {

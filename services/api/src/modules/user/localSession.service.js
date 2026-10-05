@@ -10,6 +10,7 @@ import { env } from '../../config/env.js';
 import { UserModel } from './user.model.js';
 import { LocalSessionModel } from './localSession.model.js';
 import { disconnectSession } from '../../socket/eventBus.js';
+import { normalizeStoredUserRoles } from './rolePolicy.js';
 
 const issuer = 'renthub-local';
 const audience = 'renthub-app';
@@ -127,6 +128,9 @@ export const localSessionService = {
       await session.save();
       throw invalidSession();
     }
+    const normalized = normalizeStoredUserRoles(user.roles, user.activeRole);
+    user.roles = normalized.roles;
+    user.activeRole = normalized.activeRole;
     const values = metadataValues(metadata);
     const nextToken = refreshToken(session.publicId);
     session.refreshTokenHash = refreshHash(nextToken).toString('hex');
@@ -137,6 +141,7 @@ export const localSessionService = {
     session.lastIp = values.ip;
     if (values.userAgent) session.userAgent = values.userAgent;
     await session.save();
+    await user.save();
     return response(user, session, nextToken);
   },
 
@@ -165,12 +170,13 @@ export const localSessionService = {
       authId: payload.sub,
     }).lean();
     if (!user) throw invalidSession();
+    const normalized = normalizeStoredUserRoles(user.roles, user.activeRole);
     return {
       id: user.authId,
       authId: user.authId,
       email: user.email,
       displayName: user.displayName,
-      roles: user.roles,
+      roles: normalized.roles,
       issuedAt:
         typeof payload.iat === 'number'
           ? new Date(payload.iat * 1000)

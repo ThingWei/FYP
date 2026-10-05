@@ -400,7 +400,14 @@ export const disputeService = {
       body: `${input.outcome.replaceAll('_', ' ')}. ${input.notes}`,
     });
     if (input.outcome !== 'dismissed') {
-      await awardRentalCompletion(rental, booking);
+      try {
+        await awardRentalCompletion(rental, booking);
+      } catch (error) {
+        console.error('Dispute completion loyalty processing failed', {
+          rentalId: rental.publicId,
+          message: error.message,
+        });
+      }
     }
     return dispute;
   },

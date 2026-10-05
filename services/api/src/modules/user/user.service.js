@@ -18,6 +18,12 @@ import { env } from '../../config/env.js';
 import { hashPassword, verifyPassword } from '../../core/password.js';
 import { emailClient } from '../../integrations/emailClient.js';
 import { localSessionService } from './localSession.service.js';
+import {
+  MARKETPLACE_ROLES,
+  isMarketplaceRole,
+  normalizeStoredUserRoles,
+  normalizeTrustedIdentityRoles,
+} from './rolePolicy.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -69,14 +75,11 @@ function invalidResetCode() {
 }
 
 function identityData(identity) {
-  const claimedRoles = Array.isArray(identity.roles) ? identity.roles : [];
-  const roles = claimedRoles.filter((role) => USER_ROLES.includes(role));
-  if (!roles.length) roles.push('renter');
   return {
     authId: identity.authId,
     email: identity.email ?? `${identity.authId}@mock.renthub.my`,
     displayName: identity.displayName ?? 'RentHub User',
-    roles: [...new Set(roles)],
+    roles: normalizeTrustedIdentityRoles(identity.roles),
   };
 }
 
@@ -122,6 +125,9 @@ export const userService = {
         'ACCOUNT_RESTRICTED',
       );
     }
+    const normalized = normalizeStoredUserRoles(user.roles, user.activeRole);
+    user.roles = normalized.roles;
+    user.activeRole = normalized.activeRole;
     if (!user.roles.includes(role)) {
       throw new AppError(
         `This account does not have the ${role} role`,
@@ -154,7 +160,7 @@ export const userService = {
       email,
       passwordHash: await hashPassword(password),
       displayName,
-      roles: [role],
+      roles: [...MARKETPLACE_ROLES],
       activeRole: role,
       lastLoginAt: new Date(),
     });
@@ -316,6 +322,7 @@ export const userService = {
         'ACCOUNT_RESTRICTED',
       );
     }
+    normalizeStoredUserRoles(user.roles, user.activeRole);
     user.roles = data.roles;
     user.email = data.email;
     if (!user.roles.includes(user.activeRole)) {
@@ -421,6 +428,16 @@ export const userService = {
 
   async selectRole(identity, role) {
     const user = await requireCurrentUser(identity);
+    const normalized = normalizeStoredUserRoles(user.roles, user.activeRole);
+    user.roles = normalized.roles;
+    user.activeRole = normalized.activeRole;
+    if (!isMarketplaceRole(role) || user.roles.includes('admin')) {
+      throw new AppError(
+        'Role switching is available only to marketplace accounts',
+        403,
+        'ROLE_SWITCH_NOT_AVAILABLE',
+      );
+    }
     if (!user.roles.includes(role)) {
       throw new AppError('Role is not assigned to this user', 403, 'ROLE_NOT_ASSIGNED');
     }

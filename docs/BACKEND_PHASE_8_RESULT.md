@@ -30,7 +30,12 @@ The reward is a RentHub booking discount record only. This phase does not transf
 - Self-referrals and duplicate referrals are rejected.
 - Applying a code creates a pending referral without immediately granting a reward.
 - After the referred renter's first completed booking, the referrer receives the configured points and the referee receives a configured booking discount code.
-- Completion processing is idempotent and cannot reward the same referral twice.
+- Physical qualification occurs when the Owner confirms return; service qualification occurs when the renter confirms service completion. Booking creation or payment alone is not sufficient.
+- The summary API returns the trigger, progress state, lifecycle dates, and a stable next action (`browse_listings`, `view_booking`, `wait_for_programme`, or `view_reward`).
+- Completion processing uses atomic operation markers and unique ledger source keys, so it cannot change a balance or create a reward twice.
+- Pending referrals self-heal when the summary is loaded by reconciling the deterministic earliest eligible completed booking. This still works if later bookings have also completed.
+- New applications are rejected while the programme is paused. Existing pending referrals are retained and reconciled after re-enablement.
+- Referral notifications are deduplicated and notification failure does not undo a completed rental.
 
 ## Administrator workflow
 

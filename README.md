@@ -177,5 +177,7 @@ command after pulling authentication changes):
 
 Live mode persists users, listings, bookings, rentals, payments, messages, notifications, reviews, disputes, damage-waiver claims, loyalty accounts, reward ledgers, referrals, configurable loyalty rules, AI evidence, local contract references, and administrator audit entries in MongoDB. Payment-provider transfers and dispute allocations remain simulated. Ganache transactions are local prototype records only and never represent real currency.
 
+Ordinary accounts always have both Renter and Owner capabilities; the selected role is only the current interface. Administrators remain separate and admin/public mixed claims are rejected. Before deploying this invariant for existing data, run `npm.cmd run migrate:marketplace-roles` in `services/api` for a dry run, back up MongoDB, then use `npm.cmd run migrate:marketplace-roles -- --apply` after reviewing all manual-security-review counts.
+
 The recommendation endpoint works without a trained artifact by naming its content/rating fallback. Pricing, YOLO item classification, and EfficientNet risk scoring report themselves unavailable until their training scripts produce evaluated artifacts. See `services/ai/README.md` and `blockchain/README.md`.
 

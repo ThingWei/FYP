@@ -127,11 +127,11 @@ test('authorizes the server total and handles retries idempotently', async () =>
   assert.equal(storedBooking.paymentStatus, 'authorized');
   assert.equal(storedBooking.paymentAuthorizationId, first.body.data.id);
 
-  const ownerAttempt = await request(app)
+  const adminAttempt = await request(app)
     .post('/api/v1/payments/authorizations')
-    .set(owner)
-    .send({ bookingId, method: 'card', idempotencyKey: 'owner-payment-key' });
-  assert.equal(ownerAttempt.status, 403);
+    .set(admin)
+    .send({ bookingId, method: 'card', idempotencyKey: 'admin-payment-key' });
+  assert.equal(adminAttempt.status, 403);
 });
 
 test('prevents Owner approval without payment authorization', async () => {

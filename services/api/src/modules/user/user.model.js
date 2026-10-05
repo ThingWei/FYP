@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { ADMIN_ROLES, MARKETPLACE_ROLES } from './rolePolicy.js';
 
 export const USER_ROLES = ['renter', 'owner', 'admin'];
 export const ACCOUNT_STATUSES = [
@@ -58,8 +59,16 @@ const userSchema = new mongoose.Schema(
       type: [{ type: String, enum: USER_ROLES }],
       required: true,
       validate: {
-        validator: (roles) => roles.length > 0 && new Set(roles).size === roles.length,
-        message: 'At least one unique role is required',
+        validator: (roles) => {
+          const exactMarketplace =
+            roles.length === MARKETPLACE_ROLES.length &&
+            MARKETPLACE_ROLES.every((role) => roles.includes(role));
+          const exactAdmin =
+            roles.length === ADMIN_ROLES.length && roles[0] === ADMIN_ROLES[0];
+          return new Set(roles).size === roles.length &&
+            (exactMarketplace || exactAdmin);
+        },
+        message: 'Roles must be renter and owner together, or admin only',
       },
     },
     activeRole: { type: String, enum: USER_ROLES, required: true },

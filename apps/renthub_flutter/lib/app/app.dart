@@ -174,10 +174,18 @@ class _RentHubAppState extends State<RentHubApp> {
                 if (!auth.authenticated) return const LoginScreen();
                 final canSwitch = auth.user!.roles.contains(UserRole.renter) &&
                     auth.user!.roles.contains(UserRole.owner);
-                void switchRole() => auth.selectRole(
-                      auth.selectedRole == UserRole.renter
-                          ? UserRole.owner
-                          : UserRole.renter,
+                void switchRole() => unawaited(
+                      auth
+                          .selectRole(
+                        auth.selectedRole == UserRole.renter
+                            ? UserRole.owner
+                            : UserRole.renter,
+                      )
+                          .catchError((Object error) {
+                        messengerKey.currentState?.showSnackBar(
+                          SnackBar(content: Text(error.toString())),
+                        );
+                      }),
                     );
                 if (!BackendMode.useMocks) {
                   return auth.selectedRole == UserRole.owner

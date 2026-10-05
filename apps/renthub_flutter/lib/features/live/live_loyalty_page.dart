@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../modules/user/controllers/auth_controller.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
@@ -79,7 +80,12 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
         await context
             .read<LiveRentHubController>()
             .applyReferralCode(code.text);
-        if (mounted) showMockSuccess(context, 'Referral code applied');
+        if (mounted) {
+          showMockSuccess(
+            context,
+            'Referral code applied. It will unlock automatically after your first completed bookingâ€”no further approval is needed.',
+          );
+        }
       } catch (exception) {
         if (mounted) {
           ScaffoldMessenger.of(context)
@@ -88,6 +94,115 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
       }
     }
     code.dispose();
+  }
+
+  Future<void> _openReferralAction(String action) async {
+    final tab = switch (action) {
+      'browse_listings' => 1,
+      'view_booking' => 2,
+      _ => null,
+    };
+    if (tab == null) return;
+    final marketplace = context.read<LiveRentHubController>();
+    final auth = context.read<AuthController>();
+    marketplace.selectRenterTab(tab);
+    try {
+      if (auth.selectedRole != UserRole.renter) {
+        await auth.selectRole(UserRole.renter);
+      }
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
+  Widget _referralProgressCard(Reward reward) {
+    final referral = reward.referral!;
+    final welcomeRewards = reward.ledger
+        .where((entry) => entry.type == 'referral_welcome')
+        .toList();
+    final welcomeReward = welcomeRewards.isEmpty ? null : welcomeRewards.first;
+    final rewarded = referral.status == 'rewarded';
+    final title = rewarded
+        ? 'Referral reward unlocked'
+        : referral.progressState == 'programme_paused'
+            ? 'Referral retained'
+            : 'Referral applied';
+    final actionLabel = switch (referral.nextAction) {
+      'browse_listings' => 'Browse listings',
+      'view_booking' => 'View booking',
+      _ => null,
+    };
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  rewarded ? Icons.task_alt : Icons.people_outline,
+                  color: rewarded ? AppColors.success : AppColors.primaryDark,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                StatusBadge(referral.status),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(referral.nextActionMessage),
+            if (!rewarded && referral.progressState != 'programme_paused') ...[
+              const SizedBox(height: 6),
+              Text(
+                'You unlock ${formatMoney(reward.rules.refereeDiscountAmount)} and your friend earns ${reward.rules.referralRewardPoints} points.',
+                style: const TextStyle(color: AppColors.secondaryText),
+              ),
+            ],
+            if (rewarded && welcomeReward != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${formatMoney(welcomeReward.discountAmount ?? referral.rewardAmount)} reward code: ${welcomeReward.rewardCode}',
+                style: const TextStyle(
+                  color: AppColors.success,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'This prototype records the reward code; checkout redemption is a separate feature.',
+                style: TextStyle(color: AppColors.secondaryText),
+              ),
+            ],
+            const SizedBox(height: 6),
+            Text(
+              'Code ${referral.code}',
+              style: const TextStyle(color: AppColors.secondaryText),
+            ),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () => _openReferralAction(referral.nextAction),
+                icon: Icon(referral.nextAction == 'view_booking'
+                    ? Icons.calendar_month_outlined
+                    : Icons.search),
+                label: Text(actionLabel),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -237,14 +352,7 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
                   ),
                   const SizedBox(height: 12),
                   if (reward.referral != null)
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.people_outline),
-                        title: const Text('Applied referral'),
-                        subtitle: Text(reward.referral!.code),
-                        trailing: StatusBadge(reward.referral!.status),
-                      ),
-                    )
+                    _referralProgressCard(reward)
                   else if (reward.canApplyReferral)
                     OutlinedButton.icon(
                       onPressed: _applyCode,

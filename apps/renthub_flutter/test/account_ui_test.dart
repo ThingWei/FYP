@@ -84,6 +84,10 @@ void main() {
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
     expect(
+      find.textContaining('switch between Renter and Owner'),
+      findsOneWidget,
+    );
+    expect(
         tester
             .widget<FilledButton>(find.widgetWithText(FilledButton, 'Continue'))
             .onPressed,

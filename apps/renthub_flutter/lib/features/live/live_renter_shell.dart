@@ -30,8 +30,6 @@ class LiveRenterShell extends StatefulWidget {
 }
 
 class _LiveRenterShellState extends State<LiveRenterShell> {
-  int index = 0;
-
   @override
   void initState() {
     super.initState();
@@ -47,15 +45,16 @@ class _LiveRenterShellState extends State<LiveRenterShell> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
+    final index = controller.renterTabIndex;
     final pages = [
       LiveMarketplacePage(
         title: 'RentHub',
         featuredOnly: true,
-        onOpenBookings: () => setState(() => index = 2),
+        onOpenBookings: () => controller.selectRenterTab(2),
       ),
       LiveMarketplacePage(
         title: 'Explore',
-        onOpenBookings: () => setState(() => index = 2),
+        onOpenBookings: () => controller.selectRenterTab(2),
       ),
       const LiveRenterBookingsPage(),
       const LiveMessagesPage(),
@@ -88,7 +87,7 @@ class _LiveRenterShellState extends State<LiveRenterShell> {
               : IndexedStack(index: index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        onDestinationSelected: (value) => setState(() => index = value),
+        onDestinationSelected: controller.selectRenterTab,
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.search), label: 'Explore'),

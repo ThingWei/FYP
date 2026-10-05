@@ -20,12 +20,33 @@ class _CancellableAuthRepository extends MockAuthRepository {
   }
 }
 
+class _FailingRoleRepository extends MockAuthRepository {
+  @override
+  Future<User> selectRole(UserRole role) =>
+      throw StateError('Role persistence failed');
+}
+
 void main() {
   test('mock login creates a session', () async {
     final controller = AuthController(MockAuthRepository());
     await controller.login('demo@renthub.my', 'password');
     expect(controller.authenticated, isTrue);
     expect(controller.error, isNull);
+    expect(controller.user!.roles, {UserRole.renter, UserRole.owner});
+  });
+
+  test('failed role persistence is surfaced without changing the interface',
+      () async {
+    final controller = AuthController(_FailingRoleRepository());
+    await controller.login('demo@renthub.my', 'password');
+
+    await expectLater(
+      controller.selectRole(UserRole.owner),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(controller.selectedRole, UserRole.renter);
+    expect(controller.error, contains('Role persistence failed'));
   });
 
   test('mock password reset completes without authenticating', () async {

@@ -23,6 +23,20 @@ const loyaltyAccountSchema = new mongoose.Schema(
     },
     totalEarned: { type: Number, required: true, min: 0, default: 0 },
     totalRedeemed: { type: Number, required: true, min: 0, default: 0 },
+    appliedOperations: {
+      type: [
+        new mongoose.Schema(
+          {
+            sourceKey: { type: String, required: true, trim: true },
+            balanceAfter: { type: Number, required: true, min: 0 },
+            appliedAt: { type: Date, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+      select: false,
+    },
   },
   { timestamps: true, strict: 'throw' },
 );
@@ -86,6 +100,8 @@ const referralSchema = new mongoose.Schema(
     },
     appliedAt: { type: Date, default: Date.now },
     rewardedAt: Date,
+    qualifyingBookingId: { type: String, trim: true },
+    qualifyingCompletedAt: Date,
     refereeRewardAmount: { type: Number, min: 0, default: 0 },
   },
   {

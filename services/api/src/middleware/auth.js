@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
 import { UserModel } from '../modules/user/user.model.js';
 import { localSessionService } from '../modules/user/localSession.service.js';
+import { normalizeTrustedIdentityRoles } from '../modules/user/rolePolicy.js';
 
 let jwks;
 
@@ -30,7 +31,9 @@ export function identityFromPayload(payload) {
       typeof payload[env.authNameClaim] === 'string'
         ? payload[env.authNameClaim]
         : undefined,
-    roles: rolesFromClaim(payload[env.authRolesClaim]),
+    roles: normalizeTrustedIdentityRoles(
+      rolesFromClaim(payload[env.authRolesClaim]),
+    ),
     issuedAt:
       typeof payload.iat === 'number' ? new Date(payload.iat * 1000) : undefined,
   };
@@ -43,10 +46,12 @@ function mockIdentity(req) {
     authId,
     email: req.header('x-user-email') ?? 'demo@renthub.my',
     displayName: req.header('x-user-name') ?? 'Nur Izzati',
-    roles: (req.header('x-user-roles') ?? 'renter,owner')
-      .split(',')
-      .map((role) => role.trim())
-      .filter(Boolean),
+    roles: normalizeTrustedIdentityRoles(
+      (req.header('x-user-roles') ?? 'renter,owner')
+        .split(',')
+        .map((role) => role.trim())
+        .filter(Boolean),
+    ),
   };
 }
 
@@ -93,6 +98,7 @@ export async function authenticate(req, _res, next) {
       (env.authMode === 'hybrid' && tokenAlgorithm === 'HS256')
     ) {
       req.user = await localSessionService.authenticateAccessToken(token);
+      req.user.roles = normalizeTrustedIdentityRoles(req.user.roles);
       await assertAccountAccess(req.user);
       return next();
     }

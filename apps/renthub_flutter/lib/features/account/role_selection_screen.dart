@@ -34,7 +34,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Select a primary role to personalize your experience. You can switch later if your account supports both.',
+                'Choose the interface to open first. Marketplace accounts can switch between Renter and Owner later.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.secondaryText),
               ),

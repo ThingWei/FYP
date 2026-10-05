@@ -123,6 +123,18 @@ async function authorizeBooking(bookingId, headers = renter) {
     });
 }
 
+async function applyReferral(referrerHeaders) {
+  const summary = await request(app)
+    .get('/api/v1/rewards/summary')
+    .set(referrerHeaders);
+  assert.equal(summary.status, 200);
+  const applied = await request(app)
+    .post('/api/v1/rewards/referrals/apply')
+    .set(renter)
+    .send({ referralCode: summary.body.data.referralCode });
+  assert.equal(applied.status, 201, JSON.stringify(applied.body));
+}
+
 before(async () => {
   mongodb = await MongoMemoryServer.create();
   await connectDatabase(mongodb.getUri());
@@ -301,6 +313,7 @@ test('rejects reuse of a booking idempotency key for changed input', async () =>
 });
 
 test('runs physical approval, handover, extension and return lifecycle', async () => {
+  await applyReferral(owner);
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
   await authorizeBooking(bookingId);
@@ -406,6 +419,14 @@ test('runs physical approval, handover, extension and return lifecycle', async (
   ]) {
     assert.ok(notificationTypes.includes(expected), expected);
   }
+  const referral = await ReferralModel.findOne({ refereeId: 'u-renter' }).lean();
+  assert.equal(referral.status, 'rewarded');
+  assert.equal(referral.qualifyingBookingId, bookingId);
+  assert.equal(
+    await RewardLedgerModel.countDocuments({ sourceId: referral.publicId }),
+    2,
+  );
+  assert.equal((await LoyaltyAccountModel.findOne({ userId: 'u-owner' })).points, 250);
 });
 
 test('locks approved dates against another booking', async () => {
@@ -605,6 +626,7 @@ test('approval-time recheck prevents two pending requests being approved', async
 });
 
 test('runs service approval, delivery and renter completion lifecycle', async () => {
+  await applyReferral(serviceOwner);
   const created = await request(app)
     .post('/api/v1/bookings')
     .set(renter)
@@ -675,6 +697,14 @@ test('runs service approval, delivery and renter completion lifecycle', async ()
   ]) {
     assert.ok(notificationTypes.includes(expected), expected);
   }
+  const referral = await ReferralModel.findOne({ refereeId: 'u-renter' }).lean();
+  assert.equal(referral.status, 'rewarded');
+  assert.equal(referral.qualifyingBookingId, bookingId);
+  assert.equal(
+    await RewardLedgerModel.countDocuments({ sourceId: referral.publicId }),
+    2,
+  );
+  assert.equal((await LoyaltyAccountModel.findOne({ userId: 'u-aina' })).points, 250);
 });
 
 test('publishes, edits, flags and moderates participant reviews', async () => {

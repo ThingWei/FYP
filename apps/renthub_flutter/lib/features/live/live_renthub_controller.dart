@@ -60,6 +60,13 @@ class LiveRentHubController extends ChangeNotifier {
   Map<String, dynamic> technologyHealth = {};
   List<Map<String, dynamic>> adminRewardLedger = [];
   List<Map<String, dynamic>> adminReferrals = [];
+  int renterTabIndex = 0;
+
+  void selectRenterTab(int index) {
+    if (index < 0 || index > 4 || renterTabIndex == index) return;
+    renterTabIndex = index;
+    notifyListeners();
+  }
 
   Future<String?> pickAndUpload({
     required String purpose,

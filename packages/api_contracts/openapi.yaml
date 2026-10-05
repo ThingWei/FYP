@@ -57,6 +57,52 @@ paths:
       responses:
         '200': { description: Password updated and reset code consumed }
         '400': { description: Reset code is invalid, expired, or exhausted }
+  /users/session:
+    post:
+      security: [{ bearerAuth: [] }]
+      description: Synchronizes a verified identity. Public identities are normalized to exactly renter and owner; administrators remain admin-only. Mixed administrator/marketplace claims are rejected.
+      responses:
+        '200': { description: Existing synchronized user profile, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/UserProfile' } } } } } }
+        '201': { description: New synchronized user profile, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/UserProfile' } } } } } }
+        '403': { description: Contradictory role claims or restricted account }
+  /users/me/active-role:
+    patch:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              additionalProperties: false
+              properties: { role: { type: string, enum: [renter, owner] } }
+      responses:
+        '200': { description: Marketplace starting interface persisted, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/UserProfile' } } } } } }
+        '403': { description: Role switching is not available to administrator accounts }
+  /rewards/summary:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: Returns points, reward ledger and explicit referral progress. Loading this summary safely reconciles eligible pending referrals.
+      responses:
+        '200': { description: Loyalty and referral summary, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/LoyaltySummary' } } } } } }
+  /rewards/referrals/apply:
+    post:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [referralCode]
+              additionalProperties: false
+              properties: { referralCode: { type: string } }
+      responses:
+        '201': { description: Pending referral with first-completed-booking trigger and next action }
+        '400': { description: SELF_REFERRAL }
+        '404': { description: Referral code not found }
+        '409': { description: REFERRAL_EXISTS, REFERRAL_WINDOW_ENDED, or LOYALTY_DISABLED }
   /listings:
     get:
       responses: { '200': { description: Paginated listings } }
@@ -262,6 +308,49 @@ components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   schemas:
+    UserProfile:
+      type: object
+      required: [authId, email, displayName, roles, activeRole]
+      properties:
+        authId: { type: string }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        roles:
+          type: array
+          description: Exactly [renter, owner] for a marketplace account or [admin] for an administrator.
+          items: { type: string, enum: [renter, owner, admin] }
+        activeRole: { type: string, enum: [renter, owner, admin] }
+    ReferralProgress:
+      type: object
+      required: [id, referralCode, status, appliedAt, completionTrigger, progressState, nextAction, nextActionMessage, refereeRewardAmount]
+      properties:
+        id: { type: string }
+        referralCode: { type: string }
+        status: { type: string, enum: [pending, rewarded] }
+        appliedAt: { type: string, format: date-time }
+        rewardedAt: { type: string, format: date-time, nullable: true }
+        qualifyingBookingId: { type: string, nullable: true }
+        qualifyingCompletedAt: { type: string, format: date-time, nullable: true }
+        refereeRewardAmount: { type: number, minimum: 0 }
+        completionTrigger: { type: string, enum: [first_completed_booking] }
+        progressState: { type: string, enum: [waiting_for_booking, waiting_for_completion, programme_paused, eligible_for_reconciliation, invalid_application, rewarded] }
+        nextAction: { type: string, enum: [browse_listings, view_booking, wait_for_programme, view_reward, none] }
+        nextActionMessage: { type: string }
+    LoyaltySummary:
+      type: object
+      required: [points, referralCode, totalEarned, totalRedeemed, ledger, redemptionOptions, canApplyReferral, rules]
+      properties:
+        points: { type: integer, minimum: 0 }
+        referralCode: { type: string }
+        totalEarned: { type: integer, minimum: 0 }
+        totalRedeemed: { type: integer, minimum: 0 }
+        ledger: { type: array, items: { type: object, additionalProperties: true } }
+        redemptionOptions: { type: array, items: { type: object, additionalProperties: true } }
+        referral:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/ReferralProgress' }]
+        canApplyReferral: { type: boolean }
+        rules: { type: object, additionalProperties: true }
     ListingUnavailableRange:
       type: object
       required: [start, end, source, allDay]

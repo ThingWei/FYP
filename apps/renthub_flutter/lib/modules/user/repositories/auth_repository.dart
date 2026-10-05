@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import '../../../core/network/api_client.dart';
 import '../../../core/network/session_identity.dart';
 import '../../../core/auth/auth0_gateway.dart';
@@ -25,10 +23,11 @@ abstract interface class AuthRepository {
     String code,
     String password,
   );
-  void selectRole(UserRole role);
+  Future<User> selectRole(UserRole role);
 }
 
 class MockAuthRepository implements AuthRepository {
+  User? _currentUser;
   @override
   bool get usesExternalProvider => false;
   @override
@@ -40,15 +39,16 @@ class MockAuthRepository implements AuthRepository {
         email: email,
         name:
             email == 'demo@renthub.my' ? 'Nur Izzati' : email.split('@').first,
-        roles: email == 'demo@renthub.my'
-            ? {UserRole.renter, UserRole.owner}
-            : {role},
+        roles: role == UserRole.admin
+            ? {UserRole.admin}
+            : {UserRole.renter, UserRole.owner},
+        activeRole: role,
         trustScore: 4.7,
       );
   @override
   Future<User> login(String e, String p, UserRole r) async {
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    return _user(e, r);
+    return _currentUser = _user(e, r);
   }
 
   @override
@@ -60,7 +60,13 @@ class MockAuthRepository implements AuthRepository {
 
   @override
   Future<User> register(String n, String e, String p, UserRole r) async =>
-      User(id: 'demo-user', email: e, name: n, roles: {r});
+      _currentUser = User(
+        id: 'demo-user',
+        email: e,
+        name: n,
+        roles: const {UserRole.renter, UserRole.owner},
+        activeRole: r,
+      );
   @override
   Future<void> logout() async {}
 
@@ -79,7 +85,28 @@ class MockAuthRepository implements AuthRepository {
   }
 
   @override
-  void selectRole(UserRole role) {}
+  Future<User> selectRole(UserRole role) async {
+    final current = _currentUser;
+    if (current == null || !current.roles.contains(role)) {
+      throw StateError('No marketplace session is available.');
+    }
+    return _currentUser = User(
+      id: current.id,
+      email: current.email,
+      name: current.name,
+      roles: current.roles,
+      activeRole: role,
+      trustScore: current.trustScore,
+      phone: current.phone,
+      verificationStatus: current.verificationStatus,
+      verificationTier: current.verificationTier,
+      verificationReason: current.verificationReason,
+      language: current.language,
+      pushNotifications: current.pushNotifications,
+      emailNotifications: current.emailNotifications,
+      addresses: current.addresses,
+    );
+  }
 }
 
 class LiveAuthRepository implements AuthRepository {
@@ -224,18 +251,19 @@ class LiveAuthRepository implements AuthRepository {
   }
 
   @override
-  void selectRole(UserRole role) {
-    if (!session.active || !session.roles.contains(role)) return;
-    unawaited(
-      Future.wait([
-        api.request(
-          'PATCH',
-          '/users/me/active-role',
-          body: {'role': role.name},
-        ),
-        session.setActiveRole(role),
-      ]),
+  Future<User> selectRole(UserRole role) async {
+    if (!session.active || !session.roles.contains(role)) {
+      throw StateError('Role is not available for this session.');
+    }
+    final user = User.fromJson(
+      await api.request(
+        'PATCH',
+        '/users/me/active-role',
+        body: {'role': role.name},
+      ) as Map<String, dynamic>,
     );
+    await _remember(user, selectedRole: user.activeRole ?? role);
+    return user;
   }
 
   @override
@@ -337,7 +365,7 @@ class Auth0AuthRepository implements AuthRepository {
     await session.clearPersisted();
     session.setAccessToken(auth0Session.accessToken);
     try {
-      final user = User.fromJson(
+      var user = User.fromJson(
         await api.request('POST', '/users/session') as Map<String, dynamic>,
       );
       if (!user.roles.contains(requestedRole)) {
@@ -347,7 +375,16 @@ class Auth0AuthRepository implements AuthRepository {
           code: 'ROLE_NOT_ASSIGNED',
         );
       }
-      await _remember(user, selectedRole: requestedRole);
+      if (user.activeRole != requestedRole) {
+        user = User.fromJson(
+          await api.request(
+            'PATCH',
+            '/users/me/active-role',
+            body: {'role': requestedRole.name},
+          ) as Map<String, dynamic>,
+        );
+      }
+      await _remember(user, selectedRole: user.activeRole ?? requestedRole);
       return user;
     } on ApiException catch (error) {
       if (error.status == 401 || error.status == 403) {
@@ -381,16 +418,19 @@ class Auth0AuthRepository implements AuthRepository {
       _authenticate(role, signUp: true);
 
   @override
-  void selectRole(UserRole role) {
-    if (!session.roles.contains(role)) return;
-    unawaited(Future.wait([
-      api.request(
+  Future<User> selectRole(UserRole role) async {
+    if (!session.roles.contains(role)) {
+      throw StateError('Role is not available for this session.');
+    }
+    final user = User.fromJson(
+      await api.request(
         'PATCH',
         '/users/me/active-role',
         body: {'role': role.name},
-      ),
-      session.setActiveRole(role, persistSession: false),
-    ]));
+      ) as Map<String, dynamic>,
+    );
+    await _remember(user, selectedRole: user.activeRole ?? role);
+    return user;
   }
 
   @override
@@ -512,11 +552,10 @@ class HybridAuthRepository implements AuthRepository {
       local.confirmPasswordReset(email, code, password);
 
   @override
-  void selectRole(UserRole role) {
+  Future<User> selectRole(UserRole role) {
     if (_externalSession) {
-      external.selectRole(role);
-    } else {
-      local.selectRole(role);
+      return external.selectRole(role);
     }
+    return local.selectRole(role);
   }
 }

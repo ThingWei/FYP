@@ -42,7 +42,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _submit() async {
     if (role == null || !acceptedTerms) return;
     final auth = context.read<AuthController>();
-    auth.selectRole(role!);
+    await auth.selectRole(role!);
     await auth.register(name.text.trim(), email.text.trim(), password.text);
     if (mounted && auth.error == null) setState(() => complete = true);
   }
@@ -56,7 +56,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: RentHubFeedbackState(
             kind: FeedbackKind.success,
             title: 'Account created!',
-            message: 'Welcome to RentHub. Your ${role!.name} profile is ready.',
+            message:
+                'Welcome to RentHub. The ${role!.name} view will open first, and you can switch between Renter and Owner later.',
             actionLabel: 'Continue to RentHub',
             onAction: () =>
                 Navigator.popUntil(context, (route) => route.isFirst),
@@ -222,6 +223,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         children: [
           _heading(
               'Choose Role', 'Select how you want to start using RentHub.'),
+          const Text(
+            'Every marketplace account can use both Renter and Owner. This choice only selects the first view.',
+            style: TextStyle(color: AppColors.secondaryText),
+          ),
+          const SizedBox(height: 12),
           RoleOptionCard(
             role: UserRole.renter,
             selected: role == UserRole.renter,

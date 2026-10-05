@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "test": "node --test",
     "seed": "node src/scripts/seed.js",
+    "migrate:marketplace-roles": "node src/scripts/migrateMarketplaceRoles.js",
     "seed:pricing-demo": "node src/scripts/seedDemoPricingHistory.js",
     "export:pricing-data": "node src/scripts/exportPricingData.js",
     "export:recommendation-data": "node src/scripts/exportRecommendationData.js",

@@ -915,16 +915,43 @@ class ReferralStatus {
     required this.code,
     required this.status,
     this.rewardAmount = 0,
+    this.appliedAt,
+    this.rewardedAt,
+    this.qualifyingCompletedAt,
+    this.qualifyingBookingId,
+    this.completionTrigger = 'first_completed_booking',
+    this.progressState = 'waiting_for_booking',
+    this.nextAction = 'none',
+    this.nextActionMessage = '',
   });
 
   final String id, code, status;
   final double rewardAmount;
+  final DateTime? appliedAt, rewardedAt, qualifyingCompletedAt;
+  final String? qualifyingBookingId;
+  final String completionTrigger, progressState, nextAction, nextActionMessage;
 
   factory ReferralStatus.fromJson(Map<String, dynamic> json) => ReferralStatus(
         id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
         code: json['referralCode'] as String,
         status: json['status'] as String,
         rewardAmount: (json['refereeRewardAmount'] as num?)?.toDouble() ?? 0,
+        appliedAt: json['appliedAt'] == null
+            ? null
+            : DateTime.parse(json['appliedAt'] as String),
+        rewardedAt: json['rewardedAt'] == null
+            ? null
+            : DateTime.parse(json['rewardedAt'] as String),
+        qualifyingCompletedAt: json['qualifyingCompletedAt'] == null
+            ? null
+            : DateTime.parse(json['qualifyingCompletedAt'] as String),
+        qualifyingBookingId: json['qualifyingBookingId'] as String?,
+        completionTrigger:
+            json['completionTrigger'] as String? ?? 'first_completed_booking',
+        progressState:
+            json['progressState'] as String? ?? 'waiting_for_booking',
+        nextAction: json['nextAction'] as String? ?? 'none',
+        nextActionMessage: json['nextActionMessage'] as String? ?? '',
       );
 }
 
