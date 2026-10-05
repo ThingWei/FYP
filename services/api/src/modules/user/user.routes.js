@@ -19,6 +19,8 @@ import {
   savedListingValidation,
   targetUserValidation,
   verificationDecisionValidation,
+  verificationFrameValidation,
+  verificationRequirementsValidation,
   verificationSubmissionValidation,
 } from './user.validation.js';
 
@@ -101,6 +103,20 @@ userRouter.post(
   verificationSubmissionValidation,
   validate,
   userController.submitVerification,
+);
+userRouter.post(
+  '/me/verification/scan-frame',
+  authenticate,
+  verificationFrameValidation,
+  validate,
+  userController.inspectVerificationFrame,
+);
+userRouter.get(
+  '/me/verification/requirements',
+  authenticate,
+  verificationRequirementsValidation,
+  validate,
+  userController.verificationRequirements,
 );
 userRouter.post(
   '/me/blocked-users/:userId',

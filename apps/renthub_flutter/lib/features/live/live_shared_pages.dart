@@ -11,6 +11,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import 'live_renthub_controller.dart';
 import 'live_loyalty_page.dart';
+import 'live_kyc_scanner_page.dart';
 
 class LiveMessagesPage extends StatefulWidget {
   const LiveMessagesPage({super.key});
@@ -1309,6 +1310,44 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
 
   int get requiredDocuments => documentType == 'mykad' ? 2 : 1;
 
+  String get documentLabel => switch (documentType) {
+        'mykad' => 'MyKad',
+        'passport' => 'Passport',
+        'driving_licence' => 'Driving Licence',
+        _ => 'Identity document',
+      };
+
+  Future<void> _scanDocument() async {
+    if (documentRefs.length >= requiredDocuments) return;
+    final controller = context.read<LiveRentHubController>();
+    final side = documentType == 'mykad'
+        ? (documentRefs.isEmpty ? 'MyKad Front' : 'MyKad Back')
+        : documentLabel;
+    final captured = await Navigator.push<KycCapturedDocument>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LiveKycScannerPage(
+          documentType: documentType,
+          sideLabel: side,
+          analyzeFrame: controller.inspectVerificationFrame,
+        ),
+      ),
+    );
+    if (captured == null || !mounted) return;
+    try {
+      final reference = await controller.uploadVerificationCapture(
+        captured.bytes,
+        filename: captured.filename,
+      );
+      if (mounted) setState(() => documentRefs.add(reference));
+    } catch (exception) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(exception.toString())));
+      }
+    }
+  }
+
   Future<void> _pickDocument() async {
     if (documentRefs.length >= requiredDocuments) return;
     try {
@@ -1367,11 +1406,15 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
   Widget build(BuildContext context) {
     final profile = context.watch<LiveRentHubController>().profile;
     final status = profile?.verificationStatus ?? 'unverified';
+    final selectedStatus = profile?.verificationDocuments[documentType] ??
+        (profile?.verificationDocumentType == documentType
+            ? status
+            : 'unverified');
     final canSubmit = const [
       'unverified',
       'rejected',
       'resubmission_required',
-    ].contains(status);
+    ].contains(selectedStatus);
     return Scaffold(
       appBar: AppBar(title: const Text('Identity Verification')),
       body: SafeArea(
@@ -1406,20 +1449,59 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
               ),
             ),
             const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              initialValue: documentType,
+              decoration: const InputDecoration(labelText: 'Document type'),
+              items: const [
+                DropdownMenuItem(value: 'mykad', child: Text('MyKad')),
+                DropdownMenuItem(value: 'passport', child: Text('Passport')),
+                DropdownMenuItem(
+                  value: 'driving_licence',
+                  child: Text('Driving Licence'),
+                ),
+              ],
+              onChanged: submitting
+                  ? null
+                  : (value) => setState(() {
+                        documentType = value ?? 'mykad';
+                        documentRefs.clear();
+                      }),
+            ),
+            const SizedBox(height: 16),
             if (canSubmit) ...[
-              DropdownButtonFormField<String>(
-                initialValue: documentType,
-                decoration: const InputDecoration(labelText: 'Document type'),
-                items: const [
-                  DropdownMenuItem(value: 'mykad', child: Text('MyKad')),
-                  DropdownMenuItem(value: 'passport', child: Text('Passport')),
-                ],
-                onChanged: (value) => setState(() {
-                  documentType = value ?? 'mykad';
-                  documentRefs.clear();
-                }),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Live camera scan',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Detection checks alignment, distance, blur, lighting and glare across stable frames before automatic capture.',
+                        style: TextStyle(color: AppColors.secondaryText),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: submitting ||
+                                documentRefs.length >= requiredDocuments
+                            ? null
+                            : _scanDocument,
+                        icon: const Icon(Icons.document_scanner_outlined),
+                        label: Text(
+                          documentRefs.isEmpty
+                              ? 'Start Live Scan'
+                              : 'Scan Next Side',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.image_outlined),
@@ -1427,7 +1509,7 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
                   '${documentRefs.length} of $requiredDocuments document images uploaded',
                 ),
                 subtitle: const Text(
-                  'JPEG, PNG, or WebP. Files are private and available only to you and administrators.',
+                  'Manual file upload is available as a development fallback. Files remain protected.',
                 ),
                 trailing: documentRefs.length < requiredDocuments
                     ? IconButton(
@@ -1459,18 +1541,20 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
                   submitting ? 'Submitting…' : 'Submit for Review',
                 ),
               ),
-            ] else if (status == 'pending')
-              const RentHubFeedbackState(
+            ] else if (selectedStatus == 'pending')
+              RentHubFeedbackState(
                 kind: FeedbackKind.loading,
-                title: 'Review in progress',
+                title: '$documentLabel review in progress',
                 message:
                     'An administrator will review the submitted document images and verification details.',
               )
             else
-              const RentHubFeedbackState(
+              RentHubFeedbackState(
                 kind: FeedbackKind.success,
-                title: 'Identity verified',
-                message: 'Your verification badge is active across RentHub.',
+                title: '$documentLabel verified',
+                message: documentType == 'driving_licence'
+                    ? 'Your approved licence can satisfy vehicle booking requirements.'
+                    : 'Your identity verification badge is active across RentHub.',
               ),
           ],
         ),

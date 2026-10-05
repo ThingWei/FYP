@@ -47,6 +47,12 @@ The authorization request already includes `offline_access`. The Auth0 API must
 also have **Allow Offline Access** enabled and the Native application must allow
 the Refresh Token grant for Auth0 to issue a refresh token.
 
+Android now shares this token/persistence implementation. Its platform-specific
+transport opens Universal Login externally and receives
+`com.weith.renthub://login-callback` through an Android intent filter instead of
+using the Windows loopback `HttpServer`. See `AUTH0_ANDROID_RESULT.md` for the
+Dashboard and device setup.
+
 Concurrent access-token requests share one in-progress refresh operation, which
 avoids duplicate refresh-token exchanges.
 
@@ -95,19 +101,22 @@ persisted local JWT credentials.
 - logout prevents restoration by a new gateway instance;
 - hybrid mode restores local JWT first;
 - hybrid mode restores Auth0 when no local JWT exists.
+- Android accepts the exact configured callback and ignores unrelated links;
+- Android sends PKCE S256 parameters and exchanges the authorization code;
+- Android rejects a callback whose OAuth state does not match.
 
 The test uses a real loopback callback server and an in-memory secure-storage
 backend. It does not contact the production Auth0 tenant.
 
 Final automated verification:
 
-- Auth0 persistence tests: 7 passed;
-- complete Flutter suite: 91 passed, 2 intentionally skipped;
+- Auth0 persistence and Android deep-link tests: 10 passed;
+- complete Flutter suite: 113 passed, 2 intentionally skipped;
 - Flutter analyzer: no issues;
-- Windows release build: succeeded (the MSVC linker emitted its existing
-  multiple `.voltbl` sections warning);
-- focused Express catalog suite: 18 passed;
-- complete Express/API suite: 105 passed, 3 optional E2E tests skipped.
+- Android debug APK build: succeeded;
+- complete Express/API suite in isolated mock-auth/local-storage test mode:
+  125 passed, 3 optional live E2E tests skipped;
+- complete FastAPI suite: 31 passed with 2 third-party deprecation warnings.
 
 ## Windows restart E2E result
 

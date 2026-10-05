@@ -67,6 +67,8 @@ class User {
     this.verificationStatus = 'unverified',
     this.verificationTier = 'none',
     this.verificationReason = '',
+    this.verificationDocumentType = '',
+    this.verificationDocuments = const {},
     this.addresses = const [],
     this.language = 'en',
     this.pushNotifications = true,
@@ -74,6 +76,8 @@ class User {
   });
   final String id, email, name, phone;
   final String verificationStatus, verificationTier, verificationReason;
+  final String verificationDocumentType;
+  final Map<String, String> verificationDocuments;
   final Set<UserRole> roles;
   final UserRole? activeRole;
   final double trustScore;
@@ -98,6 +102,13 @@ class User {
       verificationStatus: verification['status'] as String? ?? 'unverified',
       verificationTier: verification['tier'] as String? ?? 'none',
       verificationReason: verification['reason'] as String? ?? '',
+      verificationDocumentType: verification['documentType'] as String? ?? '',
+      verificationDocuments: {
+        for (final raw in verification['documents'] as List? ?? const [])
+          if (raw is Map && raw['documentType'] is String)
+            raw['documentType'] as String:
+                raw['status'] as String? ?? 'unverified',
+      },
       addresses: ((json['addresses'] as List?) ?? const [])
           .map(
             (address) => UserAddress.fromJson(address as Map<String, dynamic>),

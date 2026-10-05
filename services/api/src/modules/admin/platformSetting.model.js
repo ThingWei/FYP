@@ -1,10 +1,28 @@
 import mongoose from 'mongoose';
 import { LISTING_CATEGORIES } from '../listing/listing.model.js';
+import { DEFAULT_KYC_REQUIREMENTS } from '../user/kycRequirements.js';
+import { KYC_DOCUMENT_TYPES } from '../user/user.model.js';
 
 const categorySchema = new mongoose.Schema(
   {
     name: { type: String, enum: LISTING_CATEGORIES, required: true },
     active: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
+const kycRequirementSchema = new mongoose.Schema(
+  {
+    category: { type: String, enum: LISTING_CATEGORIES, required: true },
+    documentTypes: {
+      type: [{ type: String, enum: KYC_DOCUMENT_TYPES }],
+      default: [],
+      validate: {
+        validator: (items) => new Set(items).size === items.length,
+        message: 'KYC document requirements must be unique',
+      },
+    },
+    highValueOnly: { type: Boolean, default: false },
   },
   { _id: false },
 );
@@ -18,6 +36,24 @@ const platformSettingSchema = new mongoose.Schema(
     highValueThreshold: { type: Number, min: 0, max: 1_000_000, default: 1000 },
     reportAutoHideThreshold: { type: Number, min: 1, max: 100, default: 3 },
     verificationOcrThreshold: { type: Number, min: 0, max: 100, default: 80 },
+    verificationManualReviewThreshold: {
+      type: Number,
+      min: 0,
+      max: 1,
+      default: 0.8,
+    },
+    minimumVerificationAge: { type: Number, min: 18, max: 100, default: 18 },
+    kycRequirements: {
+      type: [kycRequirementSchema],
+      default: () => DEFAULT_KYC_REQUIREMENTS.map((item) => ({ ...item })),
+      validate: {
+        validator: (requirements) =>
+          requirements.length === LISTING_CATEGORIES.length &&
+          new Set(requirements.map((item) => item.category)).size ===
+            LISTING_CATEGORIES.length,
+        message: 'Every category must have exactly one KYC requirement rule',
+      },
+    },
     supportEmail: {
       type: String,
       trim: true,

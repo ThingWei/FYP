@@ -384,13 +384,87 @@ class _AdminMetric extends StatelessWidget {
       );
 }
 
-class _AdminVerification extends StatelessWidget {
+class _AdminVerification extends StatefulWidget {
   const _AdminVerification();
+
+  @override
+  State<_AdminVerification> createState() => _AdminVerificationState();
+}
+
+class _AdminVerificationState extends State<_AdminVerification> {
+  String documentFilter = 'all';
+  String sortOrder = 'newest';
+
+  Map<String, dynamic> _pendingAttempt(Map<String, dynamic> user) {
+    final verification =
+        user['verification'] as Map<String, dynamic>? ?? const {};
+    final history = (verification['history'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    return history.lastWhere(
+      (item) => item['status'] == 'pending',
+      orElse: () => const <String, dynamic>{},
+    );
+  }
+
+  Future<void> _viewDocuments(
+    BuildContext context,
+    List<String> references,
+  ) async {
+    final controller = context.read<LiveRentHubController>();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Protected verification documents'),
+        content: SizedBox(
+          width: 760,
+          height: 520,
+          child: FutureBuilder(
+            future: Future.wait(
+              references.map(controller.downloadProtectedUpload),
+            ),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return RentHubFeedbackState(
+                  kind: FeedbackKind.error,
+                  title: 'Document preview unavailable',
+                  message: snapshot.error.toString(),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const RentHubFeedbackState(
+                  kind: FeedbackKind.loading,
+                  title: 'Loading protected documents',
+                  message: 'Access is checked by the RentHub API.',
+                );
+              }
+              return PageView(
+                children: [
+                  for (final bytes in snapshot.data!)
+                    InteractiveViewer(
+                      child: Image.memory(bytes, fit: BoxFit.contain),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _review(
     BuildContext context,
     Map<String, dynamic> user,
     String status,
+    String? attemptId,
   ) async {
     final reason = TextEditingController();
     var tier = 'basic';
@@ -469,6 +543,7 @@ class _AdminVerification extends StatelessWidget {
             status,
             tier: tier,
             reason: reason.text,
+            attemptId: attemptId,
           );
     } catch (exception) {
       if (context.mounted) {
@@ -484,8 +559,38 @@ class _AdminVerification extends StatelessWidget {
     final users = context.watch<LiveRentHubController>().users;
     final pending = users.where((user) {
       final verification = user['verification'] as Map<String, dynamic>?;
-      return verification?['status'] == 'pending';
+      final history = verification?['history'] as List? ?? const [];
+      return verification?['status'] == 'pending' ||
+          history.any(
+            (item) => item is Map && item['status'] == 'pending',
+          );
+    }).where((user) {
+      if (documentFilter == 'all') return true;
+      return _pendingAttempt(user)['documentType'] == documentFilter;
     }).toList();
+    pending.sort((left, right) {
+      final leftAttempt = _pendingAttempt(left);
+      final rightAttempt = _pendingAttempt(right);
+      final leftConfidence =
+          ((leftAttempt['aiEvidence'] as Map?)?['confidence'] as num?)
+                  ?.toDouble() ??
+              0;
+      final rightConfidence =
+          ((rightAttempt['aiEvidence'] as Map?)?['confidence'] as num?)
+                  ?.toDouble() ??
+              0;
+      if (sortOrder == 'confidence_low') {
+        return leftConfidence.compareTo(rightConfidence);
+      }
+      if (sortOrder == 'confidence_high') {
+        return rightConfidence.compareTo(leftConfidence);
+      }
+      final leftTime =
+          DateTime.tryParse('${leftAttempt['submittedAt']}') ?? DateTime(1970);
+      final rightTime =
+          DateTime.tryParse('${rightAttempt['submittedAt']}') ?? DateTime(1970);
+      return rightTime.compareTo(leftTime);
+    });
     if (pending.isEmpty) {
       return const RentHubFeedbackState(
         kind: FeedbackKind.empty,
@@ -493,86 +598,205 @@ class _AdminVerification extends StatelessWidget {
         message: 'New identity submissions will appear here.',
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(24),
-      itemCount: pending.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final user = pending[index];
-        final verification =
-            user['verification'] as Map<String, dynamic>? ?? const {};
-        final references =
-            (verification['documentRefs'] as List?)?.cast<String>() ?? const [];
-        final ocr =
-            verification['ocrResult'] as Map<String, dynamic>? ?? const {};
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const CircleAvatar(
-                      child: Icon(Icons.person_search_outlined),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: documentFilter,
+                  decoration: const InputDecoration(labelText: 'Document type'),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'all', child: Text('All documents')),
+                    DropdownMenuItem(value: 'mykad', child: Text('MyKad')),
+                    DropdownMenuItem(
+                        value: 'passport', child: Text('Passport')),
+                    DropdownMenuItem(
+                      value: 'driving_licence',
+                      child: Text('Driving Licence'),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  ],
+                  onChanged: (value) =>
+                      setState(() => documentFilter = value ?? 'all'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: sortOrder,
+                  decoration: const InputDecoration(labelText: 'Sort queue'),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'newest', child: Text('Newest first')),
+                    DropdownMenuItem(
+                      value: 'confidence_low',
+                      child: Text('Lowest confidence'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'confidence_high',
+                      child: Text('Highest confidence'),
+                    ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => sortOrder = value ?? 'newest'),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Text('${pending.length} pending'),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(24),
+            itemCount: pending.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final user = pending[index];
+              final verification =
+                  user['verification'] as Map<String, dynamic>? ?? const {};
+              final history = (verification['history'] as List? ?? const [])
+                  .whereType<Map>()
+                  .map((item) => Map<String, dynamic>.from(item))
+                  .toList();
+              final attempt = _pendingAttempt(user);
+              final references = ((attempt['documentRefs'] ??
+                          verification['documentRefs']) as List?)
+                      ?.cast<String>() ??
+                  const [];
+              final ocr = Map<String, dynamic>.from(
+                (attempt['aiEvidence'] ?? verification['ocrResult']) as Map? ??
+                    const {},
+              );
+              final extracted = Map<String, dynamic>.from(
+                (ocr['extracted_fields'] ?? ocr['extractedFields']) as Map? ??
+                    const {},
+              );
+              final attemptId = attempt['attemptId'] as String?;
+              final attemptDocumentType =
+                  attempt['documentType'] ?? verification['documentType'];
+              return Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Text(
-                            user['displayName'] as String,
-                            style: Theme.of(context).textTheme.titleMedium,
+                          const CircleAvatar(
+                            child: Icon(Icons.person_search_outlined),
                           ),
-                          Text(
-                            '${verification['documentType'] ?? 'Document'} | ${references.length} protected image(s)',
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  user['displayName'] as String,
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                                Text(
+                                  '${attemptDocumentType ?? 'Document'} | ${references.length} protected image(s)',
+                                ),
+                              ],
+                            ),
+                          ),
+                          const StatusBadge('pending'),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Automated check: ${ocr['outcome'] ?? 'unavailable'} | Confidence: ${(((ocr['confidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%',
+                      ),
+                      if ((ocr['reasons'] as List? ?? const []).isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          (ocr['reasons'] as List).join(' · '),
+                          style:
+                              const TextStyle(color: AppColors.secondaryText),
+                        ),
+                      ],
+                      if (extracted.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Extracted evidence: ${extracted.entries.where((entry) => ![
+                                'address',
+                                'fullName'
+                              ].contains(entry.key)).map((entry) => '${entry.key}: ${entry.value}').join(' | ')}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                      if ((ocr['risk_indicators'] as List? ?? const [])
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Risk indicators: ${(ocr['risk_indicators'] as List).join(' | ')}',
+                          style: const TextStyle(color: AppColors.warning),
+                        ),
+                      ],
+                      if (history.length > 1)
+                        ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          title:
+                              Text('Verification history (${history.length})'),
+                          children: [
+                            for (final previous in history.reversed)
+                              ListTile(
+                                dense: true,
+                                title: Text(
+                                  '${previous['documentType'] ?? 'document'} â€¢ ${previous['status'] ?? 'unknown'}',
+                                ),
+                                subtitle: Text(
+                                  '${previous['submittedAt'] ?? ''}'
+                                  '${('${previous['reviewReason'] ?? ''}').isEmpty ? '' : '\n${previous['reviewReason']}'}',
+                                ),
+                              ),
+                          ],
+                        ),
+                      const SizedBox(height: 4),
+                      for (final reference in references)
+                        Text(reference,
+                            style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton(
+                            onPressed: references.isEmpty
+                                ? null
+                                : () => _viewDocuments(context, references),
+                            child: const Text('View Documents'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () => _review(context, user,
+                                'resubmission_required', attemptId),
+                            child: const Text('Request Resubmission'),
+                          ),
+                          OutlinedButton(
+                            onPressed: () =>
+                                _review(context, user, 'rejected', attemptId),
+                            child: const Text('Reject'),
+                          ),
+                          FilledButton(
+                            onPressed: () =>
+                                _review(context, user, 'approved', attemptId),
+                            child: const Text('Approve'),
                           ),
                         ],
                       ),
-                    ),
-                    const StatusBadge('pending'),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Automated check: ${ocr['outcome'] ?? 'unavailable'} | Confidence: ${(((ocr['confidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%',
-                ),
-                if ((ocr['reasons'] as List? ?? const []).isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    (ocr['reasons'] as List).join(' · '),
-                    style: const TextStyle(color: AppColors.secondaryText),
+                    ],
                   ),
-                ],
-                const SizedBox(height: 4),
-                for (final reference in references)
-                  Text(reference, style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton(
-                      onPressed: () =>
-                          _review(context, user, 'resubmission_required'),
-                      child: const Text('Request Resubmission'),
-                    ),
-                    OutlinedButton(
-                      onPressed: () => _review(context, user, 'rejected'),
-                      child: const Text('Reject'),
-                    ),
-                    FilledButton(
-                      onPressed: () => _review(context, user, 'approved'),
-                      child: const Text('Approve'),
-                    ),
-                  ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
@@ -2055,6 +2279,8 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
   final highValueThreshold = TextEditingController();
   final reportThreshold = TextEditingController();
   final ocrThreshold = TextEditingController();
+  final reviewThreshold = TextEditingController();
+  final minimumAge = TextEditingController();
   final supportEmail = TextEditingController();
   final bookingPolicy = TextEditingController();
   final contentPolicy = TextEditingController();
@@ -2067,6 +2293,8 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
   bool maintenanceMode = false;
   bool highValueKycEnabled = true;
   final categoryStates = <String, bool>{};
+  final kycDocuments = <String, Set<String>>{};
+  final kycHighValueOnly = <String, bool>{};
 
   @override
   void didChangeDependencies() {
@@ -2095,6 +2323,9 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
       highValueThreshold.text = '${platform['highValueThreshold'] ?? 1000}';
       reportThreshold.text = '${platform['reportAutoHideThreshold'] ?? 3}';
       ocrThreshold.text = '${platform['verificationOcrThreshold'] ?? 80}';
+      reviewThreshold.text =
+          '${platform['verificationManualReviewThreshold'] ?? 0.8}';
+      minimumAge.text = '${platform['minimumVerificationAge'] ?? 18}';
       supportEmail.text =
           platform['supportEmail'] as String? ?? 'support@renthub.my';
       bookingPolicy.text = platform['bookingPolicy'] as String? ?? '';
@@ -2113,6 +2344,28 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
         categoryStates[category['name'] as String] =
             category['active'] as bool? ?? true;
       }
+      for (final raw in platform['kycRequirements'] as List? ?? const []) {
+        final rule = Map<String, dynamic>.from(raw as Map);
+        final category = rule['category'] as String;
+        kycDocuments[category] =
+            (rule['documentTypes'] as List? ?? const []).cast<String>().toSet();
+        kycHighValueOnly[category] = rule['highValueOnly'] as bool? ?? false;
+      }
+      const defaults = {
+        'Devices': {'mykad'},
+        'Vehicles': {'mykad', 'driving_licence'},
+        'Equipment': {'mykad'},
+        'Services': {'mykad'},
+        'Clothing': <String>{},
+        'Books': <String>{},
+      };
+      for (final entry in defaults.entries) {
+        kycDocuments.putIfAbsent(entry.key, () => {...entry.value});
+        kycHighValueOnly.putIfAbsent(
+          entry.key,
+          () => ['Devices', 'Equipment'].contains(entry.key),
+        );
+      }
     }
   }
 
@@ -2127,6 +2380,8 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
     highValueThreshold.dispose();
     reportThreshold.dispose();
     ocrThreshold.dispose();
+    reviewThreshold.dispose();
+    minimumAge.dispose();
     supportEmail.dispose();
     bookingPolicy.dispose();
     contentPolicy.dispose();
@@ -2146,6 +2401,17 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
         'highValueThreshold': double.parse(highValueThreshold.text),
         'reportAutoHideThreshold': int.parse(reportThreshold.text),
         'verificationOcrThreshold': int.parse(ocrThreshold.text),
+        'verificationManualReviewThreshold': double.parse(reviewThreshold.text),
+        'minimumVerificationAge': int.parse(minimumAge.text),
+        'kycRequirements': kycDocuments.entries
+            .map(
+              (entry) => {
+                'category': entry.key,
+                'documentTypes': entry.value.toList()..sort(),
+                'highValueOnly': kycHighValueOnly[entry.key] ?? false,
+              },
+            )
+            .toList(),
         'supportEmail': supportEmail.text.trim(),
         'bookingPolicy': bookingPolicy.text.trim(),
         'contentPolicy': contentPolicy.text.trim(),
@@ -2298,6 +2564,28 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                                   : null;
                             },
                           ),
+                          _RuleField(
+                            controller: reviewThreshold,
+                            label: 'AI manual-review threshold (0-1)',
+                            validator: (value) {
+                              final number = double.tryParse(value ?? '');
+                              return number == null || number < 0 || number > 1
+                                  ? 'Enter 0 to 1'
+                                  : null;
+                            },
+                          ),
+                          _RuleField(
+                            controller: minimumAge,
+                            label: 'Minimum verification age',
+                            validator: (value) {
+                              final number = int.tryParse(value ?? '');
+                              return number == null ||
+                                      number < 18 ||
+                                      number > 100
+                                  ? 'Enter 18 to 100'
+                                  : null;
+                            },
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -2309,6 +2597,51 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                         onChanged: (value) =>
                             setState(() => highValueKycEnabled = value),
                       ),
+                      const Divider(height: 28),
+                      Text(
+                        'KYC documents by rental category',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Text(
+                        'Empty means optional. Vehicle defaults to MyKad and Driving Licence.',
+                        style: TextStyle(color: AppColors.secondaryText),
+                      ),
+                      for (final category in kycDocuments.keys)
+                        ExpansionTile(
+                          tilePadding: EdgeInsets.zero,
+                          title: Text(category),
+                          subtitle: Text(
+                            kycDocuments[category]!.isEmpty
+                                ? 'Optional'
+                                : kycDocuments[category]!.join(', '),
+                          ),
+                          children: [
+                            for (final type in const [
+                              'mykad',
+                              'passport',
+                              'driving_licence',
+                            ])
+                              CheckboxListTile(
+                                title: Text(type.replaceAll('_', ' ')),
+                                value: kycDocuments[category]!.contains(type),
+                                onChanged: (selected) => setState(() {
+                                  if (selected ?? false) {
+                                    kycDocuments[category]!.add(type);
+                                  } else {
+                                    kycDocuments[category]!.remove(type);
+                                  }
+                                }),
+                              ),
+                            SwitchListTile(
+                              title: const Text(
+                                  'Apply only above high-value threshold'),
+                              value: kycHighValueOnly[category] ?? false,
+                              onChanged: (value) => setState(
+                                () => kycHighValueOnly[category] = value,
+                              ),
+                            ),
+                          ],
+                        ),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Maintenance mode'),

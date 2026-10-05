@@ -1,6 +1,6 @@
 # RentHub remaining implementation and setup checklist
 
-Last verified: 4 October 2026
+Last verified: 5 October 2026
 
 This checklist separates code that exists from external services, credentials,
 model artifacts, and production checks that still have to be supplied. No secret
@@ -57,6 +57,13 @@ values are recorded here.
   artifact validation, truthful cold-start adapters, eligibility filtering, and
   renter Home reason rendering. Current metrics and limitations are recorded in
   `RECOMMENDATION_AI_RESULT.md`.
+- [x] Added the connected mobile KYC scanner, three-frame auto-capture gate,
+  OpenCV glare/rescan checks, rule-based spaCy/Regex extraction, MRZ checks,
+  independent document history, administrator evidence review, configurable
+  category rules, and authoritative booking enforcement.
+- [x] Added KYC-specific YOLOv8 and EfficientNet-B0 loaders/trainers plus
+  Git-tracked zero-count provenance manifests. These are runtime/training code,
+  not claims that the two missing model artifacts have been trained.
 
 ## Immediate local setup still required
 
@@ -189,6 +196,15 @@ artifacts are not present. Docker remains optional for this local workflow.
 
 - [ ] Obtain reviewed, labelled image datasets with documented provenance.
 - [ ] Train/evaluate the EfficientNet-B0 image-risk model and YOLO item detector.
+- [ ] Review access/licensing, download selected MIDV-2020/FMIDV subsets, and
+  update the KYC manifests from zero before any KYC training run.
+- [ ] Train/evaluate `document_yolo.pt` across rotation, perspective,
+  misalignment, scale, and lighting slices.
+- [ ] Train/evaluate `document_risk_efficientnet.pt` with grouped
+  `base_document_id` splits and retain accuracy, precision, recall, F1, ROC-AUC,
+  and confusion-matrix metrics.
+- [ ] Validate Malaysia-specific behavior only with synthetic MyKad-like or
+  explicitly consented secure samples; never commit real MyKad images.
 - [ ] Install EasyOCR model files, or intentionally enable the first download.
 - [x] Produce and retain recommendation held-out metrics with real, demo-seed,
   and synthetic counts reported separately.
@@ -200,6 +216,8 @@ artifacts are not present. Docker remains optional for this local workflow.
   request using current MongoDB state.
 - [ ] Run the end-to-end document/item/pricing flows after the remaining image
   artifacts are installed.
+- [ ] Run Android/iOS camera-permission, live-guidance, auto-capture, rescan,
+  multi-side MyKad, and Driving Licence checks on a physical device.
 
 Expected runtime paths are listed in `services/ai/.env.example` and
 `services/ai/README.md`.

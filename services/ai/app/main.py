@@ -22,6 +22,15 @@ def health():
         'image_risk_model': Path(
             os.getenv('IMAGE_RISK_MODEL_PATH', 'models/image_risk_efficientnet.pt')
         ).is_file(),
+        'document_detector': Path(
+            os.getenv('DOCUMENT_YOLO_MODEL_PATH', 'models/document_yolo.pt')
+        ).is_file(),
+        'document_risk_model': Path(
+            os.getenv(
+                'DOCUMENT_RISK_MODEL_PATH',
+                'models/document_risk_efficientnet.pt',
+            )
+        ).is_file(),
         'easyocr_models': Path(os.getenv('EASYOCR_MODEL_DIR', 'models/easyocr')).is_dir(),
     }
     return {

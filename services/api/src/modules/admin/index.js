@@ -245,6 +245,25 @@ const settingsValidation = [
     .toFloat(),
   body('reportAutoHideThreshold').optional().isInt({ min: 1, max: 100 }).toInt(),
   body('verificationOcrThreshold').optional().isInt({ min: 0, max: 100 }).toInt(),
+  body('verificationManualReviewThreshold')
+    .optional()
+    .isFloat({ min: 0, max: 1 })
+    .toFloat(),
+  body('minimumVerificationAge').optional().isInt({ min: 18, max: 100 }).toInt(),
+  body('kycRequirements').optional().isArray({ min: 6, max: 6 }),
+  body('kycRequirements.*.category').optional().isIn([
+    'Clothing',
+    'Vehicles',
+    'Services',
+    'Devices',
+    'Books',
+    'Equipment',
+  ]),
+  body('kycRequirements.*.documentTypes').optional().isArray({ max: 3 }),
+  body('kycRequirements.*.documentTypes.*')
+    .optional()
+    .isIn(['mykad', 'passport', 'driving_licence']),
+  body('kycRequirements.*.highValueOnly').optional().isBoolean().toBoolean(),
   body('supportEmail').optional().isEmail().normalizeEmail(),
   body('bookingPolicy').optional().trim().isLength({ min: 10, max: 3000 }),
   body('contentPolicy').optional().trim().isLength({ min: 10, max: 3000 }),

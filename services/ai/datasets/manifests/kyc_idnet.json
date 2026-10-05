@@ -1,0 +1,15 @@
+{
+  "dataset": "IDNet",
+  "officialSource": "https://zenodo.org/records/13854897",
+  "citation": "IDNet Zenodo record 13854897; final report citation must use record metadata",
+  "licenceOrAccess": "Review the Zenodo record licence and selected subset before use",
+  "accessDate": "2026-10-05",
+  "status": "optional_not_downloaded",
+  "intendedUse": ["selected synthetic fraud-pattern evaluation"],
+  "subsetUsed": [],
+  "baseDocumentCount": 0,
+  "imageOrFrameCount": 0,
+  "labels": [],
+  "splitCounts": {"train": 0, "validation": 0, "test": 0},
+  "provenance": "synthetic; must never be reported as real marketplace or government data"
+}

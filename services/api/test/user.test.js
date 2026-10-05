@@ -63,6 +63,7 @@ before(async () => {
     ListingModel.init(),
     NotificationModel.init(),
     adminModule.Model.init(),
+    adminModule.PlatformSettingModel.init(),
   ]);
 });
 
@@ -74,6 +75,7 @@ beforeEach(async () => {
     ListingModel.deleteMany({}),
     NotificationModel.deleteMany({}),
     adminModule.Model.deleteMany({}),
+    adminModule.PlatformSettingModel.deleteMany({}),
   ]);
 });
 
@@ -558,6 +560,11 @@ test('submits and reviews identity verification with audit and notification', as
   assert.equal(submitted.status, 200);
   assert.equal(submitted.body.data.verification.status, 'pending');
   assert.equal(submitted.body.data.verification.documentRefs.length, 2);
+  assert.equal(submitted.body.data.verification.history.length, 1);
+  assert.equal(
+    submitted.body.data.verification.documents[0].documentType,
+    'mykad',
+  );
 
   const duplicate = await request(app)
     .post('/api/v1/users/me/verification')
@@ -579,6 +586,39 @@ test('submits and reviews identity verification with audit and notification', as
   assert.equal(reviewed.status, 200);
   assert.equal(reviewed.body.data.verification.status, 'approved');
   assert.equal(reviewed.body.data.verification.tier, 'enhanced');
+  assert.equal(
+    reviewed.body.data.verification.history[0].status,
+    'approved',
+  );
+
+  const licence = await request(app)
+    .post('/api/v1/users/me/verification')
+    .set(owner)
+    .send({
+      documentType: 'driving_licence',
+      documentRefs: ['local://verification/licence-front.jpg'],
+    });
+  assert.equal(licence.status, 200, JSON.stringify(licence.body));
+  const licenceAttempt = licence.body.data.verification.history.at(-1);
+  assert.equal(licenceAttempt.documentType, 'driving_licence');
+  assert.equal(licenceAttempt.status, 'pending');
+  assert.equal(licence.body.data.verification.status, 'approved');
+
+  const licenceReviewed = await request(app)
+    .patch(`/api/v1/users/${target._id}/verification`)
+    .set(admin)
+    .send({
+      status: 'approved',
+      tier: 'enhanced',
+      attemptId: licenceAttempt.attemptId,
+    });
+  assert.equal(licenceReviewed.status, 200);
+  assert.equal(
+    licenceReviewed.body.data.verification.documents.find(
+      (item) => item.documentType === 'driving_licence',
+    ).status,
+    'approved',
+  );
 
   const listing = await ListingModel.findOne({
     publicId: 'l-verification-test',
@@ -589,15 +629,52 @@ test('submits and reviews identity verification with audit and notification', as
       userId: 'u-verification-owner',
       type: 'verification_approved',
     }),
-    1,
+    2,
   );
   assert.equal(
     await adminModule.Model.countDocuments({
       action: 'verification.approved',
       targetId: 'u-verification-owner',
     }),
-    1,
+    2,
   );
+});
+
+test('resolves category KYC rules without disabling always-required categories', async () => {
+  const renterIdentity = identity();
+  await request(app).post('/api/v1/users/session').set(renterIdentity);
+
+  const belowThreshold = await request(app)
+    .get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Devices', dailyPrice: 999 })
+    .set(renterIdentity);
+  assert.equal(belowThreshold.status, 200);
+  assert.deepEqual(belowThreshold.body.data.requiredDocumentTypes, []);
+
+  const highValue = await request(app)
+    .get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Devices', dailyPrice: 1000 })
+    .set(renterIdentity);
+  assert.deepEqual(highValue.body.data.requiredDocumentTypes, ['mykad']);
+
+  await adminModule.PlatformSettingModel.updateOne(
+    { key: 'platform' },
+    { $set: { highValueKycEnabled: false } },
+  );
+  const disabledHighValue = await request(app)
+    .get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Devices', dailyPrice: 5000 })
+    .set(renterIdentity);
+  assert.deepEqual(disabledHighValue.body.data.requiredDocumentTypes, []);
+
+  const vehicle = await request(app)
+    .get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Vehicles', dailyPrice: 10 })
+    .set(renterIdentity);
+  assert.deepEqual(vehicle.body.data.requiredDocumentTypes, [
+    'mykad',
+    'driving_licence',
+  ]);
 });
 
 test('rejects more than one default address', async () => {

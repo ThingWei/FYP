@@ -80,6 +80,51 @@ paths:
       responses:
         '200': { description: Marketplace starting interface persisted, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/UserProfile' } } } } } }
         '403': { description: Role switching is not available to administrator accounts }
+  /users/me/verification:
+    post:
+      security: [{ bearerAuth: [] }]
+      description: Submits protected document references for AI-assisted evidence generation and final administrator review.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KycSubmission' }
+      responses:
+        '200': { description: Verification attempt recorded; AI output never grants the final verified state }
+        '409': { description: This document type is pending or already approved }
+  /users/me/verification/scan-frame:
+    post:
+      security: [{ bearerAuth: [] }]
+      description: Sends one authenticated camera frame through Express to the KYC-specific document detector.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KycFrameRequest' }
+      responses:
+        '200': { description: Detector availability, alignment guidance, quality, confidence, and ready state }
+  /users/me/verification/requirements:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: category, required: true, schema: { type: string, enum: [Clothing, Vehicles, Services, Devices, Books, Equipment] } }
+        - { in: query, name: dailyPrice, schema: { type: number, minimum: 0 } }
+      responses:
+        '200': { description: Effective MongoDB-configured document requirements and missing approvals }
+  /users/{userId}/verification:
+    patch:
+      security: [{ bearerAuth: [] }]
+      description: Administrator final decision for one append-only KYC attempt.
+      parameters:
+        - { in: path, name: userId, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KycDecision' }
+      responses:
+        '200': { description: Attempt and current document state updated with audited administrator decision }
+        '409': { description: Attempt is not pending }
   /rewards/summary:
     get:
       security: [{ bearerAuth: [] }]
@@ -320,6 +365,57 @@ components:
           description: Exactly [renter, owner] for a marketplace account or [admin] for an administrator.
           items: { type: string, enum: [renter, owner, admin] }
         activeRole: { type: string, enum: [renter, owner, admin] }
+        verification: { $ref: '#/components/schemas/KycVerification' }
+    KycSubmission:
+      type: object
+      required: [documentType, documentRefs]
+      additionalProperties: false
+      properties:
+        documentType: { type: string, enum: [mykad, passport, driving_licence] }
+        documentRefs: { type: array, minItems: 1, maxItems: 2, items: { type: string } }
+    KycFrameRequest:
+      type: object
+      required: [contentBase64, documentType]
+      additionalProperties: false
+      properties:
+        contentBase64: { type: string, minLength: 100, maxLength: 1900000 }
+        contentType: { type: string, enum: [image/jpeg, image/png], default: image/jpeg }
+        documentType: { type: string, enum: [mykad, passport, driving_licence] }
+    KycDecision:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [approved, rejected, resubmission_required] }
+        tier: { type: string, enum: [basic, enhanced] }
+        reason: { type: string, maxLength: 500 }
+        attemptId: { type: string, pattern: '^KYC-[A-Fa-f0-9]{24}$' }
+    KycVerification:
+      type: object
+      properties:
+        status: { type: string, enum: [unverified, pending, approved, rejected, resubmission_required] }
+        tier: { type: string, enum: [none, basic, enhanced] }
+        documents:
+          type: array
+          items:
+            type: object
+            properties:
+              documentType: { type: string, enum: [mykad, passport, driving_licence] }
+              status: { type: string, enum: [unverified, pending, approved, rejected, resubmission_required] }
+              latestAttemptId: { type: string }
+        history:
+          type: array
+          description: Append-only protected attempt history; raw OCR text is not persisted.
+          items:
+            type: object
+            properties:
+              attemptId: { type: string }
+              documentType: { type: string, enum: [mykad, passport, driving_licence] }
+              status: { type: string }
+              submittedAt: { type: string, format: date-time }
+              reviewedAt: { type: string, format: date-time, nullable: true }
+              reviewReason: { type: string }
+              aiEvidence: { type: object, additionalProperties: true }
     ReferralProgress:
       type: object
       required: [id, referralCode, status, appliedAt, completionTrigger, progressState, nextAction, nextActionMessage, refereeRewardAmount]

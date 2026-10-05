@@ -96,7 +96,7 @@ export const verificationSubmissionValidation = [
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
   }),
-  body('documentType').isIn(['mykad', 'passport']),
+  body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
   body('documentRefs').isArray({ min: 1, max: 2 }),
   body('documentRefs.*')
     .trim()
@@ -173,4 +173,32 @@ export const verificationDecisionValidation = [
   ),
   body('tier').optional().isIn(['basic', 'enhanced']),
   body('reason').optional().trim().isLength({ max: 500 }),
+  body('attemptId')
+    .optional()
+    .trim()
+    .matches(/^KYC-[A-F\d]{24}$/i),
+];
+
+export const verificationFrameValidation = [
+  body().custom((value) => {
+    const allowed = new Set(['contentBase64', 'contentType', 'documentType']);
+    const unknown = Object.keys(value).filter((field) => !allowed.has(field));
+    if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
+    return true;
+  }),
+  body('contentBase64').isString().isLength({ min: 100, max: 1_900_000 }),
+  body('contentType').optional().isIn(['image/jpeg', 'image/png']),
+  body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
+];
+
+export const verificationRequirementsValidation = [
+  query('category').isIn([
+    'Clothing',
+    'Vehicles',
+    'Services',
+    'Devices',
+    'Books',
+    'Equipment',
+  ]),
+  query('dailyPrice').optional().isFloat({ min: 0, max: 1_000_000 }).toFloat(),
 ];

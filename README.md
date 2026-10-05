@@ -45,9 +45,14 @@ under `blockchain\.data\ganache`. Launcher logs are stored in each service's
 When `AUTH_MODE=auth0` or `AUTH_MODE=hybrid`, the launcher also reads the Auth0 domain, audience,
 client ID, callback, and database connection from `services\api\.env` and adds
 the Flutter Dart defines automatically. Configure `AUTH0_WINDOWS_CLIENT_ID` for
-the Native application and `AUTH0_WEB_CLIENT_ID` for the Web SPA. The standard
-Windows command remains `.\run-renthub.ps1`; use `-Device chrome` for the Web
-client and add `-Admin` for the administrator portal.
+the Windows Native application, `AUTH0_ANDROID_CLIENT_ID` for the Android Native
+application, and `AUTH0_WEB_CLIENT_ID` for the Web SPA. The standard Windows
+command remains `.\run-renthub.ps1`; use `-Device chrome` for the Web client,
+`-Device <ANDROID_DEVICE_ID>` for Android, and add `-Admin` for the administrator
+portal. Android uses the configurable
+`AUTH0_ANDROID_CALLBACK_URL=com.weith.renthub://login-callback`; see
+[the Android Auth0 result](docs/AUTH0_ANDROID_RESULT.md) for the exact Dashboard
+and device setup.
 
 Use `AUTH_MODE=hybrid` when the normal email/password forms should use RentHub's
 local MongoDB sessions while the separate **Continue with Auth0** action uses

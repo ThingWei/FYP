@@ -12,6 +12,11 @@ import {
 } from '../communication/notification.service.js';
 import { voidBookingPayment } from '../payment/payment.service.js';
 import { UserModel } from '../user/user.model.js';
+import { PlatformSettingModel } from '../admin/platformSetting.model.js';
+import {
+  approvedDocumentTypes,
+  resolveKycRequirement,
+} from '../user/kycRequirements.js';
 import { BOOKING_STATUSES } from './booking.model.js';
 import { bookingRepository } from './booking.repository.js';
 
@@ -219,6 +224,26 @@ export const bookingService = {
     }
     if (renter.blockedUserIds.includes(listing.ownerId)) {
       throw new AppError('This Owner is blocked', 409, 'OWNER_BLOCKED');
+    }
+    const platform =
+      (await PlatformSettingModel.findOne({ key: 'platform' })) ??
+      await PlatformSettingModel.create({ key: 'platform' });
+    const requirement = resolveKycRequirement(platform, listing);
+    const approvedDocuments = approvedDocumentTypes(renter);
+    const missingDocuments = requirement.requiredDocumentTypes.filter(
+      (type) => !approvedDocuments.has(type),
+    );
+    if (missingDocuments.length) {
+      throw new AppError(
+        'Complete the required identity verification before booking this listing',
+        403,
+        'KYC_REQUIRED',
+        {
+          category: listing.category,
+          requiredDocumentTypes: requirement.requiredDocumentTypes,
+          missingDocumentTypes: missingDocuments,
+        },
+      );
     }
     const { startDate, endDate } = bookingDates(listing, input);
     const fingerprint = requestFingerprint(input, { startDate, endDate });

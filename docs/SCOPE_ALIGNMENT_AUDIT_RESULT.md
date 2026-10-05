@@ -1,5 +1,10 @@
 # RentHub Scope Alignment Audit Result
 
+> Historical audit notice (5 October 2026): the KYC, recommendation, pricing,
+> and blockchain placeholder findings below describe the 27 September baseline.
+> The current KYC implementation and remaining artifact gaps are recorded in
+> `KYC_AI_RESULT.md`; do not use the old KYC status table as the current result.
+
 Date: 27 September 2026
 
 ## Executive result

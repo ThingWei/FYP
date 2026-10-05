@@ -46,7 +46,13 @@ export const aiClient = {
     }
   },
 
-  async verifyDocument({ images, documentType, profileName }) {
+  async verifyDocument({
+    images,
+    documentType,
+    profileName,
+    reviewThreshold,
+    minimumAge,
+  }) {
     if (!images?.length) {
       return unavailableVerification('No stored document bytes were available for analysis');
     }
@@ -54,7 +60,26 @@ export const aiClient = {
       images,
       expected_type: documentType,
       profile_name: profileName,
+      review_threshold: reviewThreshold,
+      minimum_age: minimumAge,
     }, unavailableVerification('AI service could not analyse the identity document'));
+  },
+
+  inspectDocumentFrame({ contentBase64, contentType, documentType }) {
+    return request('/verify/document-frame', {
+      content_base64: contentBase64,
+      content_type: contentType,
+      expected_type: documentType,
+    }, {
+      available: false,
+      detected: false,
+      ready: false,
+      confidence: 0,
+      guidance: 'Document detector is unavailable. Use manual capture.',
+      quality: {},
+      bounding_box: null,
+      adapter: 'document-detector-unavailable',
+    });
   },
 
   async verifyItem({ images, category, listingType }) {

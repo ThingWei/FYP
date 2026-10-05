@@ -4,9 +4,11 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:app_links/app_links.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 class Auth0TokenException implements Exception {
   const Auth0TokenException({
@@ -45,6 +47,8 @@ class Auth0Gateway {
     FlutterSecureStorage? secureStorage,
     http.Client? httpClient,
     Future<void> Function(Uri uri)? browserLauncher,
+    Stream<Uri>? callbackLinks,
+    bool? androidOverride,
     DateTime Function()? now,
   })  : domain = domain
             .replaceFirst(RegExp(r'^https?://'), '')
@@ -52,6 +56,11 @@ class Auth0Gateway {
         _secureStorage = secureStorage ?? const FlutterSecureStorage(),
         _httpClient = httpClient ?? http.Client(),
         _browserLauncher = browserLauncher,
+        _callbackLinks = callbackLinks ??
+            (Platform.isAndroid
+                ? AppLinks().uriLinkStream
+                : const Stream<Uri>.empty()),
+        _isAndroid = androidOverride ?? Platform.isAndroid,
         _now = now ?? DateTime.now;
 
   final String domain;
@@ -62,6 +71,8 @@ class Auth0Gateway {
   final FlutterSecureStorage _secureStorage;
   final http.Client _httpClient;
   final Future<void> Function(Uri uri)? _browserLauncher;
+  final Stream<Uri> _callbackLinks;
+  final bool _isAndroid;
   final DateTime Function() _now;
   String? _accessToken;
   String? _refreshToken;
@@ -70,6 +81,8 @@ class Auth0Gateway {
   Future<Auth0Session>? _loginInProgress;
   Future<String?>? _tokenInProgress;
   HttpServer? _activeCallbackServer;
+  StreamSubscription<Uri>? _activeMobileSubscription;
+  Completer<Uri>? _activeMobileCallback;
 
   String _randomValue([int length = 32]) {
     final random = Random.secure();
@@ -85,9 +98,15 @@ class Auth0Gateway {
       await browserLauncher(uri);
       return;
     }
+    if (_isAndroid) {
+      final launched =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched) throw StateError('Could not open Auth0 Universal Login.');
+      return;
+    }
     if (!Platform.isWindows) {
       throw UnsupportedError(
-        'This RentHub build currently supports Auth0 on Web and Windows.',
+        'This RentHub build supports native Auth0 on Android and Windows.',
       );
     }
     final process = await Process.start(
@@ -130,6 +149,57 @@ class Auth0Gateway {
       return request.uri;
     }
     throw TimeoutException('Auth0 login timed out.');
+  }
+
+  bool _matchesConfiguredCallback(Uri received) {
+    final expected = Uri.parse(callbackUrl);
+    return received.scheme.toLowerCase() == expected.scheme.toLowerCase() &&
+        received.host.toLowerCase() == expected.host.toLowerCase() &&
+        received.port == expected.port &&
+        received.path == expected.path;
+  }
+
+  Future<Uri> _waitForMobileCallback() {
+    final callback = Uri.parse(callbackUrl);
+    if (callback.scheme == 'http' ||
+        callback.scheme == 'https' ||
+        callback.scheme.isEmpty ||
+        callback.host.isEmpty) {
+      throw StateError(
+        'AUTH0_CALLBACK_URL must be a configured Android custom URI, for example com.weith.renthub://login-callback.',
+      );
+    }
+    final completer = Completer<Uri>();
+    _activeMobileCallback = completer;
+    late final StreamSubscription<Uri> subscription;
+    subscription = _callbackLinks.listen(
+      (uri) {
+        if (_matchesConfiguredCallback(uri) && !completer.isCompleted) {
+          completer.complete(uri);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!completer.isCompleted) completer.completeError(error, stackTrace);
+      },
+    );
+    _activeMobileSubscription = subscription;
+    return completer.future.timeout(const Duration(minutes: 3)).whenComplete(
+      () async {
+        await subscription.cancel();
+        if (identical(_activeMobileSubscription, subscription)) {
+          _activeMobileSubscription = null;
+        }
+        if (identical(_activeMobileCallback, completer)) {
+          _activeMobileCallback = null;
+        }
+      },
+    );
+  }
+
+  Future<void> _abandonMobileCallback() async {
+    await _activeMobileSubscription?.cancel();
+    _activeMobileSubscription = null;
+    _activeMobileCallback = null;
   }
 
   Future<Map<String, dynamic>> _tokenRequest(Map<String, dynamic> body) async {
@@ -264,8 +334,9 @@ class Auth0Gateway {
     final challenge = base64UrlEncode(
       sha256.convert(utf8.encode(verifier)).bytes,
     ).replaceAll('=', '');
-    final server = await _callbackServer();
-    _activeCallbackServer = server;
+    final server = _isAndroid ? null : await _callbackServer();
+    if (server != null) _activeCallbackServer = server;
+    final mobileCallback = _isAndroid ? _waitForMobileCallback() : null;
     try {
       final authorization = Uri.https(domain, '/authorize', {
         'client_id': clientId,
@@ -280,7 +351,8 @@ class Auth0Gateway {
         if (requestedRole != null) 'ext-renthub-role': requestedRole,
       });
       await _openBrowser(authorization);
-      final response = await _waitForCallback(server);
+      final response =
+          _isAndroid ? await mobileCallback! : await _waitForCallback(server!);
       if (response.queryParameters['state'] != state) {
         throw StateError('Auth0 returned an invalid state value.');
       }
@@ -303,16 +375,24 @@ class Auth0Gateway {
       );
       return Auth0Session(accessToken: _accessToken!);
     } finally {
-      if (identical(_activeCallbackServer, server)) {
-        _activeCallbackServer = null;
+      if (server != null) {
+        if (identical(_activeCallbackServer, server)) {
+          _activeCallbackServer = null;
+        }
+        await server.close(force: true);
+      } else if (_activeMobileCallback != null) {
+        await _abandonMobileCallback();
       }
-      await server.close(force: true);
     }
   }
 
   Future<void> cancelLogin() async {
     final server = _activeCallbackServer;
     if (server != null) await server.close(force: true);
+    final callback = _activeMobileCallback;
+    if (callback != null && !callback.isCompleted) {
+      callback.completeError(StateError('Auth0 login was cancelled.'));
+    }
   }
 
   Future<String?> token() {

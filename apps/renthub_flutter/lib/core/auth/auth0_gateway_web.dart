@@ -1,6 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
-import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -45,6 +46,8 @@ class Auth0Gateway {
     FlutterSecureStorage? secureStorage,
     http.Client? httpClient,
     Future<void> Function(Uri uri)? browserLauncher,
+    Stream<Uri>? callbackLinks,
+    bool? androidOverride,
     DateTime Function()? now,
   }) : domain = domain
             .replaceFirst(RegExp(r'^https?://'), '')

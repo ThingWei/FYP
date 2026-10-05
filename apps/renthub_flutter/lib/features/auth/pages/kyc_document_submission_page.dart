@@ -114,7 +114,7 @@ class _KycDocumentSubmissionPageState extends State<KycDocumentSubmissionPage> {
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Prototype Notice: This is a mock verification. No real ID documents are uploaded or stored.',
+                    'UI preview only: this screen does not verify an identity. Use the live Profile > Identity Verification flow for protected submission and administrator review.',
                     style: TextStyle(color: AppColors.secondaryText),
                   ),
                 ),
@@ -123,7 +123,7 @@ class _KycDocumentSubmissionPageState extends State<KycDocumentSubmissionPage> {
           ),
           const SizedBox(height: 20),
           RentHubActionButton(
-            label: 'Verify Identity',
+            label: 'Preview Submission State',
             icon: Icons.badge_outlined,
             loading: loading,
             onPressed: _verify,

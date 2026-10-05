@@ -24,6 +24,10 @@ import {
   normalizeStoredUserRoles,
   normalizeTrustedIdentityRoles,
 } from './rolePolicy.js';
+import {
+  approvedDocumentTypes,
+  resolveKycRequirement,
+} from './kycRequirements.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -44,6 +48,49 @@ const OPEN_DISPUTE_STATUSES = [
 
 function preferredRole(roles) {
   return roles.includes('renter') ? 'renter' : roles[0];
+}
+
+function verificationAttemptId() {
+  return `KYC-${new mongoose.Types.ObjectId().toString().toUpperCase()}`;
+}
+
+function maskedIdentityNumber(value) {
+  if (!value || typeof value !== 'string') return value;
+  const visible = value.replace(/\s/g, '').slice(-4);
+  return `${'*'.repeat(Math.max(4, value.length - visible.length))}${visible}`;
+}
+
+function privateSafeAiEvidence(analysis) {
+  const evidence = JSON.parse(JSON.stringify(analysis ?? {}));
+  delete evidence.ocr_text;
+  delete evidence.ocrText;
+  const fields = evidence.extracted_fields ?? evidence.extractedFields;
+  if (fields) {
+    for (const key of [
+      'identityNumber',
+      'identity_number',
+      'passportNumber',
+      'passport_number',
+      'licenceNumber',
+      'licence_number',
+    ]) {
+      if (fields[key]) fields[key] = maskedIdentityNumber(fields[key]);
+    }
+  }
+  return evidence;
+}
+
+function aggregateVerificationStatus(verification) {
+  const documents = verification.documents ?? [];
+  if (
+    documents.some(
+      (document) =>
+        ['mykad', 'passport'].includes(document.documentType) &&
+        document.status === 'approved',
+    )
+  ) return 'approved';
+  if (documents.some((document) => document.status === 'pending')) return 'pending';
+  return documents.at(-1)?.status ?? verification.status ?? 'unverified';
 }
 
 const passwordResetResponse = () => ({
@@ -453,16 +500,19 @@ export const userService = {
       input.documentRefs,
       ['verification_document'],
     );
-    if (user.verification.status === 'pending') {
+    const currentDocument = user.verification.documents?.find(
+      (document) => document.documentType === input.documentType,
+    );
+    if (currentDocument?.status === 'pending') {
       throw new AppError(
-        'Identity verification is already pending',
+        'This document type is already pending verification',
         409,
         'VERIFICATION_PENDING',
       );
     }
-    if (user.verification.status === 'approved') {
+    if (currentDocument?.status === 'approved') {
       throw new AppError(
-        'Identity is already verified',
+        'This document type is already verified',
         409,
         'ALREADY_VERIFIED',
       );
@@ -472,30 +522,109 @@ export const userService = {
       input.documentRefs,
       ['verification_document'],
     );
+    const platform =
+      (await adminModule.PlatformSettingModel.findOne({ key: 'platform' })) ??
+      await adminModule.PlatformSettingModel.create({ key: 'platform' });
     const analysis = await aiClient.verifyDocument({
       images,
       documentType: input.documentType,
       profileName: user.displayName,
+      reviewThreshold: platform.verificationManualReviewThreshold,
+      minimumAge: platform.minimumVerificationAge,
     });
-    user.verification = {
-      status: 'pending',
-      tier: 'none',
+    const submittedAt = new Date();
+    const attemptId = verificationAttemptId();
+    const evidence = privateSafeAiEvidence(analysis);
+    const requiresRescan = analysis.outcome === 'rescan_required';
+    const status = requiresRescan ? 'resubmission_required' : 'pending';
+    const reason = requiresRescan
+      ? (analysis.reasons ?? ['Image quality requires a rescan']).join(' ')
+      : '';
+    const document = currentDocument ?? {
       documentType: input.documentType,
-      documentRefs: input.documentRefs,
-      ocrResult: analysis,
-      reason: '',
-      submittedAt: new Date(),
+    };
+    Object.assign(document, {
+      status,
+      latestAttemptId: attemptId,
+      submittedAt,
       reviewedAt: undefined,
       reviewedBy: '',
-    };
+      reason,
+    });
+    if (!currentDocument) user.verification.documents.push(document);
+    user.verification.history.push({
+      attemptId,
+      documentType: input.documentType,
+      documentRefs: input.documentRefs,
+      aiEvidence: evidence,
+      status,
+      submittedAt,
+      reviewReason: reason,
+    });
+    user.verification.status = aggregateVerificationStatus(user.verification);
+    user.verification.tier =
+      user.verification.status === 'approved' ? user.verification.tier : 'none';
+    user.verification.documentType = input.documentType;
+    user.verification.documentRefs = input.documentRefs;
+    user.verification.ocrResult = evidence;
+    user.verification.reason = reason;
+    user.verification.submittedAt = submittedAt;
+    user.verification.reviewedAt = undefined;
+    user.verification.reviewedBy = '';
     await user.save();
     return user;
+  },
+
+  async inspectVerificationFrame(identity, input) {
+    await requireCurrentUser(identity);
+    return aiClient.inspectDocumentFrame({
+      contentBase64: input.contentBase64,
+      contentType: input.contentType ?? 'image/jpeg',
+      documentType: input.documentType,
+    });
+  },
+
+  async verificationRequirements(identity, query) {
+    const user = await requireCurrentUser(identity);
+    const settings =
+      (await adminModule.PlatformSettingModel.findOne({ key: 'platform' })) ??
+      await adminModule.PlatformSettingModel.create({ key: 'platform' });
+    const requirement = resolveKycRequirement(settings, {
+      category: query.category,
+      dailyPrice: query.dailyPrice ?? 0,
+    });
+    const approved = approvedDocumentTypes(user);
+    return {
+      ...requirement,
+      approvedDocumentTypes: [...approved],
+      missingDocumentTypes: requirement.requiredDocumentTypes.filter(
+        (type) => !approved.has(type),
+      ),
+    };
   },
 
   async reviewVerification(id, input, identity) {
     const user = await userRepository.findById(id);
     if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
-    if (user.verification.status !== 'pending') {
+    let attempt = input.attemptId
+      ? user.verification.history?.find((item) => item.attemptId === input.attemptId)
+      : user.verification.history?.find(
+          (item) => item.attemptId === user.verification.documents?.find(
+            (document) => document.documentType === user.verification.documentType,
+          )?.latestAttemptId,
+        );
+    if (!attempt && user.verification.status === 'pending') {
+      attempt = {
+        attemptId: verificationAttemptId(),
+        documentType: user.verification.documentType,
+        documentRefs: user.verification.documentRefs,
+        aiEvidence: privateSafeAiEvidence(user.verification.ocrResult),
+        status: 'pending',
+        submittedAt: user.verification.submittedAt ?? new Date(),
+      };
+      user.verification.history.push(attempt);
+    }
+    if (!attempt || attempt.status !== 'pending') {
       throw new AppError(
         'Only pending verification submissions can be reviewed',
         409,
@@ -509,16 +638,44 @@ export const userService = {
         'REASON_REQUIRED',
       );
     }
-    user.verification.status = input.status;
-    user.verification.tier =
-      input.status === 'approved' ? (input.tier ?? 'basic') : 'none';
+    const reviewedAt = new Date();
+    attempt.status = input.status;
+    attempt.reviewReason = input.reason?.trim() ?? '';
+    attempt.reviewedAt = reviewedAt;
+    attempt.reviewedBy = identity.authId;
+    let document = user.verification.documents?.find(
+      (item) => item.documentType === attempt.documentType,
+    );
+    if (!document) {
+      document = { documentType: attempt.documentType };
+      user.verification.documents.push(document);
+    }
+    if (!document.latestAttemptId || document.latestAttemptId === attempt.attemptId) {
+      document.status = input.status;
+      document.latestAttemptId = attempt.attemptId;
+      document.submittedAt = attempt.submittedAt;
+      document.reviewedAt = reviewedAt;
+      document.reviewedBy = identity.authId;
+      document.reason = attempt.reviewReason;
+    }
+    user.verification.status = aggregateVerificationStatus(user.verification);
+    const existingTier = user.verification.tier;
+    user.verification.tier = user.verification.status === 'approved'
+      ? input.status === 'approved'
+        ? (input.tier ?? (existingTier === 'none' ? 'basic' : existingTier))
+        : (existingTier === 'none' ? 'basic' : existingTier)
+      : 'none';
+    user.verification.documentType = attempt.documentType;
+    user.verification.documentRefs = attempt.documentRefs;
+    user.verification.ocrResult = attempt.aiEvidence;
     user.verification.reason = input.reason?.trim() ?? '';
-    user.verification.reviewedAt = new Date();
+    user.verification.reviewedAt = reviewedAt;
     user.verification.reviewedBy = identity.authId;
     user.verification.ocrResult = {
       ...(user.verification.ocrResult ?? {}),
       administratorReview: {
         status: input.status,
+        attemptId: attempt.attemptId,
         reviewedBy: identity.authId,
         reviewedAt: new Date(),
       },
@@ -527,7 +684,7 @@ export const userService = {
     if (user.roles.includes('owner')) {
       await ListingModel.updateMany(
         { ownerId: user.authId },
-        { verified: input.status === 'approved' },
+        { verified: user.verification.status === 'approved' },
       );
     }
     await Promise.all([
@@ -537,6 +694,8 @@ export const userService = {
         targetType: 'user',
         targetId: user.authId,
         metadata: {
+          attemptId: attempt.attemptId,
+          documentType: attempt.documentType,
           tier: user.verification.tier,
           reason: user.verification.reason,
         },
@@ -548,11 +707,11 @@ export const userService = {
         type: `verification_${input.status}`,
         title:
           input.status === 'approved'
-            ? 'Identity verification approved'
-            : 'Identity verification needs attention',
+            ? `${attempt.documentType.replaceAll('_', ' ')} approved`
+            : `${attempt.documentType.replaceAll('_', ' ')} needs attention`,
         body:
           input.status === 'approved'
-            ? `Your ${user.verification.tier} verification is active.`
+            ? `Your ${attempt.documentType.replaceAll('_', ' ')} has been approved.`
             : user.verification.reason,
         entityType: 'user',
         entityId: user.authId,

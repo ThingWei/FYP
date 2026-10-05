@@ -73,6 +73,23 @@ export const userController = {
     ),
   ),
 
+  inspectVerificationFrame: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await userService.inspectVerificationFrame(req.user, matchedData(req)),
+    ),
+  ),
+
+  verificationRequirements: asyncHandler(async (req, res) =>
+    ok(
+      res,
+      await userService.verificationRequirements(
+        req.user,
+        matchedData(req, { locations: ['query'] }),
+      ),
+    ),
+  ),
+
   reviewVerification: asyncHandler(async (req, res) =>
     ok(
       res,

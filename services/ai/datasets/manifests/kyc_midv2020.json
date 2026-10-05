@@ -1,0 +1,15 @@
+{
+  "dataset": "MIDV-2020",
+  "officialSource": "https://l3i-share.univ-lr.fr/MIDV2020/midv2020.html",
+  "citation": "MIDV-2020 official project page; final report citation must be copied from the dataset publication",
+  "licenceOrAccess": "Access and licence review required before download/use",
+  "accessDate": "2026-10-05",
+  "status": "not_downloaded",
+  "intendedUse": ["document detection", "capture conditions", "OCR", "field extraction"],
+  "subsetUsed": [],
+  "baseDocumentCount": 0,
+  "imageOrFrameCount": 0,
+  "labels": [],
+  "splitCounts": {"train": 0, "validation": 0, "test": 0},
+  "provenance": "real research dataset; not Malaysian identity authentication"
+}

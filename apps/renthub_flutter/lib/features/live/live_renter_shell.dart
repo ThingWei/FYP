@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/network/idempotency_key.dart';
+import '../../core/network/api_client.dart';
 import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
@@ -1255,9 +1256,32 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       widget.onSubmitted();
     } catch (exception) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(exception.toString())),
-        );
+        if (exception is ApiException && exception.code == 'KYC_REQUIRED') {
+          final details = exception.details as Map? ?? const {};
+          final missing = (details['missingDocumentTypes'] as List? ?? const [])
+              .map((item) => item.toString().replaceAll('_', ' '))
+              .join(' and ');
+          await showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              icon: const Icon(Icons.verified_user_outlined),
+              title: const Text('Verification required'),
+              content: Text(
+                'Complete $missing verification from Profile > Identity verification before requesting this listing.',
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Got It'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(exception.toString())),
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => submitting = false);

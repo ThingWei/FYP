@@ -55,6 +55,21 @@ async function startProfiles() {
   await request(app).post('/api/v1/users/session').set(renter);
   await request(app).post('/api/v1/users/session').set(owner);
   await request(app).post('/api/v1/users/session').set(serviceOwner);
+  await UserModel.updateOne(
+    { authId: 'u-renter' },
+    {
+      $set: {
+        'verification.status': 'approved',
+        'verification.tier': 'basic',
+        'verification.documentType': 'mykad',
+        'verification.documents': [{
+          documentType: 'mykad',
+          status: 'approved',
+          latestAttemptId: 'KYC-000000000000000000000001',
+        }],
+      },
+    },
+  );
 }
 
 async function createCatalog() {
@@ -251,6 +266,67 @@ test('normalizes physical rental input to Malaysian calendar dates without a one
     '2026-10-06T00:00:00.000Z',
   );
   assert.equal(legacyTimestamp.body.data.endDate, '2026-10-06T00:00:00.000Z');
+});
+
+test('vehicle bookings require approved MyKad and Driving Licence evidence', async () => {
+  await ListingModel.create({
+    publicId: 'l-vehicle-kyc',
+    ownerId: 'u-owner',
+    ownerName: 'Sarah J.',
+    title: 'Toyota Vios',
+    category: 'Vehicles',
+    listingType: 'physical',
+    dailyPrice: 180,
+    condition: 'Good',
+    securityDeposit: 800,
+    fulfilmentMethods: ['pickup'],
+    location: 'Petaling Jaya, Selangor',
+    verified: true,
+    status: 'active',
+  });
+  const missingLicence = await request(app)
+    .post('/api/v1/bookings')
+    .set(renter)
+    .send({
+      listingId: 'l-vehicle-kyc',
+      idempotencyKey: 'booking-test:vehicle-missing-licence',
+      startDate: '2026-11-10',
+      endDate: '2026-11-10',
+      fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
+    });
+  assert.equal(missingLicence.status, 403);
+  assert.equal(missingLicence.body.error.code, 'KYC_REQUIRED');
+  assert.deepEqual(missingLicence.body.error.details.missingDocumentTypes, [
+    'driving_licence',
+  ]);
+
+  await UserModel.updateOne(
+    { authId: 'u-renter' },
+    {
+      $push: {
+        'verification.documents': {
+          documentType: 'driving_licence',
+          status: 'approved',
+          latestAttemptId: 'KYC-000000000000000000000002',
+        },
+      },
+    },
+  );
+  const eligible = await request(app)
+    .post('/api/v1/bookings')
+    .set(renter)
+    .send({
+      listingId: 'l-vehicle-kyc',
+      idempotencyKey: 'booking-test:vehicle-eligible',
+      startDate: '2026-11-10',
+      endDate: '2026-11-10',
+      fulfilmentMethod: 'pickup',
+      agreementAccepted: true,
+      agreementVersion: 'renthub-booking-v1',
+    });
+  assert.equal(eligible.status, 201, JSON.stringify(eligible.body));
 });
 
 test('requires the current booking agreement before creating a request', async () => {

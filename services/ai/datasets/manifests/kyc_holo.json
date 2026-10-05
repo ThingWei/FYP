@@ -1,0 +1,15 @@
+{
+  "dataset": "MIDV-Holo",
+  "officialSource": null,
+  "citation": null,
+  "licenceOrAccess": "Not selected until the official research source, licence, labels, and task fit are verified",
+  "accessDate": "2026-10-05",
+  "status": "investigation_required",
+  "intendedUse": ["possible expected hologram-region presence research"],
+  "subsetUsed": [],
+  "baseDocumentCount": 0,
+  "imageOrFrameCount": 0,
+  "labels": [],
+  "splitCounts": {"train": 0, "validation": 0, "test": 0},
+  "provenance": "unverified; not used by RentHub"
+}

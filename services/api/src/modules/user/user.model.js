@@ -15,6 +15,50 @@ export const VERIFICATION_STATUSES = [
   'rejected',
   'resubmission_required',
 ];
+export const KYC_DOCUMENT_TYPES = ['mykad', 'passport', 'driving_licence'];
+
+const verificationDocumentSchema = new mongoose.Schema(
+  {
+    documentType: { type: String, enum: KYC_DOCUMENT_TYPES, required: true },
+    status: {
+      type: String,
+      enum: VERIFICATION_STATUSES,
+      default: 'unverified',
+    },
+    latestAttemptId: { type: String, trim: true, default: '' },
+    submittedAt: Date,
+    reviewedAt: Date,
+    reviewedBy: { type: String, trim: true, default: '' },
+    reason: { type: String, trim: true, maxlength: 500, default: '' },
+  },
+  { _id: false },
+);
+
+const verificationAttemptSchema = new mongoose.Schema(
+  {
+    attemptId: { type: String, required: true, trim: true },
+    documentType: { type: String, enum: KYC_DOCUMENT_TYPES, required: true },
+    documentRefs: {
+      type: [String],
+      required: true,
+      validate: {
+        validator: (references) => references.length >= 1 && references.length <= 2,
+        message: 'A verification attempt needs one or two protected references',
+      },
+    },
+    aiEvidence: { type: mongoose.Schema.Types.Mixed, default: {} },
+    status: {
+      type: String,
+      enum: VERIFICATION_STATUSES.filter((status) => status !== 'unverified'),
+      default: 'pending',
+    },
+    submittedAt: { type: Date, required: true },
+    reviewedAt: Date,
+    reviewedBy: { type: String, trim: true, default: '' },
+    reviewReason: { type: String, trim: true, maxlength: 500, default: '' },
+  },
+  { _id: false },
+);
 
 const addressSchema = new mongoose.Schema(
   {
@@ -95,7 +139,7 @@ const userSchema = new mongoose.Schema(
       tier: { type: String, enum: ['none', 'basic', 'enhanced'], default: 'none' },
       documentType: {
         type: String,
-        enum: ['mykad', 'passport'],
+        enum: KYC_DOCUMENT_TYPES,
         default: undefined,
       },
       documentRefs: {
@@ -111,6 +155,26 @@ const userSchema = new mongoose.Schema(
       submittedAt: Date,
       reviewedAt: Date,
       reviewedBy: { type: String, trim: true, default: '' },
+      documents: {
+        type: [verificationDocumentSchema],
+        default: [],
+        validate: {
+          validator: (documents) =>
+            documents.length <= KYC_DOCUMENT_TYPES.length &&
+            new Set(documents.map((document) => document.documentType)).size ===
+              documents.length,
+          message: 'Only one current verification state is allowed per document type',
+        },
+      },
+      history: {
+        type: [verificationAttemptSchema],
+        default: [],
+        validate: {
+          validator: (attempts) =>
+            new Set(attempts.map((attempt) => attempt.attemptId)).size === attempts.length,
+          message: 'Verification history attempt identifiers must be unique',
+        },
+      },
     },
     addresses: {
       type: [addressSchema],

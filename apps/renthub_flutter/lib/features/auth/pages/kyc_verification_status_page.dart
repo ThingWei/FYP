@@ -10,9 +10,10 @@ class KycVerificationStatusPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AccountCard(
         child: RentHubFeedbackState(
-          kind: FeedbackKind.success,
-          title: 'Verification Successful',
-          message: 'Your identity is verified for this prototype.',
+          kind: FeedbackKind.empty,
+          title: 'UI Preview Complete',
+          message:
+              'No verification decision was made. Live submissions require AI-assisted checks and final administrator approval.',
           actionLabel: 'Return to Profile',
           onAction: onReturn,
         ),

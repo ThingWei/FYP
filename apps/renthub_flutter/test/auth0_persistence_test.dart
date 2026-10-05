@@ -19,6 +19,8 @@ Auth0Gateway _gateway({
   required http.Client client,
   Future<void> Function(Uri uri)? browserLauncher,
   String callbackUrl = 'http://127.0.0.1:53124/callback',
+  Stream<Uri>? callbackLinks,
+  bool? androidOverride,
 }) =>
     Auth0Gateway(
       domain: 'tenant.example.auth0.com',
@@ -29,6 +31,8 @@ Auth0Gateway _gateway({
       secureStorage: _storage,
       httpClient: client,
       browserLauncher: browserLauncher,
+      callbackLinks: callbackLinks,
+      androidOverride: androidOverride,
     );
 
 Future<int> _unusedLoopbackPort() async {
@@ -139,6 +143,143 @@ void main() {
       await _storage.read(key: Auth0Gateway.secureStorageRefreshTokenKey),
       'rotated-refresh-token',
     );
+  });
+
+  test('Android Auth0 login uses an exact deep link and PKCE', () async {
+    final links = StreamController<Uri>.broadcast();
+    var tokenRequests = 0;
+    final gateway = _gateway(
+      callbackUrl: 'com.weith.renthub://login-callback',
+      androidOverride: true,
+      callbackLinks: links.stream,
+      client: MockClient((request) async {
+        tokenRequests += 1;
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['grant_type'], 'authorization_code');
+        expect(body['client_id'], 'native-client');
+        expect(body['code'], 'android-authorization-code');
+        expect(body['code_verifier'], isNotEmpty);
+        expect(
+          body['redirect_uri'],
+          'com.weith.renthub://login-callback',
+        );
+        return http.Response(
+          jsonEncode({
+            'access_token': 'android-access-token',
+            'refresh_token': 'android-refresh-token',
+            'expires_in': 3600,
+          }),
+          200,
+        );
+      }),
+      browserLauncher: (authorization) async {
+        expect(authorization.path, '/authorize');
+        expect(authorization.queryParameters['code_challenge_method'], 'S256');
+        expect(authorization.queryParameters['code_challenge'], isNotEmpty);
+        expect(
+            authorization.queryParameters['scope'], contains('offline_access'));
+        expect(
+          authorization.queryParameters['redirect_uri'],
+          'com.weith.renthub://login-callback',
+        );
+        links.add(Uri.parse('renthub-other://login-callback?code=ignored'));
+        links.add(
+          Uri.parse('com.weith.renthub://login-callback').replace(
+            queryParameters: {
+              'state': authorization.queryParameters['state']!,
+              'code': 'android-authorization-code',
+            },
+          ),
+        );
+      },
+    );
+
+    final session = await gateway.login(requestedRole: 'owner');
+
+    expect(session.accessToken, 'android-access-token');
+    expect(tokenRequests, 1);
+    expect(
+      await _storage.read(key: Auth0Gateway.secureStorageRefreshTokenKey),
+      'android-refresh-token',
+    );
+    await links.close();
+  });
+
+  test('Android Auth0 rejects a callback with the wrong OAuth state', () async {
+    final links = StreamController<Uri>.broadcast();
+    var tokenRequests = 0;
+    final gateway = _gateway(
+      callbackUrl: 'com.weith.renthub://login-callback',
+      androidOverride: true,
+      callbackLinks: links.stream,
+      client: MockClient((request) async {
+        tokenRequests += 1;
+        return http.Response('{}', 200);
+      }),
+      browserLauncher: (authorization) async {
+        links.add(
+          Uri.parse('com.weith.renthub://login-callback').replace(
+            queryParameters: {
+              'state': 'tampered-state',
+              'code': 'must-not-be-exchanged',
+            },
+          ),
+        );
+      },
+    );
+
+    await expectLater(
+      gateway.login(),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('invalid state'),
+        ),
+      ),
+    );
+    expect(tokenRequests, 0);
+    expect(
+      await _storage.read(key: Auth0Gateway.secureStorageRefreshTokenKey),
+      isNull,
+    );
+    await links.close();
+  });
+
+  test('Android Auth0 login cancellation releases the pending request',
+      () async {
+    final links = StreamController<Uri>.broadcast();
+    final browserOpened = Completer<void>();
+    var tokenRequests = 0;
+    final gateway = _gateway(
+      callbackUrl: 'com.weith.renthub://login-callback',
+      androidOverride: true,
+      callbackLinks: links.stream,
+      client: MockClient((request) async {
+        tokenRequests += 1;
+        return http.Response('{}', 500);
+      }),
+      browserLauncher: (authorization) async {
+        browserOpened.complete();
+      },
+    );
+
+    final cancelled = expectLater(
+      gateway.login(),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('cancelled'),
+        ),
+      ),
+    );
+    await browserOpened.future;
+    await gateway.cancelLogin();
+    await cancelled;
+
+    expect(tokenRequests, 0);
+    await links.close();
   });
 
   test('expired access token refreshes and retains an unrotated token',

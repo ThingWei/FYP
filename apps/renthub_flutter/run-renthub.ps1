@@ -173,6 +173,9 @@ $auth0Audience = Get-RentHubEnvironmentValue `
 $auth0WindowsClientId = Get-RentHubEnvironmentValue `
     -Path $apiEnvironment `
     -Name 'AUTH0_WINDOWS_CLIENT_ID'
+$auth0AndroidClientId = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH0_ANDROID_CLIENT_ID'
 $auth0WebClientId = Get-RentHubEnvironmentValue `
     -Path $apiEnvironment `
     -Name 'AUTH0_WEB_CLIENT_ID'
@@ -180,6 +183,10 @@ $auth0WindowsCallbackUrl = Get-RentHubEnvironmentValue `
     -Path $apiEnvironment `
     -Name 'AUTH0_WINDOWS_CALLBACK_URL' `
     -DefaultValue 'http://127.0.0.1:53124/callback'
+$auth0AndroidCallbackUrl = Get-RentHubEnvironmentValue `
+    -Path $apiEnvironment `
+    -Name 'AUTH0_ANDROID_CALLBACK_URL' `
+    -DefaultValue 'com.weith.renthub://login-callback'
 $auth0DatabaseConnection = Get-RentHubEnvironmentValue `
     -Path $apiEnvironment `
     -Name 'AUTH0_DATABASE_CONNECTION' `
@@ -388,10 +395,10 @@ try {
     }
     if ($authMode -in @('auth0', 'hybrid')) {
         if ([string]::IsNullOrWhiteSpace($auth0Issuer)) {
-            throw 'AUTH0_ISSUER_BASE_URL is required in the API .env when AUTH_MODE=auth0.'
+            throw 'AUTH0_ISSUER_BASE_URL is required in the API .env when AUTH_MODE=auth0 or hybrid.'
         }
         if ([string]::IsNullOrWhiteSpace($auth0Audience)) {
-            throw 'AUTH0_AUDIENCE is required in the API .env when AUTH_MODE=auth0.'
+            throw 'AUTH0_AUDIENCE is required in the API .env when AUTH_MODE=auth0 or hybrid.'
         }
 
         $auth0Domain = $auth0Issuer `
@@ -413,11 +420,30 @@ try {
             $clientSettingName = 'AUTH0_WEB_CLIENT_ID'
         }
         else {
-            throw 'Auth0 mobile startup is not enabled yet. Use Windows/Web or complete the Android Auth0 integration first.'
+            $auth0ClientId = $auth0AndroidClientId
+            $auth0CallbackUrl = $auth0AndroidCallbackUrl
+            $clientSettingName = 'AUTH0_ANDROID_CLIENT_ID'
+            try {
+                $androidCallback = [System.Uri]::new($auth0CallbackUrl)
+            }
+            catch {
+                throw 'AUTH0_ANDROID_CALLBACK_URL must be a valid custom URI, for example com.weith.renthub://login-callback.'
+            }
+            if ($androidCallback.Scheme -in @('http', 'https') -or `
+                [string]::IsNullOrWhiteSpace($androidCallback.Scheme) -or `
+                [string]::IsNullOrWhiteSpace($androidCallback.Host)) {
+                throw 'AUTH0_ANDROID_CALLBACK_URL must use a custom scheme and host, for example com.weith.renthub://login-callback.'
+            }
+            $arguments += @(
+                '--android-project-arg',
+                "auth0CallbackScheme=$($androidCallback.Scheme)",
+                '--android-project-arg',
+                "auth0CallbackHost=$($androidCallback.Host)"
+            )
         }
 
         if ([string]::IsNullOrWhiteSpace($auth0ClientId)) {
-            throw "$clientSettingName is required in the API .env when AUTH_MODE=auth0 and Device=$Device."
+            throw "$clientSettingName is required in the API .env when AUTH_MODE=auth0 or hybrid and Device=$Device."
         }
         $arguments += @(
             "--dart-define=AUTH0_DOMAIN=$auth0Domain",

@@ -6,8 +6,12 @@ hard-coded confidence values when a model is missing.
 ## Runtime endpoints
 
 - `POST /verify/document`: OpenCV document preparation, EasyOCR extraction and
-  spaCy/regex field parsing. Automated output is advisory; an administrator still
-  makes the legal KYC decision.
+  spaCy/regex field parsing, MRZ checks, text-region consistency heuristics, and
+  the KYC-specific EfficientNet risk signal when its artifact exists. Automated
+  output is advisory; an administrator still makes the final KYC decision.
+- `POST /verify/document-frame`: KYC-specific YOLOv8 document presence,
+  alignment, size, quality, and glare guidance for the Flutter live scanner.
+  A missing detector returns `available: false` and never invents confidence.
 - `POST /verify/item`: requires at least three images and combines OpenCV quality
   checks, duplicate detection, a trained YOLO detector and an EfficientNet-B0 risk
   classifier.
@@ -37,6 +41,8 @@ cd ..\ai
 python -m app.training.train_tabular_models --real-export ..\api\.data\pricing_observations.json --synthetic-rows 5000
 python -m app.training.train_image_risk path/to/reviewed-risk-images
 python -m app.training.train_yolo path/to/dataset.yaml
+python -m app.training.train_document_risk .data/datasets/kyc-risk-manifest.csv
+python -m app.training.train_document_yolo .data/datasets/document-yolo/data.yaml
 ```
 
 The export contains no direct user identifiers and computes every market feature
@@ -55,6 +61,8 @@ models/price_xgboost.joblib
 models/recommendation_svd.pkl
 models/image_risk_efficientnet.pt
 models/item_yolo.pt
+models/document_risk_efficientnet.pt
+models/document_yolo.pt
 models/easyocr/                 # downloaded separately or with explicit opt-in
 metrics/*.json
 ```
@@ -83,3 +91,9 @@ cold-start limitations.
 Set `EASYOCR_ALLOW_DOWNLOAD=true` only when an intentional first-run model
 download is acceptable. All uploads are sent to this service as authenticated
 base64 bytes by the API; private storage URLs are not exposed.
+
+KYC dataset provenance manifests are tracked in `datasets/manifests/`; raw
+datasets stay under ignored `.data/datasets/`. The KYC risk trainer groups all
+derivatives by `base_document_id` so one identity document cannot leak across
+train, validation, and test. No KYC model accuracy is claimed until the missing
+artifacts and held-out metrics have been produced from reviewed data.

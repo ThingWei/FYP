@@ -16,11 +16,16 @@ class VerificationRequest(BaseModel):
     expected_type: str | None = None
     expected_category: str | None = None
     profile_name: str | None = None
+    review_threshold: float = Field(default=0.8, ge=0, le=1)
+    minimum_age: int = Field(default=18, ge=18, le=100)
 
 
 class VerificationResponse(BaseModel):
     accepted: bool
-    outcome: Literal['approved', 'warning', 'manual_review', 'rejected', 'unavailable']
+    outcome: Literal[
+        'approved', 'approved_candidate', 'warning', 'manual_review',
+        'rescan_required', 'rejected', 'unavailable'
+    ]
     confidence: float = Field(ge=0, le=1)
     labels: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
@@ -30,6 +35,23 @@ class VerificationResponse(BaseModel):
     ocr_text: str = ''
     extracted_fields: dict[str, Any] = Field(default_factory=dict)
     risk_indicators: list[str] = Field(default_factory=list)
+
+
+class DocumentFrameRequest(BaseModel):
+    content_base64: str
+    content_type: Literal['image/jpeg', 'image/png'] = 'image/jpeg'
+    expected_type: Literal['mykad', 'passport', 'driving_licence']
+
+
+class DocumentFrameResponse(BaseModel):
+    available: bool
+    detected: bool
+    ready: bool
+    confidence: float = Field(ge=0, le=1)
+    guidance: str
+    quality: dict[str, Any] = Field(default_factory=dict)
+    bounding_box: list[float] | None = None
+    adapter: str
 
 
 class RecommendationCandidate(BaseModel):

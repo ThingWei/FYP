@@ -98,11 +98,70 @@ class LiveRentHubController extends ChangeNotifier {
     return uploaded[publicUrl ? 'contentUrl' : 'reference'] as String;
   }
 
+  Future<String> uploadVerificationCapture(
+    Uint8List bytes, {
+    required String filename,
+  }) async {
+    if (bytes.isEmpty) throw ApiException(400, 'The captured image is empty.');
+    final uploaded = await _perform(
+      () => api.uploadFile(
+        '/uploads',
+        bytes: bytes,
+        filename: filename,
+        purpose: 'verification_document',
+      ),
+    );
+    return uploaded['reference'] as String;
+  }
+
+  Future<Map<String, dynamic>> inspectVerificationFrame(
+    Uint8List bytes,
+    String documentType,
+  ) async =>
+      Map<String, dynamic>.from(
+        await api.request(
+          'POST',
+          '/users/me/verification/scan-frame',
+          body: {
+            'contentBase64': base64Encode(bytes),
+            'contentType': 'image/jpeg',
+            'documentType': documentType,
+          },
+        ) as Map,
+      );
+
+  Future<Map<String, dynamic>> verificationRequirements({
+    required String category,
+    double? dailyPrice,
+  }) async {
+    final query = Uri(
+      queryParameters: {
+        'category': category,
+        if (dailyPrice != null) 'dailyPrice': '$dailyPrice',
+      },
+    ).query;
+    return Map<String, dynamic>.from(
+      await api.request(
+        'GET',
+        '/users/me/verification/requirements?$query',
+      ) as Map,
+    );
+  }
+
   Future<void> deleteUpload(String reference) async {
     final match =
         RegExp(r'UPL-[A-Z0-9]+', caseSensitive: false).firstMatch(reference);
     if (match == null) return;
     await api.request('DELETE', '/uploads/${match.group(0)}');
+  }
+
+  Future<Uint8List> downloadProtectedUpload(String reference) {
+    final match =
+        RegExp(r'UPL-[A-Z0-9]+', caseSensitive: false).firstMatch(reference);
+    if (match == null) {
+      throw ApiException(400, 'The protected upload reference is invalid.');
+    }
+    return api.downloadBytes('/api/v1/uploads/${match.group(0)}/content');
   }
 
   Future<T> _perform<T>(Future<T> Function() operation) async {
@@ -536,6 +595,7 @@ class LiveRentHubController extends ChangeNotifier {
     String status, {
     String tier = 'basic',
     String reason = '',
+    String? attemptId,
   }) =>
       _perform(() async {
         final updated = await api.request(
@@ -545,6 +605,7 @@ class LiveRentHubController extends ChangeNotifier {
             'status': status,
             if (status == 'approved') 'tier': tier,
             if (reason.trim().isNotEmpty) 'reason': reason.trim(),
+            if (attemptId != null) 'attemptId': attemptId,
           },
         ) as Map<String, dynamic>;
         final index = users.indexWhere((item) => item['_id'] == userId);

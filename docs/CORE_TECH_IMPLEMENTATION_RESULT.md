@@ -1,16 +1,22 @@
 # RentHub core-technology implementation result
 
-Last updated: 2026-10-04
+Last updated: 2026-10-05
 
 This implementation follows the decisions and gaps recorded in
 `SCOPE_ALIGNMENT_AUDIT_RESULT.md`.
 
 ## Implemented end-to-end
 
-- Identity documents: protected upload bytes flow from storage through Express
-  to OpenCV, EasyOCR and spaCy/regex processing. Results and failure reasons are
-  saved with the pending KYC submission and shown to the administrator. The
-  administrator remains the legal decision-maker.
+- Identity documents: the Android/iOS live camera now sends authenticated frame
+  samples through Express to a KYC-specific YOLOv8 adapter for alignment,
+  distance, quality, glare, and stable auto-capture guidance. Protected upload
+  bytes then flow through OpenCV, EasyOCR, spaCy `EntityRuler`/Regex, MRZ and
+  consistency checks, text-region heuristics, and a dedicated EfficientNet-B0
+  risk adapter. Independent MyKad/Passport/Driving Licence attempts and safe AI
+  evidence are retained in MongoDB history. Category requirements are enforced
+  at booking and configurable by the administrator. The YOLO and document-risk
+  trainers are ready, but their reviewed datasets, artifacts, and metrics remain
+  missing; no accuracy is claimed. See `KYC_AI_RESULT.md`.
 - Physical item images: the final Owner form and API require at least three
   images. OpenCV checks quality/duplicates, YOLO checks object/category signals,
   and EfficientNet-B0 provides the trained risk classification when its artifact

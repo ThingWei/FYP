@@ -1,0 +1,15 @@
+{
+  "dataset": "FMIDV",
+  "officialSource": "https://l3i-share.univ-lr.fr/2022FMIDV/FMIDV_v3.htm",
+  "citation": "FMIDV official project page; final report citation must be copied from the dataset publication",
+  "licenceOrAccess": "Access and licence review required before download/use",
+  "accessDate": "2026-10-05",
+  "status": "not_downloaded",
+  "intendedUse": ["manipulated-document risk", "copy-move and visual alteration indicators"],
+  "subsetUsed": [],
+  "baseDocumentCount": 0,
+  "imageOrFrameCount": 0,
+  "labels": [],
+  "splitCounts": {"train": 0, "validation": 0, "test": 0},
+  "provenance": "real and manipulated research samples; grouped split required"
+}

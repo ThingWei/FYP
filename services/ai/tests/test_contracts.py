@@ -1,8 +1,17 @@
+import base64
 import os
+
+import cv2
+import numpy as np
 
 from fastapi.testclient import TestClient
 from app.main import app
 from app.services.pricing import _artifact
+from app.services.image_intelligence import (
+    _document_yolo_model,
+    _extract_document_fields,
+)
+from app.training.train_document_risk import split_rows
 client = TestClient(app)
 
 
@@ -47,6 +56,96 @@ def test_document_contract():
     assert response.status_code == 200
     assert response.json()['outcome'] == 'unavailable'
     assert response.json()['confidence'] == 0
+
+
+def _encoded_image(image):
+    success, encoded = cv2.imencode('.jpg', image)
+    assert success
+    return base64.b64encode(encoded.tobytes()).decode('ascii')
+
+
+def test_live_document_detector_missing_artifact_is_explicit(tmp_path):
+    previous = os.environ.get('DOCUMENT_YOLO_MODEL_PATH')
+    os.environ['DOCUMENT_YOLO_MODEL_PATH'] = str(tmp_path / 'missing.pt')
+    _document_yolo_model.cache_clear()
+    try:
+        image = np.full((480, 720, 3), 128, dtype=np.uint8)
+        response = client.post('/verify/document-frame', json={
+            'content_base64': _encoded_image(image),
+            'content_type': 'image/jpeg',
+            'expected_type': 'mykad',
+        })
+        assert response.status_code == 200
+        result = response.json()
+        assert result['available'] is False
+        assert result['ready'] is False
+        assert result['confidence'] == 0
+        assert 'unavailable' in result['guidance'].lower()
+    finally:
+        if previous is None:
+            os.environ.pop('DOCUMENT_YOLO_MODEL_PATH', None)
+        else:
+            os.environ['DOCUMENT_YOLO_MODEL_PATH'] = previous
+        _document_yolo_model.cache_clear()
+
+
+def test_document_quality_requests_rescan_for_severe_glare():
+    image = np.full((480, 720, 3), 120, dtype=np.uint8)
+    image[80:320, 100:500] = 255
+    response = client.post('/verify/document', json={
+        'images': [{
+            'content_base64': _encoded_image(image),
+            'content_type': 'image/jpeg',
+            'filename': 'glare.jpg',
+        }],
+        'expected_type': 'mykad',
+    })
+    assert response.status_code == 200
+    result = response.json()
+    assert result['outcome'] == 'rescan_required'
+    assert result['accepted'] is False
+    assert result['quality']['images'][0]['hasSevereGlare'] is True
+
+
+def test_mykad_and_passport_fields_use_document_specific_validation():
+    valid = _extract_document_fields(
+        'MYKAD NAMA NUR AISYAH DOB 02/10/2000 001002-10-1234',
+        'mykad',
+    )
+    invalid = _extract_document_fields('991332-10-1234', 'mykad')
+    assert valid['identityNumberFormatValid'] is True
+    assert valid['dateOfBirth'] == '2000-10-02'
+    assert invalid['identityNumberFormatValid'] is False
+
+    passport = _extract_document_fields(
+        'P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\n'
+        'L898902C36UTO7408122F1204159ZE184226B<<<<<10',
+        'passport',
+    )
+    assert passport['mrz']['present'] is True
+    assert passport['mrz']['formatValid'] is True
+    assert passport['mrz']['checkDigitsValid'] is True
+
+
+def test_document_risk_split_keeps_derivatives_with_base_document():
+    rows = [
+        {
+            'path': f'document-{group}-{label}.jpg',
+            'label': label,
+            'base_document_id': f'document-{group}',
+        }
+        for group in range(40)
+        for label in ('normal', 'risky')
+    ]
+    splits = split_rows(rows, seed=42)
+    groups = {
+        name: {row['base_document_id'] for row in selected}
+        for name, selected in splits.items()
+    }
+    assert not groups['train'] & groups['validation']
+    assert not groups['train'] & groups['test']
+    assert not groups['validation'] & groups['test']
+    assert sum(len(selected) for selected in splits.values()) == len(rows)
 def test_item_requires_three_decodable_images():
     response = client.post('/verify/item', json={'images': [], 'expected_category': 'Devices'})
     assert response.status_code == 200

@@ -23,6 +23,12 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["auth0CallbackScheme"] =
+            project.findProperty("auth0CallbackScheme")?.toString()
+                ?: "com.weith.renthub"
+        manifestPlaceholders["auth0CallbackHost"] =
+            project.findProperty("auth0CallbackHost")?.toString()
+                ?: "login-callback"
     }
 
     buildTypes {

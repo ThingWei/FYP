@@ -34,3 +34,18 @@ flutter run --dart-define=FIREBASE_ENABLED=true `
 
 For iOS, also enable Push Notifications and Background Modes -> Remote
 notifications in Xcode and upload the APNs key in Firebase Console.
+
+## Android Auth0 development
+
+Android Auth0 uses the configurable custom callback
+`com.weith.renthub://login-callback`. Configure the Android Native application
+client and callback in `services/api/.env`, then use the same launcher as the
+Windows build:
+
+```powershell
+.\run-renthub.ps1 -Device <ANDROID_DEVICE_ID>
+```
+
+The launcher supplies the Auth0 Dart defines and Android manifest placeholders
+and attempts `adb reverse tcp:3000 tcp:3000`. Firebase remains optional. See
+`docs/AUTH0_ANDROID_RESULT.md` for Auth0 Dashboard and LAN fallback setup.
