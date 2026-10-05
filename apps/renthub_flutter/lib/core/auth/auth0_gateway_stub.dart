@@ -30,6 +30,9 @@ class Auth0Gateway {
   static const secureStorageProviderKey = 'renthub_auth0_session_provider';
   static const secureStorageRefreshTokenKey =
       'renthub_auth0_session_refresh_token';
+  static const secureStoragePendingTransactionKey =
+      'renthub_auth0_pending_transaction';
+  static const pendingTransactionLifetime = Duration(minutes: 10);
 
   Auth0Gateway({
     required String domain,
@@ -41,6 +44,7 @@ class Auth0Gateway {
     http.Client? httpClient,
     Future<void> Function(Uri uri)? browserLauncher,
     Stream<Uri>? callbackLinks,
+    Future<Uri?> Function()? initialLinkProvider,
     bool? androidOverride,
     DateTime Function()? now,
   });

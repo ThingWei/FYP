@@ -2,6 +2,41 @@
 
 Date: 5 October 2026
 
+## Invalid-state root cause and fix
+
+The original Android callback listener completed on the first URI whose
+scheme, host, port, and path matched the Auth0 callback. It checked OAuth
+`state` only after consuming that URI. The `app_links` transport can expose a
+previous/duplicate link as well as the current stream event, so a stale
+callback could terminate a newer transaction with `Auth0 returned an invalid
+state value.` The expected state and PKCE verifier also existed only in memory,
+which meant Android process recreation could not finish the transaction.
+
+Android now persists one short-lived pending transaction in secure storage
+before opening Universal Login:
+
+```text
+expected state
+PKCE code_verifier
+exact redirect URI
+UTC creation timestamp
+```
+
+The transaction expires after ten minutes. RentHub subscribes to the live link
+stream and also reads `AppLinks.getInitialLink()` for a cold start. A URI is
+allowed to complete the transaction only when both the exact callback URI and
+the persisted state match. Wrong paths are ignored; stale/wrong states are
+ignored without consuming the current transaction; duplicate matching events
+can complete it only once. The authorization code is never persisted.
+
+On activity/process recreation, startup session restoration loads the pending
+transaction, validates its lifetime and redirect URI, validates the initial
+link state, and exchanges the code with the verifier belonging to that exact
+transaction. The pending record is cleared after success, explicit
+cancellation, expiry, malformed storage, or a terminal matching-callback
+failure. Rapid double-taps continue to share the gateway's single in-progress
+login future.
+
 ## Implemented architecture
 
 Android now uses the same RentHub authentication architecture as Windows and
@@ -117,10 +152,14 @@ through the host firewall:
 ## Automated verification
 
 `test/auth0_persistence_test.dart` covers the Android custom callback, ignored
-unrelated links, PKCE authorization parameters, exact redirect URI, OAuth state
-rejection, authorization-code exchange, secure refresh-token persistence, token
-restoration/rotation, invalid-grant cleanup, temporary failure retention,
-logout, Windows loopback login, and hybrid restoration priority.
+unrelated links, stale-state-then-current-state ordering, cold-start initial
+links, gateway/process recreation with the original persisted verifier,
+transaction expiry and cleanup, cancellation cleanup, PKCE authorization
+parameters, exact redirect URI, authorization-code exchange, secure
+refresh-token persistence, token restoration/rotation, invalid-grant cleanup,
+temporary failure retention, logout, Windows loopback login, and hybrid
+restoration priority. Wrong/stale states are asserted never to reach
+`/oauth/token`.
 
 Final automated results:
 

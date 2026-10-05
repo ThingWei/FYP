@@ -10,6 +10,54 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+Future<Uri?> _noInitialLink() async => null;
+
+class _PendingAuth0Transaction {
+  const _PendingAuth0Transaction({
+    required this.state,
+    required this.codeVerifier,
+    required this.redirectUri,
+    required this.createdAt,
+  });
+
+  final String state;
+  final String codeVerifier;
+  final String redirectUri;
+  final DateTime createdAt;
+
+  Map<String, dynamic> toJson() => {
+        'state': state,
+        'codeVerifier': codeVerifier,
+        'redirectUri': redirectUri,
+        'createdAtEpochMs': createdAt.toUtc().millisecondsSinceEpoch,
+      };
+
+  static _PendingAuth0Transaction? fromJson(Map<String, dynamic> json) {
+    final state = json['state'];
+    final codeVerifier = json['codeVerifier'];
+    final redirectUri = json['redirectUri'];
+    final createdAtEpochMs = json['createdAtEpochMs'];
+    if (state is! String ||
+        state.isEmpty ||
+        codeVerifier is! String ||
+        codeVerifier.isEmpty ||
+        redirectUri is! String ||
+        redirectUri.isEmpty ||
+        createdAtEpochMs is! int) {
+      return null;
+    }
+    return _PendingAuth0Transaction(
+      state: state,
+      codeVerifier: codeVerifier,
+      redirectUri: redirectUri,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        createdAtEpochMs,
+        isUtc: true,
+      ),
+    );
+  }
+}
+
 class Auth0TokenException implements Exception {
   const Auth0TokenException({
     required this.statusCode,
@@ -37,6 +85,9 @@ class Auth0Gateway {
   static const secureStorageProviderKey = 'renthub_auth0_session_provider';
   static const secureStorageRefreshTokenKey =
       'renthub_auth0_session_refresh_token';
+  static const secureStoragePendingTransactionKey =
+      'renthub_auth0_pending_transaction';
+  static const pendingTransactionLifetime = Duration(minutes: 10);
 
   Auth0Gateway({
     required String domain,
@@ -48,6 +99,7 @@ class Auth0Gateway {
     http.Client? httpClient,
     Future<void> Function(Uri uri)? browserLauncher,
     Stream<Uri>? callbackLinks,
+    Future<Uri?> Function()? initialLinkProvider,
     bool? androidOverride,
     DateTime Function()? now,
   })  : domain = domain
@@ -57,9 +109,13 @@ class Auth0Gateway {
         _httpClient = httpClient ?? http.Client(),
         _browserLauncher = browserLauncher,
         _callbackLinks = callbackLinks ??
-            (Platform.isAndroid
+            ((androidOverride ?? Platform.isAndroid)
                 ? AppLinks().uriLinkStream
                 : const Stream<Uri>.empty()),
+        _initialLinkProvider = initialLinkProvider ??
+            ((androidOverride ?? Platform.isAndroid)
+                ? AppLinks().getInitialLink
+                : _noInitialLink),
         _isAndroid = androidOverride ?? Platform.isAndroid,
         _now = now ?? DateTime.now;
 
@@ -72,6 +128,7 @@ class Auth0Gateway {
   final http.Client _httpClient;
   final Future<void> Function(Uri uri)? _browserLauncher;
   final Stream<Uri> _callbackLinks;
+  final Future<Uri?> Function() _initialLinkProvider;
   final bool _isAndroid;
   final DateTime Function() _now;
   String? _accessToken;
@@ -159,7 +216,54 @@ class Auth0Gateway {
         received.path == expected.path;
   }
 
-  Future<Uri> _waitForMobileCallback() {
+  bool _matchesTransaction(
+    Uri received,
+    _PendingAuth0Transaction transaction,
+  ) =>
+      _matchesConfiguredCallback(received) &&
+      received.queryParameters['state'] == transaction.state;
+
+  Future<void> _persistPendingTransaction(
+    _PendingAuth0Transaction transaction,
+  ) =>
+      _secureStorage.write(
+        key: secureStoragePendingTransactionKey,
+        value: jsonEncode(transaction.toJson()),
+      );
+
+  Future<void> _clearPendingTransaction() => _secureStorage.delete(
+        key: secureStoragePendingTransactionKey,
+      );
+
+  Future<_PendingAuth0Transaction?> _loadPendingTransaction() async {
+    final encoded = await _secureStorage.read(
+      key: secureStoragePendingTransactionKey,
+    );
+    if (encoded == null || encoded.isEmpty) return null;
+    _PendingAuth0Transaction? transaction;
+    try {
+      transaction = _PendingAuth0Transaction.fromJson(
+        Map<String, dynamic>.from(jsonDecode(encoded) as Map),
+      );
+    } catch (_) {
+      transaction = null;
+    }
+    if (transaction == null ||
+        transaction.redirectUri != callbackUrl ||
+        _now().toUtc().isBefore(
+              transaction.createdAt.subtract(const Duration(minutes: 1)),
+            ) ||
+        _now().toUtc().difference(transaction.createdAt) >
+            pendingTransactionLifetime) {
+      await _clearPendingTransaction();
+      return null;
+    }
+    return transaction;
+  }
+
+  Future<Uri> _waitForMobileCallback(
+    _PendingAuth0Transaction transaction,
+  ) {
     final callback = Uri.parse(callbackUrl);
     if (callback.scheme == 'http' ||
         callback.scheme == 'https' ||
@@ -174,7 +278,7 @@ class Auth0Gateway {
     late final StreamSubscription<Uri> subscription;
     subscription = _callbackLinks.listen(
       (uri) {
-        if (_matchesConfiguredCallback(uri) && !completer.isCompleted) {
+        if (_matchesTransaction(uri, transaction) && !completer.isCompleted) {
           completer.complete(uri);
         }
       },
@@ -183,6 +287,20 @@ class Auth0Gateway {
       },
     );
     _activeMobileSubscription = subscription;
+    unawaited(() async {
+      try {
+        final initialLink = await _initialLinkProvider();
+        if (initialLink != null &&
+            _matchesTransaction(initialLink, transaction) &&
+            !completer.isCompleted) {
+          completer.complete(initialLink);
+        }
+      } catch (error, stackTrace) {
+        if (!completer.isCompleted) {
+          completer.completeError(error, stackTrace);
+        }
+      }
+    }());
     return completer.future.timeout(const Duration(minutes: 3)).whenComplete(
       () async {
         await subscription.cancel();
@@ -200,6 +318,48 @@ class Auth0Gateway {
     await _activeMobileSubscription?.cancel();
     _activeMobileSubscription = null;
     _activeMobileCallback = null;
+  }
+
+  Future<Auth0Session> _completeAndroidTransaction(
+    _PendingAuth0Transaction transaction,
+    Uri response,
+  ) async {
+    if (!_matchesTransaction(response, transaction)) {
+      throw StateError('Auth0 callback does not match the pending login.');
+    }
+    final error = response.queryParameters['error_description'] ??
+        response.queryParameters['error'];
+    if (error != null) throw StateError(error);
+    final code = response.queryParameters['code'];
+    if (code == null || code.isEmpty) {
+      throw StateError('Auth0 did not return an authorization code.');
+    }
+    await _storeTokens(
+      await _tokenRequest({
+        'grant_type': 'authorization_code',
+        'client_id': clientId,
+        'code': code,
+        'code_verifier': transaction.codeVerifier,
+        'redirect_uri': transaction.redirectUri,
+      }),
+      preserveExistingRefreshToken: false,
+    );
+    return Auth0Session(accessToken: _accessToken!);
+  }
+
+  Future<String?> _resumeAndroidPendingTransaction() async {
+    final transaction = await _loadPendingTransaction();
+    if (transaction == null) return null;
+    final initialLink = await _initialLinkProvider();
+    if (initialLink == null || !_matchesTransaction(initialLink, transaction)) {
+      return null;
+    }
+    try {
+      return (await _completeAndroidTransaction(transaction, initialLink))
+          .accessToken;
+    } finally {
+      await _clearPendingTransaction();
+    }
   }
 
   Future<Map<String, dynamic>> _tokenRequest(Map<String, dynamic> body) async {
@@ -334,9 +494,22 @@ class Auth0Gateway {
     final challenge = base64UrlEncode(
       sha256.convert(utf8.encode(verifier)).bytes,
     ).replaceAll('=', '');
+    final mobileTransaction = _isAndroid
+        ? _PendingAuth0Transaction(
+            state: state,
+            codeVerifier: verifier,
+            redirectUri: callback.toString(),
+            createdAt: _now().toUtc(),
+          )
+        : null;
+    if (mobileTransaction != null) {
+      await _persistPendingTransaction(mobileTransaction);
+    }
     final server = _isAndroid ? null : await _callbackServer();
     if (server != null) _activeCallbackServer = server;
-    final mobileCallback = _isAndroid ? _waitForMobileCallback() : null;
+    final mobileCallback = mobileTransaction == null
+        ? null
+        : _waitForMobileCallback(mobileTransaction);
     try {
       final authorization = Uri.https(domain, '/authorize', {
         'client_id': clientId,
@@ -353,6 +526,9 @@ class Auth0Gateway {
       await _openBrowser(authorization);
       final response =
           _isAndroid ? await mobileCallback! : await _waitForCallback(server!);
+      if (mobileTransaction != null) {
+        return await _completeAndroidTransaction(mobileTransaction, response);
+      }
       if (response.queryParameters['state'] != state) {
         throw StateError('Auth0 returned an invalid state value.');
       }
@@ -383,6 +559,7 @@ class Auth0Gateway {
       } else if (_activeMobileCallback != null) {
         await _abandonMobileCallback();
       }
+      if (mobileTransaction != null) await _clearPendingTransaction();
     }
   }
 
@@ -393,6 +570,7 @@ class Auth0Gateway {
     if (callback != null && !callback.isCompleted) {
       callback.completeError(StateError('Auth0 login was cancelled.'));
     }
+    await _clearPendingTransaction();
   }
 
   Future<String?> token() {
@@ -405,6 +583,10 @@ class Auth0Gateway {
 
   Future<String?> _token() async {
     await _loadPersistedCredentials();
+    if (_isAndroid) {
+      final resumed = await _resumeAndroidPendingTransaction();
+      if (resumed != null) return resumed;
+    }
     if (_accessToken != null &&
         (_expiresAt?.isAfter(_now().add(const Duration(minutes: 1))) ??
             false)) {
@@ -450,8 +632,10 @@ class Auth0Gateway {
   }
 
   Future<void> logout() async {
-    await _clearTokens();
+    await Future.wait([_clearTokens(), _clearPendingTransaction()]);
   }
 
-  Future<void> clearPersistedSession() => _clearTokens();
+  Future<void> clearPersistedSession() async {
+    await Future.wait([_clearTokens(), _clearPendingTransaction()]);
+  }
 }
