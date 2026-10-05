@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../core/errors.js';
 import { adminModule } from '../admin/index.js';
 import { notifyUser } from '../communication/notification.service.js';
@@ -122,10 +122,25 @@ function invalidResetCode() {
 }
 
 function identityData(identity) {
+  const authId = String(identity.authId ?? '').trim();
+  const suppliedEmail =
+    typeof identity.email === 'string' ? identity.email.trim().toLowerCase() : '';
+  const email =
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(suppliedEmail)
+      ? suppliedEmail
+      : `auth0-${createHash('sha256')
+          .update(authId)
+          .digest('hex')
+          .slice(0, 24)}@users.renthub.local`;
+  const suppliedName =
+    typeof identity.displayName === 'string' ? identity.displayName.trim() : '';
+  const displayName =
+    suppliedName.length >= 2 ? suppliedName.slice(0, 80) : 'RentHub User';
+
   return {
-    authId: identity.authId,
-    email: identity.email ?? `${identity.authId}@mock.renthub.my`,
-    displayName: identity.displayName ?? 'RentHub User',
+    authId,
+    email,
+    displayName,
     roles: normalizeTrustedIdentityRoles(identity.roles),
   };
 }
@@ -370,14 +385,16 @@ export const userService = {
       );
     }
     normalizeStoredUserRoles(user.roles, user.activeRole);
-    user.roles = data.roles;
-    user.email = data.email;
-    if (!user.roles.includes(user.activeRole)) {
-      user.activeRole = preferredRole(data.roles);
-    }
-    user.lastLoginAt = new Date();
-    await user.save();
-    return { user, created: false };
+    const activeRole = data.roles.includes(user.activeRole)
+      ? user.activeRole
+      : preferredRole(data.roles);
+    const updated = await userRepository.updateByAuthId(data.authId, {
+      email: data.email,
+      roles: data.roles,
+      activeRole,
+      lastLoginAt: new Date(),
+    });
+    return { user: updated, created: false };
   },
 
   getMe: requireCurrentUser,
