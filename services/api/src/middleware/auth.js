@@ -20,17 +20,29 @@ export function identityFromPayload(payload) {
   if (typeof payload.sub !== 'string' || !payload.sub) {
     throw new AppError('Invalid access token subject', 401, 'UNAUTHENTICATED');
   }
+  const configuredName = payload[env.authNameClaim];
+  const fallbackName =
+    typeof configuredName === 'string' && configuredName.trim()
+      ? configuredName.trim()
+      : [payload.name, payload.nickname, payload.preferred_username]
+          .find((value) => typeof value === 'string' && value.trim())
+          ?.trim();
+  const email =
+    typeof payload[env.authEmailClaim] === 'string'
+      ? payload[env.authEmailClaim].trim()
+      : '';
+  const displayName =
+    fallbackName && fallbackName.length >= 2
+      ? fallbackName.slice(0, 80)
+      : email.includes('@')
+        ? email.split('@')[0].slice(0, 80)
+        : 'RentHub User';
+
   return {
     id: payload.sub,
     authId: payload.sub,
-    email:
-      typeof payload[env.authEmailClaim] === 'string'
-        ? payload[env.authEmailClaim]
-        : undefined,
-    displayName:
-      typeof payload[env.authNameClaim] === 'string'
-        ? payload[env.authNameClaim]
-        : undefined,
+    email: email || undefined,
+    displayName,
     roles: normalizeTrustedIdentityRoles(
       rolesFromClaim(payload[env.authRolesClaim]),
     ),
@@ -59,7 +71,6 @@ export async function assertAccountAccess(identity) {
   const user = await UserModel.findOne({ authId: identity.authId })
     .select('accountStatus accessRevokedAt')
     .lean();
-  // A profile does not exist until the first /users/session call.
   if (!user) return;
   if (user.accountStatus !== 'active') {
     throw new AppError(
@@ -71,8 +82,6 @@ export async function assertAccountAccess(identity) {
   if (
     identity.issuedAt &&
     user.accessRevokedAt &&
-    // JWT iat has one-second precision. Allow a genuinely new token minted in
-    // the revocation second instead of trapping an immediate re-login.
     identity.issuedAt.getTime() + 1000 <= user.accessRevokedAt.getTime()
   ) {
     throw new AppError(
