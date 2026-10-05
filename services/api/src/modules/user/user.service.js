@@ -493,21 +493,20 @@ export const userService = {
   async selectRole(identity, role) {
     const user = await requireCurrentUser(identity);
     const normalized = normalizeStoredUserRoles(user.roles, user.activeRole);
-    user.roles = normalized.roles;
-    user.activeRole = normalized.activeRole;
-    if (!isMarketplaceRole(role) || user.roles.includes('admin')) {
+    if (!isMarketplaceRole(role) || normalized.roles.includes('admin')) {
       throw new AppError(
         'Role switching is available only to marketplace accounts',
         403,
         'ROLE_SWITCH_NOT_AVAILABLE',
       );
     }
-    if (!user.roles.includes(role)) {
+    if (!normalized.roles.includes(role)) {
       throw new AppError('Role is not assigned to this user', 403, 'ROLE_NOT_ASSIGNED');
     }
-    user.activeRole = role;
-    await user.save();
-    return user;
+    return userRepository.updateByAuthId(user.authId, {
+      roles: normalized.roles,
+      activeRole: role,
+    });
   },
 
   async submitVerification(identity, input) {
