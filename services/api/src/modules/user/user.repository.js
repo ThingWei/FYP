@@ -24,10 +24,10 @@ export const userRepository = {
 
   create: (data) => UserModel.create(data),
 
-  updateByAuthId: (authId, data) =>
+  updateByAuthId: (authId, data, { runValidators = true } = {}) =>
     UserModel.findOneAndUpdate({ authId }, data, {
       new: true,
-      runValidators: true,
+      runValidators,
     }),
 
   updateById: (id, data) =>
