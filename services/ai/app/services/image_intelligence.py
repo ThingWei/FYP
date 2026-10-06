@@ -5,6 +5,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from .mykad_field_risk import analyse_fields
+
 from ..schemas import (
     DocumentFrameRequest,
     DocumentFrameResponse,
@@ -354,7 +356,15 @@ def _document_risk_model():
     if not path.is_file():
         return None, path
     import torch
-    model = torch.jit.load(str(path), map_location='cpu')
+    import json
+    extra = {'renthub_provenance.json': ''}
+    model = torch.jit.load(str(path), map_location='cpu', _extra_files=extra)
+    if extra['renthub_provenance.json']:
+        provenance = json.loads(extra['renthub_provenance.json'])
+        if provenance.get('containsSyntheticManipulations') or \
+                provenance.get('inputContract', {}).get('inputMode') == 'fields':
+            # Synthetic MyKad/crop artifacts must not be applied to passports/full images.
+            return None, path
     model.eval()
     return model, path
 
@@ -633,8 +643,20 @@ class ImageIntelligenceService:
         )
         driving_evidence = request.expected_type == 'driving_licence'
         fields['reviewScope'] = 'driving_eligibility' if driving_evidence else 'identity_kyc'
-        risk_model, risk_path = (None, None) if driving_evidence else _document_risk_model()
-        if risk_model is not None:
+        mykad_evidence = request.expected_type == 'mykad'
+        risk_model, risk_path = (None, None) if driving_evidence or mykad_evidence else _document_risk_model()
+        if mykad_evidence:
+            research = analyse_fields([image for _, image in decoded])
+            fields['documentFieldRisk'] = research
+            fields['documentRiskModel'] = research['status']
+            fields['documentRiskSourceType'] = 'synthetic_manipulation'
+            fields['requiresAdminReview'] = True
+            if research['riskScore'] is not None:
+                fields['documentRiskScore'] = research['riskScore']
+            reasons.extend(research['warnings'])
+            if research['signal'] == 'elevated_signal':
+                risk_indicators.append('Synthetic-trained MyKad field classifier reported an advisory elevated-risk signal')
+        elif risk_model is not None:
             scores = [_risk_probability(risk_model, image) for _, image in decoded]
             fields['documentRiskScore'] = round(max(scores), 4)
             if max(scores) >= 0.65:
@@ -647,6 +669,7 @@ class ImageIntelligenceService:
             fields['documentRiskModelPath'] = risk_path.name
             reasons.append('Document risk model is unavailable; manual review is required')
         approved = (
+            not mykad_evidence and
             bool(fields.get('identityNumber')) and
             not reasons and
             not risk_indicators and
@@ -658,11 +681,15 @@ class ImageIntelligenceService:
             confidence=round(max(0, min(1, ocr_confidence)), 4),
             labels=[fields.get('documentType', 'unclassified_document')],
             reasons=reasons or ['Document signals passed automated checks'],
-            adapter='opencv-easyocr-spacy-risk-v2',
+            adapter='opencv-easyocr-mykad-field-risk-v3' if mykad_evidence else 'opencv-easyocr-spacy-risk-v2',
             model_versions={
                 'ocr': 'easyocr-1.7',
                 'nlp': 'spacy-entity-ruler-v2',
-                'risk': 'not_applicable' if driving_evidence else 'document-risk-efficientnet-b0' if risk_model else 'unavailable',
+                'risk': ('mykad-synthetic-field-risk-advisory-v1' if fields.get('documentRiskScore') is not None else 'unavailable')
+                        if mykad_evidence else 'not_applicable' if driving_evidence else 'document-risk-efficientnet-b0' if risk_model else 'unavailable',
+                **({'fieldDetection': research['models']['fieldDetector'],
+                    'fieldRiskClassifier': research['models']['fieldRiskClassifier']}
+                   if mykad_evidence and research['scoredFieldCount'] else {}),
             },
             quality={'images': qualities, 'ocr': per_image},
             ocr_text=text,

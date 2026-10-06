@@ -885,6 +885,34 @@ async function syntheticMykadAccount(t) {
   return { renter, admin, id, mismatch: () => { licenceIdentity = '910101-07-1234'; } };
 }
 
+test('synthetic field-risk evidence stays pending and is persisted without raw OCR', async (t) => {
+  const advisory = {
+    status: 'available', sourceType: 'synthetic_manipulation',
+    advisoryOnly: true, requiresAdminReview: true,
+    riskScore: 0.1, signal: 'no_elevated_signal', scoredFieldCount: 2,
+    images: [{ side: 'front', fields: [{ field: 'front_identity_number', riskScore: 0.1 }] }],
+  };
+  t.mock.method(aiClient, 'verifyDocument', async () => ({
+    accepted: false, outcome: 'manual_review', confidence: 0.95,
+    ocr_text: 'Synthetic private OCR fixture',
+    extracted_fields: { identityNumber: '900101-07-1234', identityNumberFormatValid: true,
+      documentFieldRisk: advisory, requiresAdminReview: true },
+    reasons: ['Synthetic research only; administrator review required'],
+  }));
+  const renter = identity();
+  await request(app).post('/api/v1/users/session').set(renter);
+  const response = await request(app).post('/api/v1/users/me/verification').set(renter)
+    .send({ documentType: 'mykad', documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.data.verification.status, 'pending');
+  const stored = await UserModel.findById(response.body.data._id).lean();
+  const evidence = stored.verification.history[0].aiEvidence;
+  assert.deepEqual(evidence.extracted_fields.documentFieldRisk, advisory);
+  assert.equal(evidence.ocr_text, undefined);
+  assert.notEqual(evidence.extracted_fields.identityNumber, '900101-07-1234');
+  assert.equal(evidence.extracted_fields.requiresAdminReview, true);
+});
+
 const drivingApproval = { status: 'approved', licenceClasses: ['D', 'B2'], expiresAt: '2035-01-01',
   identityMatchConfirmed: true, classReviewConfirmed: true };
 

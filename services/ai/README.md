@@ -92,6 +92,28 @@ Set `EASYOCR_ALLOW_DOWNLOAD=true` only when an intentional first-run model
 download is acceptable. All uploads are sent to this service as authenticated
 base64 bytes by the API; private storage URLs are not exposed.
 
+## Advisory MyKad field risk
+
+MyKad `/verify/document` analysis now uses the combined field detector and
+synthetic field-crop classifier when the quality/OCR gates pass. Default artifacts:
+`models/mykad_fields_front_back_yolo.pt` and
+`models/document_risk_synthetic_fields_v2_efficientnet.pt`. Optional process
+settings: `MYKAD_FIELD_RISK_ENABLED`, `MYKAD_FIELD_MODEL_PATH`,
+`MYKAD_FIELD_RISK_MODEL_PATH`, `MYKAD_FIELD_DETECTION_THRESHOLD` (default 0.5).
+Existing default filenames require no configuration changes. A plain AI `.env`
+is not automatically read by the launcher: pass overrides to its process environment.
+
+Evidence lives in `extracted_fields.documentFieldRisk` and always identifies
+synthetic provenance, uncalibrated field scores and administrator review. Missing,
+partial, disabled or incompatible models do not grant clearance. All synthetic
+MyKad results remain `manual_review`; Express keeps the attempt pending and the
+admin UI displays the coverage and advisory signal. Driving evidence, passport
+and whole-card live scanning remain separate. Do not set `DOCUMENT_RISK_MODEL_PATH`
+to this crop artifact. Health presence flags are not performance/compatibility proof.
+Restart the AI service and Flutter after updating; existing attempts are not
+automatically reanalysed. See
+`../../docs/MYKAD_FIELD_RISK_INTEGRATION_RESULT.md` for validation and limitations.
+
 KYC dataset provenance manifests are tracked in `datasets/manifests/`; raw
 datasets stay under ignored `.data/datasets/`. The KYC risk trainer groups all
 derivatives by `base_document_id` so one identity document cannot leak across

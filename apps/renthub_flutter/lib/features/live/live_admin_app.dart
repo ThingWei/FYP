@@ -9,6 +9,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_document_field_risk_panel.dart';
 
 class LiveAdminApp extends StatelessWidget {
   const LiveAdminApp({super.key});
@@ -793,6 +794,11 @@ class _AdminVerificationState extends State<_AdminVerification> {
                       Text(attemptDocumentType == 'driving_licence'
                           ? 'Driving evidence (OCR/rules only) | Holder match: ${ocr['identityMatch'] ?? 'unavailable'} | MyKad approval required'
                           : 'Identity AI assistance: ${ocr['outcome'] ?? 'unavailable'} | OCR confidence: ${(((ocr['confidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%'),
+                      if (extracted['documentFieldRisk'] is Map)
+                        DocumentFieldRiskPanel(
+                          evidence: Map<String, dynamic>.from(
+                              extracted['documentFieldRisk'] as Map),
+                        ),
                       if ((ocr['reasons'] as List? ?? const []).isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
@@ -806,7 +812,11 @@ class _AdminVerificationState extends State<_AdminVerification> {
                         Text(
                           'Extracted evidence: ${extracted.entries.where((entry) => ![
                                 'address',
-                                'fullName'
+                                'fullName',
+                                'documentFieldRisk',
+                                'documentRiskScore',
+                                'documentRiskSourceType',
+                                'requiresAdminReview',
                               ].contains(entry.key)).map((entry) => '${entry.key}: ${entry.value}').join(' | ')}',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),

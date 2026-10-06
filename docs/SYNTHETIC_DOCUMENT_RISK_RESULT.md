@@ -231,6 +231,11 @@ baseline. **No improved accuracy is claimed until these experiments are run.**
 
 ## Remaining work
 
+Runtime continuation: the user has now trained both new artifacts, and explicitly
+requested integration. See `MYKAD_FIELD_RISK_INTEGRATION_RESULT.md` for the current
+advisory-only detector-selected crop pipeline and measured results. Earlier
+"not integrated" statements above describe the original training-only delivery.
+
 1. Confirm source permission and holder grouping; optionally supply reviewed
    `--groups-csv`. Keep protected application KYC uploads out of training.
 2. Spot-review the user's generated samples (`--limit-groups 20` remains supported

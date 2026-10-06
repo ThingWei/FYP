@@ -121,6 +121,7 @@ def analyse_ocr(monkeypatch):
     monkeypatch.setattr(intelligence, '_ocr_preprocess', lambda image: image)
     monkeypatch.setattr(intelligence, '_text_region_signals', lambda image, results: ('normal', []))
     monkeypatch.setattr(intelligence, '_document_risk_model', lambda: (None, Path('missing-risk.pt')))
+    monkeypatch.setenv('MYKAD_FIELD_MODEL_PATH', str(Path('missing-mykad-field-detector.pt')))
 
     def analyse(text, expected):
         texts = [text] if isinstance(text, str) else text
@@ -206,6 +207,7 @@ def test_driving_assistance_does_not_load_or_claim_a_trained_licence_risk_model(
     def forbidden_model():
         raise AssertionError('Driving evidence must not depend on a trained KYC risk model')
     monkeypatch.setattr(intelligence, '_document_risk_model', forbidden_model)
+    monkeypatch.setattr(intelligence, 'analyse_fields', lambda images: forbidden_model())
     result = analyse_ocr(LICENCE, 'driving_licence')
     assert result['model_versions']['risk'] == 'not_applicable'
     assert result['extracted_fields']['reviewScope'] == 'driving_eligibility'

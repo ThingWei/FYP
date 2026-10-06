@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from PIL import Image, ImageOps
+from PIL import Image
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -30,6 +30,8 @@ from sklearn.model_selection import GroupShuffleSplit
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
+
+from ..services.document_risk_preprocessing import Letterbox, crop_field, parse_region
 
 
 CLASSES = ('normal', 'risky')
@@ -52,43 +54,6 @@ class ManifestDataset(Dataset):
         if self.input_mode == 'fields':
             image = crop_field(image, row['region_xyxy'], self.crop_padding)
         return self.transform(image), CLASSES.index(row['label'])
-
-
-def parse_region(value, image_size):
-    """Validate coordinates against the encoded image, never invent a region."""
-    try:
-        box = json.loads(value) if isinstance(value, str) else value
-        if not isinstance(box, (list, tuple)) or len(box) != 4 or any(
-            isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
-            for v in box
-        ):
-            raise ValueError
-        x1, y1, x2, y2 = box
-        width, height = image_size
-        if not (0 <= x1 < x2 <= width and 0 <= y1 < y2 <= height):
-            raise ValueError
-        return tuple(box)
-    except (ValueError, TypeError, json.JSONDecodeError):
-        raise ValueError('Invalid or missing field region_xyxy') from None
-
-
-def crop_field(image, box, padding):
-    x1, y1, x2, y2 = parse_region(box, image.size)
-    dx, dy = (x2 - x1) * padding, (y2 - y1) * padding
-    return image.crop((max(0, math.floor(x1 - dx)), max(0, math.floor(y1 - dy)),
-                       min(image.width, math.ceil(x2 + dx)),
-                       min(image.height, math.ceil(y2 + dy))))
-
-
-class Letterbox:
-    """Preserve text aspect ratio; the same padding is used for both labels."""
-
-    def __init__(self, size):
-        self.size = size
-
-    def __call__(self, image):
-        return ImageOps.pad(image, (self.size, self.size),
-                            method=Image.Resampling.BILINEAR, color=(127, 127, 127))
 
 
 def validate_field_pairs(rows):

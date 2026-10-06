@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from .routers.recommendation import router as recommendation_router
 from .routers.verification import router as verification_router
 from .services.pricing import _artifact as pricing_artifact
+from .services.mykad_field_risk import availability as mykad_field_availability
 
 app = FastAPI(title='RentHub AI Service', version='2.0.0')
 
@@ -13,6 +14,7 @@ app = FastAPI(title='RentHub AI Service', version='2.0.0')
 @app.get('/health')
 def health():
     price_bundle, price_path, price_error = pricing_artifact()
+    field_status = mykad_field_availability()
     artifacts = {
         'price_model': price_bundle is not None,
         'recommendation_model': Path(
@@ -32,6 +34,8 @@ def health():
             )
         ).is_file(),
         'easyocr_models': Path(os.getenv('EASYOCR_MODEL_DIR', 'models/easyocr')).is_dir(),
+        'mykad_field_detector': field_status['detectorPresent'],
+        'mykad_field_risk_model': field_status['classifierPresent'],
     }
     return {
         'status': 'ok',
@@ -39,6 +43,7 @@ def health():
         'artifacts': artifacts,
         'ready_artifact_count': sum(artifacts.values()),
         'required_artifact_count': len(artifacts),
+        'mykad_field_risk_status': field_status,
         'price_model_status': {
             'compatible': price_bundle is not None,
             'path': str(price_path),

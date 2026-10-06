@@ -1,0 +1,56 @@
+{
+  "model": "YOLOv8n MyKad field detector",
+  "purpose": "field_localization",
+  "seed": 42,
+  "artifact": "mykad_fields_front_back_yolo.pt",
+  "classes": [
+    "back_chip_logo",
+    "back_coat_of_arm",
+    "back_identity_number",
+    "back_king_crown",
+    "back_klcc_tower",
+    "back_pengarah_pendaftaran",
+    "back_serial_number",
+    "back_signature",
+    "back_tng_logo",
+    "front_address",
+    "front_face",
+    "front_face_watermark",
+    "front_identity_number",
+    "front_name",
+    "front_religion",
+    "front_sex",
+    "front_states"
+  ],
+  "sideSplitImageCounts": {
+    "train": {
+      "front": 145,
+      "back": 180
+    },
+    "val": {
+      "front": 35,
+      "back": 36
+    },
+    "test": {
+      "front": 26,
+      "back": 48
+    }
+  },
+  "evaluationSplit": "validation",
+  "automaticRuntimeActivation": false,
+  "metrics": {
+    "metrics/precision(B)": 0.9806023880724444,
+    "metrics/recall(B)": 0.9758347737959765,
+    "metrics/mAP50(B)": 0.9854868696808138,
+    "metrics/mAP50-95(B)": 0.6432451769272943,
+    "fitness": 0.6774693462026463
+  },
+  "requiredEvaluationSlices": [
+    "rotation",
+    "perspective",
+    "partial_misalignment",
+    "distance_scale",
+    "lighting"
+  ],
+  "limitations": "Detection is not proof of document authenticity. Test-set evaluation is separate."
+}
