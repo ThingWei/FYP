@@ -64,3 +64,53 @@ reviewed `normal/risky` manifest; neither field nor card detection proves validi
 
 See `../../../docs/MYKAD_DATASET_PREPARATION_RESULT.md` for measured audit results
 and remaining work. No detector training or accuracy claim is made during preparation.
+
+## Rear and combined front/back organization
+
+The supplied rear export is kept intact at
+`.data/datasets/mykad_back/MYKAD REAR.v3i.yolov8/`. The new prepared copies are:
+
+- `.data/datasets/mykad_back_fields_prepared_v1/`: rear-only research fields.
+- `.data/datasets/mykad_front_back_fields_prepared_v1/`: combined fields with
+  17 remapped, side-specific classes. This is the new input for front/back field
+  research; the earlier front-only dataset/model remains untouched.
+
+Reproduction commands (existing output directories cannot be overwritten):
+
+```powershell
+.\.venv\Scripts\python.exe -m app.training.prepare_mykad_dataset `
+  ".data/datasets/mykad_back/MYKAD REAR.v3i.yolov8" `
+  --output .data/datasets/mykad_back_fields_prepared_v1
+```
+
+To create the combined research fields:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.training.organize_mykad_fields `
+  --front .data/datasets/mykad/c4rd2.v1i.yolov8 `
+  --back ".data/datasets/mykad_back/MYKAD REAR.v3i.yolov8" `
+  --output .data/datasets/mykad_front_back_fields_prepared_v1
+```
+
+The combined tool keeps `front_identity_number`, `back_identity_number` and
+`back_serial_number` distinct. Source class IDs are remapped, not blindly copied.
+Unrelated datasets' filename groups are namespaced by side; exact duplicates
+within a side stay in one split, and assigning identical bytes to both sides is
+rejected for human review. Provide `--front-groups-csv` and `--back-groups-csv`
+with common holder IDs to consolidate known front/back pairs across sources.
+No pairing or same-holder relationship is assumed from separate downloads.
+
+Every split must contain both sides; missing rare classes are reported without
+inventing labels. Generated `audit.json` includes class maps and split counts;
+`groups.csv` contains hashed proxy/supplied groups, **not verified identity truth**.
+See `../../../docs/MYKAD_FRONT_BACK_DATASET_RESULT.md` for measured results.
+
+Optional training after consent/licence and identity-group review:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.training.train_mykad_fields .data/datasets/mykad_front_back_fields_prepared_v1/data.yaml --epochs 80
+```
+
+This explicitly replaces the earlier front-only `models/mykad_fields_yolo.pt`
+when run. It does not replace `document_yolo.pt`, train a tamper model, or activate
+field-aware OCR in verification. No training is started by organization.

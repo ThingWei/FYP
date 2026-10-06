@@ -2,41 +2,41 @@
   "dataset": "marketplace-plus-labelled-synthetic-v2",
   "seed": 42,
   "splitStrategy": "per-user chronological holdout",
-  "trainInteractions": 2645,
+  "trainInteractions": 2648,
   "testInteractions": 723,
-  "rmse": 0.9011077892648088,
-  "mae": 0.712688802824481,
-  "precisionAt5": 0.01818181818181818,
-  "recallAt5": 0.05776515151515152,
-  "hitRateAt5": 0.09090909090909091,
+  "rmse": 0.9037234386937213,
+  "mae": 0.7132466219809741,
+  "precisionAt5": 0.015909090909090907,
+  "recallAt5": 0.05208333333333334,
+  "hitRateAt5": 0.07954545454545454,
   "rankingUsers": 88,
   "rankingLimitation": null,
   "provenance": {
     "schemaVersion": "renthub-recommendation-interactions-v1",
-    "users": 124,
-    "listings": 185,
-    "interactions": 3368,
-    "realMarketplaceInteractions": 8,
+    "users": 127,
+    "listings": 186,
+    "interactions": 3371,
+    "realMarketplaceInteractions": 11,
     "demoSeedInteractions": 0,
     "syntheticInteractions": 3360,
     "discardedInvalidRows": 0,
     "sourceDistribution": {
       "synthetic": 3360,
-      "marketplace": 8
+      "marketplace": 11
     },
     "interactionDistribution": {
       "synthetic_preference": 3360,
-      "booking": 7,
-      "published_review": 1
+      "booking": 9,
+      "published_review": 2
     },
     "ratingDistribution": {
       "1.0": 52,
       "2.0": 545,
       "3.0": 1447,
-      "4.0": 999,
-      "5.0": 325
+      "4.0": 1001,
+      "5.0": 326
     },
-    "fingerprintSha256": "a3fc1f7f3c7aa64c72bf0d36de63c3781efc34ade723a5151c582c39c8d43e8e"
+    "fingerprintSha256": "0925052b6a1ff10d335dc8b10dce2317e73a0e72a0c062c420e4eeca162b0277"
   },
   "versions": {
     "surprise": "1.1.4",

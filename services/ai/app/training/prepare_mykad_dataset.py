@@ -77,6 +77,33 @@ def _reviewed_groups(source, groups_csv):
     return mapping
 
 
+def assign_group_ids(rows):
+    """Union source groups and byte duplicates, including across datasets."""
+    parents = list(range(len(rows)))
+
+    def root(index):
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    seen = {}
+    for index, row in enumerate(rows):
+        for key in (('group', row['source_group']), ('bytes', row['content_hash'])):
+            if key in seen:
+                parents[root(index)] = root(seen[key])
+            else:
+                seen[key] = index
+    members = defaultdict(list)
+    for index, row in enumerate(rows):
+        members[root(index)].append(row)
+    for group in members.values():
+        group_id = _digest('\n'.join(sorted({row['source_group'] for row in group})))
+        for row in group:
+            row['group_id'] = group_id
+    return members
+
+
 def inspect_dataset(source, groups_csv=None):
     source = Path(source).resolve()
     names = dataset_names(source / 'data.yaml')
@@ -147,28 +174,7 @@ def inspect_dataset(source, groups_csv=None):
 
     # Union groups both by source identity and exact bytes. Even renamed copies
     # may not enter another evaluation split.
-    parents = list(range(len(rows)))
-
-    def root(index):
-        while parents[index] != index:
-            parents[index] = parents[parents[index]]
-            index = parents[index]
-        return index
-
-    seen = {}
-    for index, row in enumerate(rows):
-        for key in (('group', row['source_group']), ('bytes', row['content_hash'])):
-            if key in seen:
-                parents[root(index)] = root(seen[key])
-            else:
-                seen[key] = index
-    members = defaultdict(list)
-    for index, row in enumerate(rows):
-        members[root(index)].append(row)
-    for group in members.values():
-        group_id = _digest('\n'.join(sorted({row['source_group'] for row in group})))
-        for row in group:
-            row['group_id'] = group_id
+    members = assign_group_ids(rows)
 
     group_splits = defaultdict(set)
     hash_splits = defaultdict(set)
@@ -217,6 +223,16 @@ def prepare_dataset(source, output, groups_csv=None, seed=42):
         raise FileExistsError('Output already exists; use a new folder, never overwrite')
     names, rows, report = inspect_dataset(source, groups_csv)
     validate_detector_domain(source / 'data.yaml', 'fields')
+    for row in rows:
+        row['output_key'] = row['path'].relative_to(source).as_posix()
+    return write_prepared_dataset(rows, names, output, report, seed)
+
+
+def write_prepared_dataset(rows, names, output, report, seed=42):
+    """Write a new copy; optional label maps never modify source files."""
+    output = Path(output).resolve()
+    if output.exists():
+        raise FileExistsError('Output already exists; use a new folder, never overwrite')
     assignments = grouped_splits(rows, seed)
     split_groups, split_counts = defaultdict(set), Counter()
     class_counts = {split: Counter() for split in ('train', 'val', 'test')}
@@ -227,10 +243,20 @@ def prepare_dataset(source, output, groups_csv=None, seed=42):
     manifest = []
     for row in rows:
         split = assignments[row['path']]
-        opaque_name = _digest(row['path'].relative_to(source).as_posix())
+        opaque_name = _digest(row['output_key'])
         relative = Path(split) / 'images' / f"{opaque_name}{row['path'].suffix.lower()}"
         shutil.copyfile(row['path'], output / relative)
-        shutil.copyfile(row['label'], output / split / 'labels' / f'{opaque_name}.txt')
+        target_label = output / split / 'labels' / f'{opaque_name}.txt'
+        if 'label_map' in row:
+            remapped = []
+            for line in row['label'].read_text(encoding='utf-8-sig').splitlines():
+                if line.strip():
+                    parts = line.split()
+                    parts[0] = str(row['label_map'][int(parts[0])])
+                    remapped.append(' '.join(parts))
+            target_label.write_text('\n'.join(remapped) + ('\n' if remapped else ''), encoding='utf-8')
+        else:
+            shutil.copyfile(row['label'], target_label)
         split_groups[split].add(row['group_id'])
         split_counts[split] += 1
         class_counts[split].update(names[index] for index in row['classes'])

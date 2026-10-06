@@ -1,0 +1,20 @@
+{
+  "model": "YOLOv8n MyKad field detector",
+  "purpose": "field_localization",
+  "seed": 42,
+  "metrics": {
+    "metrics/precision(B)": 0.9473641831528345,
+    "metrics/recall(B)": 0.9401522474476949,
+    "metrics/mAP50(B)": 0.9686284494796438,
+    "metrics/mAP50-95(B)": 0.5673623169094735,
+    "fitness": 0.6074889301664905
+  },
+  "requiredEvaluationSlices": [
+    "rotation",
+    "perspective",
+    "partial_misalignment",
+    "distance_scale",
+    "lighting"
+  ],
+  "limitations": "Detection is not proof of document authenticity. Test-set evaluation is separate."
+}

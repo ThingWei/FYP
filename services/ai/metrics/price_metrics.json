@@ -1,27 +1,27 @@
 {
   "schemaVersion": "renthub-price-v2",
   "dataset": {
-    "rows": 5013,
+    "rows": 5019,
     "sourceTypes": {
       "synthetic": 5000,
-      "real": 13
+      "real": 19
     },
     "targetSources": {
       "synthetic_seed": 5000,
-      "active_asking": 11,
-      "completed_rental": 1,
-      "accepted_booking": 1
+      "active_asking": 13,
+      "accepted_booking": 4,
+      "completed_rental": 2
     },
     "categories": {
       "Books": 1044,
-      "Devices": 1022,
+      "Devices": 1023,
       "Clothing": 999,
-      "Vehicles": 992,
+      "Vehicles": 997,
       "Equipment": 956
     },
     "target": {
       "minimum": 1.0,
-      "median": 37.83,
+      "median": 37.87,
       "maximum": 1443.5
     },
     "nullRates": {
@@ -31,109 +31,108 @@
       "brand": 0.0,
       "product_model": 0.0,
       "state": 0.0,
-      "item_age_years": 0.0026,
+      "item_age_years": 0.0024,
       "rental_duration_days": 0.0,
       "comparable_active_count": 0.0,
-      "comparable_active_median": 0.0349,
-      "comparable_active_mean": 0.0349,
-      "comparable_active_iqr": 0.1169,
+      "comparable_active_median": 0.0347,
+      "comparable_active_mean": 0.0347,
+      "comparable_active_iqr": 0.1166,
       "historical_rental_count": 0.0,
-      "historical_rental_median": 0.0227,
-      "historical_rental_mean": 0.0227,
-      "historical_rental_iqr": 0.078,
-      "market_freshness_days": 0.0022,
+      "historical_rental_median": 0.0235,
+      "historical_rental_mean": 0.0235,
+      "historical_rental_iqr": 0.0787,
+      "market_freshness_days": 0.002,
       "demand_supply_ratio": 0.0,
-      "owner_trust_score": 0.0026,
+      "owner_trust_score": 0.0038,
       "owner_average_rating": 0.0,
       "owner_completed_rentals": 0.0,
       "prediction_month": 0.0
     },
     "duplicates": 0,
-    "highOutliersAboveThreeIqr": 110,
-    "fingerprintSha256": "c8742700e47e6b15388a8d53da0dc7cc52434957f162f253d6ca9830779bf9cc",
+    "highOutliersAboveThreeIqr": 111,
+    "fingerprintSha256": "66aad34c429551e5aa206be5fe3cea8d736f8c85bcfaa10e11ad8a49a718359a",
     "seed": 42
   },
   "split": {
     "strategy": "grouped-by-product-model",
-    "trainRows": 3430,
-    "validationRows": 775,
-    "testRows": 808
+    "trainRows": 3458,
+    "validationRows": 773,
+    "testRows": 788
   },
   "globalModel": {
-    "rows": 808,
-    "mae": 10.359305039933412,
-    "rmse": 24.139552149148344,
-    "r2": 0.978579891890706
+    "rows": 788,
+    "mae": 11.602178554249749,
+    "rmse": 26.193726081060422,
+    "r2": 0.9728160865142802
   },
   "selectedModelStrategy": {
-    "rows": 808,
-    "mae": 10.38568004267936,
-    "rmse": 24.72179577700187,
-    "r2": 0.9775341285124048
+    "rows": 788,
+    "mae": 11.187850778217092,
+    "rmse": 26.055821761445287,
+    "r2": 0.9731015679173741
   },
   "baseline": {
-    "rows": 808,
-    "mae": 66.09959777227724,
-    "rmse": 128.3724026339525,
-    "r2": 0.3942316475015718
+    "rows": 788,
+    "mae": 65.5772842639594,
+    "rmse": 122.26932299174803,
+    "r2": 0.4076854089135441
   },
   "categories": {
     "Books": {
-      "rows": 256,
-      "mae": 0.7739397858455777,
-      "rmse": 1.2824730619239952,
-      "r2": 0.9416056160871693,
+      "rows": 252,
+      "mae": 0.7599515252548551,
+      "rmse": 1.293574086905104,
+      "r2": 0.9451383428068089,
       "selectedCategoryModel": true,
-      "validationMae": 0.8077920867563262
+      "validationMae": 0.8046369985331382
     },
     "Clothing": {
-      "rows": 146,
-      "mae": 1.6224920691202764,
-      "rmse": 2.93840968765874,
-      "r2": 0.9219008770875793,
+      "rows": 102,
+      "mae": 1.6619023961646886,
+      "rmse": 2.750662361203441,
+      "r2": 0.9515380236600586,
       "selectedCategoryModel": true,
-      "validationMae": 1.5662672207737696
+      "validationMae": 1.3785130642871468
     },
     "Devices": {
-      "rows": 123,
-      "mae": 9.21328586177128,
-      "rmse": 14.03279842510581,
-      "r2": 0.9660605445419019,
+      "rows": 128,
+      "mae": 10.142003852850756,
+      "rmse": 15.230651736124663,
+      "r2": 0.9554921018572333,
       "selectedCategoryModel": false
     },
     "Equipment": {
-      "rows": 100,
-      "mae": 13.32733663005829,
-      "rmse": 20.021399072617605,
-      "r2": 0.9787337070466816,
+      "rows": 96,
+      "mae": 15.730808242360752,
+      "rmse": 21.634461888302994,
+      "r2": 0.9500191740352945,
       "selectedCategoryModel": false
     },
     "Vehicles": {
-      "rows": 183,
-      "mae": 30.00354766783167,
-      "rmse": 48.35177909033452,
-      "r2": 0.9559088904344233,
-      "selectedCategoryModel": true,
-      "validationMae": 27.415423859231844
+      "rows": 210,
+      "mae": 26.888907143002466,
+      "rmse": 46.75972394580343,
+      "r2": 0.9534944164404084,
+      "selectedCategoryModel": false
     }
   },
   "sourceTypes": {
     "real": {
-      "rows": 3,
-      "mae": 41.21010080973307,
-      "rmse": 43.35226436088867,
-      "r2": -6.695527491786807
+      "rows": 5,
+      "mae": 24.378877319335935,
+      "rmse": 32.65104445006467,
+      "r2": -5.9807456226859665
     },
     "synthetic": {
-      "rows": 805,
-      "mae": 10.244333130232295,
-      "rmse": 24.039250247121522,
-      "r2": 0.9788246417315337
+      "rows": 783,
+      "mae": 11.520590439530169,
+      "rmse": 26.147367992717648,
+      "r2": 0.9730545522390397
     }
   },
   "predictionInterval": {
     "quantile": 0.9,
-    "testCoverage": 0.900990099009901
+    "testCoverage": 0.883248730964467
   },
   "seed": 42,
   "targetSourceWeights": {
@@ -148,122 +147,122 @@
   "featureImportance": {
     "method": "held-out permutation MAE increase; native XGBoost gain",
     "permutationMeanMaeIncrease": {
-      "category": 2.1944800420885926,
-      "subcategory": 0.06063276669265001,
-      "condition": 0.04053947739760524,
-      "brand": 0.023407717509434534,
+      "category": 2.514964652035442,
+      "subcategory": 0.10593655976229428,
+      "condition": 0.0005008591891538572,
+      "brand": 0.059036135364000944,
       "product_model": 0.0,
-      "state": 0.010359716048040113,
-      "item_age_years": 13.79822435939666,
-      "rental_duration_days": 0.8008636000250828,
-      "comparable_active_count": 0.021872603728887087,
-      "comparable_active_median": 24.886078995594737,
-      "comparable_active_mean": 19.62280003074711,
-      "comparable_active_iqr": 0.5050004594352568,
-      "historical_rental_count": 0.21216605927581894,
-      "historical_rental_median": 39.36644942225942,
-      "historical_rental_mean": 22.62455114683642,
-      "historical_rental_iqr": 0.25000378499910314,
-      "market_freshness_days": -0.05788688869139946,
-      "demand_supply_ratio": -0.05306834174618835,
-      "owner_trust_score": 0.13391190303906306,
-      "owner_average_rating": -0.04132826035241131,
-      "owner_completed_rentals": 0.04076469460513188,
-      "prediction_month": 0.005505831161936925
+      "state": 0.004670311345968514,
+      "item_age_years": 14.02102466048822,
+      "rental_duration_days": 0.6196024728182138,
+      "comparable_active_count": 0.0929009138744135,
+      "comparable_active_median": 34.887300000202984,
+      "comparable_active_mean": 11.200778440205728,
+      "comparable_active_iqr": 0.3165111877814223,
+      "historical_rental_count": 0.028909853561199482,
+      "historical_rental_median": 37.06251903304852,
+      "historical_rental_mean": 21.689735104210037,
+      "historical_rental_iqr": 0.3491339186921625,
+      "market_freshness_days": 0.010423442367368807,
+      "demand_supply_ratio": -0.009661248383033083,
+      "owner_trust_score": 0.16246329418074304,
+      "owner_average_rating": 0.01792373602523334,
+      "owner_completed_rentals": -0.045946344592094235,
+      "prediction_month": -0.02150480911150865
     },
-    "itemAgePermutationMeanMaeIncrease": 13.79822435939666,
-    "itemAgeNativeImportance": 0.02390720322728157,
+    "itemAgePermutationMeanMaeIncrease": 14.02102466048822,
+    "itemAgeNativeImportance": 0.022434843704104424,
     "topNativeFeatures": [
       {
-        "feature": "numeric__historical_rental_median",
-        "importance": 0.3147394061088562
-      },
-      {
         "feature": "numeric__historical_rental_mean",
-        "importance": 0.2177003175020218
+        "importance": 0.3330616354942322
       },
       {
-        "feature": "numeric__comparable_active_mean",
-        "importance": 0.2036113440990448
+        "feature": "numeric__historical_rental_median",
+        "importance": 0.2859272360801697
       },
       {
         "feature": "numeric__comparable_active_median",
-        "importance": 0.11629749089479446
+        "importance": 0.15257984399795532
+      },
+      {
+        "feature": "numeric__comparable_active_mean",
+        "importance": 0.05553840473294258
       },
       {
         "feature": "numeric__item_age_years",
-        "importance": 0.02390720322728157
+        "importance": 0.022434843704104424
+      },
+      {
+        "feature": "categorical__subcategory_Computers",
+        "importance": 0.011901948601007462
       },
       {
         "feature": "categorical__category_Devices",
-        "importance": 0.010270652361214161
-      },
-      {
-        "feature": "categorical__subcategory_Gaming",
-        "importance": 0.005719768349081278
-      },
-      {
-        "feature": "categorical__category_Vehicles",
-        "importance": 0.004461441654711962
-      },
-      {
-        "feature": "categorical__subcategory_Bicycles",
-        "importance": 0.0038008391857147217
-      },
-      {
-        "feature": "numeric__comparable_active_count",
-        "importance": 0.0035812617279589176
-      },
-      {
-        "feature": "categorical__brand_Canon",
-        "importance": 0.003241974161937833
-      },
-      {
-        "feature": "categorical__state_Perak",
-        "importance": 0.003130582394078374
-      },
-      {
-        "feature": "categorical__brand_Samsung",
-        "importance": 0.0030369830783456564
-      },
-      {
-        "feature": "categorical__subcategory_Cameras",
-        "importance": 0.0029748931992799044
-      },
-      {
-        "feature": "numeric__rental_duration_days",
-        "importance": 0.0028792908415198326
-      },
-      {
-        "feature": "numeric__prediction_month",
-        "importance": 0.002760261995717883
-      },
-      {
-        "feature": "numeric__historical_rental_count",
-        "importance": 0.0024761923123151064
-      },
-      {
-        "feature": "categorical__category_Equipment",
-        "importance": 0.0024681591894477606
+        "importance": 0.009518478997051716
       },
       {
         "feature": "categorical__brand_Apple",
-        "importance": 0.0023673635441809893
+        "importance": 0.007997805252671242
       },
       {
-        "feature": "numeric__owner_average_rating",
-        "importance": 0.0022101677022874355
+        "feature": "categorical__subcategory_Cameras",
+        "importance": 0.005763137247413397
+      },
+      {
+        "feature": "categorical__subcategory_Bicycles",
+        "importance": 0.005073560401797295
+      },
+      {
+        "feature": "categorical__subcategory_Motorcycles",
+        "importance": 0.004517637193202972
+      },
+      {
+        "feature": "categorical__brand_Canon",
+        "importance": 0.004126210696995258
+      },
+      {
+        "feature": "categorical__state_Penang",
+        "importance": 0.0035877900663763285
+      },
+      {
+        "feature": "categorical__condition_Like New",
+        "importance": 0.0032803809735924006
+      },
+      {
+        "feature": "categorical__subcategory_Gaming",
+        "importance": 0.003225847613066435
+      },
+      {
+        "feature": "categorical__category_Vehicles",
+        "importance": 0.0032019494101405144
+      },
+      {
+        "feature": "categorical__brand_Samsung",
+        "importance": 0.0031888033263385296
+      },
+      {
+        "feature": "categorical__category_Equipment",
+        "importance": 0.0031881181057542562
+      },
+      {
+        "feature": "numeric__rental_duration_days",
+        "importance": 0.0029072430916130543
+      },
+      {
+        "feature": "categorical__brand_Perodua",
+        "importance": 0.002856570528820157
       }
     ],
     "itemAgePermutationByCategory": {
-      "Books": 0.32743323991075163,
-      "Clothing": 0.5102996093671613,
-      "Devices": 22.11453100718134,
-      "Equipment": 16.40524937522888,
-      "Vehicles": 32.795405952224314
+      "Books": 0.4002762060496542,
+      "Clothing": 0.8084341420472837,
+      "Devices": 21.42983467651252,
+      "Equipment": 15.390990587472917,
+      "Vehicles": 33.948802166039606
     }
   },
-  "trainingSeconds": 16.115,
+  "trainingSeconds": 17.649,
   "versions": {
     "sklearn": "1.5.2",
     "xgboost": "2.1.3",
