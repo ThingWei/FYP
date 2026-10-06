@@ -33,6 +33,7 @@ import {
 import { adminModule } from '../src/modules/admin/index.js';
 import { hashPassword } from '../src/core/password.js';
 import { emailClient } from '../src/integrations/emailClient.js';
+import { aiClient } from '../src/integrations/aiClient.js';
 import { env } from '../src/config/env.js';
 import { identityFromPayload } from '../src/middleware/auth.js';
 
@@ -673,6 +674,13 @@ test('submits and reviews identity verification with audit and notification', as
     reviewed.body.data.verification.history[0].status,
     'approved',
   );
+  const mykadOnlyRequirements = await request(app)
+    .get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Vehicles', dailyPrice: 10 })
+    .set(owner);
+  assert.equal(mykadOnlyRequirements.status, 200);
+  assert.deepEqual(mykadOnlyRequirements.body.data.approvedDocumentTypes, ['mykad']);
+  assert.deepEqual(mykadOnlyRequirements.body.data.missingDocumentTypes, ['driving_licence']);
 
   const licence = await request(app)
     .post('/api/v1/users/me/verification')
@@ -702,6 +710,17 @@ test('submits and reviews identity verification with audit and notification', as
     ).status,
     'approved',
   );
+  const documents = licenceReviewed.body.data.verification.documents;
+  assert.equal(documents.length, 2);
+  assert.equal(documents.find((item) => item.documentType === 'mykad').status, 'approved');
+  assert.notEqual(documents[0].latestAttemptId, documents[1].latestAttemptId);
+  const bothRequirements = await request(app)
+    .get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Vehicles', dailyPrice: 10 })
+    .set(owner);
+  assert.equal(bothRequirements.status, 200);
+  assert.deepEqual(new Set(bothRequirements.body.data.approvedDocumentTypes), new Set(['mykad', 'driving_licence']));
+  assert.deepEqual(bothRequirements.body.data.missingDocumentTypes, []);
 
   const listing = await ListingModel.findOne({
     publicId: 'l-verification-test',
@@ -721,6 +740,81 @@ test('submits and reviews identity verification with audit and notification', as
     }),
     2,
   );
+});
+
+test('licence-only approval is not global identity approval and AI identifiers remain masked', async (t) => {
+  // Synthetic OCR evidence only; the live AI response remains administrator-controlled.
+  t.mock.method(aiClient, 'verifyDocument', async () => ({
+    accepted: false,
+    outcome: 'manual_review',
+    ocr_text: 'SYNTHETIC OCR 900101-07-1234',
+    extracted_fields: {
+      documentType: 'driving_licence',
+      identityNumber: '900101-07-1234',
+      licenceClass: 'D',
+      documentTypeSignals: {
+        driving_licence: { score: 4, evidence: ['driving_licence_heading'] },
+      },
+    },
+  }));
+  const owner = identity({ roles: 'owner' });
+  const admin = identity({ id: 'u-admin', roles: 'admin' });
+  await request(app).post('/api/v1/users/session').set(owner);
+  await request(app).post('/api/v1/users/session').set(admin);
+  const submitted = await request(app)
+    .post('/api/v1/users/me/verification')
+    .set(owner)
+    .send({ documentType: 'driving_licence', documentRefs: ['local://verification/synthetic-licence.jpg'] });
+  assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
+  const evidence = submitted.body.data.verification.history[0].aiEvidence;
+  assert.equal(evidence.ocr_text, undefined);
+  assert.equal(evidence.extracted_fields.identityNumber, '**********1234');
+  assert.equal(evidence.extracted_fields.licenceClass, 'D');
+  assert.ok(!JSON.stringify(submitted.body).includes('900101-07-1234'));
+
+  const user = await UserModel.findOne({ authId: 'u-renter' }).lean();
+  const reviewed = await request(app)
+    .patch(`/api/v1/users/${user._id}/verification`)
+    .set(admin)
+    .send({ status: 'approved', attemptId: submitted.body.data.verification.history[0].attemptId });
+  assert.equal(reviewed.status, 200);
+  assert.equal(reviewed.body.data.verification.documents[0].status, 'approved');
+  assert.equal(reviewed.body.data.verification.status, 'unverified');
+  assert.equal(reviewed.body.data.verification.tier, 'none');
+  const requirements = await request(app)
+    .get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Vehicles', dailyPrice: 10 })
+    .set(owner);
+  assert.deepEqual(requirements.body.data.approvedDocumentTypes, ['driving_licence']);
+  assert.deepEqual(requirements.body.data.missingDocumentTypes, ['mykad']);
+  const stored = await UserModel.findOne({ authId: 'u-renter' }).lean();
+  assert.ok(!JSON.stringify(stored.verification).includes('900101-07-1234'));
+});
+
+test('passport approval verifies identity but does not replace vehicle MyKad and licence requirements', async () => {
+  const renter = identity();
+  const admin = identity({ id: 'u-admin', roles: 'admin' });
+  await request(app).post('/api/v1/users/session').set(renter);
+  await request(app).post('/api/v1/users/session').set(admin);
+  const submitted = await request(app)
+    .post('/api/v1/users/me/verification')
+    .set(renter)
+    .send({ documentType: 'passport', documentRefs: ['local://verification/synthetic-passport.jpg'] });
+  assert.equal(submitted.status, 200);
+  const user = await UserModel.findOne({ authId: 'u-renter' }).lean();
+  const reviewed = await request(app)
+    .patch(`/api/v1/users/${user._id}/verification`)
+    .set(admin)
+    .send({ status: 'approved', attemptId: submitted.body.data.verification.history[0].attemptId });
+  assert.equal(reviewed.status, 200);
+  assert.equal(reviewed.body.data.verification.status, 'approved');
+  assert.equal(reviewed.body.data.verification.tier, 'basic');
+  const requirements = await request(app)
+    .get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Vehicles', dailyPrice: 10 })
+    .set(renter);
+  assert.deepEqual(requirements.body.data.approvedDocumentTypes, ['passport']);
+  assert.deepEqual(requirements.body.data.missingDocumentTypes, ['mykad', 'driving_licence']);
 });
 
 test('resolves category KYC rules without disabling always-required categories', async () => {

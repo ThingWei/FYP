@@ -184,11 +184,16 @@ def _passport_mrz_signal(text: str) -> dict[str, Any]:
         for part in re.split(r'[\r\n]+|\s{2,}', text)
     ]
     candidates = [part for part in compact_lines if len(part) >= 30]
-    line_one = next((part[:44] for part in candidates if part.startswith('P<')), '')
-    line_two = next(
-        (part[:44] for part in candidates if len(part) >= 44 and not part.startswith('P<')),
-        '',
+    heading_index = next(
+        (index for index, part in enumerate(candidates) if part.startswith('P<')),
+        None,
     )
+    line_one = candidates[heading_index][:44] if heading_index is not None else ''
+    line_two = next(
+        (part[:44] for part in candidates[(heading_index + 1):]
+         if len(part) >= 44 and not part.startswith('P<')),
+        '',
+    ) if heading_index is not None else ''
     format_valid = len(line_one) == 44 and len(line_two) == 44
     checks_valid = False
     if format_valid:
@@ -209,25 +214,103 @@ def _passport_mrz_signal(text: str) -> dict[str, Any]:
     }
 
 
+def _document_type_signals(text: str) -> dict[str, Any]:
+    """Heuristic evidence weights, not learned probabilities or authenticity scores.
+
+    Identity-number formats deliberately contribute no document-type evidence:
+    Malaysian driving licences also print the holder's IC number.
+    """
+    upper = re.sub(r'\s+', ' ', text.upper()).strip()
+    signals = {
+        kind: {'score': 0, 'evidence': []}
+        for kind in ('mykad', 'passport', 'driving_licence')
+    }
+
+    def add(kind, label, weight, pattern):
+        if re.search(pattern, upper):
+            signals[kind]['score'] += weight
+            signals[kind]['evidence'].append(label)
+
+    # Narrow common OCR substitutions only in document-heading patterns.
+    add('mykad', 'identity_card_heading', 4,
+        r'\b(?:MY\s*K[A4]D|K[A4]D\s+PENGEN[A4]L[A4]N|IDENTITY\s+CARD)\b')
+    add('passport', 'passport_heading', 4, r'\bP[A4]S(?:SPORT|PORT)\b')
+    if re.search(r'(?<![A-Z0-9])P<', text.upper()):
+        signals['passport']['score'] += 4
+        signals['passport']['evidence'].append('passport_mrz_heading')
+    add('driving_licence', 'driving_licence_heading', 4,
+        r'\b(?:DR[I1L]V[I1L]NG\s+L[I1L]CEN[CS][E3]|LES[E3]N\s+MEM[A4]NDU)\b')
+    add('driving_licence', 'licence_class', 2,
+        r'\b(?:CLASS|KELAS)\s*[:\-]?\s*[A-Z]{1,2}\d{0,2}\b')
+    add('driving_licence', 'validity_date', 1,
+        r'\b(?:VALID\s+UNTIL|EXPIRY|EXPIRES|TARIKH\s+LUPUT)\s*[:\-]?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b')
+    add('driving_licence', 'malaysia_heading', 1, r'\bMALAYSIA\b')
+    return signals
+
+
+def _resolve_document_type(signals: dict[str, Any], expected_type: str | None):
+    heading_types = [
+        kind for kind, evidence in signals.items()
+        if any(label.endswith('_heading') and label != 'malaysia_heading'
+               for label in evidence['evidence'])
+    ]
+    if len(heading_types) > 1:
+        return None, 'ambiguous'
+    candidates = []
+    for kind, evidence in signals.items():
+        score = evidence['score']
+        # Context helps incomplete licence OCR only with both structural fields.
+        contextual_licence = (
+            kind == expected_type == 'driving_licence' and score >= 3 and
+            {'licence_class', 'validity_date'}.issubset(evidence['evidence'])
+        )
+        if score >= 4 or contextual_licence:
+            candidates.append((score, kind))
+    candidates.sort(reverse=True)
+    if not candidates:
+        return None, 'insufficient_evidence'
+    if len(candidates) > 1 and candidates[0][0] - candidates[1][0] < 2:
+        return None, 'ambiguous'
+    return candidates[0][1], 'resolved'
+
+
 def _extract_document_fields(text: str, expected_type: str | None = None) -> dict[str, Any]:
     normalized = re.sub(r'\s+', ' ', text).strip()
     fields: dict[str, Any] = {}
     mykad = re.search(r'\b\d{6}-?\d{2}-?\d{4}\b', normalized)
     passport = re.search(r'\b[A-Z]\d{7,9}\b', normalized.upper())
     licence = re.search(r'\b[A-Z]{1,3}\d{5,9}\b', normalized.upper())
-    expiry = re.search(r'(?:EXPIRY|EXPIRES|VALID UNTIL)\s*[:\-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})', normalized.upper())
+    signals = _document_type_signals(text)
+    document_type, resolution = _resolve_document_type(signals, expected_type)
+    fields['documentTypeSignals'] = signals
+    fields['documentTypeResolution'] = resolution
+    if document_type:
+        fields['documentType'] = document_type
+    expiry = re.search(r'\b(?:EXPIRY|EXPIRES|VALID UNTIL|TARIKH LUPUT)\s*[:\-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})', normalized.upper())
     birth = re.search(r'(?:DATE OF BIRTH|BIRTH|DOB)\s*[:\-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})', normalized.upper())
-    name = re.search(r'(?:NAME|NAMA)\s*[:\-]?\s*([A-Z][A-Z @\'\-]{3,60}?)(?=\s(?:NATIONALITY|DOB|DATE OF BIRTH|ADDRESS|ALAMAT|SEX|EXPIRY|$))', normalized.upper())
-    address = re.search(r'(?:ADDRESS|ALAMAT)\s*[:\-]?\s*(.{8,140}?)(?=\s(?:EXPIRY|VALID|DOB|$))', normalized, re.IGNORECASE)
-    if mykad:
+    name = re.search(
+        r"\b(?:NAME|NAMA)\s*[:\-]?\s*([A-Z][A-Z @'\-]{2,60}?)"
+        r'(?=\s+(?:NATIONALITY|DOB|DATE OF BIRTH|ADDRESS|ALAMAT|SEX|EXPIRY|'
+        r'EXPIRES|VALID UNTIL|CLASS|KELAS|WARGANEGARA|TARIKH|NO|IC)\b|\s*\d|$)',
+        normalized.upper(),
+    )
+    address = re.search(r'(?:ADDRESS|ALAMAT)\s*[:\-]?\s*(.{8,140}?)(?=\s(?:EXPIRY|VALID|DOB)\b|$)', normalized, re.IGNORECASE)
+    licence_class = re.search(
+        r'\b(?:CLASS|KELAS)\s*[:\-]?\s*'
+        r'([A-Z]{1,2}\d{0,2}(?:\s*[,/]\s*[A-Z]{1,2}\d{0,2})*)\b',
+        normalized.upper(),
+    )
+    number_context = document_type or expected_type
+    if passport and number_context == 'passport':
+        fields['identityNumber'] = passport.group(0)
+    elif mykad:
         fields['identityNumber'] = mykad.group(0)
-        fields['documentType'] = 'mykad'
     elif passport:
         fields['identityNumber'] = passport.group(0)
-        fields['documentType'] = 'passport'
     elif licence:
         fields['identityNumber'] = licence.group(0)
-        fields['documentType'] = 'driving_licence'
+    if licence_class and number_context == 'driving_licence':
+        fields['licenceClass'] = licence_class.group(1)
     if expiry:
         fields['expiryDateText'] = expiry.group(1)
     if birth:
@@ -236,14 +319,14 @@ def _extract_document_fields(text: str, expected_type: str | None = None) -> dic
         fields['fullName'] = re.sub(r'\s+', ' ', name.group(1)).strip()
     if address:
         fields['address'] = re.sub(r'\s+', ' ', address.group(1)).strip()
-    if mykad:
+    if mykad and fields.get('identityNumber') == mykad.group(0):
         birth_date = _valid_mykad_birth_date(mykad.group(0))
         fields['identityNumberFormatValid'] = birth_date is not None
         if birth_date:
             fields['dateOfBirth'] = birth_date.isoformat()
     fields['mrz'] = (
         _passport_mrz_signal(text)
-        if expected_type == 'passport'
+        if document_type == 'passport' or expected_type == 'passport'
         else {'present': False, 'formatValid': False, 'checkDigitsValid': False}
     )
     nlp = _nlp()
@@ -465,7 +548,7 @@ class ImageIntelligenceService:
             if font_state != 'unavailable':
                 font_states.append(font_state)
             risk_indicators.extend(text_indicators)
-            image_text = ' '.join(str(item[1]) for item in results)
+            image_text = '\n'.join(str(item[1]) for item in results)
             texts.append(image_text)
             per_image.append({
                 'index': index,
@@ -474,7 +557,7 @@ class ImageIntelligenceService:
                 ) if results else 0,
                 'fieldCount': len(_extract_document_fields(image_text, request.expected_type)),
             })
-        text = ' '.join(texts)
+        text = '\n'.join(texts)
         result_values = [item for _image, item in all_results]
         ocr_confidence = sum(float(item[2]) for item in result_values) / len(result_values) if result_values else 0
         fields = _extract_document_fields(text, request.expected_type)
@@ -482,8 +565,14 @@ class ImageIntelligenceService:
         if not fields.get('identityNumber'):
             reasons.append('A supported identity number was not detected')
         detected_type = fields.get('documentType')
+        if not detected_type:
+            reasons.append('Document type evidence is insufficient or ambiguous; manual review is required')
         if detected_type and request.expected_type and detected_type != request.expected_type:
             reasons.append('Selected document type does not match extracted document fields')
+        if fields.get('identityNumberFormatValid') is False:
+            reasons.append('Extracted Malaysian identity number has an invalid birth-date segment')
+        if detected_type == 'passport' and fields['mrz']['present'] and not fields['mrz']['checkDigitsValid']:
+            reasons.append('Passport MRZ format or check digits could not be validated')
         profile_match = None
         if request.profile_name:
             expected_tokens = {part.lower() for part in request.profile_name.split() if len(part) > 1}
@@ -536,6 +625,7 @@ class ImageIntelligenceService:
         else:
             fields['documentRiskModel'] = 'unavailable'
             fields['documentRiskModelPath'] = risk_path.name
+            reasons.append('Document risk model is unavailable; manual review is required')
         approved = (
             bool(fields.get('identityNumber')) and
             not reasons and

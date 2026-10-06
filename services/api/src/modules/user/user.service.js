@@ -90,7 +90,16 @@ function aggregateVerificationStatus(verification) {
     )
   ) return 'approved';
   if (documents.some((document) => document.status === 'pending')) return 'pending';
-  return documents.at(-1)?.status ?? verification.status ?? 'unverified';
+  const identityDocuments = documents.filter(
+    (document) => ['mykad', 'passport'].includes(document.documentType),
+  );
+  if (documents.length) return identityDocuments.at(-1)?.status ?? 'unverified';
+  // Preserve legacy identity states, but a licence is only a vehicle credential.
+  if (
+    verification.status === 'approved' &&
+    !['mykad', 'passport'].includes(verification.documentType)
+  ) return 'unverified';
+  return verification.status ?? 'unverified';
 }
 
 const passwordResetResponse = () => ({

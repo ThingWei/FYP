@@ -1,6 +1,12 @@
 # RentHub KYC AI continuation result
 
-Last updated: 5 October 2026
+Last updated: 6 October 2026
+
+Driving-licence classification and licence-only aggregate-status fixes are
+documented in [KYC_DRIVING_LICENCE_FIX_RESULT.md](KYC_DRIVING_LICENCE_FIX_RESULT.md),
+including the final 49-test AI and 46-test focused API results. IC-format holder
+numbers no longer force MyKad classification; unavailable risk models explicitly
+keep document analysis manual-review.
 
 ## Outcome
 
