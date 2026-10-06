@@ -161,3 +161,51 @@ def test_field_training_exports_separate_artifact_without_overwriting_scanner(tm
     assert (root / 'models' / 'mykad_fields_yolo.pt').read_bytes() == b'synthetic-test-artifact'
     metrics = json.loads((root / 'metrics' / 'mykad_fields_yolo_metrics.json').read_text())
     assert metrics['purpose'] == 'field_localization'
+
+
+def test_front_back_guard_rejects_front_only_before_training(tmp_path):
+    source = make_dataset(tmp_path / 'source')
+    with pytest.raises(ValueError, match='side-specific'):
+        train_detector(source / 'data.yaml', domain='fields', require_front_back=True, dry_run=True)
+
+
+def test_combined_training_dry_run_checks_sides_and_exports_tagged_model(tmp_path, monkeypatch):
+    source = make_dataset(tmp_path / 'source', names=['front_name', 'back_serial_number'])
+    groups = source / 'reviewed.csv'
+    with groups.open('w', newline='') as handle:
+        writer = csv.writer(handle)
+        writer.writerow(['path', 'base_document_id'])
+        for index in range(10):
+            for side in range(2):
+                path = add_image(source, 'train', f'group{index}-side{side}',
+                                 (index * 20, side * 90, 10), f'{side} 0.5 0.5 0.4 0.3')
+                writer.writerow([path.relative_to(source).as_posix(), f'group{index}'])
+    prepared = tmp_path / 'prepared'
+    prepare_dataset(source, prepared, groups_csv=groups)
+    root = tmp_path / 'ai'
+    (root / 'models').mkdir(parents=True)
+    previous = root / 'models' / 'mykad_fields_yolo.pt'
+    previous.write_bytes(b'previous-front-only')
+    monkeypatch.setattr(train_document_yolo, '__file__', str(root / 'app' / 'training' / 'trainer.py'))
+    report = train_detector(prepared / 'data.yaml', domain='fields', output_tag='front_back',
+                            require_front_back=True, dry_run=True)
+    assert report['artifact'] == 'mykad_fields_front_back_yolo.pt'
+    assert all(count > 0 for counts in report['sideSplitImageCounts'].values() for count in counts.values())
+    class FakeYolo:
+        def __init__(self, path):
+            pass
+        def train(self, **kwargs):
+            assert kwargs['name'] == 'renthub_mykad_fields_front_back'
+            run = tmp_path / 'run'
+            (run / 'weights').mkdir(parents=True)
+            (run / 'weights' / 'best.pt').write_bytes(b'combined-fixture')
+            return SimpleNamespace(save_dir=run, results_dict={'metrics/mAP50': 0.2})
+    monkeypatch.setitem(sys.modules, 'ultralytics', SimpleNamespace(YOLO=FakeYolo))
+    train_detector(prepared / 'data.yaml', epochs=1, domain='fields', output_tag='front_back',
+                   require_front_back=True)
+    assert previous.read_bytes() == b'previous-front-only'
+    assert (root / 'models' / 'mykad_fields_front_back_yolo.pt').read_bytes() == b'combined-fixture'
+    with pytest.raises(FileExistsError, match='already exists'):
+        train_detector(prepared / 'data.yaml', domain='fields', output_tag='front_back', require_front_back=True)
+    with pytest.raises(ValueError, match='not a path'):
+        train_detector(prepared / 'data.yaml', domain='fields', output_tag='../invalid')

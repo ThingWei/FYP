@@ -121,10 +121,17 @@ From `C:\Users\weith\FYP\services\ai` (use a new output directory for another ru
   --output .data/datasets/mykad_front_back_fields_prepared_v1
 
 # OPTIONAL: after permissions and holder-group review; not executed here.
-# Replaces the earlier front-only mykad_fields_yolo.pt, not the scanner model.
+# Validates actual front/back coverage and preserves the front-only model.
 .\.venv\Scripts\python.exe -m app.training.train_mykad_fields `
-  .data/datasets/mykad_front_back_fields_prepared_v1/data.yaml --epochs 80
+  .data/datasets/mykad_front_back_fields_prepared_v1/data.yaml `
+  --require-front-back --output-tag front_back --epochs 80
 ```
+
+The follow-up training improvements export `models/mykad_fields_front_back_yolo.pt`
+and `metrics/mykad_fields_front_back_yolo_metrics.json`. Add `--dry-run` to validate
+class/side support, group/hash leakage and the self-contained prepared YAML without
+loading weights. Existing outputs are protected unless `--overwrite` is explicit;
+prefer a new output tag. Neither the scanner nor EasyOCR is automatically changed.
 
 ## Validation
 

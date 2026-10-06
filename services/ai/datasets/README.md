@@ -114,3 +114,97 @@ Optional training after consent/licence and identity-group review:
 This explicitly replaces the earlier front-only `models/mykad_fields_yolo.pt`
 when run. It does not replace `document_yolo.pt`, train a tamper model, or activate
 field-aware OCR in verification. No training is started by organization.
+
+## Automatically labelled synthetic manipulation-risk research
+
+The generator creates controlled local field changes, **not authenticated
+real/fake MyKad labels**. It reuses existing field boxes (no new per-image boxes
+needed), writes baseline/altered pairs and records the manipulation/region and
+source group automatically. It does not run OCR, upload images or start training.
+
+```powershell
+# Read-only preview; no outputs or source changes:
+.\.venv\Scripts\python.exe -m app.training.generate_document_risk .data/datasets/mykad_front_back_fields_prepared_v1 --dry-run
+
+# Run ONLY after confirming permitted use of the sources:
+.\.venv\Scripts\python.exe -m app.training.generate_document_risk `
+  .data/datasets/mykad_front_back_fields_prepared_v1 `
+  --output .data/datasets/mykad_synthetic_risk_v1 `
+  --acknowledge-source-permission
+
+# Optional training, after output quality and source-holder grouping review:
+.\.venv\Scripts\python.exe -m app.training.train_document_risk `
+  .data/datasets/mykad_synthetic_risk_v1/manifest.csv --epochs 10
+```
+
+Permission acknowledgement is a caller assertion, not a licence/consent check.
+The first generation command has **not** been run on the downloaded IC images
+by the agent; only the dry-run and synthetic-fixture tests were executed.
+Use a new output version for repeat generation; existing directories cannot be
+overwritten. The CLI keeps generated data under ignored `.data/datasets/`.
+
+Outputs: `train/normal/`, `train/risky/`, matching `validation/` and `test/`
+folders, private `manifest.csv` and aggregate `audit.json`. `normal` means no
+controlled local alteration, not proven genuine. Both labels receive identical
+per-pair brightness, blur, JPEG compression and a visible research watermark.
+No plausible replacement IC numbers/names or swapped real-person portraits
+are generated. No-op/too-small edits are skipped, not fabricated as risky.
+
+The source `groups.csv` is used automatically if present; otherwise filenames
+and exact duplicates provide proxy groups. Selects one image per source group,
+splits groups **before** generating derivatives, and checks generated group/byte
+overlap and conflicting labels before publishing a manifest. At least 20 source
+groups and 60 resulting images are required; derivative count is not independent
+identity count. A supplied mapping is not proof of verified holder grouping.
+
+The trainer honors declared splits, verifies generated image hashes and records
+source/side/manipulation provenance in metrics and inside the TorchScript file.
+Any synthetic rows route output to **`models/document_risk_synthetic_efficientnet.pt`**
+and `metrics/document_risk_synthetic_metrics.json`, leaving the runtime's default
+`document_risk_efficientnet.pt` untouched. No automatic KYC activation is added.
+
+Spot-review generated examples and test unseen manipulation families and real
+capture conditions. Synthetic performance is not real-world MyKad authentication
+accuracy; a research watermark is not anonymization and images may still contain
+PII. Administrator review remains necessary. See
+`../../../docs/SYNTHETIC_DOCUMENT_RISK_RESULT.md` for the implementation result.
+
+## Improved field-crop risk research and combined field training
+
+After permissions/holder grouping/output review, use the existing generated
+manifest; no regeneration is necessary:
+
+```powershell
+# Validation only (no weights downloaded):
+.\.venv\Scripts\python.exe -m app.training.train_document_risk `
+  .data/datasets/mykad_synthetic_risk_v1/manifest.csv `
+  --input-mode fields --output-tag v2 --dry-run
+
+# Classifier warmup, low-LR tail fine-tuning, validation-best checkpoint:
+.\.venv\Scripts\python.exe -m app.training.train_document_risk `
+  .data/datasets/mykad_synthetic_risk_v1/manifest.csv `
+  --input-mode fields --output-tag v2 --epochs 20
+
+# Check combined classes and both sides in every prepared split, then train:
+.\.venv\Scripts\python.exe -m app.training.train_mykad_fields `
+  .data/datasets/mykad_front_back_fields_prepared_v1/data.yaml `
+  --require-front-back --output-tag front_back --dry-run
+.\.venv\Scripts\python.exe -m app.training.train_mykad_fields `
+  .data/datasets/mykad_front_back_fields_prepared_v1/data.yaml `
+  --require-front-back --output-tag front_back --epochs 80
+```
+
+The new artifacts are `document_risk_synthetic_fields_v2_efficientnet.pt` and
+`mykad_fields_front_back_yolo.pt`, with correspondingly tagged metrics. Old
+artifacts remain intact. Existing model/metrics outputs cause an error before
+loading weights unless `--overwrite` is explicit; prefer another tag for comparison.
+
+Field risk training requires `region_xyxy` on both labels. Synthetic pairs must
+share the identical annotation/capture controls. It crops with context, preserves
+aspect ratio and records the preprocessing contract inside TorchScript. These
+are annotated/oracle locations: crop metrics are **not live detector performance**.
+The current whole-image runtime is incompatible with field-crop inference without
+a separately tested localization/preprocessing adapter. No runtime activation is
+performed. Two-epoch warmup, final-two-block fine-tuning, fixed BatchNorm statistics,
+validation-only checkpoint selection and side/edit-family test slices are defaults.
+See the result document for the measured old baseline and remaining limitations.
