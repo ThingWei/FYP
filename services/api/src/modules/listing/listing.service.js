@@ -88,6 +88,7 @@ function listingInput(input) {
     ...(input.description !== undefined && { description: input.description }),
     ...(input.category !== undefined && { category: input.category }),
     ...(input.subcategory !== undefined && { subcategory: input.subcategory }),
+    ...(input.requiredLicenceClass !== undefined && { requiredLicenceClass: input.requiredLicenceClass }),
     ...(input.brand !== undefined && { brand: input.brand }),
     ...(input.productModel !== undefined && { productModel: input.productModel }),
     ...(input.canonicalProductId !== undefined && {

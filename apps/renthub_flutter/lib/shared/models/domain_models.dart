@@ -69,6 +69,7 @@ class User {
     this.verificationReason = '',
     this.verificationDocumentType = '',
     this.verificationDocuments = const {},
+    this.drivingEligibility = const DrivingEligibility(),
     this.addresses = const [],
     this.language = 'en',
     this.pushNotifications = true,
@@ -78,6 +79,10 @@ class User {
   final String verificationStatus, verificationTier, verificationReason;
   final String verificationDocumentType;
   final Map<String, String> verificationDocuments;
+  final DrivingEligibility drivingEligibility;
+  String get mykadStatus =>
+      verificationDocuments['mykad'] ??
+      (verificationDocumentType == 'mykad' ? verificationStatus : 'unverified');
   final Set<UserRole> roles;
   final UserRole? activeRole;
   final double trustScore;
@@ -109,6 +114,9 @@ class User {
             raw['documentType'] as String:
                 raw['status'] as String? ?? 'unverified',
       },
+      drivingEligibility: DrivingEligibility.fromJson(
+        json['drivingEligibility'] as Map<String, dynamic>? ?? const {},
+      ),
       addresses: ((json['addresses'] as List?) ?? const [])
           .map(
             (address) => UserAddress.fromJson(address as Map<String, dynamic>),
@@ -121,6 +129,49 @@ class User {
   }
 }
 
+class DrivingEligibility {
+  const DrivingEligibility(
+      {this.status = 'unverified',
+      this.licenceClasses = const [],
+      this.expiresAt,
+      this.reviewNotes = '',
+      this.identityMatch = 'unavailable',
+      this.identityMatchConfirmed = false,
+      this.classReviewConfirmed = false});
+  final String status, reviewNotes, identityMatch;
+  final List<String> licenceClasses;
+  final DateTime? expiresAt;
+  final bool identityMatchConfirmed, classReviewConfirmed;
+  String get displayStatus => status == 'approved' &&
+          (expiresAt == null ||
+              licenceClasses.isEmpty ||
+              !identityMatchConfirmed ||
+              !classReviewConfirmed)
+      ? 'resubmission_required'
+      : status == 'approved' && expiresAt!.isBefore(DateTime.now())
+          ? 'expired'
+          : status;
+  String get validUntil => expiresAt == null
+      ? 'Not reviewed'
+      : expiresAt!
+          .toUtc()
+          .add(const Duration(hours: 8))
+          .toIso8601String()
+          .substring(0, 10);
+  factory DrivingEligibility.fromJson(Map<String, dynamic> json) =>
+      DrivingEligibility(
+        status: json['status'] as String? ?? 'unverified',
+        licenceClasses:
+            (json['licenceClasses'] as List? ?? const []).cast<String>(),
+        expiresAt: DateTime.tryParse('${json['expiresAt'] ?? ''}'),
+        reviewNotes: json['reviewNotes'] as String? ?? '',
+        identityMatch: json['identityMatch'] as String? ?? 'unavailable',
+        identityMatchConfirmed:
+            json['identityMatchConfirmed'] as bool? ?? false,
+        classReviewConfirmed: json['classReviewConfirmed'] as bool? ?? false,
+      );
+}
+
 class Listing {
   const Listing({
     required this.id,
@@ -128,6 +179,7 @@ class Listing {
     required this.category,
     required this.dailyPrice,
     this.subcategory = '',
+    this.requiredLicenceClass = '',
     this.brand = '',
     this.productModel = '',
     this.canonicalProductId = '',
@@ -173,6 +225,7 @@ class Listing {
   });
   final String id, title, category, condition, ownerName, location;
   final String subcategory, brand, productModel;
+  final String requiredLicenceClass;
   final String canonicalProductId,
       catalogBrandId,
       productMatchType,
@@ -213,6 +266,7 @@ class Listing {
     return Listing(
       id: j['publicId'] ?? j['id'] ?? j['_id'],
       title: j['title'],
+      requiredLicenceClass: j['requiredLicenceClass'] as String? ?? '',
       category: j['category'],
       subcategory: j['subcategory'] as String? ?? '',
       brand: j['brand'] as String? ?? '',

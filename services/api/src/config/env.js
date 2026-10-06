@@ -22,6 +22,7 @@ export const env = {
   authEmailClaim: process.env.AUTH0_EMAIL_CLAIM ?? 'email',
   authNameClaim: process.env.AUTH0_NAME_CLAIM ?? 'name',
   localJwtSecret: process.env.LOCAL_JWT_SECRET,
+  kycIdentityMatchSecret: process.env.KYC_IDENTITY_MATCH_SECRET,
   localAccessTokenMinutes: integer(process.env.LOCAL_ACCESS_TOKEN_MINUTES, 15),
   localRefreshTokenDays: integer(process.env.LOCAL_REFRESH_TOKEN_DAYS, 30),
   emailMode: process.env.EMAIL_MODE ?? 'disabled',

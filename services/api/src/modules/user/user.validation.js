@@ -1,4 +1,5 @@
 import { body, param, query } from 'express-validator';
+import { LICENCE_CLASSES } from './drivingEligibility.js';
 import {
   ACCOUNT_STATUSES,
   USER_ROLES,
@@ -172,6 +173,11 @@ export const verificationDecisionValidation = [
     ),
   ),
   body('tier').optional().isIn(['basic', 'enhanced']),
+  body('licenceClasses').optional().isArray({ min: 1, max: 15 }).custom((classes) => new Set(classes).size === classes.length),
+  body('licenceClasses.*').optional().isIn(LICENCE_CLASSES),
+  body('expiresAt').optional().matches(/^\d{4}-\d{2}-\d{2}$/).isISO8601({ strict: true }),
+  body('identityMatchConfirmed').optional().isBoolean().toBoolean(),
+  body('classReviewConfirmed').optional().isBoolean().toBoolean(),
   body('reason').optional().trim().isLength({ max: 500 }),
   body('attemptId')
     .optional()
@@ -201,4 +207,5 @@ export const verificationRequirementsValidation = [
     'Equipment',
   ]),
   query('dailyPrice').optional().isFloat({ min: 0, max: 1_000_000 }).toFloat(),
+  query('requiredLicenceClass').optional().isIn(LICENCE_CLASSES),
 ];

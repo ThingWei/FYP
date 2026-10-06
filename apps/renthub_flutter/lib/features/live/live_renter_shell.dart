@@ -1256,27 +1256,43 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       widget.onSubmitted();
     } catch (exception) {
       if (mounted) {
-        if (exception is ApiException && exception.code == 'KYC_REQUIRED') {
+        if (exception is ApiException &&
+            (exception.code == 'KYC_REQUIRED' ||
+                exception.code == 'MYKAD_REQUIRED' ||
+                exception.code?.startsWith('DRIVING_') == true)) {
           final details = exception.details as Map? ?? const {};
           final missing = (details['missingDocumentTypes'] as List? ?? const [])
               .map((item) => item.toString().replaceAll('_', ' '))
               .join(' and ');
-          await showDialog<void>(
+          final driving = details['nextAction'] == 'driving_eligibility';
+          final proceed = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
               icon: const Icon(Icons.verified_user_outlined),
               title: const Text('Verification required'),
               content: Text(
-                'Complete $missing verification from Profile > Identity verification before requesting this listing.',
+                driving
+                    ? exception.message
+                    : 'Complete $missing MyKad verification before requesting this listing.',
               ),
               actions: [
                 FilledButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Got It'),
+                  onPressed: () => Navigator.pop(context, true),
+                  child: Text(
+                      driving ? 'Review driving eligibility' : 'Verify MyKad'),
                 ),
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Not now')),
               ],
             ),
           );
+          if (proceed == true && mounted) {
+            await Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => LiveVerificationPage(driving: driving)));
+          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(exception.toString())),

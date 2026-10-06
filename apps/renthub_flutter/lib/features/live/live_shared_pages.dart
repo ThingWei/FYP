@@ -755,9 +755,22 @@ class LiveProfilePage extends StatelessWidget {
               onTap: () => Navigator.push<void>(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const _LiveVerificationPage(),
+                  builder: (_) => const LiveVerificationPage(),
                 ),
               ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_eta_outlined),
+              title: const Text('Vehicle driving eligibility'),
+              subtitle: Text(profile?.drivingEligibility.displayStatus
+                      .replaceAll('_', ' ') ??
+                  'unverified'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const LiveVerificationPage(driving: true),
+                  )),
             ),
             ListTile(
               leading: const Icon(Icons.location_on_outlined),
@@ -1296,15 +1309,22 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
       );
 }
 
-class _LiveVerificationPage extends StatefulWidget {
-  const _LiveVerificationPage();
+class LiveVerificationPage extends StatefulWidget {
+  const LiveVerificationPage({super.key, this.driving = false});
+  final bool driving;
 
   @override
-  State<_LiveVerificationPage> createState() => _LiveVerificationPageState();
+  State<LiveVerificationPage> createState() => _LiveVerificationPageState();
 }
 
-class _LiveVerificationPageState extends State<_LiveVerificationPage> {
+class _LiveVerificationPageState extends State<LiveVerificationPage> {
   String documentType = 'mykad';
+  @override
+  void initState() {
+    super.initState();
+    documentType = widget.driving ? 'driving_licence' : 'mykad';
+  }
+
   bool submitting = false;
   final List<String> documentRefs = [];
 
@@ -1329,7 +1349,14 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
         builder: (_) => LiveKycScannerPage(
           documentType: documentType,
           sideLabel: side,
-          analyzeFrame: controller.inspectVerificationFrame,
+          analyzeFrame: documentType == 'driving_licence'
+              ? (_, __) async => {
+                    'available': false,
+                    'ready': false,
+                    'guidance':
+                        'Use manual capture for licence / MyJPJ evidence. Administrator review is required.'
+                  }
+              : controller.inspectVerificationFrame,
         ),
       ),
     );
@@ -1387,6 +1414,30 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
       );
       return;
     }
+    if (documentType == 'driving_licence' &&
+        context
+                .read<LiveRentHubController>()
+                .profile
+                ?.drivingEligibility
+                .status ==
+            'approved') {
+      final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                title: const Text('Submit updated driving evidence?'),
+                content: const Text(
+                    'Your previous review stays in history. Driving eligibility becomes pending until an administrator reviews the renewed licence or changed classes.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Submit'))
+                ],
+              ));
+      if (confirmed != true || !mounted) return;
+    }
     setState(() => submitting = true);
     try {
       await context
@@ -1405,18 +1456,24 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
   @override
   Widget build(BuildContext context) {
     final profile = context.watch<LiveRentHubController>().profile;
-    final status = profile?.verificationStatus ?? 'unverified';
-    final selectedStatus = profile?.verificationDocuments[documentType] ??
-        (profile?.verificationDocumentType == documentType
-            ? status
-            : 'unverified');
-    final canSubmit = const [
-      'unverified',
-      'rejected',
-      'resubmission_required',
-    ].contains(selectedStatus);
+    final status = profile?.mykadStatus ?? 'unverified';
+    final eligibility =
+        profile?.drivingEligibility ?? const DrivingEligibility();
+    final selectedStatus =
+        documentType == 'driving_licence' ? eligibility.displayStatus : status;
+    final canSubmit = documentType == 'driving_licence'
+        ? selectedStatus != 'pending'
+        : const [
+            'unverified',
+            'rejected',
+            'resubmission_required',
+            'expired',
+          ].contains(selectedStatus);
     return Scaffold(
-      appBar: AppBar(title: const Text('Identity Verification')),
+      appBar: AppBar(
+          title: Text(documentType == 'driving_licence'
+              ? 'Vehicle Driving Eligibility'
+              : 'MyKad Identity Verification')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -1432,7 +1489,21 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
                       color: AppColors.primary,
                     ),
                     const SizedBox(height: 12),
+                    const Text('Identity Verification — MyKad'),
                     StatusBadge(status.replaceAll('_', ' ')),
+                    const SizedBox(height: 16),
+                    const Text('Vehicle Driving Eligibility'),
+                    StatusBadge(eligibility.displayStatus.replaceAll('_', ' ')),
+                    Text(
+                        'Licence class: ${eligibility.licenceClasses.isEmpty ? 'Not reviewed' : eligibility.licenceClasses.join(', ')}'),
+                    Text('Valid until: ${eligibility.validUntil}'),
+                    if (eligibility.reviewNotes.isNotEmpty)
+                      Text(eligibility.reviewNotes),
+                    if (profile?.verificationDocuments
+                            .containsKey('passport') ??
+                        false)
+                      Text(
+                          'Legacy passport: ${profile!.verificationDocuments['passport']} (not required)'),
                     if (profile?.verificationTier != 'none') ...[
                       const SizedBox(height: 8),
                       Text('${profile?.verificationTier} verification tier'),
@@ -1451,13 +1522,14 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: documentType,
-              decoration: const InputDecoration(labelText: 'Document type'),
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Verification flow'),
               items: const [
                 DropdownMenuItem(value: 'mykad', child: Text('MyKad')),
-                DropdownMenuItem(value: 'passport', child: Text('Passport')),
                 DropdownMenuItem(
                   value: 'driving_licence',
-                  child: Text('Driving Licence'),
+                  child: Text('Driving licence / MyJPJ evidence',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
                 ),
               ],
               onChanged: submitting
@@ -1476,12 +1548,16 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Live camera scan',
+                        documentType == 'driving_licence'
+                            ? 'Capture driving evidence'
+                            : 'Live MyKad camera scan',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 6),
-                      const Text(
-                        'Detection checks alignment, distance, blur, lighting and glare across stable frames before automatic capture.',
+                      Text(
+                        documentType == 'driving_licence'
+                            ? 'Provide your own licence or MyJPJ e-LMM screenshot. RentHub administrators review holder identity, class and validity. No JPJ API or QR validation.'
+                            : 'Upload distinct MyKad front and back images. Both sides are analysed; final identity approval is by an administrator, not government authentication.',
                         style: TextStyle(color: AppColors.secondaryText),
                       ),
                       const SizedBox(height: 12),
@@ -1523,7 +1599,9 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
                 ListTile(
                   dense: true,
                   leading: const Icon(Icons.lock_outline),
-                  title: Text('Document ${index + 1}'),
+                  title: Text(documentType == 'mykad'
+                      ? (index == 0 ? 'MyKad front' : 'MyKad back')
+                      : 'Driving licence / MyJPJ evidence'),
                   trailing: IconButton(
                     tooltip: 'Remove document',
                     onPressed: submitting ? null : () => _removeDocument(index),
@@ -1553,7 +1631,7 @@ class _LiveVerificationPageState extends State<_LiveVerificationPage> {
                 kind: FeedbackKind.success,
                 title: '$documentLabel verified',
                 message: documentType == 'driving_licence'
-                    ? 'Your approved licence can satisfy vehicle booking requirements.'
+                    ? 'Driving eligibility is approved. Vehicle requests still require approved MyKad, valid dates and any listing-specific licence class.'
                     : 'Your identity verification badge is active across RentHub.',
               ),
           ],

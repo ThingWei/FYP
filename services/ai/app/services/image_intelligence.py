@@ -552,6 +552,8 @@ class ImageIntelligenceService:
             texts.append(image_text)
             per_image.append({
                 'index': index,
+                'side': ('front' if index == 0 else 'back') if request.expected_type == 'mykad' else 'evidence',
+                'hasTextEvidence': bool(image_text.strip()),
                 'confidence': round(
                     sum(float(item[2]) for item in results) / len(results), 4,
                 ) if results else 0,
@@ -562,6 +564,19 @@ class ImageIntelligenceService:
         ocr_confidence = sum(float(item[2]) for item in result_values) / len(result_values) if result_values else 0
         fields = _extract_document_fields(text, request.expected_type)
         reasons = list(errors)
+        if request.expected_type == 'mykad':
+            if len(decoded) != 2:
+                reasons.append('MyKad identity review requires front and back images')
+            if any(not image['hasTextEvidence'] for image in per_image):
+                reasons.append('One MyKad side has no readable OCR evidence; review both images')
+            holder_ids = {
+                re.sub(r'\D', '', value)
+                for image_text in texts
+                for value in re.findall(r'\b\d{6}-?\d{2}-?\d{4}\b', image_text)
+            }
+            fields['mykadSidesConsistent'] = len(holder_ids) <= 1
+            if len(holder_ids) > 1:
+                reasons.append('MyKad sides contain inconsistent holder identity numbers')
         if not fields.get('identityNumber'):
             reasons.append('A supported identity number was not detected')
         detected_type = fields.get('documentType')
@@ -616,12 +631,17 @@ class ImageIntelligenceService:
             'suspicious' if 'suspicious' in font_states
             else 'normal' if font_states else 'unavailable'
         )
-        risk_model, risk_path = _document_risk_model()
+        driving_evidence = request.expected_type == 'driving_licence'
+        fields['reviewScope'] = 'driving_eligibility' if driving_evidence else 'identity_kyc'
+        risk_model, risk_path = (None, None) if driving_evidence else _document_risk_model()
         if risk_model is not None:
             scores = [_risk_probability(risk_model, image) for _, image in decoded]
             fields['documentRiskScore'] = round(max(scores), 4)
             if max(scores) >= 0.65:
                 risk_indicators.append('Document manipulation-risk model reported a high-risk signal')
+        elif driving_evidence:
+            fields['documentRiskModel'] = 'not_applicable'
+            reasons.append('User-provided driving evidence requires holder, class and validity review by an administrator; no JPJ integration')
         else:
             fields['documentRiskModel'] = 'unavailable'
             fields['documentRiskModelPath'] = risk_path.name
@@ -642,7 +662,7 @@ class ImageIntelligenceService:
             model_versions={
                 'ocr': 'easyocr-1.7',
                 'nlp': 'spacy-entity-ruler-v2',
-                'risk': 'document-risk-efficientnet-b0' if risk_model else 'unavailable',
+                'risk': 'not_applicable' if driving_evidence else 'document-risk-efficientnet-b0' if risk_model else 'unavailable',
             },
             quality={'images': qualities, 'ocr': per_image},
             ocr_text=text,

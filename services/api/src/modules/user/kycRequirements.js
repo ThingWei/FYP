@@ -1,3 +1,5 @@
+import { drivingEligibilityCheck } from './drivingEligibility.js';
+
 export const DEFAULT_KYC_REQUIREMENTS = Object.freeze([
   { category: 'Devices', documentTypes: ['mykad'], highValueOnly: true },
   {
@@ -12,6 +14,11 @@ export const DEFAULT_KYC_REQUIREMENTS = Object.freeze([
 ]);
 
 export function resolveKycRequirement(settings, listing) {
+  // Vehicle credentials cannot be disabled by old or editable category settings.
+  if (listing.category === 'Vehicles') return {
+    category: 'Vehicles', requiredDocumentTypes: ['mykad', 'driving_licence'],
+    required: true, highValueOnly: false,
+  };
   const configured = settings?.kycRequirements?.length
     ? settings.kycRequirements
     : DEFAULT_KYC_REQUIREMENTS;
@@ -25,8 +32,8 @@ export function resolveKycRequirement(settings, listing) {
     : true;
   return {
     category: listing.category,
-    requiredDocumentTypes: applies ? [...rule.documentTypes] : [],
-    required: applies && rule.documentTypes.length > 0,
+    requiredDocumentTypes: applies ? rule.documentTypes.filter((type) => type !== 'driving_licence') : [],
+    required: applies && rule.documentTypes.some((type) => type !== 'driving_licence'),
     highValueOnly: Boolean(rule.highValueOnly),
     threshold: Number(settings.highValueThreshold ?? 1000),
   };
@@ -35,14 +42,16 @@ export function resolveKycRequirement(settings, listing) {
 export function approvedDocumentTypes(user) {
   const approved = new Set(
     (user.verification?.documents ?? [])
-      .filter((document) => document.status === 'approved')
+      .filter((document) => document.status === 'approved' && document.documentType !== 'driving_licence')
       .map((document) => document.documentType),
   );
   if (
     user.verification?.status === 'approved' &&
-    user.verification?.documentType
+    user.verification?.documentType && user.verification.documentType !== 'driving_licence' &&
+    !(user.verification.documents ?? []).some((document) => document.documentType === user.verification.documentType)
   ) {
     approved.add(user.verification.documentType);
   }
+  if (drivingEligibilityCheck(user).valid) approved.add('driving_licence');
   return approved;
 }

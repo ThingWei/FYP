@@ -28,6 +28,7 @@ import {
   approvedDocumentTypes,
   resolveKycRequirement,
 } from './kycRequirements.js';
+import { drivingEligibilityCheck, hasApprovedMykad, LICENCE_CLASSES, reviewedLicenceExpiry } from './drivingEligibility.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -81,7 +82,7 @@ function privateSafeAiEvidence(analysis) {
 }
 
 function aggregateVerificationStatus(verification) {
-  const documents = verification.documents ?? [];
+  const documents = (verification.documents ?? []).filter((document) => document.documentType !== 'driving_licence');
   if (
     documents.some(
       (document) =>
@@ -95,11 +96,17 @@ function aggregateVerificationStatus(verification) {
   );
   if (documents.length) return identityDocuments.at(-1)?.status ?? 'unverified';
   // Preserve legacy identity states, but a licence is only a vehicle credential.
-  if (
-    verification.status === 'approved' &&
-    !['mykad', 'passport'].includes(verification.documentType)
-  ) return 'unverified';
+  if (verification.documentType === 'driving_licence') return 'unverified';
   return verification.status ?? 'unverified';
+}
+
+function identityFingerprint(analysis) {
+  const fields = analysis.extracted_fields ?? analysis.extractedFields ?? {};
+  const digits = String(fields.identityNumber ?? '').replace(/\D/g, '');
+  const secret = env.kycIdentityMatchSecret;
+  if (!secret || secret.length < 32 || digits.length !== 12 || fields.identityNumberFormatValid !== true) return null;
+  const keyId = createHash('sha256').update(secret).digest('hex').slice(0, 12);
+  return `${keyId}:${createHmac('sha256', secret).update(`renthub-mykad:${digits}`).digest('hex')}`;
 }
 
 const passwordResetResponse = () => ({
@@ -528,6 +535,7 @@ export const userService = {
 
   async submitVerification(identity, input) {
     const user = await requireCurrentUser(identity);
+    const driving = input.documentType === 'driving_licence';
     await uploadService.assertOwnedReferences(
       identity,
       input.documentRefs,
@@ -536,6 +544,17 @@ export const userService = {
     const currentDocument = user.verification.documents?.find(
       (document) => document.documentType === input.documentType,
     );
+    const legacyDrivingStatus = currentDocument?.status ??
+      (user.verification.documentType === 'driving_licence' ? user.verification.status : undefined);
+    const legacyDrivingRecord = driving && legacyDrivingStatus === 'approved' && !user.drivingEligibility?.latestAttemptId
+      ? { document: currentDocument?.toObject() ?? {
+            documentType: 'driving_licence', status: legacyDrivingStatus,
+            reviewedAt: user.verification.reviewedAt, reviewedBy: user.verification.reviewedBy,
+          },
+          documentRefs: user.verification.documentType === 'driving_licence' ? [...user.verification.documentRefs] : [],
+          aiEvidence: user.verification.documentType === 'driving_licence' ? privateSafeAiEvidence(user.verification.ocrResult) : {},
+          migrationReason: 'Historical approval retained; complete driving-eligibility re-review required' }
+      : user.drivingEligibility?.legacyRecord;
     if (currentDocument?.status === 'pending') {
       throw new AppError(
         'This document type is already pending verification',
@@ -543,12 +562,15 @@ export const userService = {
         'VERIFICATION_PENDING',
       );
     }
-    if (currentDocument?.status === 'approved') {
+    if (currentDocument?.status === 'approved' && !driving) {
       throw new AppError(
         'This document type is already verified',
         409,
         'ALREADY_VERIFIED',
       );
+    }
+    if (input.documentType === 'mykad' && (input.documentRefs.length !== 2 || new Set(input.documentRefs).size !== 2)) {
+      throw new AppError('Upload distinct MyKad front and back images', 400, 'MYKAD_SIDES_REQUIRED');
     }
     const images = await uploadService.readOwnedReferences(
       identity,
@@ -568,6 +590,18 @@ export const userService = {
     const submittedAt = new Date();
     const attemptId = verificationAttemptId();
     const evidence = privateSafeAiEvidence(analysis);
+    const fingerprint = identityFingerprint(analysis);
+    if (!driving && input.documentType === 'mykad') {
+      user.identityMatchFingerprint = fingerprint ?? undefined;
+    }
+    if (driving) {
+      const stored = await UserModel.findById(user._id).select('+identityMatchFingerprint');
+      const previous = stored?.identityMatchFingerprint;
+      const comparable = hasApprovedMykad(user) && fingerprint && previous &&
+        fingerprint.split(':')[0] === previous.split(':')[0];
+      evidence.identityMatch = comparable ? (fingerprint === previous ? 'matched' : 'mismatch') : 'unavailable';
+      evidence.reviewScope = 'driving_eligibility';
+    }
     const requiresRescan = analysis.outcome === 'rescan_required';
     const status = requiresRescan ? 'resubmission_required' : 'pending';
     const reason = requiresRescan
@@ -594,6 +628,19 @@ export const userService = {
       submittedAt,
       reviewReason: reason,
     });
+    if (driving) {
+      user.drivingEligibility = {
+        status, latestAttemptId: attemptId, submittedAt,
+        identityMatch: evidence.identityMatch, reviewNotes: reason,
+        identityMatchConfirmed: false, classReviewConfirmed: false,
+        legacyRecord: legacyDrivingRecord,
+      };
+      user.verification.status = aggregateVerificationStatus(user.verification);
+      if (user.verification.status !== 'approved') user.verification.tier = 'none';
+      // Licence attempts live in the shared protected history, not identity state.
+      await user.save();
+      return user;
+    }
     user.verification.status = aggregateVerificationStatus(user.verification);
     user.verification.tier =
       user.verification.status === 'approved' ? user.verification.tier : 'none';
@@ -633,6 +680,9 @@ export const userService = {
       missingDocumentTypes: requirement.requiredDocumentTypes.filter(
         (type) => !approved.has(type),
       ),
+      ...(query.category === 'Vehicles' && {
+        drivingEligibility: drivingEligibilityCheck(user, { requiredLicenceClass: query.requiredLicenceClass }),
+      }),
     };
   },
 
@@ -641,6 +691,7 @@ export const userService = {
     if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
     let attempt = input.attemptId
       ? user.verification.history?.find((item) => item.attemptId === input.attemptId)
+      : input.drivingOnly ? user.verification.history?.findLast((item) => item.documentType === 'driving_licence' && item.status === 'pending')
       : user.verification.history?.find(
           (item) => item.attemptId === user.verification.documents?.find(
             (document) => document.documentType === user.verification.documentType,
@@ -663,6 +714,19 @@ export const userService = {
         409,
         'INVALID_VERIFICATION_STATE',
       );
+    }
+    const driving = attempt.documentType === 'driving_licence';
+    if (input.drivingOnly && !driving) throw new AppError('Select a driving eligibility attempt', 400, 'INVALID_DRIVING_ATTEMPT');
+    if (driving && input.status === 'approved') {
+      if (!hasApprovedMykad(user)) throw new AppError('Approve MyKad identity first', 409, 'MYKAD_REQUIRED');
+      if (attempt.aiEvidence?.identityMatch === 'mismatch') throw new AppError('Licence holder identity does not match the verified MyKad', 409, 'DRIVING_IDENTITY_MISMATCH');
+      if (input.identityMatchConfirmed !== true || input.classReviewConfirmed !== true) {
+        throw new AppError('Confirm holder identity and licence class from the protected evidence', 400, 'DRIVING_REVIEW_CONFIRMATION_REQUIRED');
+      }
+      if (!input.licenceClasses?.length || input.licenceClasses.some((value) => !LICENCE_CLASSES.includes(value))) {
+        throw new AppError('Enter the reviewed licence classes', 400, 'LICENCE_CLASS_REQUIRED');
+      }
+      input.reviewedExpiry = reviewedLicenceExpiry(input.expiresAt);
     }
     if (input.status !== 'approved' && !input.reason?.trim()) {
       throw new AppError(
@@ -690,6 +754,35 @@ export const userService = {
       document.reviewedAt = reviewedAt;
       document.reviewedBy = identity.authId;
       document.reason = attempt.reviewReason;
+    }
+    if (driving) {
+      const legacyRecord = user.drivingEligibility?.legacyRecord;
+      user.drivingEligibility = {
+        status: input.status, latestAttemptId: attempt.attemptId,
+        submittedAt: attempt.submittedAt, verifiedAt: input.status === 'approved' ? reviewedAt : undefined,
+        verifiedBy: identity.authId, reviewNotes: attempt.reviewReason,
+        identityMatch: attempt.aiEvidence?.identityMatch ?? 'unavailable',
+        licenceClasses: input.status === 'approved' ? input.licenceClasses : [],
+        expiresAt: input.status === 'approved' ? input.reviewedExpiry : undefined,
+        identityMatchConfirmed: input.status === 'approved',
+        classReviewConfirmed: input.status === 'approved',
+        legacyRecord,
+      };
+      attempt.drivingReview = user.drivingEligibility.toObject();
+      await user.save();
+      await adminModule.service.create({
+        actorId: identity.authId, action: `driving_eligibility.${input.status}`,
+        targetType: 'user', targetId: user.authId,
+        metadata: { attemptId: attempt.attemptId, licenceClasses: user.drivingEligibility.licenceClasses, expiresAt: user.drivingEligibility.expiresAt },
+        createdBy: identity.authId,
+      });
+      await notifyUser({
+        userId: user.authId, category: 'verification', type: `driving_eligibility_${input.status}`,
+        title: `Driving eligibility ${input.status.replaceAll('_', ' ')}`,
+        body: attempt.reviewReason || 'Your vehicle driving eligibility review is complete.',
+        entityType: 'user', entityId: user.authId,
+      });
+      return user;
     }
     user.verification.status = aggregateVerificationStatus(user.verification);
     const existingTier = user.verification.tier;

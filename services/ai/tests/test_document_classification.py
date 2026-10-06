@@ -123,9 +123,12 @@ def analyse_ocr(monkeypatch):
     monkeypatch.setattr(intelligence, '_document_risk_model', lambda: (None, Path('missing-risk.pt')))
 
     def analyse(text, expected):
+        texts = [text] if isinstance(text, str) else text
+        monkeypatch.setattr(intelligence, '_decode_images', lambda request: ([(None, image) for _ in texts], []))
+        remaining = iter(texts)
         class SyntheticReader:
             def readtext(self, image, **kwargs):
-                return [(None, line, 0.95) for line in text.splitlines()]
+                return [(None, line, 0.95) for line in next(remaining).splitlines()]
         monkeypatch.setattr(intelligence, '_ocr_reader', lambda: SyntheticReader())
         response = TestClient(app).post('/verify/document', json={
             'expected_type': expected, 'profile_name': 'TEST USER',
@@ -136,13 +139,13 @@ def analyse_ocr(monkeypatch):
     return analyse
 
 
-def test_licence_endpoint_has_no_false_mismatch_and_missing_risk_stays_manual(analyse_ocr):
+def test_licence_endpoint_has_no_false_mismatch_and_needs_no_trained_risk_model(analyse_ocr):
     result = analyse_ocr(LICENCE, 'driving_licence')
     assert result['extracted_fields']['documentType'] == 'driving_licence'
     assert MISMATCH not in result['reasons']
-    assert result['extracted_fields']['documentRiskModel'] == 'unavailable'
+    assert result['extracted_fields']['documentRiskModel'] == 'not_applicable'
     assert 'documentRiskScore' not in result['extracted_fields']
-    assert result['model_versions']['risk'] == 'unavailable'
+    assert result['model_versions']['risk'] == 'not_applicable'
     assert result['outcome'] == 'manual_review'
     assert result['accepted'] is False
     assert result['confidence'] == 0.95  # Stubbed OCR confidence, not risk confidence.
@@ -175,4 +178,36 @@ def test_invalid_ic_birth_segment_and_expired_licence_stay_manual(analyse_ocr):
     assert result['extracted_fields']['documentExpired'] is True
     assert any('birth-date segment' in reason for reason in result['reasons'])
     assert any('expiry date is in the past' in reason for reason in result['reasons'])
+    assert result['outcome'] == 'manual_review'
+
+
+def test_mykad_front_back_both_contribute_evidence_and_missing_model_stays_manual(analyse_ocr):
+    result = analyse_ocr([MYKAD, 'MALAYSIA\nALAMAT SYNTHETIC ADDRESS'], 'mykad')
+    assert result['extracted_fields']['documentType'] == 'mykad'
+    assert result['extracted_fields']['mykadSidesConsistent'] is True
+    assert [image['side'] for image in result['quality']['ocr']] == ['front', 'back']
+    assert all(image['hasTextEvidence'] for image in result['quality']['ocr'])
+    assert result['extracted_fields']['documentRiskModel'] == 'unavailable'
+    assert result['outcome'] == 'manual_review'
+    assert result['accepted'] is False
+
+
+@pytest.mark.parametrize('back,reason', [
+    ('', 'no readable OCR'),
+    ('MYKAD\n910101-07-1234', 'inconsistent holder'),
+])
+def test_mykad_unreadable_or_inconsistent_second_side_is_flagged(analyse_ocr, back, reason):
+    result = analyse_ocr([MYKAD, back], 'mykad')
+    assert any(reason in message for message in result['reasons'])
+    assert result['outcome'] == 'manual_review'
+
+
+def test_driving_assistance_does_not_load_or_claim_a_trained_licence_risk_model(analyse_ocr, monkeypatch):
+    def forbidden_model():
+        raise AssertionError('Driving evidence must not depend on a trained KYC risk model')
+    monkeypatch.setattr(intelligence, '_document_risk_model', forbidden_model)
+    result = analyse_ocr(LICENCE, 'driving_licence')
+    assert result['model_versions']['risk'] == 'not_applicable'
+    assert result['extracted_fields']['reviewScope'] == 'driving_eligibility'
+    assert 'documentRiskScore' not in result['extracted_fields']
     assert result['outcome'] == 'manual_review'

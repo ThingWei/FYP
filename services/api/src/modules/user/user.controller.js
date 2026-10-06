@@ -100,6 +100,9 @@ export const userController = {
       ),
     ),
   ),
+  reviewDrivingEligibility: asyncHandler(async (req, res) =>
+    ok(res, await userService.reviewVerification(req.params.userId, { ...matchedData(req), drivingOnly: true }, req.user)),
+  ),
 
   blockUser: asyncHandler(async (req, res) =>
     ok(res, await userService.blockUser(req.user, req.params.userId)),

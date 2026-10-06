@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { LICENCE_CLASSES } from '../user/drivingEligibility.js';
 
 export const LISTING_CATEGORIES = [
   'Clothing',
@@ -77,6 +78,7 @@ const listingSchema = new mongoose.Schema(
     description: { type: String, trim: true, maxlength: 3000, default: '' },
     category: { type: String, required: true, enum: LISTING_CATEGORIES, index: true },
     subcategory: { type: String, trim: true, maxlength: 100, default: '' },
+    requiredLicenceClass: { type: String, enum: ['', ...LICENCE_CLASSES], default: '' },
     brand: { type: String, trim: true, maxlength: 100, default: '' },
     productModel: { type: String, trim: true, maxlength: 120, default: '' },
     canonicalProductId: { type: String, trim: true, maxlength: 160, default: null },

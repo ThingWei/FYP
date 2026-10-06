@@ -50,6 +50,8 @@ const rentalSchema = new mongoose.Schema(
     bookingId: { type: String, required: true, unique: true, index: true },
     listingId: { type: String, required: true, index: true },
     listingType: { type: String, enum: ['physical', 'service'], required: true },
+    category: { type: String, immutable: true },
+    requiredLicenceClass: { type: String, immutable: true },
     renterId: { type: String, required: true, index: true },
     ownerId: { type: String, required: true, index: true },
     startDate: { type: Date, required: true },

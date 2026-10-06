@@ -104,6 +104,12 @@ userRouter.post(
   validate,
   userController.submitVerification,
 );
+// Dedicated driving scope, reusing protected attempts and compatibility handlers.
+userRouter.post('/me/driving-eligibility', authenticate,
+  (req, _res, next) => { req.body.documentType = 'driving_licence'; next(); },
+  verificationSubmissionValidation, validate, userController.submitVerification);
+userRouter.patch('/:userId/driving-eligibility', authenticate, authorize('admin'),
+  verificationDecisionValidation, validate, userController.reviewDrivingEligibility);
 userRouter.post(
   '/me/verification/scan-frame',
   authenticate,

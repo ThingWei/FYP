@@ -35,6 +35,8 @@ const bookingSchema = new mongoose.Schema(
     listingId: { type: String, required: true, index: true },
     listingTitle: { type: String, required: true, trim: true },
     listingType: { type: String, enum: ['physical', 'service'], required: true },
+    category: { type: String, immutable: true },
+    requiredLicenceClass: { type: String, immutable: true },
     sourceType: {
       type: String,
       enum: ['marketplace', 'demo_seed'],

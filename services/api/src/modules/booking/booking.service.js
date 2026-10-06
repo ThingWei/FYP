@@ -12,6 +12,7 @@ import {
 } from '../communication/notification.service.js';
 import { voidBookingPayment } from '../payment/payment.service.js';
 import { UserModel } from '../user/user.model.js';
+import { assertDrivingEligibility } from '../user/drivingEligibility.js';
 import { PlatformSettingModel } from '../admin/platformSetting.model.js';
 import {
   approvedDocumentTypes,
@@ -229,6 +230,8 @@ export const bookingService = {
       (await PlatformSettingModel.findOne({ key: 'platform' })) ??
       await PlatformSettingModel.create({ key: 'platform' });
     const requirement = resolveKycRequirement(platform, listing);
+    const { startDate, endDate } = bookingDates(listing, input);
+    assertDrivingEligibility(renter, listing, endDate);
     const approvedDocuments = approvedDocumentTypes(renter);
     const missingDocuments = requirement.requiredDocumentTypes.filter(
       (type) => !approvedDocuments.has(type),
@@ -245,7 +248,6 @@ export const bookingService = {
         },
       );
     }
-    const { startDate, endDate } = bookingDates(listing, input);
     const fingerprint = requestFingerprint(input, { startDate, endDate });
     const replay = await findIdempotentBooking(
       renter.authId,
@@ -273,6 +275,8 @@ export const bookingService = {
         listingId: listing.publicId,
         listingTitle: listing.title,
         listingType: listing.listingType,
+        category: listing.category,
+        requiredLicenceClass: listing.requiredLicenceClass,
         renterId: renter.authId,
         renterName: renter.displayName,
         ownerId: listing.ownerId,
@@ -391,6 +395,11 @@ export const bookingService = {
       if (!listing || listing.status !== 'active') {
         throw new AppError('Listing is no longer active', 409, 'LISTING_INACTIVE');
       }
+      if (booking.category === 'Vehicles' || listing.category === 'Vehicles') {
+        const renter = await UserModel.findOne({ authId: booking.renterId });
+        if (!renter) throw new AppError('Renter not found', 404, 'NOT_FOUND');
+        assertDrivingEligibility(renter, booking.category === 'Vehicles' ? booking : listing, booking.endDate);
+      }
       await assertAvailable(
         listing,
         booking.startDate,
@@ -409,6 +418,8 @@ export const bookingService = {
         bookingId: booking.publicId,
         listingId: booking.listingId,
         listingType: booking.listingType,
+        category: booking.category ?? listing.category,
+        requiredLicenceClass: booking.category ? booking.requiredLicenceClass : listing.requiredLicenceClass,
         renterId: booking.renterId,
         ownerId: booking.ownerId,
         startDate: booking.startDate,

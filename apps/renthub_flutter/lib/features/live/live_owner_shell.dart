@@ -530,6 +530,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   final expectedRentalDays = TextEditingController(text: '1');
   String category = RentHubCategories.devices;
   String subcategory = 'Smartphones';
+  String requiredLicenceClass = '';
   String condition = 'Excellent';
   bool saving = false;
   bool suggestingPrice = false;
@@ -992,6 +993,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       category = RentHubCategories.services;
     } else if (widget.listing != null) {
       category = widget.listing!.category;
+      requiredLicenceClass = widget.listing!.requiredLicenceClass;
       final savedSubcategory = widget.listing!.subcategory;
       if (subcategories[category]?.contains(savedSubcategory) ?? false) {
         subcategory = savedSubcategory;
@@ -1049,6 +1051,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
         },
       } else ...{
         'subcategory': subcategory,
+        'requiredLicenceClass':
+            category == RentHubCategories.vehicles ? requiredLicenceClass : '',
         'brand': brand.text.trim(),
         'productModel': productModel.text.trim(),
         'canonicalProductId': canonicalProductId,
@@ -1210,6 +1214,46 @@ class _LiveListingFormState extends State<LiveListingForm> {
                     }),
                   ),
                   const SizedBox(height: 12),
+                  if (category == RentHubCategories.vehicles) ...[
+                    DropdownButtonFormField<String>(
+                      initialValue: requiredLicenceClass,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                          labelText: 'Required driving licence class',
+                          helperText:
+                              'Choose the class suitable for this vehicle. No automatic JPJ validation.'),
+                      items: [
+                        '',
+                        'A',
+                        'A1',
+                        'B',
+                        'B1',
+                        'B2',
+                        'C',
+                        'D',
+                        'DA',
+                        'E',
+                        'E1',
+                        'E2',
+                        'F',
+                        'G',
+                        'H',
+                        'I'
+                      ]
+                          .map((value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(
+                                  value.isEmpty
+                                      ? 'Administrator-reviewed classes (legacy default)'
+                                      : value,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis)))
+                          .toList(),
+                      onChanged: (value) =>
+                          setState(() => requiredLicenceClass = value ?? ''),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   DropdownButtonFormField<String>(
                     initialValue: condition,
                     decoration: const InputDecoration(labelText: 'Condition'),

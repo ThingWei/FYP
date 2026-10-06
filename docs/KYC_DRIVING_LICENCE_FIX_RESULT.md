@@ -2,6 +2,12 @@
 
 Updated: 6 October 2026
 
+This report describes the earlier OCR classification fix. The subsequent scope
+separation is implemented in [MYKAD_DRIVING_ELIGIBILITY_RESULT.md](MYKAD_DRIVING_ELIGIBILITY_RESULT.md):
+MyKad is primary identity KYC, driving evidence has separate administrator-
+reviewed eligibility/class/expiry state and requires no trained licence model.
+Its policy/test results supersede earlier licence approval behavior below.
+
 ## Root cause and outcome
 
 `_extract_document_fields` previously assigned `documentType = mykad` as soon

@@ -1,4 +1,5 @@
 import { body, param, query } from 'express-validator';
+import { LICENCE_CLASSES } from '../user/drivingEligibility.js';
 import {
   LISTING_CATEGORIES,
   LISTING_STATUSES,
@@ -11,6 +12,7 @@ const editableFields = new Set([
   'description',
   'category',
   'subcategory',
+  'requiredLicenceClass',
   'brand',
   'productModel',
   'canonicalProductId',
@@ -48,6 +50,7 @@ const listingFields = [
   body('description').optional().trim().isLength({ max: 3000 }),
   body('category').optional().isIn(LISTING_CATEGORIES),
   body('subcategory').optional().trim().isLength({ max: 100 }),
+  body('requiredLicenceClass').optional().isIn(['', ...LICENCE_CLASSES]),
   body('brand').optional().trim().isLength({ max: 100 }),
   body('productModel').optional().trim().isLength({ max: 120 }),
   body('canonicalProductId')

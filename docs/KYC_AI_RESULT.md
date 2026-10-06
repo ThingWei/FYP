@@ -2,6 +2,15 @@
 
 Last updated: 6 October 2026
 
+Current scope is **primary Malaysian MyKad identity KYC** plus a **separate
+administrator-reviewed driving licence/MyJPJ eligibility** flow. Passport remains
+optional legacy compatibility, not a primary FYP requirement. The implemented
+state, migration policy, UI, vehicle expiry/class gates and current tests are in
+[MYKAD_DRIVING_ELIGIBILITY_RESULT.md](MYKAD_DRIVING_ELIGIBILITY_RESULT.md).
+No public JPJ API, official QR validation or government authentication is claimed;
+no trained driving-licence model is required. The original continuation matrix and
+totals below document the earlier integration baseline, not the latest split.
+
 Driving-licence classification and licence-only aggregate-status fixes are
 documented in [KYC_DRIVING_LICENCE_FIX_RESULT.md](KYC_DRIVING_LICENCE_FIX_RESULT.md),
 including the final 49-test AI and 46-test focused API results. IC-format holder

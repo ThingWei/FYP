@@ -62,4 +62,61 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  test(
+      'driving eligibility has independent state, Malaysian expiry and no legacy auto-approval',
+      () {
+    final legacy = User.fromJson({
+      'authId': 'u-legacy',
+      'displayName': 'Synthetic User',
+      'roles': ['renter'],
+      'verification': {
+        'status': 'approved',
+        'documentType': 'passport',
+        'documents': [
+          {'documentType': 'passport', 'status': 'approved'},
+          {'documentType': 'driving_licence', 'status': 'approved'}
+        ]
+      },
+    });
+    expect(legacy.mykadStatus, 'unverified');
+    expect(legacy.verificationDocuments['passport'], 'approved');
+    expect(legacy.drivingEligibility.displayStatus, 'unverified');
+    final valid = DrivingEligibility.fromJson({
+      'status': 'approved',
+      'licenceClasses': ['D'],
+      'expiresAt': '2035-01-01T15:59:59.999Z',
+      'identityMatchConfirmed': true,
+      'classReviewConfirmed': true,
+    });
+    expect(valid.displayStatus, 'approved');
+    expect(valid.validUntil, '2035-01-01');
+    expect(DrivingEligibility.fromJson({'status': 'approved'}).displayStatus,
+        'resubmission_required');
+    final expired = DrivingEligibility.fromJson({
+      'status': 'approved',
+      'licenceClasses': ['D'],
+      'expiresAt': '2000-01-01T15:59:59.999Z',
+      'identityMatchConfirmed': true,
+      'classReviewConfirmed': true,
+    });
+    expect(expired.displayStatus, 'expired');
+    expect(
+        const Listing(
+                id: 'l-old',
+                title: 'Old vehicle',
+                category: 'Vehicles',
+                dailyPrice: 10)
+            .requiredLicenceClass,
+        '');
+    expect(
+        Listing.fromJson({
+          'id': 'l-new',
+          'title': 'Synthetic Vehicle',
+          'category': 'Vehicles',
+          'dailyPrice': 10,
+          'requiredLicenceClass': 'D'
+        }).requiredLicenceClass,
+        'D');
+  });
 }

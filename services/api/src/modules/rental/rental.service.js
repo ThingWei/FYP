@@ -2,6 +2,7 @@ import { AppError } from '../../core/errors.js';
 import { physicalRentalDate } from '../../core/calendarDate.js';
 import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { BookingModel } from '../booking/booking.model.js';
+import { ListingModel } from '../listing/listing.model.js';
 import { AvailabilityModel } from '../listing/availability.model.js';
 import { notifyUser } from '../communication/notification.service.js';
 import { uploadService } from '../upload/upload.service.js';
@@ -11,6 +12,7 @@ import {
   recordServiceSettlement,
 } from '../payment/payment.service.js';
 import { UserModel } from '../user/user.model.js';
+import { assertDrivingEligibility } from '../user/drivingEligibility.js';
 import { awardRentalCompletion } from '../loyalty/loyalty.service.js';
 import { RENTAL_STATUSES } from './rental.model.js';
 import { rentalRepository } from './rental.repository.js';
@@ -36,6 +38,15 @@ async function requireActiveUser(identity, role) {
     throw new AppError(`${role} role is required`, 403, 'FORBIDDEN');
   }
   return user;
+}
+
+async function assertVehicleCredential(rental, endDate) {
+  const listing = rental.category ? rental : await ListingModel.findOne({ publicId: rental.listingId });
+  if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
+  if (listing.category !== 'Vehicles') return;
+  const renter = await UserModel.findOne({ authId: rental.renterId });
+  if (!renter) throw new AppError('Renter not found', 404, 'NOT_FOUND');
+  assertDrivingEligibility(renter, listing, endDate);
 }
 
 async function ownedRental(id, identity, role) {
@@ -156,6 +167,7 @@ export const rentalService = {
     if (rental.listingType !== 'physical' || rental.status !== 'scheduled') {
       throw new AppError('Handover is unavailable', 409, 'INVALID_RENTAL_STATE');
     }
+    await assertVehicleCredential(rental, rental.endDate);
     rental.handover = {
       condition: input.condition,
       notes: input.notes ?? '',
@@ -223,6 +235,7 @@ export const rentalService = {
       );
     }
     await assertExtensionAvailable(rental, requestedEndDate);
+    await assertVehicleCredential(rental, requestedEndDate);
     rental.extension = {
       requestedEndDate,
       reason: input.reason,
@@ -252,6 +265,7 @@ export const rentalService = {
     }
     if (input.status === 'approved') {
       await assertExtensionAvailable(rental, rental.extension.requestedEndDate);
+      await assertVehicleCredential(rental, rental.extension.requestedEndDate);
       rental.endDate = rental.extension.requestedEndDate;
       const booking = await linkedBooking(rental);
       booking.endDate = rental.endDate;

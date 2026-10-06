@@ -128,7 +128,7 @@ async function createCameraBooking({ idempotencyKey } = {}) {
 }
 
 async function authorizeBooking(bookingId, headers = renter) {
-  return request(app)
+  const response = await request(app)
     .post('/api/v1/payments/authorizations')
     .set(headers)
     .send({
@@ -136,6 +136,8 @@ async function authorizeBooking(bookingId, headers = renter) {
       method: 'card',
       idempotencyKey: `authorize:${bookingId}`,
     });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  return response;
 }
 
 async function applyReferral(referrerHeaders) {
@@ -297,7 +299,7 @@ test('vehicle bookings require approved MyKad and Driving Licence evidence', asy
       agreementVersion: 'renthub-booking-v1',
     });
   assert.equal(missingLicence.status, 403);
-  assert.equal(missingLicence.body.error.code, 'KYC_REQUIRED');
+  assert.equal(missingLicence.body.error.code, 'DRIVING_ELIGIBILITY_REQUIRED');
   assert.deepEqual(missingLicence.body.error.details.missingDocumentTypes, [
     'driving_licence',
   ]);
@@ -305,6 +307,10 @@ test('vehicle bookings require approved MyKad and Driving Licence evidence', asy
   await UserModel.updateOne(
     { authId: 'u-renter' },
     {
+      $set: { drivingEligibility: {
+        status: 'approved', licenceClasses: ['D'], expiresAt: new Date('2035-01-01'),
+        identityMatchConfirmed: true, classReviewConfirmed: true,
+      } },
       $push: {
         'verification.documents': {
           documentType: 'driving_licence',
@@ -327,6 +333,67 @@ test('vehicle bookings require approved MyKad and Driving Licence evidence', asy
       agreementVersion: 'renthub-booking-v1',
     });
   assert.equal(eligible.status, 201, JSON.stringify(eligible.body));
+});
+
+test('vehicle requests enforce MyKad, independent eligibility, validity through rental and exact required class', async () => {
+  await ListingModel.create({ publicId: 'l-driving-check', ownerId: 'u-owner', ownerName: 'Synthetic Owner',
+    title: 'Synthetic vehicle', category: 'Vehicles', subcategory: 'Cars', requiredLicenceClass: 'D',
+    listingType: 'physical', condition: 'Good', dailyPrice: 100, fulfilmentMethods: ['pickup'], location: 'Kuala Lumpur', status: 'active' });
+  const validDriving = { status: 'approved', licenceClasses: ['D'], expiresAt: new Date('2035-01-01'),
+    identityMatchConfirmed: true, classReviewConfirmed: true };
+  const cases = [
+    { mykad: 'unverified', driving: validDriving, code: 'MYKAD_REQUIRED' },
+    { mykad: 'pending', driving: validDriving, code: 'MYKAD_REQUIRED' },
+    { mykad: 'rejected', driving: validDriving, code: 'MYKAD_REQUIRED' },
+    { mykad: 'approved', driving: { status: 'unverified' }, code: 'DRIVING_ELIGIBILITY_REQUIRED' },
+    { mykad: 'approved', driving: { status: 'pending' }, code: 'DRIVING_ELIGIBILITY_REQUIRED' },
+    { mykad: 'approved', driving: { status: 'rejected' }, code: 'DRIVING_ELIGIBILITY_REQUIRED' },
+    { mykad: 'approved', driving: { ...validDriving, expiresAt: new Date('2000-01-01') }, code: 'DRIVING_ELIGIBILITY_EXPIRED' },
+    { mykad: 'approved', driving: { ...validDriving, expiresAt: new Date('2026-11-09') }, code: 'DRIVING_ELIGIBILITY_EXPIRED' },
+    { mykad: 'approved', driving: { ...validDriving, licenceClasses: ['B2'] }, code: 'DRIVING_LICENCE_CLASS_REQUIRED' },
+    { mykad: 'approved', driving: { ...validDriving, identityMatchConfirmed: false }, code: 'DRIVING_ELIGIBILITY_REVIEW_REQUIRED' },
+  ];
+  const payload = { listingId: 'l-driving-check', startDate: '2026-11-10', endDate: '2026-11-10',
+    fulfilmentMethod: 'pickup', agreementAccepted: true, agreementVersion: 'renthub-booking-v1' };
+  for (const [index, fixture] of cases.entries()) {
+    await UserModel.updateOne({ authId: 'u-renter' }, { $set: {
+      'verification.documents': [{ documentType: 'mykad', status: fixture.mykad }],
+      drivingEligibility: fixture.driving,
+    } });
+    const blocked = await request(app).post('/api/v1/bookings').set(renter)
+      .send({ ...payload, idempotencyKey: `driving-case:${index}` });
+    assert.equal(blocked.status, 403, JSON.stringify(blocked.body));
+    assert.equal(blocked.body.error.code, fixture.code);
+  }
+  await UserModel.updateOne({ authId: 'u-renter' }, { $set: {
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }], drivingEligibility: validDriving,
+  } });
+  const allowed = await request(app).post('/api/v1/bookings').set(renter)
+    .send({ ...payload, idempotencyKey: 'driving-case:allowed' });
+  assert.equal(allowed.status, 201, JSON.stringify(allowed.body));
+  assert.equal((await authorizeBooking(allowed.body.data.id)).status, 201);
+  const approved = await request(app).patch(`/api/v1/bookings/${allowed.body.data.id}/decision`).set(owner)
+    .send({ status: 'approved' });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  await UserModel.updateOne({ authId: 'u-renter' }, { $set: { 'drivingEligibility.expiresAt': new Date('2000-01-01') } });
+  const rental = await RentalModel.findOne({ bookingId: allowed.body.data.id });
+  assert.equal(rental.category, 'Vehicles');
+  assert.equal(rental.requiredLicenceClass, 'D');
+  await ListingModel.updateOne({ publicId: 'l-driving-check' }, { $set: { category: 'Devices', requiredLicenceClass: '' } });
+  const handover = await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Good', notes: 'Synthetic handover', evidence: ['local://handover/test.jpg'] });
+  assert.equal(handover.status, 403);
+  assert.equal(handover.body.error.code, 'DRIVING_ELIGIBILITY_EXPIRED');
+  assert.equal((await RentalModel.findById(rental._id)).status, 'scheduled');
+  await UserModel.updateOne({ authId: 'u-renter' }, { $set: { 'drivingEligibility.expiresAt': new Date('2035-01-01') } });
+  const validHandover = await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Good', notes: 'Synthetic handover', evidence: ['local://handover/test.jpg'] });
+  assert.equal(validHandover.status, 200);
+  await UserModel.updateOne({ authId: 'u-renter' }, { $set: { 'drivingEligibility.expiresAt': new Date('2026-11-10T15:59:59.999Z') } });
+  const extension = await request(app).post(`/api/v1/rentals/${rental.publicId}/extensions`).set(renter)
+    .send({ requestedEndDate: '2026-11-11', reason: 'Synthetic additional rental day' });
+  assert.equal(extension.status, 403);
+  assert.equal(extension.body.error.code, 'DRIVING_ELIGIBILITY_EXPIRED');
 });
 
 test('requires the current booking agreement before creating a request', async () => {

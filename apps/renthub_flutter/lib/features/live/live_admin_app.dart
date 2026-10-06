@@ -402,10 +402,27 @@ class _AdminVerificationState extends State<_AdminVerification> {
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
-    return history.lastWhere(
-      (item) => item['status'] == 'pending',
-      orElse: () => const <String, dynamic>{},
-    );
+    final candidates = history
+        .where((item) =>
+            item['status'] == 'pending' &&
+            (documentFilter == 'all' || item['documentType'] == documentFilter))
+        .toList();
+    // A simultaneously pending MyKad must remain reviewable before driving approval.
+    if (documentFilter == 'all') {
+      final mykad = candidates
+          .where((item) => item['documentType'] == 'mykad')
+          .lastOrNull;
+      if (mykad != null) return mykad;
+    }
+    if (candidates.isNotEmpty) return candidates.last;
+    return verification['status'] == 'pending'
+        ? {
+            'documentType': verification['documentType'],
+            'documentRefs': verification['documentRefs'],
+            'aiEvidence': verification['ocrResult'],
+            'status': 'pending',
+          }
+        : const <String, dynamic>{};
   }
 
   Future<void> _viewDocuments(
@@ -467,6 +484,16 @@ class _AdminVerificationState extends State<_AdminVerification> {
     String? attemptId,
   ) async {
     final reason = TextEditingController();
+    final attempt = _pendingAttempt(user);
+    final driving = attempt['documentType'] == 'driving_licence';
+    final extracted =
+        ((attempt['aiEvidence'] as Map?)?['extracted_fields'] as Map?) ??
+            const {};
+    final classes =
+        TextEditingController(text: '${extracted['licenceClass'] ?? ''}');
+    final expiry = TextEditingController();
+    bool identityMatchConfirmed = false;
+    bool classReviewConfirmed = false;
     var tier = 'basic';
     final accepted = await showDialog<bool>(
       context: context,
@@ -474,20 +501,58 @@ class _AdminVerificationState extends State<_AdminVerification> {
         builder: (context, setDialogState) => AlertDialog(
           title: Text(
             status == 'approved'
-                ? 'Approve identity?'
+                ? (driving
+                    ? 'Approve driving eligibility?'
+                    : 'Approve identity?')
                 : status == 'rejected'
-                    ? 'Reject identity?'
+                    ? (driving
+                        ? 'Reject driving eligibility?'
+                        : 'Reject identity?')
                     : 'Request resubmission?',
           ),
           content: SizedBox(
             width: 480,
-            child: Column(
+            child: SingleChildScrollView(
+                child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(user['displayName'] as String),
                 const SizedBox(height: 12),
-                if (status == 'approved')
+                if (driving) ...[
+                  Text(
+                      'MyKad identity: ${((user['verification'] as Map?)?['documents'] as List? ?? const []).whereType<Map>().where((item) => item['documentType'] == 'mykad').map((item) => item['status']).firstOrNull ?? 'unverified'}'),
+                  Text(
+                      'Holder match assistance: ${(attempt['aiEvidence'] as Map?)?['identityMatch'] ?? 'unavailable'}'),
+                  Text(
+                      'OCR expiry (confirm from protected evidence): ${extracted['expiryDateText'] ?? 'not extracted'}'),
+                  const Text(
+                      'No JPJ API / official QR or government authentication. Review licence / MyJPJ evidence against approved MyKad.'),
+                ],
+                if (status == 'approved' && driving) ...[
+                  TextField(
+                      controller: classes,
+                      decoration: const InputDecoration(
+                          labelText: 'Reviewed licence classes (e.g. D, B2)')),
+                  TextField(
+                      controller: expiry,
+                      decoration: const InputDecoration(
+                          labelText: 'Valid until (YYYY-MM-DD)')),
+                  CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: identityMatchConfirmed,
+                      title: const Text(
+                          'Holder matches the approved MyKad evidence'),
+                      onChanged: (value) => setDialogState(
+                          () => identityMatchConfirmed = value ?? false)),
+                  CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: classReviewConfirmed,
+                      title:
+                          const Text('Licence classes and validity reviewed'),
+                      onChanged: (value) => setDialogState(
+                          () => classReviewConfirmed = value ?? false)),
+                ] else if (status == 'approved')
                   DropdownButtonFormField<String>(
                     initialValue: tier,
                     decoration:
@@ -511,7 +576,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
                     ),
                   ),
               ],
-            ),
+            )),
           ),
           actions: [
             TextButton(
@@ -528,6 +593,8 @@ class _AdminVerificationState extends State<_AdminVerification> {
     );
     if (accepted != true || !context.mounted) {
       reason.dispose();
+      classes.dispose();
+      expiry.dispose();
       return;
     }
     if (status != 'approved' && reason.text.trim().length < 3) {
@@ -535,6 +602,8 @@ class _AdminVerificationState extends State<_AdminVerification> {
         const SnackBar(content: Text('Enter a review reason.')),
       );
       reason.dispose();
+      classes.dispose();
+      expiry.dispose();
       return;
     }
     try {
@@ -544,6 +613,16 @@ class _AdminVerificationState extends State<_AdminVerification> {
             tier: tier,
             reason: reason.text,
             attemptId: attemptId,
+            driving: driving,
+            licenceClasses: classes.text
+                .toUpperCase()
+                .split(RegExp(r'[,/\s]+'))
+                .where((value) => value.isNotEmpty)
+                .toSet()
+                .toList(),
+            expiresAt: expiry.text.trim(),
+            identityMatchConfirmed: identityMatchConfirmed,
+            classReviewConfirmed: classReviewConfirmed,
           );
     } catch (exception) {
       if (context.mounted) {
@@ -552,6 +631,8 @@ class _AdminVerificationState extends State<_AdminVerification> {
       }
     }
     reason.dispose();
+    classes.dispose();
+    expiry.dispose();
   }
 
   @override
@@ -616,7 +697,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
                         value: 'passport', child: Text('Passport')),
                     DropdownMenuItem(
                       value: 'driving_licence',
-                      child: Text('Driving Licence'),
+                      child: Text('Driving Eligibility'),
                     ),
                   ],
                   onChanged: (value) =>
@@ -709,9 +790,9 @@ class _AdminVerificationState extends State<_AdminVerification> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        'Automated check: ${ocr['outcome'] ?? 'unavailable'} | Confidence: ${(((ocr['confidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%',
-                      ),
+                      Text(attemptDocumentType == 'driving_licence'
+                          ? 'Driving evidence (OCR/rules only) | Holder match: ${ocr['identityMatch'] ?? 'unavailable'} | MyKad approval required'
+                          : 'Identity AI assistance: ${ocr['outcome'] ?? 'unavailable'} | OCR confidence: ${(((ocr['confidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%'),
                       if ((ocr['reasons'] as List? ?? const []).isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
@@ -772,6 +853,28 @@ class _AdminVerificationState extends State<_AdminVerification> {
                                 : () => _viewDocuments(context, references),
                             child: const Text('View Documents'),
                           ),
+                          if (attemptDocumentType == 'driving_licence')
+                            OutlinedButton(
+                              onPressed: () {
+                                final mykad = history
+                                    .where((item) =>
+                                        item['documentType'] == 'mykad' &&
+                                        item['status'] == 'approved')
+                                    .lastOrNull;
+                                final refs = (mykad?['documentRefs'] as List? ??
+                                        const [])
+                                    .cast<String>();
+                                if (refs.isNotEmpty) {
+                                  _viewDocuments(context, refs);
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content: Text(
+                                              'No protected approved MyKad attempt is available. Request MyKad resubmission or locate the legacy protected evidence.')));
+                                }
+                              },
+                              child: const Text('Compare approved MyKad'),
+                            ),
                           OutlinedButton(
                             onPressed: () => _review(context, user,
                                 'resubmission_required', attemptId),

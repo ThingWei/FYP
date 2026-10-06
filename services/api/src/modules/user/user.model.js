@@ -56,6 +56,7 @@ const verificationAttemptSchema = new mongoose.Schema(
     reviewedAt: Date,
     reviewedBy: { type: String, trim: true, default: '' },
     reviewReason: { type: String, trim: true, maxlength: 500, default: '' },
+    drivingReview: { type: mongoose.Schema.Types.Mixed },
   },
   { _id: false },
 );
@@ -176,6 +177,22 @@ const userSchema = new mongoose.Schema(
         },
       },
     },
+    // Keyed comparison only; never return this fingerprint or persist raw OCR IDs.
+    identityMatchFingerprint: { type: String, select: false },
+    drivingEligibility: {
+      status: { type: String, enum: VERIFICATION_STATUSES, default: 'unverified' },
+      latestAttemptId: { type: String, default: '' },
+      licenceClasses: { type: [String], default: [] },
+      expiresAt: Date,
+      submittedAt: Date,
+      verifiedAt: Date,
+      verifiedBy: { type: String, default: '' },
+      reviewNotes: { type: String, maxlength: 500, default: '' },
+      identityMatch: { type: String, enum: ['matched', 'mismatch', 'unavailable'], default: 'unavailable' },
+      identityMatchConfirmed: { type: Boolean, default: false },
+      classReviewConfirmed: { type: Boolean, default: false },
+      legacyRecord: { type: mongoose.Schema.Types.Mixed },
+    },
     addresses: {
       type: [addressSchema],
       validate: {
@@ -214,6 +231,7 @@ const userSchema = new mongoose.Schema(
     toJSON: {
       transform: (_document, value) => {
         delete value.passwordHash;
+        delete value.identityMatchFingerprint;
         return value;
       },
     },

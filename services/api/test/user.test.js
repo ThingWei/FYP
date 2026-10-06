@@ -702,6 +702,8 @@ test('submits and reviews identity verification with audit and notification', as
       status: 'approved',
       tier: 'enhanced',
       attemptId: licenceAttempt.attemptId,
+      licenceClasses: ['D'], expiresAt: '2035-01-01',
+      identityMatchConfirmed: true, classReviewConfirmed: true,
     });
   assert.equal(licenceReviewed.status, 200);
   assert.equal(
@@ -731,18 +733,18 @@ test('submits and reviews identity verification with audit and notification', as
       userId: 'u-verification-owner',
       type: 'verification_approved',
     }),
-    2,
+    1,
   );
   assert.equal(
     await adminModule.Model.countDocuments({
       action: 'verification.approved',
       targetId: 'u-verification-owner',
     }),
-    2,
+    1,
   );
 });
 
-test('licence-only approval is not global identity approval and AI identifiers remain masked', async (t) => {
+test('licence evidence without MyKad cannot be approved and AI identifiers remain masked', async (t) => {
   // Synthetic OCR evidence only; the live AI response remains administrator-controlled.
   t.mock.method(aiClient, 'verifyDocument', async () => ({
     accepted: false,
@@ -777,16 +779,17 @@ test('licence-only approval is not global identity approval and AI identifiers r
     .patch(`/api/v1/users/${user._id}/verification`)
     .set(admin)
     .send({ status: 'approved', attemptId: submitted.body.data.verification.history[0].attemptId });
-  assert.equal(reviewed.status, 200);
-  assert.equal(reviewed.body.data.verification.documents[0].status, 'approved');
-  assert.equal(reviewed.body.data.verification.status, 'unverified');
-  assert.equal(reviewed.body.data.verification.tier, 'none');
+  assert.equal(reviewed.status, 409);
+  assert.equal(reviewed.body.error.code, 'MYKAD_REQUIRED');
+  assert.equal(submitted.body.data.drivingEligibility.status, 'pending');
+  assert.equal(submitted.body.data.verification.status, 'unverified');
+  assert.equal(submitted.body.data.verification.tier, 'none');
   const requirements = await request(app)
     .get('/api/v1/users/me/verification/requirements')
     .query({ category: 'Vehicles', dailyPrice: 10 })
     .set(owner);
-  assert.deepEqual(requirements.body.data.approvedDocumentTypes, ['driving_licence']);
-  assert.deepEqual(requirements.body.data.missingDocumentTypes, ['mykad']);
+  assert.deepEqual(requirements.body.data.approvedDocumentTypes, []);
+  assert.deepEqual(requirements.body.data.missingDocumentTypes, ['mykad', 'driving_licence']);
   const stored = await UserModel.findOne({ authId: 'u-renter' }).lean();
   assert.ok(!JSON.stringify(stored.verification).includes('900101-07-1234'));
 });
@@ -852,6 +855,143 @@ test('resolves category KYC rules without disabling always-required categories',
     'mykad',
     'driving_licence',
   ]);
+});
+
+async function syntheticMykadAccount(t) {
+  const previousSecret = env.kycIdentityMatchSecret;
+  env.kycIdentityMatchSecret = 'synthetic-kyc-test-key-not-a-real-secret-12345';
+  t.after(() => { env.kycIdentityMatchSecret = previousSecret; });
+  let licenceIdentity = '900101-07-1234';
+  t.mock.method(aiClient, 'verifyDocument', async ({ documentType }) => ({
+    accepted: false, outcome: 'manual_review', confidence: 0,
+    extracted_fields: { documentType, identityNumber: documentType === 'mykad' ? '900101-07-1234' : licenceIdentity,
+      identityNumberFormatValid: true, licenceClass: 'D', expiryDateText: '01/01/2035' },
+    ocr_text: 'Synthetic OCR fixture only',
+  }));
+  const renter = identity();
+  const admin = identity({ id: 'u-admin', roles: 'admin' });
+  await request(app).post('/api/v1/users/session').set(renter);
+  await request(app).post('/api/v1/users/session').set(admin);
+  const mykad = await request(app).post('/api/v1/users/me/verification').set(renter)
+    .send({ documentType: 'mykad', documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
+  assert.equal(mykad.status, 200);
+  assert.equal(mykad.body.data.verification.status, 'pending');
+  assert.equal(mykad.body.data.verification.history[0].aiEvidence.outcome, 'manual_review');
+  assert.equal(mykad.body.data.identityMatchFingerprint, undefined);
+  const id = mykad.body.data._id;
+  const approval = await request(app).patch(`/api/v1/users/${id}/verification`).set(admin)
+    .send({ status: 'approved', attemptId: mykad.body.data.verification.history[0].attemptId });
+  assert.equal(approval.status, 200);
+  return { renter, admin, id, mismatch: () => { licenceIdentity = '910101-07-1234'; } };
+}
+
+const drivingApproval = { status: 'approved', licenceClasses: ['D', 'B2'], expiresAt: '2035-01-01',
+  identityMatchConfirmed: true, classReviewConfirmed: true };
+
+test('dedicated driving eligibility requires complete admin review and stores classes, expiry and safe holder match', async (t) => {
+  const { renter, admin, id } = await syntheticMykadAccount(t);
+  const submission = await request(app).post('/api/v1/users/me/driving-eligibility').set(renter)
+    .send({ documentRefs: ['local://verification/myjpj-evidence.jpg'] });
+  assert.equal(submission.status, 200, JSON.stringify(submission.body));
+  assert.equal(submission.body.data.drivingEligibility.status, 'pending');
+  assert.equal(submission.body.data.drivingEligibility.identityMatch, 'matched');
+  assert.equal(submission.body.data.verification.documentType, 'mykad');
+  assert.equal(submission.body.data.verification.status, 'approved');
+  const attemptId = submission.body.data.drivingEligibility.latestAttemptId;
+  const unauthorized = await request(app).patch(`/api/v1/users/${id}/driving-eligibility`).set(renter)
+    .send({ ...drivingApproval, attemptId });
+  assert.equal(unauthorized.status, 403);
+  const incomplete = await request(app).patch(`/api/v1/users/${id}/driving-eligibility`).set(admin)
+    .send({ status: 'approved', attemptId });
+  assert.equal(incomplete.status, 400);
+  const expired = await request(app).patch(`/api/v1/users/${id}/driving-eligibility`).set(admin)
+    .send({ ...drivingApproval, attemptId, expiresAt: '2000-01-01' });
+  assert.equal(expired.status, 400);
+  const approved = await request(app).patch(`/api/v1/users/${id}/driving-eligibility`).set(admin)
+    .send({ ...drivingApproval, attemptId });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  assert.deepEqual(approved.body.data.drivingEligibility.licenceClasses, ['D', 'B2']);
+  assert.equal(approved.body.data.drivingEligibility.expiresAt, '2035-01-01T15:59:59.999Z');
+  assert.equal(approved.body.data.drivingEligibility.verifiedBy, 'u-admin');
+  assert.equal(approved.body.data.verification.status, 'approved');
+  assert.equal(approved.body.data.verification.history.at(-1).drivingReview.status, 'approved');
+  const publicProfile = await request(app).get('/api/v1/users/public/u-renter');
+  assert.equal(publicProfile.body.data.drivingEligibility, undefined);
+  const list = await request(app).get('/api/v1/users').set(admin);
+  assert.ok(!JSON.stringify(list.body).includes('identityMatchFingerprint'));
+  const renewal = await request(app).post('/api/v1/users/me/driving-eligibility').set(renter)
+    .send({ documentRefs: ['local://verification/renewed-myjpj.jpg'] });
+  assert.equal(renewal.status, 200);
+  assert.equal(renewal.body.data.drivingEligibility.status, 'pending');
+  assert.equal(renewal.body.data.verification.history[1].drivingReview.status, 'approved');
+});
+
+test('holder mismatch cannot be approved; driving rejection/resubmission preserve MyKad and all attempts', async (t) => {
+  const fixture = await syntheticMykadAccount(t);
+  fixture.mismatch();
+  const submit = () => request(app).post('/api/v1/users/me/driving-eligibility').set(fixture.renter)
+    .send({ documentRefs: ['local://verification/synthetic-driving.jpg'] });
+  const submitted = await submit();
+  assert.equal(submitted.body.data.drivingEligibility.identityMatch, 'mismatch');
+  const attemptId = submitted.body.data.drivingEligibility.latestAttemptId;
+  const mismatched = await request(app).patch(`/api/v1/users/${fixture.id}/driving-eligibility`).set(fixture.admin)
+    .send({ ...drivingApproval, attemptId });
+  assert.equal(mismatched.status, 409);
+  assert.equal(mismatched.body.error.code, 'DRIVING_IDENTITY_MISMATCH');
+  const rejected = await request(app).patch(`/api/v1/users/${fixture.id}/driving-eligibility`).set(fixture.admin)
+    .send({ status: 'rejected', reason: 'Synthetic holder mismatch', attemptId });
+  assert.equal(rejected.status, 200);
+  assert.equal(rejected.body.data.drivingEligibility.status, 'rejected');
+  assert.equal(rejected.body.data.verification.status, 'approved');
+  const resubmitted = await submit();
+  assert.equal(resubmitted.status, 200);
+  assert.equal(resubmitted.body.data.verification.history.length, 3);
+  const rescan = await request(app).patch(`/api/v1/users/${fixture.id}/driving-eligibility`).set(fixture.admin)
+    .send({ status: 'resubmission_required', reason: 'Please supply readable licence evidence',
+      attemptId: resubmitted.body.data.drivingEligibility.latestAttemptId });
+  assert.equal(rescan.status, 200);
+  assert.equal(rescan.body.data.drivingEligibility.status, 'resubmission_required');
+  assert.equal(rescan.body.data.verification.documents.find((doc) => doc.documentType === 'mykad').status, 'approved');
+});
+
+test('legacy passport and incomplete licence history remain readable but cannot silently grant driving eligibility', async () => {
+  await request(app).post('/api/v1/users/session').set(identity());
+  await UserModel.updateOne({ authId: 'u-renter' }, { $set: {
+    'verification.status': 'approved', 'verification.documentType': 'passport',
+    'verification.documents': [{ documentType: 'passport', status: 'approved' }, { documentType: 'driving_licence', status: 'approved' }],
+  } });
+  const profile = await request(app).get('/api/v1/users/me').set(identity());
+  assert.equal(profile.status, 200);
+  assert.equal(profile.body.data.verification.documents.length, 2);
+  const requirements = await request(app).get('/api/v1/users/me/verification/requirements')
+    .query({ category: 'Vehicles', dailyPrice: 10 }).set(identity());
+  assert.deepEqual(requirements.body.data.approvedDocumentTypes, ['passport']);
+  assert.deepEqual(requirements.body.data.missingDocumentTypes, ['mykad', 'driving_licence']);
+  const resubmitted = await request(app).post('/api/v1/users/me/driving-eligibility').set(identity())
+    .send({ documentRefs: ['local://verification/new-driving-evidence.jpg'] });
+  assert.equal(resubmitted.status, 200);
+  assert.equal(resubmitted.body.data.drivingEligibility.status, 'pending');
+  assert.equal(resubmitted.body.data.drivingEligibility.legacyRecord.document.status, 'approved');
+  assert.equal(resubmitted.body.data.verification.documents.find((doc) => doc.documentType === 'passport').status, 'approved');
+});
+
+test('MyKad requires distinct front/back uploads and driving submission respects upload ownership', async (t) => {
+  await request(app).post('/api/v1/users/session').set(identity());
+  const mykad = await request(app).post('/api/v1/users/me/verification').set(identity())
+    .send({ documentType: 'mykad', documentRefs: ['local://verification/front.jpg'] });
+  assert.equal(mykad.status, 400);
+  assert.equal(mykad.body.error.code, 'MYKAD_SIDES_REQUIRED');
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+  const uploaded = await request(app).post('/api/v1/uploads').set(identity())
+    .field('purpose', 'verification_document').attach('file', png, { filename: 'synthetic-evidence.png', contentType: 'image/png' });
+  assert.equal(uploaded.status, 201);
+  t.after(async () => { await request(app).delete(`/api/v1/uploads/${uploaded.body.data.id}`).set(identity()); });
+  const outsider = identity({ id: 'u-outsider', email: 'outsider@example.test' });
+  await request(app).post('/api/v1/users/session').set(outsider);
+  const stolen = await request(app).post('/api/v1/users/me/driving-eligibility').set(outsider)
+    .send({ documentRefs: [uploaded.body.data.reference] });
+  assert.equal(stolen.status, 400);
+  assert.equal(stolen.body.error.code, 'INVALID_UPLOAD_REFERENCE');
 });
 
 test('rejects more than one default address', async () => {

@@ -581,7 +581,9 @@ class LiveRentHubController extends ChangeNotifier {
         profile = User.fromJson(
           await api.request(
             'POST',
-            '/users/me/verification',
+            documentType == 'driving_licence'
+                ? '/users/me/driving-eligibility'
+                : '/users/me/verification',
             body: {
               'documentType': documentType,
               'documentRefs': documentRefs,
@@ -596,16 +598,29 @@ class LiveRentHubController extends ChangeNotifier {
     String tier = 'basic',
     String reason = '',
     String? attemptId,
+    bool driving = false,
+    List<String>? licenceClasses,
+    String? expiresAt,
+    bool identityMatchConfirmed = false,
+    bool classReviewConfirmed = false,
   }) =>
       _perform(() async {
         final updated = await api.request(
           'PATCH',
-          '/users/$userId/verification',
+          driving
+              ? '/users/$userId/driving-eligibility'
+              : '/users/$userId/verification',
           body: {
             'status': status,
             if (status == 'approved') 'tier': tier,
             if (reason.trim().isNotEmpty) 'reason': reason.trim(),
             if (attemptId != null) 'attemptId': attemptId,
+            if (driving && status == 'approved') ...{
+              'licenceClasses': licenceClasses,
+              'expiresAt': expiresAt,
+              'identityMatchConfirmed': identityMatchConfirmed,
+              'classReviewConfirmed': classReviewConfirmed,
+            },
           },
         ) as Map<String, dynamic>;
         final index = users.indexWhere((item) => item['_id'] == userId);
