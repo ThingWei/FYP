@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .mykad_field_risk import analyse_fields
+from .mykad_document_type import assess_mykad_capture, assess_mykad_sides
 
 from ..schemas import (
     DocumentFrameRequest,
@@ -15,7 +16,7 @@ from ..schemas import (
     VerificationResponse,
 )
 
-DOCUMENT_FRAME_CONTRACT = 'opencv-document-yolo-v2'
+DOCUMENT_FRAME_CONTRACT = 'opencv-document-yolo-v3'
 
 
 def _decode_images(request: VerificationRequest):
@@ -309,7 +310,7 @@ def _resolve_document_type(signals: dict[str, Any], expected_type: str | None):
 def _extract_document_fields(text: str, expected_type: str | None = None) -> dict[str, Any]:
     normalized = re.sub(r'\s+', ' ', text).strip()
     fields: dict[str, Any] = {}
-    mykad = re.search(r'\b\d{6}-?\d{2}-?\d{4}\b', normalized)
+    mykad = re.search(r'\b\d{6}[- \t]?\d{2}[- \t]?\d{4}\b', normalized)
     passport = re.search(r'\b[A-Z]\d{7,9}\b', normalized.upper())
     licence = re.search(r'\b[A-Z]{1,3}\d{5,9}\b', normalized.upper())
     signals = _document_type_signals(text)
@@ -520,6 +521,14 @@ class ImageIntelligenceService:
             float(value) for value in prediction.boxes.xyxy[best_index].tolist()
         ]
         box = [x1 / width, y1 / height, x2 / width, y2 / height]
+        detected_side = None
+        classes = getattr(prediction.boxes, 'cls', None)
+        names = getattr(prediction, 'names', getattr(detector, 'names', {}))
+        if classes is not None:
+            label_index = int(classes[best_index])
+            label = names.get(label_index, '') if isinstance(names, dict) else (
+                names[label_index] if 0 <= label_index < len(names) else '')
+            detected_side = {'mykad_front': 'front', 'mykad_back': 'back'}.get(str(label).lower())
         area = max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
         guide_area = (guide[2] - guide[0]) * (guide[3] - guide[1])
         inside_guide = (box[0] >= guide[0] - 0.01 and box[1] >= guide[1] - 0.01
@@ -534,9 +543,42 @@ class ImageIntelligenceService:
             guidance = 'Align document inside frame'
         elif issues:
             guidance = issues[0]['message']
+        elif request.expected_type == 'mykad' and request.expected_side and detected_side != request.expected_side:
+            guidance = (f'This appears to be the MyKad {detected_side}. Scan the {request.expected_side} instead.'
+                        if detected_side else 'MyKad side could not be identified. Check the front/back detector model.')
         else:
             guidance = 'Ready to capture'
         ready = guidance == 'Ready to capture'
+        capture_validation = {}
+        if request.validate_capture and request.expected_type == 'mykad':
+            capture_validation = {
+                'status': 'unconfirmed', 'accepted': False,
+                'expectedSide': request.expected_side, 'detectedSide': detected_side,
+                'authenticityVerified': False,
+            }
+            # Final captured bytes must pass quality, alignment and side checks.
+            if ready:
+                reader = _ocr_reader()
+                if reader is None:
+                    capture_validation['status'] = 'unavailable'
+                    guidance = 'MyKad text check is unavailable. Restart the AI service and retry; this image cannot be used yet.'
+                else:
+                    try:
+                        crop = image[max(0, int(y1)):min(height, int(y2)),
+                                     max(0, int(x1)):min(width, int(x2))]
+                        results = reader.readtext(_ocr_preprocess(crop), detail=1, paragraph=False)
+                        text = '\n'.join(str(item[1]) for item in results)
+                        certain = '\n'.join(str(item[1]) for item in results if float(item[2]) >= 0.6)
+                        capture_validation, guidance = assess_mykad_capture(
+                            text, certain, _extract_document_fields(text, 'mykad'),
+                            _extract_document_fields(certain, 'mykad'), request.expected_side, detected_side,
+                        )
+                    except Exception:
+                        capture_validation['status'] = 'unavailable'
+                        guidance = 'MyKad text check failed. Retry the check or rescan with clearer text.'
+            elif request.expected_side and detected_side and request.expected_side != detected_side:
+                capture_validation['status'] = 'wrong_side'
+            ready = capture_validation['accepted'] is True
         return DocumentFrameResponse(
             available=True,
             detected=True,
@@ -547,6 +589,8 @@ class ImageIntelligenceService:
             bounding_box=[round(value, 4) for value in box],
             guide_box=guide,
             adapter=DOCUMENT_FRAME_CONTRACT,
+            detected_side=detected_side,
+            capture_validation=capture_validation,
         )
 
     def verify_document(self, request: VerificationRequest) -> VerificationResponse:
@@ -583,6 +627,9 @@ class ImageIntelligenceService:
         per_image = []
         all_results = []
         texts = []
+        confident_texts = []
+        side_fields = []
+        confident_fields = []
         font_states = []
         risk_indicators = []
         for index, (_encoded, image) in enumerate(decoded):
@@ -594,6 +641,11 @@ class ImageIntelligenceService:
             risk_indicators.extend(text_indicators)
             image_text = '\n'.join(str(item[1]) for item in results)
             texts.append(image_text)
+            certain_text = '\n'.join(str(item[1]) for item in results if float(item[2]) >= 0.6)
+            confident_texts.append(certain_text)
+            image_fields = _extract_document_fields(image_text, request.expected_type)
+            side_fields.append(image_fields)
+            confident_fields.append(_extract_document_fields(certain_text, request.expected_type))
             per_image.append({
                 'index': index,
                 'side': ('front' if index == 0 else 'back') if request.expected_type == 'mykad' else 'evidence',
@@ -601,7 +653,7 @@ class ImageIntelligenceService:
                 'confidence': round(
                     sum(float(item[2]) for item in results) / len(results), 4,
                 ) if results else 0,
-                'fieldCount': len(_extract_document_fields(image_text, request.expected_type)),
+                'fieldCount': len(image_fields),
             })
         text = '\n'.join(texts)
         result_values = [item for _image, item in all_results]
@@ -609,16 +661,33 @@ class ImageIntelligenceService:
         fields = _extract_document_fields(text, request.expected_type)
         reasons = list(errors)
         if request.expected_type == 'mykad':
-            if len(decoded) != 2:
-                reasons.append('MyKad identity review requires front and back images')
-            if any(not image['hasTextEvidence'] for image in per_image):
-                reasons.append('One MyKad side has no readable OCR evidence; review both images')
-            holder_ids = {
+            validation, blocked_outcome, type_reasons = assess_mykad_sides(
+                texts, confident_texts, side_fields, confident_fields,
+            )
+            fields['documentTypeValidation'] = validation
+            if blocked_outcome:
+                safe_fields = fields if blocked_outcome != 'wrong_document' else {
+                    'documentTypeValidation': validation,
+                }
+                return VerificationResponse(
+                    accepted=False, outcome=blocked_outcome,
+                    confidence=round(max(0, min(1, ocr_confidence)), 4),
+                    reasons=type_reasons, labels=[validation['status']],
+                    adapter='mykad-document-type-gate-v1',
+                    quality={'images': qualities, 'ocr': per_image},
+                    # A wrong card's PAN/CVV must never be returned or persisted as OCR.
+                    extracted_fields=safe_fields,
+                    model_versions={'ocr': 'easyocr-1.7', 'documentType': 'ocr-type-evidence-v1'},
+                )
+            side_holder_ids = [{
                 re.sub(r'\D', '', value)
-                for image_text in texts
-                for value in re.findall(r'\b\d{6}-?\d{2}-?\d{4}\b', image_text)
-            }
-            fields['mykadSidesConsistent'] = len(holder_ids) <= 1
+                for value in re.findall(r'\b\d{6}[- \t]?\d{2}[- \t]?\d{4}\b', image_text)
+                if _valid_mykad_birth_date(value) is not None
+            } for image_text in texts]
+            holder_ids = set().union(*side_holder_ids)
+            fields['mykadSidesConsistent'] = (
+                len(holder_ids) == 1 if all(side_holder_ids) else None
+            )
             if len(holder_ids) > 1:
                 reasons.append('MyKad sides contain inconsistent holder identity numbers')
         if not fields.get('identityNumber'):

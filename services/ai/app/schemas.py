@@ -24,7 +24,7 @@ class VerificationResponse(BaseModel):
     accepted: bool
     outcome: Literal[
         'approved', 'approved_candidate', 'warning', 'manual_review',
-        'rescan_required', 'rejected', 'unavailable'
+        'rescan_required', 'wrong_document', 'rejected', 'unavailable'
     ]
     confidence: float = Field(ge=0, le=1)
     labels: list[str] = Field(default_factory=list)
@@ -41,6 +41,8 @@ class DocumentFrameRequest(BaseModel):
     content_base64: str
     content_type: Literal['image/jpeg', 'image/png'] = 'image/jpeg'
     expected_type: Literal['mykad', 'passport', 'driving_licence']
+    expected_side: Literal['front', 'back'] | None = None
+    validate_capture: bool = False
 
 
 class DocumentFrameResponse(BaseModel):
@@ -53,6 +55,8 @@ class DocumentFrameResponse(BaseModel):
     bounding_box: list[float] | None = None
     guide_box: list[float] | None = None
     adapter: str
+    detected_side: Literal['front', 'back'] | None = None
+    capture_validation: dict[str, Any] = Field(default_factory=dict)
 
 
 class RecommendationCandidate(BaseModel):

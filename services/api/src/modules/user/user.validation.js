@@ -187,7 +187,7 @@ export const verificationDecisionValidation = [
 
 export const verificationFrameValidation = [
   body().custom((value) => {
-    const allowed = new Set(['contentBase64', 'contentType', 'documentType']);
+    const allowed = new Set(['contentBase64', 'contentType', 'documentType', 'expectedSide', 'validateCapture']);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
@@ -195,6 +195,14 @@ export const verificationFrameValidation = [
   body('contentBase64').isString().isLength({ min: 100, max: 1_900_000 }),
   body('contentType').optional().isIn(['image/jpeg', 'image/png']),
   body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
+  body('expectedSide').optional().isIn(['front', 'back']),
+  body('validateCapture').optional().custom((value) => typeof value === 'boolean'),
+  body().custom((value) => {
+    if (value.documentType === 'mykad' && value.validateCapture && !value.expectedSide) {
+      throw new Error('MyKad capture validation requires the expected front/back side');
+    }
+    return true;
+  }),
 ];
 
 export const verificationRequirementsValidation = [

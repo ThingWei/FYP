@@ -11,7 +11,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw "Launcher syntax errors: $($parseErrors.Count)" }
 
 # Load only these pure/testable helpers, not the launcher's executable body.
-$helperNames = @('Test-RentHubAiCompatible', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess')
+$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -31,11 +31,25 @@ Assert-Launcher (-not (Test-RentHubAiCompatible @{
     status = 'ok'; document_frame_contract = 'opencv-document-yolo-v1'
 })) 'Old contract must fail'
 Assert-Launcher (-not (Test-RentHubAiCompatible @{
-    status = 'error'; document_frame_contract = 'opencv-document-yolo-v2'
+    status = 'error'; document_frame_contract = 'opencv-document-yolo-v3'
 })) 'Unhealthy service must fail'
 Assert-Launcher (Test-RentHubAiCompatible @{
-    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v2'
+    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v3'
 }) 'Current contract must pass'
+
+Assert-Launcher (-not (Test-RentHubAiCompatible @{
+    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v2'
+})) 'Geometry-only contract must fail'
+
+# Mock readiness: these checks do not call the running API or read credentials.
+$script:apiHealthFixture = @{ success = $true; data = @{ capabilities = @('product-catalog-v1') } }
+function Invoke-RestMethod { param($Uri, $TimeoutSec); return $script:apiHealthFixture }
+Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without capture validation must fail'
+$script:apiHealthFixture.data.capabilities += 'mykad-capture-validation-v1'
+Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
+$script:apiHealthFixture.success = $false
+Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'
+Remove-Item Function:\Invoke-RestMethod
 
 $reloadArguments = @(Get-RentHubAiArguments)
 Assert-Launcher (($reloadArguments -join ' ') -eq

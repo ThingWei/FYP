@@ -14,7 +14,7 @@ def sharp_image(width=720, height=1280):
     return np.random.default_rng(42).integers(60, 210, (height, width, 3), dtype=np.uint8)
 
 
-def install_detector(monkeypatch, image, confidence=0.98, box=None):
+def install_detector(monkeypatch, image, confidence=0.98, box=None, side='front'):
     monkeypatch.setattr(intelligence, '_decode_images', lambda request: ([(None, image)], []))
     height, width = image.shape[:2]
     guide = intelligence._document_guide(width, height)
@@ -24,20 +24,21 @@ def install_detector(monkeypatch, image, confidence=0.98, box=None):
         def __len__(self):
             return 1
 
-    boxes = SyntheticBoxes(conf=np.array([confidence]), xyxy=np.array([[
+    boxes = SyntheticBoxes(conf=np.array([confidence]), cls=np.array([0 if side == 'front' else 1]), xyxy=np.array([[
         normalized[0] * width, normalized[1] * height,
         normalized[2] * width, normalized[3] * height,
     ]]))
-    prediction = SimpleNamespace(boxes=boxes)
+    prediction = SimpleNamespace(boxes=boxes, names={0: 'mykad_front', 1: 'mykad_back'})
     model = SimpleNamespace(predict=lambda *args, **kwargs: [prediction])
     monkeypatch.setattr(intelligence, '_document_yolo_model', lambda: (model, None))
     # Stop after quality checking; these tests do not evaluate OCR/authenticity.
     monkeypatch.setattr(intelligence, '_ocr_reader', lambda: None)
 
 
-def inspect():
+def inspect(expected_side=None, validate_capture=False):
     return intelligence.ImageIntelligenceService().inspect_document_frame(
-        DocumentFrameRequest(content_base64='synthetic', expected_type='mykad'))
+        DocumentFrameRequest(content_base64='synthetic', expected_type='mykad',
+                             expected_side=expected_side, validate_capture=validate_capture))
 
 
 def submit():
@@ -97,7 +98,7 @@ def test_good_aligned_portrait_reaches_ocr_not_resolution_rescan(monkeypatch):
     install_detector(monkeypatch, sharp_image())
     frame, final = inspect(), submit()
     assert frame.ready is True
-    assert frame.adapter == 'opencv-document-yolo-v2'
+    assert frame.adapter == 'opencv-document-yolo-v3'
     assert frame.guidance == 'Ready to capture'
     assert frame.quality['issues'] == []
     assert final.outcome == 'unavailable'  # Our deliberately missing OCR, not quality.
@@ -124,5 +125,96 @@ def test_missing_detector_remains_explicit(monkeypatch):
     monkeypatch.setattr(intelligence, '_document_yolo_model', lambda: (None, None))
     result = inspect()
     assert result.available is False and result.ready is False
-    assert result.adapter == 'opencv-document-yolo-v2'
+    assert result.adapter == 'opencv-document-yolo-v3'
     assert result.guide_box is not None
+
+
+def install_ocr(monkeypatch, text, confidence=0.95):
+    monkeypatch.setattr(intelligence, '_ocr_reader', lambda: SimpleNamespace(
+        readtext=lambda *args, **kwargs: [(None, line, confidence) for line in text.splitlines()]))
+    monkeypatch.setattr(intelligence, '_nlp', lambda: None)
+
+
+@pytest.mark.parametrize('side,expected', [('front', 'back'), ('back', 'front')])
+def test_live_side_label_mismatch_never_becomes_ready(monkeypatch, side, expected):
+    install_detector(monkeypatch, sharp_image(), side=side)
+    monkeypatch.setattr(intelligence, '_ocr_reader', lambda: pytest.fail('Live frame must not load OCR'))
+    result = inspect(expected)
+    assert result.detected_side == side
+    assert result.ready is False
+    assert f'Scan the {expected} instead' in result.guidance
+
+
+@pytest.mark.parametrize('side,text,status', [
+    ('front', 'VISA\n4111 1111 1111 1111\nVALID THRU 12/30', 'wrong_document'),
+    ('back', 'AUTHORISED SIGNATURE\nCVV 123', 'wrong_document'),
+    ('front', 'MALAYSIA\nPENDAFTARAN NEGARA\nALAMAT TEST', 'unconfirmed'),
+    ('front', 'MYKAD\n900101-07-1234\nKETUA PENGARAH PENDAFTARAN NEGARA', 'wrong_side'),
+    ('back', 'MYKAD\n900101-07-1234\nTEST USER', 'wrong_side'),
+    ('front', 'STUDENT CARD\n900101-07-1234', 'wrong_document'),
+    ('front', 'TEST USER\n900101-07-1234', 'unconfirmed'),
+    ('back', 'TEST USER\nMALAYSIA', 'unconfirmed'),
+])
+def test_high_yolo_confidence_never_accepts_wrong_or_unknown_capture(monkeypatch, side, text, status):
+    install_detector(monkeypatch, sharp_image(), side=side)
+    install_ocr(monkeypatch, text)
+    result = inspect(side, validate_capture=True)
+    assert result.confidence == 0.98
+    assert result.ready is False
+    assert result.capture_validation['accepted'] is False
+    assert result.capture_validation['status'] == status
+    assert '4111 1111 1111 1111' not in str(result.model_dump())
+    assert 'CVV 123' not in str(result.model_dump())
+
+
+@pytest.mark.parametrize('side,text', [
+    ('front', 'MALAYSIA\nMYKAD\n900101-07-1234\nTEST USER'),
+    ('back', 'MALAYSIA\nKETUA PENGARAH PENDAFTARAN NEGARA'),
+    ('back', 'MYKAD\nKETUA PENGARAH PENDAFTARAN NEGARA'),
+])
+def test_positive_matching_capture_can_be_used_but_not_identity_approved(monkeypatch, side, text):
+    install_detector(monkeypatch, sharp_image(), side=side)
+    install_ocr(monkeypatch, text)
+    result = inspect(side, validate_capture=True)
+    assert result.ready is True
+    assert result.detected_side == side
+    assert result.capture_validation['status'] == 'validated'
+    assert result.capture_validation['accepted'] is True
+    assert result.capture_validation['authenticityVerified'] is False
+
+
+def test_ocr_outage_missing_side_and_unknown_class_cannot_bypass_capture_gate(monkeypatch):
+    install_detector(monkeypatch, sharp_image())
+    result = inspect('front', validate_capture=True)
+    assert result.ready is False
+    assert result.capture_validation['status'] == 'unavailable'
+    install_ocr(monkeypatch, 'MYKAD\n900101-07-1234')
+    result = inspect(validate_capture=True)
+    assert result.ready is False
+    assert result.capture_validation['accepted'] is False
+    class UnknownBoxes(SimpleNamespace):
+        def __len__(self):
+            return 1
+    model = SimpleNamespace(predict=lambda *args, **kwargs: [SimpleNamespace(
+        names={0: 'document'}, boxes=UnknownBoxes(conf=np.array([.99]), cls=np.array([0]),
+                                                 xyxy=np.array([[100, 100, 600, 900]])))])
+    monkeypatch.setattr(intelligence, '_document_yolo_model', lambda: (model, None))
+    assert inspect('front', validate_capture=True).ready is False
+
+
+def test_capture_ocr_failure_is_explicit_and_never_releases_image(monkeypatch):
+    install_detector(monkeypatch, sharp_image())
+    def fail(*args, **kwargs):
+        raise RuntimeError('Synthetic OCR failure')
+    monkeypatch.setattr(intelligence, '_ocr_reader', lambda: SimpleNamespace(readtext=fail))
+    result = inspect('front', validate_capture=True)
+    assert result.ready is False
+    assert result.capture_validation['status'] == 'unavailable'
+
+
+def test_low_confidence_positive_heading_is_not_enough_for_use_image(monkeypatch):
+    install_detector(monkeypatch, sharp_image())
+    install_ocr(monkeypatch, 'MYKAD\n900101-07-1234', confidence=0.2)
+    result = inspect('front', validate_capture=True)
+    assert result.ready is False
+    assert result.capture_validation['status'] == 'unconfirmed'

@@ -116,8 +116,10 @@ class LiveRentHubController extends ChangeNotifier {
 
   Future<Map<String, dynamic>> inspectVerificationFrame(
     Uint8List bytes,
-    String documentType,
-  ) async =>
+    String documentType, {
+    String? expectedSide,
+    bool validateCapture = false,
+  }) async =>
       Map<String, dynamic>.from(
         await api.request(
           'POST',
@@ -126,6 +128,8 @@ class LiveRentHubController extends ChangeNotifier {
             'contentBase64': base64Encode(bytes),
             'contentType': 'image/jpeg',
             'documentType': documentType,
+            if (expectedSide != null) 'expectedSide': expectedSide,
+            'validateCapture': validateCapture,
           },
         ) as Map,
       );

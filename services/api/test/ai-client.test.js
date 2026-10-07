@@ -40,6 +40,7 @@ before(async () => {
           quality: {},
           bounding_box: [0.1, 0.2, 0.9, 0.8],
           adapter: 'opencv-document-yolo-v1',
+          received: { side: payload.expected_side, validateCapture: payload.validate_capture },
         }));
         return;
       }
@@ -89,4 +90,13 @@ test('forwards live scanner frames to the KYC-specific detector contract', async
   assert.equal(result.ready, true);
   assert.equal(result.guidance, 'Ready to capture');
   assert.equal(result.confidence, 0.91);
+});
+
+test('forwards expected MyKad side and final capture validation without dropping fields', async () => {
+  const result = await aiClient.inspectDocumentFrame({
+    contentBase64: Buffer.from('scanner-frame').toString('base64'),
+    contentType: 'image/jpeg', documentType: 'mykad',
+    expectedSide: 'back', validateCapture: true,
+  });
+  assert.deepEqual(result.received, { side: 'back', validateCapture: true });
 });

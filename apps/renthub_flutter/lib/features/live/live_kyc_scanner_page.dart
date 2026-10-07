@@ -10,7 +10,62 @@ import '../../core/theme/app_theme.dart';
 
 bool kycFrameRequiresServiceRestart(Map<String, dynamic> result) =>
     result['available'] == true &&
-    result['adapter'] != 'opencv-document-yolo-v2';
+    result['adapter'] != 'opencv-document-yolo-v3';
+
+bool kycCaptureCanUse(Map<String, dynamic>? result, String? expectedSide) {
+  final validation = result?['capture_validation'];
+  return expectedSide != null &&
+      result?['adapter'] == 'opencv-document-yolo-v3' &&
+      result?['available'] == true &&
+      result?['ready'] == true &&
+      validation is Map &&
+      validation['status'] == 'validated' &&
+      validation['accepted'] == true &&
+      validation['expectedSide'] == expectedSide &&
+      validation['detectedSide'] == expectedSide;
+}
+
+class KycCaptureActions extends StatelessWidget {
+  const KycCaptureActions({
+    super.key,
+    required this.canUse,
+    required this.checking,
+    required this.onRescan,
+    required this.onUse,
+    required this.onRetry,
+  });
+
+  final bool canUse;
+  final bool checking;
+  final VoidCallback onRescan;
+  final VoidCallback onUse;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: [
+          Row(children: [
+            Expanded(
+                child: OutlinedButton(
+              onPressed: onRescan,
+              child: const Text('Rescan'),
+            )),
+            const SizedBox(width: 12),
+            Expanded(
+                child: FilledButton(
+              onPressed: canUse && !checking ? onUse : null,
+              child: Text(checking ? 'Checking...' : 'Use Image'),
+            )),
+          ]),
+          if (!canUse && !checking)
+            TextButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry Image Check'),
+            ),
+        ],
+      );
+}
 
 /// Same normalized geometry as the AI service's document guide.
 Rect kycDocumentGuide(Size size) {
@@ -110,11 +165,15 @@ class LiveKycScannerPage extends StatefulWidget {
     required this.documentType,
     required this.sideLabel,
     required this.analyzeFrame,
+    this.expectedSide,
+    this.validateCapture,
   });
 
   final String documentType;
   final String sideLabel;
   final KycFrameAnalyzer analyzeFrame;
+  final String? expectedSide;
+  final KycFrameAnalyzer? validateCapture;
 
   @override
   State<LiveKycScannerPage> createState() => _LiveKycScannerPageState();
@@ -132,7 +191,16 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
   bool analyzing = false;
   bool detectorAvailable = true;
   bool scannerServiceOutdated = false;
+  bool checkingCapture = false;
+  Map<String, dynamic>? captureCheck;
+  int captureGeneration = 0;
   double confidence = 0;
+
+  bool get canUseCapture =>
+      captured != null &&
+      !checkingCapture &&
+      (widget.documentType != 'mykad' ||
+          kycCaptureCanUse(captureCheck, widget.expectedSide));
 
   bool get cameraPlatformSupported =>
       kIsWeb ||
@@ -248,15 +316,7 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
         stability.reset();
       } else if (stability.register(ready: ready)) {
         timer?.cancel();
-        if (mounted) {
-          setState(() {
-            guidance = 'Capturing';
-            captured = KycCapturedDocument(
-              bytes,
-              '${widget.documentType}-${widget.sideLabel.toLowerCase().replaceAll(' ', '-')}.jpg',
-            );
-          });
-        }
+        await _reviewCaptured(bytes);
       } else if (ready && mounted) {
         setState(() => guidance = 'Hold steady');
       }
@@ -272,22 +332,76 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
 
   Future<void> _manualCapture() async {
     final controller = camera;
-    if (controller == null || controller.value.isTakingPicture) return;
-    final picture = await controller.takePicture();
-    final bytes = await picture.readAsBytes();
-    if (!mounted) return;
+    if (controller == null ||
+        controller.value.isTakingPicture ||
+        analyzing ||
+        checkingCapture) {
+      return;
+    }
     timer?.cancel();
+    try {
+      final picture = await controller.takePicture();
+      final bytes = await picture.readAsBytes();
+      if (mounted) await _reviewCaptured(bytes);
+    } catch (_) {
+      if (mounted) {
+        setState(() => guidance = 'Capture failed. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _reviewCaptured(Uint8List bytes) async {
     setState(() {
       captured = KycCapturedDocument(
         bytes,
         '${widget.documentType}-${widget.sideLabel.toLowerCase().replaceAll(' ', '-')}.jpg',
       );
+      captureCheck = null;
       guidance = 'Review captured image';
     });
+    await _checkCaptured();
+  }
+
+  Future<void> _checkCaptured() async {
+    final image = captured;
+    if (image == null || checkingCapture) return;
+    if (widget.documentType != 'mykad') return;
+    final generation = ++captureGeneration;
+    final validator = widget.validateCapture;
+    setState(() {
+      checkingCapture = true;
+      captureCheck = null;
+      guidance = 'Checking ${widget.sideLabel} type and side...';
+    });
+    try {
+      if (validator == null) throw StateError('Capture validator unavailable');
+      final result = await validator(image.bytes, widget.documentType)
+          .timeout(const Duration(seconds: 50));
+      if (!mounted || generation != captureGeneration) return;
+      setState(() {
+        captureCheck = result;
+        guidance = kycFrameRequiresServiceRestart(result)
+            ? 'Scanner service is outdated. Restart the API and AI services, then retry.'
+            : result['guidance'] as String? ??
+                'MyKad could not be checked. Retry or rescan.';
+      });
+    } catch (_) {
+      if (mounted && generation == captureGeneration) {
+        setState(() => guidance =
+            'MyKad check unavailable. Retry the check; this image cannot be used yet.');
+      }
+    } finally {
+      if (mounted && generation == captureGeneration) {
+        setState(() => checkingCapture = false);
+      }
+    }
   }
 
   void _rescan() {
     setState(() {
+      captureGeneration++;
+      checkingCapture = false;
+      captureCheck = null;
       captured = null;
       guidance = detectorAvailable
           ? 'Position document inside frame'
@@ -330,7 +444,7 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    if (analyzing)
+                    if (analyzing || checkingCapture)
                       const Padding(
                         padding: EdgeInsets.only(right: 10),
                         child: SizedBox(
@@ -344,9 +458,11 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
                         guidance,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: captured != null
+                          color: canUseCapture
                               ? AppColors.success
-                              : AppColors.primaryDark,
+                              : captured != null && !checkingCapture
+                                  ? AppColors.error
+                                  : AppColors.primaryDark,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -366,22 +482,14 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
                   ),
                 const SizedBox(height: 16),
                 if (captured != null)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _rescan,
-                          child: const Text('Rescan'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () => Navigator.pop(context, captured),
-                          child: const Text('Use Image'),
-                        ),
-                      ),
-                    ],
+                  KycCaptureActions(
+                    canUse: canUseCapture,
+                    checking: checkingCapture,
+                    onRescan: _rescan,
+                    onRetry: () => unawaited(_checkCaptured()),
+                    onUse: () {
+                      if (canUseCapture) Navigator.pop(context, captured);
+                    },
                   )
                 else if (camera != null && scannerServiceOutdated)
                   FilledButton.icon(

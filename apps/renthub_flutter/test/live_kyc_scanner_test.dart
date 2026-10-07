@@ -21,15 +21,101 @@ void main() {
     expect(
         kycFrameRequiresServiceRestart({
           'available': true,
-          'adapter': 'opencv-document-yolo-v2',
+          'adapter': 'opencv-document-yolo-v3',
         }),
         isFalse);
+    expect(
+        kycFrameRequiresServiceRestart({
+          'available': true,
+          'adapter': 'opencv-document-yolo-v2',
+        }),
+        isTrue);
     expect(
         kycFrameRequiresServiceRestart({
           'available': false,
           'adapter': 'document-detector-unavailable',
         }),
         isFalse);
+  });
+
+  test('use image requires a current, positive check for the expected side',
+      () {
+    final accepted = <String, dynamic>{
+      'adapter': 'opencv-document-yolo-v3',
+      'available': true,
+      'ready': true,
+      'capture_validation': {
+        'status': 'validated',
+        'accepted': true,
+        'expectedSide': 'front',
+        'detectedSide': 'front'
+      },
+    };
+    expect(kycCaptureCanUse(accepted, 'front'), isTrue);
+    expect(kycCaptureCanUse(accepted, 'back'), isFalse);
+    expect(kycCaptureCanUse(accepted, null), isFalse);
+    expect(kycCaptureCanUse(null, 'front'), isFalse);
+    expect(kycCaptureCanUse({'ready': true, 'confidence': 0.99}, 'front'),
+        isFalse);
+    for (final status in [
+      'wrong_document',
+      'wrong_side',
+      'unconfirmed',
+      'unavailable'
+    ]) {
+      expect(
+          kycCaptureCanUse({
+            ...accepted,
+            'capture_validation': {
+              'status': status,
+              'accepted': false,
+              'expectedSide': 'front',
+              'detectedSide': 'front',
+            }
+          }, 'front'),
+          isFalse);
+    }
+    expect(
+        kycCaptureCanUse(
+            {...accepted, 'adapter': 'opencv-document-yolo-v2'}, 'front'),
+        isFalse);
+  });
+
+  testWidgets(
+      'checking and failed capture checks disable Use Image; retry/rescan stay available',
+      (tester) async {
+    var used = 0;
+    var rescanned = 0;
+    var retried = 0;
+    for (final checking in [true, false]) {
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: KycCaptureActions(
+        canUse: false,
+        checking: checking,
+        onUse: () => used++,
+        onRescan: () => rescanned++,
+        onRetry: () => retried++,
+      ))));
+      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+          isNull);
+      await tester.tap(find.text('Rescan'));
+      if (!checking) await tester.tap(find.text('Retry Image Check'));
+      expect(used, 0);
+    }
+    expect(rescanned, 2);
+    expect(retried, 1);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: KycCaptureActions(
+      canUse: true,
+      checking: false,
+      onUse: () => used++,
+      onRescan: () {},
+      onRetry: () {},
+    ))));
+    await tester.tap(find.text('Use Image'));
+    expect(used, 1);
   });
 
   test('card guide preserves ratio, margins and center in either orientation',

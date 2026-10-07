@@ -895,7 +895,8 @@ test('synthetic field-risk evidence stays pending and is persisted without raw O
   t.mock.method(aiClient, 'verifyDocument', async () => ({
     accepted: false, outcome: 'manual_review', confidence: 0.95,
     ocr_text: 'Synthetic private OCR fixture',
-    extracted_fields: { identityNumber: '900101-07-1234', identityNumberFormatValid: true,
+    extracted_fields: { documentType: 'mykad', identityNumber: '900101-07-1234', identityNumberFormatValid: true,
+      documentTypeValidation: { status: 'plausible_mykad', authenticityVerified: false },
       documentFieldRisk: advisory, requiresAdminReview: true },
     reasons: ['Synthetic research only; administrator review required'],
   }));
@@ -911,10 +912,108 @@ test('synthetic field-risk evidence stays pending and is persisted without raw O
   assert.equal(evidence.ocr_text, undefined);
   assert.notEqual(evidence.extracted_fields.identityNumber, '900101-07-1234');
   assert.equal(evidence.extracted_fields.requiresAdminReview, true);
+  assert.equal(evidence.extracted_fields.documentTypeValidation.status, 'plausible_mykad');
+  assert.equal(evidence.extracted_fields.documentTypeValidation.authenticityVerified, false);
 });
 
 const drivingApproval = { status: 'approved', licenceClasses: ['D', 'B2'], expiresAt: '2035-01-01',
   identityMatchConfirmed: true, classReviewConfirmed: true };
+
+test('scanner API forwards expected side and capture check, but rejects missing/invalid side', async (t) => {
+  const calls = [];
+  t.mock.method(aiClient, 'inspectDocumentFrame', async (input) => {
+    calls.push(input);
+    return { available: true, ready: false, detected: true, confidence: 0.98,
+      adapter: 'opencv-document-yolo-v3', guidance: 'Wrong document. Rescan MyKad.',
+      capture_validation: { status: 'wrong_document', accepted: false } };
+  });
+  const renter = identity();
+  await request(app).post('/api/v1/users/session').set(renter);
+  const payload = { contentBase64: Buffer.from('synthetic-camera-frame'.repeat(10)).toString('base64'),
+    documentType: 'mykad', expectedSide: 'front', validateCapture: true };
+  const response = await request(app).post('/api/v1/users/me/verification/scan-frame').set(renter).send(payload);
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.data.capture_validation.accepted, false);
+  assert.equal(calls[0].expectedSide, 'front');
+  assert.equal(calls[0].validateCapture, true);
+  const readiness = await request(app).get('/api/v1/ready');
+  assert.ok(readiness.body.data.capabilities.includes('mykad-capture-validation-v1'));
+  for (const invalid of [{ ...payload, expectedSide: undefined }, { ...payload, expectedSide: 'rear' },
+    { ...payload, validateCapture: 'false' }]) {
+    const rejected = await request(app).post('/api/v1/users/me/verification/scan-frame').set(renter).send(invalid);
+    assert.equal(rejected.status, 422);
+  }
+  assert.equal(calls.length, 1);
+});
+
+for (const [outcome, validationStatus] of [
+  ['wrong_document', 'wrong_document'],
+  ['rescan_required', 'unconfirmed'],
+  ['rejected', 'wrong_document'],
+  ['manual_review', 'wrong_document'],
+  ['manual_review', 'unconfirmed'],
+]) {
+  test(`MyKad type gate ${outcome}/${validationStatus} requires resubmission, not pending approval`, async (t) => {
+    const previousSecret = env.kycIdentityMatchSecret;
+    env.kycIdentityMatchSecret = 'synthetic-kyc-test-key-not-a-real-secret-12345';
+    t.after(() => { env.kycIdentityMatchSecret = previousSecret; });
+    const reasons = ['This image is not validated as MyKad. '.repeat(20)];
+    t.mock.method(aiClient, 'verifyDocument', async () => ({
+      accepted: false, outcome, confidence: 0.95, reasons,
+      ocr_text: 'Synthetic OCR must never be persisted',
+      extracted_fields: {
+        identityNumber: '900101-07-1234', identityNumberFormatValid: true,
+        documentTypeValidation: { status: validationStatus, authenticityVerified: false },
+      },
+    }));
+    const renter = identity();
+    const admin = identity({ id: 'u-admin', roles: 'admin' });
+    await request(app).post('/api/v1/users/session').set(renter);
+    await request(app).post('/api/v1/users/session').set(admin);
+    const response = await request(app).post('/api/v1/users/me/verification').set(renter)
+      .send({ documentType: 'mykad', documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    const verification = response.body.data.verification;
+    assert.equal(verification.status, 'resubmission_required');
+    assert.equal(verification.documents.find((document) => document.documentType === 'mykad').status, 'resubmission_required');
+    assert.ok(verification.reason.length > 0 && verification.reason.length <= 500);
+    assert.equal(verification.history[0].status, 'resubmission_required');
+    const stored = await UserModel.findById(response.body.data._id).select('+identityMatchFingerprint').lean();
+    assert.ok(!stored.identityMatchFingerprint);
+    assert.equal(stored.verification.history[0].aiEvidence.ocr_text, undefined);
+    assert.deepEqual(stored.verification.history[0].aiEvidence.reasons, reasons);
+    const approval = await request(app).patch(`/api/v1/users/${stored._id}/verification`).set(admin)
+      .send({ status: 'approved', attemptId: verification.history[0].attemptId });
+    assert.equal(approval.status, 409);
+    assert.equal(approval.body.error.code, 'INVALID_VERIFICATION_STATE');
+  });
+}
+
+for (const useCamelCase of [false, true]) {
+  test(`known wrong-type legacy pending MyKad cannot be approved (${useCamelCase ? 'camel' : 'snake'} fields)`, async (t) => {
+    const { renter, admin, id } = await syntheticMykadAccount(t);
+    const aiEvidence = { outcome: 'manual_review', [useCamelCase ? 'extractedFields' : 'extracted_fields']: {
+      documentType: 'driving_licence',
+    } };
+    await UserModel.updateOne({ _id: id }, { $set: {
+      'verification.status': 'pending',
+      'verification.documents.0.status': 'pending',
+      'verification.history.0.status': 'pending',
+      'verification.history.0.aiEvidence': aiEvidence,
+    } });
+    const stored = await UserModel.findById(id).lean();
+    const attemptId = stored.verification.history[0].attemptId;
+    const approval = await request(app).patch(`/api/v1/users/${id}/verification`).set(admin)
+      .send({ status: 'approved', attemptId });
+    assert.equal(approval.status, 409);
+    assert.equal(approval.body.error.code, 'DOCUMENT_TYPE_VALIDATION_FAILED');
+    const resubmission = await request(app).patch(`/api/v1/users/${id}/verification`).set(admin)
+      .send({ status: 'resubmission_required', attemptId, reason: 'Please submit MyKad, not a driving licence.' });
+    assert.equal(resubmission.status, 200, JSON.stringify(resubmission.body));
+    const refreshed = await request(app).get('/api/v1/users/me').set(renter);
+    assert.equal(refreshed.body.data.verification.status, 'resubmission_required');
+  });
+}
 
 test('dedicated driving eligibility requires complete admin review and stores classes, expiry and safe holder match', async (t) => {
   const { renter, admin, id } = await syntheticMykadAccount(t);

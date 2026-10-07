@@ -41,7 +41,8 @@ function Test-RentHubApiReady {
             -Uri 'http://localhost:3000/api/v1/ready' `
             -TimeoutSec 2
         return $response.success -eq $true -and `
-            $response.data.capabilities -contains 'product-catalog-v1'
+            $response.data.capabilities -contains 'product-catalog-v1' -and `
+            $response.data.capabilities -contains 'mykad-capture-validation-v1'
     }
     catch {
         return $false
@@ -63,7 +64,7 @@ function Test-RentHubAiCompatible {
     param([object]$Health)
 
     return $null -ne $Health -and $Health.status -eq 'ok' -and `
-        $Health.document_frame_contract -eq 'opencv-document-yolo-v2'
+        $Health.document_frame_contract -eq 'opencv-document-yolo-v3'
 }
 
 function Get-RentHubAiArguments {
@@ -319,7 +320,7 @@ try {
         else {
             if (Test-RentHubTcpPort -HostName '127.0.0.1' -Port 8001) {
                 if ($null -ne $aiHealth -and $aiHealth.status -eq 'ok') {
-                    throw 'The AI service on port 8001 is outdated (scanner contract v2 is required). Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. Re-running without stopping that process would reuse old code. No existing service was stopped.'
+                    throw 'The AI service on port 8001 is outdated (scanner contract v3 is required). Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. Re-running without stopping that process would reuse old code. No existing service was stopped.'
                 }
                 throw 'Port 8001 is occupied by an unhealthy or different service. Stop the identified owning process before rerunning this launcher. Do not start a second AI server on that port.'
             }
@@ -380,7 +381,7 @@ try {
     }
     else {
         if (Test-RentHubTcpPort -HostName 'localhost' -Port 3000) {
-            throw 'Port 3000 is occupied by an outdated or unhealthy API process. Stop that process and run this launcher again so the product-catalog routes are loaded.'
+            throw 'Port 3000 is occupied by an outdated or unhealthy API process. Stop its original terminal or launcher with Ctrl+C, then run this launcher again so the catalog and MyKad capture-validation routes are loaded.'
         }
         New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
         Write-Host 'Starting the RentHub API...' -ForegroundColor Cyan

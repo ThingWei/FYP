@@ -20,7 +20,7 @@ import { uploadModule } from './modules/upload/index.js';
 import { catalogModule } from './modules/catalog/index.js';
 
 export const app = express();
-const apiCapabilities = ['product-catalog-v1'];
+const apiCapabilities = ['product-catalog-v1', 'mykad-capture-validation-v1'];
 app.use(
   helmet(),
   cors({ origin: env.corsOrigins }),

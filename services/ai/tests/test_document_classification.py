@@ -123,13 +123,13 @@ def analyse_ocr(monkeypatch):
     monkeypatch.setattr(intelligence, '_document_risk_model', lambda: (None, Path('missing-risk.pt')))
     monkeypatch.setenv('MYKAD_FIELD_MODEL_PATH', str(Path('missing-mykad-field-detector.pt')))
 
-    def analyse(text, expected):
+    def analyse(text, expected, ocr_confidence=0.95):
         texts = [text] if isinstance(text, str) else text
         monkeypatch.setattr(intelligence, '_decode_images', lambda request: ([(None, image) for _ in texts], []))
         remaining = iter(texts)
         class SyntheticReader:
             def readtext(self, image, **kwargs):
-                return [(None, line, 0.95) for line in next(remaining).splitlines()]
+                return [(None, line, ocr_confidence) for line in next(remaining).splitlines()]
         monkeypatch.setattr(intelligence, '_ocr_reader', lambda: SyntheticReader())
         response = TestClient(app).post('/verify/document', json={
             'expected_type': expected, 'profile_name': 'TEST USER',
@@ -185,7 +185,8 @@ def test_invalid_ic_birth_segment_and_expired_licence_stay_manual(analyse_ocr):
 def test_mykad_front_back_both_contribute_evidence_and_missing_model_stays_manual(analyse_ocr):
     result = analyse_ocr([MYKAD, 'MALAYSIA\nALAMAT SYNTHETIC ADDRESS'], 'mykad')
     assert result['extracted_fields']['documentType'] == 'mykad'
-    assert result['extracted_fields']['mykadSidesConsistent'] is True
+    assert result['extracted_fields']['mykadSidesConsistent'] is None
+    assert result['extracted_fields']['documentTypeValidation']['status'] == 'plausible_mykad'
     assert [image['side'] for image in result['quality']['ocr']] == ['front', 'back']
     assert all(image['hasTextEvidence'] for image in result['quality']['ocr'])
     assert result['extracted_fields']['documentRiskModel'] == 'unavailable'
@@ -193,14 +194,76 @@ def test_mykad_front_back_both_contribute_evidence_and_missing_model_stays_manua
     assert result['accepted'] is False
 
 
-@pytest.mark.parametrize('back,reason', [
-    ('', 'no readable OCR'),
-    ('MYKAD\n910101-07-1234', 'inconsistent holder'),
+@pytest.mark.parametrize('back,reason,outcome', [
+    ('', 'no readable OCR', 'rescan_required'),
+    ('MYKAD\n910101-07-1234', 'inconsistent holder', 'manual_review'),
 ])
-def test_mykad_unreadable_or_inconsistent_second_side_is_flagged(analyse_ocr, back, reason):
+def test_mykad_unreadable_or_inconsistent_second_side_is_flagged(analyse_ocr, back, reason, outcome):
     result = analyse_ocr([MYKAD, back], 'mykad')
     assert any(reason in message for message in result['reasons'])
+    assert result['outcome'] == outcome
+
+
+# Published payment-network test number, not a real card or holder.
+PAYMENT_FRONT = 'VISA\n4111 1111 1111 1111\nVALID THRU 12/30\nTEST USER'
+PAYMENT_BACK = 'AUTHORISED SIGNATURE\nNOT VALID UNLESS SIGNED\nCVV 123'
+
+
+@pytest.mark.parametrize('texts', [
+    [PAYMENT_FRONT, PAYMENT_BACK], [MYKAD, PAYMENT_BACK],
+    [LICENCE, 'MALAYSIA'], [PASSPORT, 'MALAYSIA'],
+    ['MYPR\nKAD PENGENALAN\n900101-07-1234', 'MALAYSIA'],
+    ['STUDENT CARD\n900101-07-1234', 'MALAYSIA'],
+    ['CREDIT CARD\nTEST USER', 'MALAYSIA'],
+])
+def test_non_mykad_cards_are_wrong_documents_not_pending_review(analyse_ocr, texts, monkeypatch):
+    monkeypatch.setattr(intelligence, 'analyse_fields', lambda images: pytest.fail(
+        'Wrong documents must not reach the synthetic field-risk model'))
+    result = analyse_ocr(texts, 'mykad')
+    assert result['outcome'] == 'wrong_document'
+    assert result['accepted'] is False
+    assert result['adapter'] == 'mykad-document-type-gate-v1'
+    assert result.get('ocr_text', '') == ''
+    assert set(result['extracted_fields']) == {'documentTypeValidation'}
+    validation = result['extracted_fields']['documentTypeValidation']
+    assert validation['status'] == 'wrong_document'
+    assert validation['authenticityVerified'] is False
+    serialized = str(result)
+    assert '4111 1111 1111 1111' not in serialized
+    assert 'CVV 123' not in serialized
+
+
+@pytest.mark.parametrize('texts', [
+    ['TEST USER', 'ADDRESS'], ['900101-07-1234', 'MALAYSIA'],
+    [MYKAD.replace('900101', '991332'), 'MALAYSIA'],
+    ['MALAYSIA', MYKAD], [MYKAD],
+    [PAYMENT_FRONT.replace('VISA', '').replace('VALID THRU 12/30', ''), 'ADDRESS'],
+])
+def test_unconfirmed_mykad_requires_rescan_not_fake_verdict(analyse_ocr, texts):
+    result = analyse_ocr(texts, 'mykad')
+    assert result['outcome'] == 'rescan_required'
+    assert result['accepted'] is False
+    assert result['extracted_fields']['documentTypeValidation']['status'] == 'unconfirmed'
+    assert result.get('ocr_text', '') == ''
+
+
+def test_low_confidence_payment_cues_do_not_make_a_wrong_document_verdict(analyse_ocr):
+    result = analyse_ocr([PAYMENT_FRONT, PAYMENT_BACK], 'mykad', ocr_confidence=0.2)
+    assert result['outcome'] == 'rescan_required'
+    assert result['extracted_fields']['documentTypeValidation']['status'] == 'unconfirmed'
+
+
+def test_payment_logo_alone_does_not_reject_plausible_mykad(analyse_ocr):
+    result = analyse_ocr([MYKAD, 'MALAYSIA\nVISA'], 'mykad')
     assert result['outcome'] == 'manual_review'
+    assert result['accepted'] is False
+
+
+def test_spaced_identity_number_and_both_sides_match_are_preserved(analyse_ocr):
+    result = analyse_ocr([MYKAD.replace('900101-07-1234', '900101 07 1234'),
+                          'MALAYSIA\n900101-07-1234'], 'mykad')
+    assert result['outcome'] == 'manual_review'
+    assert result['extracted_fields']['mykadSidesConsistent'] is True
 
 
 def test_driving_assistance_does_not_load_or_claim_a_trained_licence_risk_model(analyse_ocr, monkeypatch):

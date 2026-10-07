@@ -1349,6 +1349,15 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
         builder: (_) => LiveKycScannerPage(
           documentType: documentType,
           sideLabel: side,
+          expectedSide: documentType == 'mykad'
+              ? (documentRefs.isEmpty ? 'front' : 'back')
+              : null,
+          validateCapture: (bytes, type) => controller.inspectVerificationFrame(
+            bytes,
+            type,
+            expectedSide: documentRefs.isEmpty ? 'front' : 'back',
+            validateCapture: true,
+          ),
           analyzeFrame: documentType == 'driving_licence'
               ? (_, __) async => {
                     'available': false,
@@ -1356,7 +1365,13 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                     'guidance':
                         'Use manual capture for licence / MyJPJ evidence. Administrator review is required.'
                   }
-              : controller.inspectVerificationFrame,
+              : (bytes, type) => controller.inspectVerificationFrame(
+                    bytes,
+                    type,
+                    expectedSide: type == 'mykad'
+                        ? (documentRefs.isEmpty ? 'front' : 'back')
+                        : null,
+                  ),
         ),
       ),
     );

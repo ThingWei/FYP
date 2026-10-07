@@ -100,6 +100,13 @@ function aggregateVerificationStatus(verification) {
   return verification.status ?? 'unverified';
 }
 
+function requiresVerificationResubmission(analysis, expectedType) {
+  const fields = analysis?.extracted_fields ?? analysis?.extractedFields ?? {};
+  return ['rescan_required', 'wrong_document', 'rejected'].includes(analysis?.outcome) ||
+    ['wrong_document', 'unconfirmed'].includes(fields.documentTypeValidation?.status) ||
+    (expectedType === 'mykad' && fields.documentType && fields.documentType !== 'mykad');
+}
+
 function identityFingerprint(analysis) {
   const fields = analysis.extracted_fields ?? analysis.extractedFields ?? {};
   const digits = String(fields.identityNumber ?? '').replace(/\D/g, '');
@@ -590,7 +597,10 @@ export const userService = {
     const submittedAt = new Date();
     const attemptId = verificationAttemptId();
     const evidence = privateSafeAiEvidence(analysis);
-    const fingerprint = identityFingerprint(analysis);
+    const requiresRescan = requiresVerificationResubmission(
+      analysis, input.documentType,
+    );
+    const fingerprint = requiresRescan ? null : identityFingerprint(analysis);
     if (!driving && input.documentType === 'mykad') {
       user.identityMatchFingerprint = fingerprint ?? undefined;
     }
@@ -602,10 +612,11 @@ export const userService = {
       evidence.identityMatch = comparable ? (fingerprint === previous ? 'matched' : 'mismatch') : 'unavailable';
       evidence.reviewScope = 'driving_eligibility';
     }
-    const requiresRescan = analysis.outcome === 'rescan_required';
     const status = requiresRescan ? 'resubmission_required' : 'pending';
     const reason = requiresRescan
-      ? (analysis.reasons ?? ['Image quality requires a rescan']).join(' ')
+      ? (analysis.reasons?.length
+        ? analysis.reasons
+        : ['Document evidence requires a new scan.']).join(' ').slice(0, 500)
       : '';
     const document = currentDocument ?? {
       documentType: input.documentType,
@@ -661,6 +672,8 @@ export const userService = {
       contentBase64: input.contentBase64,
       contentType: input.contentType ?? 'image/jpeg',
       documentType: input.documentType,
+      expectedSide: input.expectedSide,
+      validateCapture: input.validateCapture ?? false,
     });
   },
 
@@ -716,6 +729,15 @@ export const userService = {
       );
     }
     const driving = attempt.documentType === 'driving_licence';
+    if (input.status === 'approved' && requiresVerificationResubmission(
+      attempt.aiEvidence, attempt.documentType,
+    )) {
+      throw new AppError(
+        'This document was not validated for the selected type. Request resubmission before approval.',
+        409,
+        'DOCUMENT_TYPE_VALIDATION_FAILED',
+      );
+    }
     if (input.drivingOnly && !driving) throw new AppError('Select a driving eligibility attempt', 400, 'INVALID_DRIVING_ATTEMPT');
     if (driving && input.status === 'approved') {
       if (!hasApprovedMykad(user)) throw new AppError('Approve MyKad identity first', 409, 'MYKAD_REQUIRED');

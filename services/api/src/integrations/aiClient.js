@@ -3,9 +3,9 @@ import { env } from '../config/env.js';
 
 const client = axios.create({ baseURL: env.aiUrl, timeout: env.aiTimeoutMs });
 
-async function request(path, payload, unavailable) {
+async function request(path, payload, unavailable, options = {}) {
   try {
-    const response = await client.post(path, payload);
+    const response = await client.post(path, payload, options);
     return response.data;
   } catch (error) {
     return {
@@ -65,11 +65,13 @@ export const aiClient = {
     }, unavailableVerification('AI service could not analyse the identity document'));
   },
 
-  inspectDocumentFrame({ contentBase64, contentType, documentType }) {
+  inspectDocumentFrame({ contentBase64, contentType, documentType, expectedSide, validateCapture = false }) {
     return request('/verify/document-frame', {
       content_base64: contentBase64,
       content_type: contentType,
       expected_type: documentType,
+      expected_side: expectedSide,
+      validate_capture: validateCapture,
     }, {
       available: false,
       detected: false,
@@ -79,7 +81,8 @@ export const aiClient = {
       quality: {},
       bounding_box: null,
       adapter: 'document-detector-unavailable',
-    });
+      capture_validation: { status: 'unavailable', accepted: false },
+    }, validateCapture ? { timeout: Math.max(env.aiTimeoutMs, 45000) } : {});
   },
 
   async verifyItem({ images, category, listingType }) {
