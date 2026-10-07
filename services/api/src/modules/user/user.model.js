@@ -137,6 +137,7 @@ const userSchema = new mongoose.Schema(
         enum: VERIFICATION_STATUSES,
         default: 'unverified',
       },
+      // Legacy values remain readable/savable; new identity reviews use status only.
       tier: { type: String, enum: ['none', 'basic', 'enhanced'], default: 'none' },
       documentType: {
         type: String,

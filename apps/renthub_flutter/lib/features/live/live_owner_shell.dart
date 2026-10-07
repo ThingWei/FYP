@@ -533,6 +533,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
   String requiredLicenceClass = '';
   String condition = 'Excellent';
   bool saving = false;
+  bool checkingIdentity = false;
+  late String? savedListingId = widget.listing?.id;
   bool suggestingPrice = false;
   bool catalogLoading = false;
   bool brandSearchAttempted = false;
@@ -1021,9 +1023,17 @@ class _LiveListingFormState extends State<LiveListingForm> {
     super.dispose();
   }
 
-  Future<void> _save() async {
-    if (!formKey.currentState!.validate() || saving) return;
-    if (!widget.isService && images.length < 3) {
+  Future<void> _save({bool submitForReview = true}) async {
+    if (!formKey.currentState!.validate() || saving || checkingIdentity) return;
+    if (submitForReview) {
+      setState(() => checkingIdentity = true);
+      final approved = await ensureMarketplaceIdentity(context,
+          action: 'submit or publish a listing');
+      if (!mounted) return;
+      setState(() => checkingIdentity = false);
+      if (!approved) return;
+    }
+    if (submitForReview && !widget.isService && images.length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Upload at least three item images for verification.'),
@@ -1069,19 +1079,24 @@ class _LiveListingFormState extends State<LiveListingForm> {
       },
     };
     try {
-      if (widget.listing == null) {
-        await context.read<LiveRentHubController>().createOwnerListing(payload);
+      final controller = context.read<LiveRentHubController>();
+      if (savedListingId == null) {
+        final draft = await controller.createOwnerListing(payload,
+            submitForReview: false);
+        savedListingId = draft.id;
       } else {
-        await context
-            .read<LiveRentHubController>()
-            .updateOwnerListing(widget.listing!.id, payload);
+        await controller.updateOwnerListing(savedListingId!, payload,
+            submitForReview: false);
       }
+      if (submitForReview) await controller.submitOwnerListing(savedListingId!);
       if (!mounted) return;
       showMockSuccess(
         context,
-        widget.listing == null
-            ? 'Listing submitted for moderation'
-            : 'Changes submitted for moderation',
+        !submitForReview
+            ? 'Draft saved. Submit when ready; MyKad approval is required.'
+            : widget.listing == null
+                ? 'Listing submitted for moderation'
+                : 'Changes submitted for moderation',
       );
       Navigator.pop(context);
     } catch (exception) {
@@ -1655,12 +1670,22 @@ class _LiveListingFormState extends State<LiveListingForm> {
                   ),
                 ],
                 const SizedBox(height: 20),
+                const Text(
+                    'Approved MyKad verification is required to submit or publish. Saving a draft does not require verification.'),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: saving || checkingIdentity
+                      ? null
+                      : () => _save(submitForReview: false),
+                  child: const Text('Save Draft'),
+                ),
+                const SizedBox(height: 12),
                 RentHubActionButton(
                   label: widget.listing == null
                       ? 'Save & Submit for Review'
                       : 'Save Changes & Resubmit',
-                  loading: saving,
-                  onPressed: saving ? null : _save,
+                  loading: saving || checkingIdentity,
+                  onPressed: saving || checkingIdentity ? null : () => _save(),
                 ),
               ],
             ),

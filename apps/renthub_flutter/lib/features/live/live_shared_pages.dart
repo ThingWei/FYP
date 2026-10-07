@@ -12,6 +12,51 @@ import '../../shared/widgets/renthub_components.dart';
 import 'live_renthub_controller.dart';
 import 'live_loyalty_page.dart';
 import 'live_kyc_scanner_page.dart';
+import 'live_identity_policy.dart';
+
+/// Refresh approval before protected actions; the Express API is authoritative.
+Future<bool> ensureMarketplaceIdentity(BuildContext context,
+    {required String action}) async {
+  final controller = context.read<LiveRentHubController>();
+  try {
+    final profile = await controller.refreshIdentityProfile();
+    if (!context.mounted) return false;
+    if (marketplaceIdentityApproved(profile)) return true;
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.verified_user_outlined),
+        title: const Text('Identity verification required'),
+        content: Text(marketplaceIdentityMessage(profile.mykadStatus, action)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Not now')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(profile.mykadStatus == 'pending'
+                ? 'View verification status'
+                : 'Verify MyKad'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !context.mounted) return false;
+    await Navigator.push<void>(context,
+        MaterialPageRoute(builder: (_) => const LiveVerificationPage()));
+    if (!context.mounted) return false;
+    final updated = await controller.refreshIdentityProfile();
+    return context.mounted && marketplaceIdentityApproved(updated);
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+            'Could not check identity verification. Please try again. No booking or listing was submitted.'),
+      ));
+    }
+    return false;
+  }
+}
 
 class LiveMessagesPage extends StatefulWidget {
   const LiveMessagesPage({super.key});
@@ -748,8 +793,8 @@ class LiveProfilePage extends StatelessWidget {
               leading: const Icon(Icons.verified_user_outlined),
               title: const Text('Identity verification'),
               subtitle: Text(
-                '${profile?.verificationStatus.replaceAll('_', ' ') ?? 'unverified'}'
-                '${profile?.verificationTier == 'none' ? '' : ' | ${profile?.verificationTier}'}',
+                profile?.verificationStatus.replaceAll('_', ' ') ??
+                    'unverified',
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.push<void>(
@@ -1519,10 +1564,6 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                         false)
                       Text(
                           'Legacy passport: ${profile!.verificationDocuments['passport']} (not required)'),
-                    if (profile?.verificationTier != 'none') ...[
-                      const SizedBox(height: 8),
-                      Text('${profile?.verificationTier} verification tier'),
-                    ],
                     if (profile?.verificationReason.isNotEmpty ?? false) ...[
                       const SizedBox(height: 12),
                       Text(

@@ -1,16 +1,17 @@
-import { drivingEligibilityCheck } from './drivingEligibility.js';
+import { AppError } from '../../core/errors.js';
+import { drivingEligibilityCheck, hasApprovedMykad } from './drivingEligibility.js';
 
 export const DEFAULT_KYC_REQUIREMENTS = Object.freeze([
-  { category: 'Devices', documentTypes: ['mykad'], highValueOnly: true },
+  { category: 'Devices', documentTypes: ['mykad'], highValueOnly: false },
   {
     category: 'Vehicles',
     documentTypes: ['mykad', 'driving_licence'],
     highValueOnly: false,
   },
-  { category: 'Equipment', documentTypes: ['mykad'], highValueOnly: true },
+  { category: 'Equipment', documentTypes: ['mykad'], highValueOnly: false },
   { category: 'Services', documentTypes: ['mykad'], highValueOnly: false },
-  { category: 'Clothing', documentTypes: [], highValueOnly: false },
-  { category: 'Books', documentTypes: [], highValueOnly: false },
+  { category: 'Clothing', documentTypes: ['mykad'], highValueOnly: false },
+  { category: 'Books', documentTypes: ['mykad'], highValueOnly: false },
 ]);
 
 export function resolveKycRequirement(settings, listing) {
@@ -23,20 +24,34 @@ export function resolveKycRequirement(settings, listing) {
     ? settings.kycRequirements
     : DEFAULT_KYC_REQUIREMENTS;
   const rule = configured.find((item) => item.category === listing.category);
-  if (!rule) {
-    return { category: listing.category, requiredDocumentTypes: [], required: false };
-  }
-  const applies = rule.highValueOnly
+  const applies = rule?.highValueOnly
     ? Boolean(settings?.highValueKycEnabled) &&
       Number(listing.dailyPrice ?? 0) >= Number(settings?.highValueThreshold ?? 1000)
     : true;
   return {
     category: listing.category,
-    requiredDocumentTypes: applies ? rule.documentTypes.filter((type) => type !== 'driving_licence') : [],
-    required: applies && rule.documentTypes.some((type) => type !== 'driving_licence'),
-    highValueOnly: Boolean(rule.highValueOnly),
-    threshold: Number(settings.highValueThreshold ?? 1000),
+    // Mandatory identity cannot be disabled by legacy/category/high-value settings.
+    // Preserve any applicable additional document requirements.
+    requiredDocumentTypes: [...new Set(['mykad', ...(applies ? rule?.documentTypes ?? [] : [])])]
+      .filter((type) => type !== 'driving_licence'),
+    required: true,
+    highValueOnly: false,
+    threshold: Number(settings?.highValueThreshold ?? 1000),
   };
+}
+
+export function assertMarketplaceIdentity(user, action, category) {
+  if (hasApprovedMykad(user)) return;
+  const status = user.verification?.documents?.find((document) => document.documentType === 'mykad')?.status
+    ?? (user.verification?.documentType === 'mykad' ? user.verification.status : 'unverified');
+  throw new AppError(
+    'Administrator-approved MyKad identity verification is required before booking or submitting a listing.',
+    403, 'KYC_REQUIRED', {
+      action, category, verificationStatus: status,
+      requiredDocumentTypes: ['mykad'], missingDocumentTypes: ['mykad'],
+      nextAction: 'mykad_identity',
+    },
+  );
 }
 
 export function approvedDocumentTypes(user) {

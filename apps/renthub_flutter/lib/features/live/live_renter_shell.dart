@@ -931,6 +931,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   final venue = TextEditingController(text: 'Kuala Lumpur');
   final note = TextEditingController();
   bool submitting = false;
+  bool checkingIdentity = false;
   bool availabilityLoading = true;
   bool availabilityRequested = false;
   String? availabilityError;
@@ -1155,7 +1156,13 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   }
 
   Future<void> _submit() async {
-    if (submitting || end.isBefore(start)) return;
+    if (submitting || checkingIdentity || end.isBefore(start)) return;
+    setState(() => checkingIdentity = true);
+    final approved = await ensureMarketplaceIdentity(context,
+        action: 'submit a booking request');
+    if (!mounted) return;
+    setState(() => checkingIdentity = false);
+    if (!approved) return;
     if (!selectedDatesAvailable) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1261,20 +1268,13 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 exception.code == 'MYKAD_REQUIRED' ||
                 exception.code?.startsWith('DRIVING_') == true)) {
           final details = exception.details as Map? ?? const {};
-          final missing = (details['missingDocumentTypes'] as List? ?? const [])
-              .map((item) => item.toString().replaceAll('_', ' '))
-              .join(' and ');
           final driving = details['nextAction'] == 'driving_eligibility';
           final proceed = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
               icon: const Icon(Icons.verified_user_outlined),
               title: const Text('Verification required'),
-              content: Text(
-                driving
-                    ? exception.message
-                    : 'Complete $missing MyKad verification before requesting this listing.',
-              ),
+              content: Text(exception.message),
               actions: [
                 FilledButton(
                   onPressed: () => Navigator.pop(context, true),
@@ -1355,8 +1355,9 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
           label: agreementAccepted
               ? 'Request & Authorize'
               : 'Accept Agreement to Continue',
-          loading: submitting,
+          loading: submitting || checkingIdentity,
           onPressed: submitting ||
+                  checkingIdentity ||
                   !agreementAccepted ||
                   availabilityLoading ||
                   !selectedDatesAvailable

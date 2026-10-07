@@ -46,6 +46,8 @@ $script:apiHealthFixture = @{ success = $true; data = @{ capabilities = @('produ
 function Invoke-RestMethod { param($Uri, $TimeoutSec); return $script:apiHealthFixture }
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without capture validation must fail'
 $script:apiHealthFixture.data.capabilities += 'mykad-capture-validation-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without mandatory identity must fail'
+$script:apiHealthFixture.data.capabilities += 'mandatory-identity-access-v1'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'

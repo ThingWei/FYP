@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
+import 'package:renthub_flutter/features/live/live_admin_app.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/features/live/live_shared_pages.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
@@ -17,6 +18,13 @@ class RecordingAccountApiClient extends ApiClient {
     calls.add((method, path, body));
     return responses.removeAt(0);
   }
+}
+
+class ReviewFixtureController extends LiveRentHubController {
+  ReviewFixtureController(super.api);
+
+  @override
+  Future<void> loadAdmin() async {}
 }
 
 Map<String, dynamic> userJson({
@@ -119,7 +127,8 @@ void main() {
     expect(controller.profile?.verificationStatus, 'pending');
   });
 
-  test('administrator review uses the verification endpoint', () async {
+  test('administrator approval sends status without a verification tier',
+      () async {
     final reviewed = {
       ...userJson(verificationStatus: 'approved'),
       '_id': '507f1f77bcf86cd799439011',
@@ -137,12 +146,11 @@ void main() {
     await controller.reviewIdentityVerification(
       '507f1f77bcf86cd799439011',
       'approved',
-      tier: 'enhanced',
     );
 
     expect(api.calls.single.$2, '/users/507f1f77bcf86cd799439011/verification');
     final body = api.calls.single.$3 as Map<String, dynamic>;
-    expect(body, {'status': 'approved', 'tier': 'enhanced'});
+    expect(body, {'status': 'approved'});
     expect(
       (controller.users.single['verification']
           as Map<String, dynamic>)['status'],
@@ -168,6 +176,80 @@ void main() {
       'reason': 'Taking a long break',
     });
     expect(controller.profile, isNull);
+  });
+
+  testWidgets('admin confirms identity approval without selecting a tier',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final pending = {
+      ...userJson(verificationStatus: 'pending'),
+      '_id': '507f1f77bcf86cd799439011',
+      'verification': {
+        'status': 'pending',
+        'documentType': 'mykad',
+        'history': [
+          {
+            'attemptId': 'KYC-000000000000000000000001',
+            'documentType': 'mykad',
+            'status': 'pending',
+          }
+        ],
+      },
+    };
+    final api = RecordingAccountApiClient([
+      {...userJson(verificationStatus: 'approved'), '_id': pending['_id']},
+    ]);
+    final controller = ReviewFixtureController(api)
+      ..profile = User.fromJson(userJson())
+      ..users = [pending];
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(ChangeNotifierProvider<LiveRentHubController>.value(
+      value: controller,
+      child: const MaterialApp(home: LiveAdminShell()),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Verification'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+    expect(find.text('Approve identity?'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(DropdownButtonFormField<String>)),
+        findsNothing);
+    expect(find.text('Verification tier'), findsNothing);
+    expect(api.calls, isEmpty);
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+    expect(api.calls.single.$3, {
+      'status': 'approved',
+      'attemptId': 'KYC-000000000000000000000001',
+    });
+    expect(find.text('Verification queue is clear'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('legacy enhanced tier is hidden from live identity status',
+      (tester) async {
+    final json = userJson(verificationStatus: 'approved');
+    (json['verification'] as Map).addAll(<String, String>{
+      'tier': 'enhanced',
+      'documentType': 'mykad',
+    });
+    final controller = LiveRentHubController(RecordingAccountApiClient([]))
+      ..profile = User.fromJson(json);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: controller,
+      child: const MaterialApp(home: LiveVerificationPage()),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('approved'), findsWidgets);
+    expect(find.textContaining('enhanced'), findsNothing);
+    expect(find.textContaining('verification tier'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('final live profile edits and persists the display name',

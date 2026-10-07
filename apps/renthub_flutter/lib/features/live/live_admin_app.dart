@@ -495,7 +495,6 @@ class _AdminVerificationState extends State<_AdminVerification> {
     final expiry = TextEditingController();
     bool identityMatchConfirmed = false;
     bool classReviewConfirmed = false;
-    var tier = 'basic';
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -553,22 +552,8 @@ class _AdminVerificationState extends State<_AdminVerification> {
                           const Text('Licence classes and validity reviewed'),
                       onChanged: (value) => setDialogState(
                           () => classReviewConfirmed = value ?? false)),
-                ] else if (status == 'approved')
-                  DropdownButtonFormField<String>(
-                    initialValue: tier,
-                    decoration:
-                        const InputDecoration(labelText: 'Verification tier'),
-                    items: const [
-                      DropdownMenuItem(value: 'basic', child: Text('Basic')),
-                      DropdownMenuItem(
-                        value: 'enhanced',
-                        child: Text('Enhanced'),
-                      ),
-                    ],
-                    onChanged: (value) =>
-                        setDialogState(() => tier = value ?? 'basic'),
-                  )
-                else
+                ],
+                if (status != 'approved')
                   TextField(
                     controller: reason,
                     maxLines: 3,
@@ -611,7 +596,6 @@ class _AdminVerificationState extends State<_AdminVerification> {
       await context.read<LiveRentHubController>().reviewIdentityVerification(
             user['_id'].toString(),
             status,
-            tier: tier,
             reason: reason.text,
             attemptId: attemptId,
             driving: driving,
@@ -2460,8 +2444,11 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
       for (final raw in platform['kycRequirements'] as List? ?? const []) {
         final rule = Map<String, dynamic>.from(raw as Map);
         final category = rule['category'] as String;
-        kycDocuments[category] =
-            (rule['documentTypes'] as List? ?? const []).cast<String>().toSet();
+        kycDocuments[category] = {
+          ...(rule['documentTypes'] as List? ?? const []).cast<String>(),
+          'mykad',
+          if (category == 'Vehicles') 'driving_licence'
+        };
         kycHighValueOnly[category] = rule['highValueOnly'] as bool? ?? false;
       }
       const defaults = {
@@ -2469,8 +2456,8 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
         'Vehicles': {'mykad', 'driving_licence'},
         'Equipment': {'mykad'},
         'Services': {'mykad'},
-        'Clothing': <String>{},
-        'Books': <String>{},
+        'Clothing': {'mykad'},
+        'Books': {'mykad'},
       };
       for (final entry in defaults.entries) {
         kycDocuments.putIfAbsent(entry.key, () => {...entry.value});
@@ -2647,7 +2634,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                           ),
                           _RuleField(
                             controller: highValueThreshold,
-                            label: 'High-value KYC threshold (RM)',
+                            label: 'Additional-document threshold (RM)',
                             validator: (value) =>
                                 (double.tryParse(value ?? '') ?? -1) < 0
                                     ? 'Enter zero or more'
@@ -2704,8 +2691,8 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                       const SizedBox(height: 8),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title:
-                            const Text('Require KYC for high-value listings'),
+                        title: const Text(
+                            'Enable high-value additional-document rules'),
                         value: highValueKycEnabled,
                         onChanged: (value) =>
                             setState(() => highValueKycEnabled = value),
@@ -2716,7 +2703,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const Text(
-                        'Empty means optional. Vehicle defaults to MyKad and Driving Licence.',
+                        'Approved MyKad is mandatory for every booking and Owner submission/publication. These settings cannot disable it. Vehicle renters also require driving eligibility.',
                         style: TextStyle(color: AppColors.secondaryText),
                       ),
                       for (final category in kycDocuments.keys)
@@ -2737,17 +2724,21 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                               CheckboxListTile(
                                 title: Text(type.replaceAll('_', ' ')),
                                 value: kycDocuments[category]!.contains(type),
-                                onChanged: (selected) => setState(() {
-                                  if (selected ?? false) {
-                                    kycDocuments[category]!.add(type);
-                                  } else {
-                                    kycDocuments[category]!.remove(type);
-                                  }
-                                }),
+                                onChanged: type == 'mykad' ||
+                                        type == 'driving_licence'
+                                    ? null
+                                    : (selected) => setState(() {
+                                          if (selected ?? false) {
+                                            kycDocuments[category]!.add(type);
+                                          } else {
+                                            kycDocuments[category]!
+                                                .remove(type);
+                                          }
+                                        }),
                               ),
                             SwitchListTile(
                               title: const Text(
-                                  'Apply only above high-value threshold'),
+                                  'Additional documents only above the threshold'),
                               value: kycHighValueOnly[category] ?? false,
                               onChanged: (value) => setState(
                                 () => kycHighValueOnly[category] = value,

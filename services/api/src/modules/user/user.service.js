@@ -807,12 +807,9 @@ export const userService = {
       return user;
     }
     user.verification.status = aggregateVerificationStatus(user.verification);
-    const existingTier = user.verification.tier;
-    user.verification.tier = user.verification.status === 'approved'
-      ? input.status === 'approved'
-        ? (input.tier ?? (existingTier === 'none' ? 'basic' : existingTier))
-        : (existingTier === 'none' ? 'basic' : existingTier)
-      : 'none';
+    // Deprecated storage field retained for old clients/records, not a selectable
+    // review level. Approval is determined by document status, never this field.
+    user.verification.tier = user.verification.status === 'approved' ? 'basic' : 'none';
     user.verification.documentType = attempt.documentType;
     user.verification.documentRefs = attempt.documentRefs;
     user.verification.ocrResult = attempt.aiEvidence;
@@ -844,7 +841,6 @@ export const userService = {
         metadata: {
           attemptId: attempt.attemptId,
           documentType: attempt.documentType,
-          tier: user.verification.tier,
           reason: user.verification.reason,
         },
         createdBy: identity.authId,

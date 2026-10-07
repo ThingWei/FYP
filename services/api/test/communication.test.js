@@ -37,6 +37,10 @@ async function setupConversation() {
   for (const headers of [renter, owner, outsider, admin]) {
     await request(app).post('/api/v1/users/session').set(headers);
   }
+  await UserModel.updateOne({ authId: 'u-renter' }, { $set: {
+    'verification.documentType': 'mykad', 'verification.status': 'approved',
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }],
+  } });
   await ListingModel.create({
     publicId: 'l-camera',
     ownerId: 'u-owner',

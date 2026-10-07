@@ -6,6 +6,8 @@ import { PlatformSettingModel } from '../admin/platformSetting.model.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { ReviewModel } from '../review/review.model.js';
 import { UserModel } from '../user/user.model.js';
+import { assertMarketplaceIdentity } from '../user/kycRequirements.js';
+import { hasApprovedMykad } from '../user/drivingEligibility.js';
 import {
   LISTING_CATEGORIES,
   LISTING_STATUSES,
@@ -172,10 +174,11 @@ async function requireOwner(identity) {
   return user;
 }
 
-async function requireOwnedListing(id, identity) {
-  await requireOwner(identity);
+async function requireOwnedListing(id, identity, { verifiedIdentity = false } = {}) {
+  const owner = await requireOwner(identity);
   const listing = await listingRepository.findOwnedById(id, identity.authId);
   if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
+  if (verifiedIdentity) assertMarketplaceIdentity(owner, 'submit_listing', listing.category);
   return listing;
 }
 
@@ -610,7 +613,7 @@ export const listingService = {
       ownerId: owner.authId,
       ownerName: owner.displayName,
       ownerTrustScore: owner.trustScore,
-      verified: owner.verification.status === 'approved',
+      verified: hasApprovedMykad(owner),
       status: 'draft',
     });
   },
@@ -663,7 +666,7 @@ export const listingService = {
   },
 
   async submit(id, identity) {
-    const listing = await requireOwnedListing(id, identity);
+    const listing = await requireOwnedListing(id, identity, { verifiedIdentity: true });
     if (!['draft', 'rejected'].includes(listing.status)) {
       throw new AppError(
         'Only draft or rejected listings can be submitted',
@@ -726,6 +729,14 @@ export const listingService = {
     }
     if (status === 'rejected' && !reason?.trim()) {
       throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
+    }
+    if (status === 'active') {
+      const owner = await UserModel.findOne({ authId: listing.ownerId });
+      if (!owner || owner.accountStatus !== 'active') {
+        throw new AppError('The Owner account must be active before publishing this listing', 403, 'OWNER_ACCOUNT_RESTRICTED');
+      }
+      assertMarketplaceIdentity(owner, 'publish_listing', listing.category);
+      listing.verified = true;
     }
     listing.status = status;
     listing.moderationReason = status === 'rejected' ? reason.trim() : '';

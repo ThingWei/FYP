@@ -355,6 +355,10 @@ test('only excludes the requesting Owner listing from comparable evidence', asyn
 
 test('enforces owner submission and administrator moderation transitions', async () => {
   await startOwner();
+  await UserModel.updateOne({ authId: 'u-owner' }, { $set: {
+    'verification.status': 'approved', 'verification.documentType': 'mykad',
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }],
+  } });
   const created = await request(app)
     .post('/api/v1/listings')
     .set(ownerHeaders)

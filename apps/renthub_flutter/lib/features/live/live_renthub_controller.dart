@@ -152,6 +152,14 @@ class LiveRentHubController extends ChangeNotifier {
     );
   }
 
+  Future<User> refreshIdentityProfile() async {
+    final refreshed = User.fromJson(
+        await api.request('GET', '/users/me') as Map<String, dynamic>);
+    profile = refreshed;
+    notifyListeners();
+    return refreshed;
+  }
+
   Future<void> deleteUpload(String reference) async {
     final match =
         RegExp(r'UPL-[A-Z0-9]+', caseSensitive: false).firstMatch(reference);
@@ -599,7 +607,6 @@ class LiveRentHubController extends ChangeNotifier {
   Future<void> reviewIdentityVerification(
     String userId,
     String status, {
-    String tier = 'basic',
     String reason = '',
     String? attemptId,
     bool driving = false,
@@ -616,7 +623,6 @@ class LiveRentHubController extends ChangeNotifier {
               : '/users/$userId/verification',
           body: {
             'status': status,
-            if (status == 'approved') 'tier': tier,
             if (reason.trim().isNotEmpty) 'reason': reason.trim(),
             if (attemptId != null) 'attemptId': attemptId,
             if (driving && status == 'approved') ...{
@@ -1219,17 +1225,20 @@ class LiveRentHubController extends ChangeNotifier {
         notifications = [];
       });
 
-  Future<Listing> createOwnerListing(Map<String, dynamic> payload) =>
+  Future<Listing> createOwnerListing(Map<String, dynamic> payload,
+          {bool submitForReview = true}) =>
       _perform(() async {
         var listing = Listing.fromJson(
           await api.request('POST', '/listings', body: payload)
               as Map<String, dynamic>,
         );
-        listing = Listing.fromJson(
-          await api.request('POST', '/listings/${listing.id}/submit')
-              as Map<String, dynamic>,
-        );
         ownerListings.insert(0, listing);
+        if (submitForReview) {
+          listing = Listing.fromJson(
+              await api.request('POST', '/listings/${listing.id}/submit')
+                  as Map<String, dynamic>);
+          _replaceOwnerListing(listing);
+        }
         notifyListeners();
         return listing;
       });
@@ -1319,19 +1328,29 @@ class LiveRentHubController extends ChangeNotifier {
 
   Future<Listing> updateOwnerListing(
     String id,
-    Map<String, dynamic> payload,
-  ) =>
+    Map<String, dynamic> payload, {
+    bool submitForReview = true,
+  }) =>
       _perform(() async {
         var listing = Listing.fromJson(
           await api.request('PATCH', '/listings/$id', body: payload)
               as Map<String, dynamic>,
         );
-        if (listing.status == 'draft') {
+        // Retain the saved draft if the authoritative submit gate rejects it.
+        _replaceOwnerListing(listing);
+        if (submitForReview && listing.status == 'draft') {
           listing = Listing.fromJson(
             await api.request('POST', '/listings/$id/submit')
                 as Map<String, dynamic>,
           );
         }
+        _replaceOwnerListing(listing);
+        return listing;
+      });
+
+  Future<Listing> submitOwnerListing(String id) => _perform(() async {
+        final listing = Listing.fromJson(await api.request(
+            'POST', '/listings/$id/submit') as Map<String, dynamic>);
         _replaceOwnerListing(listing);
         return listing;
       });

@@ -663,13 +663,15 @@ test('submits and reviews identity verification with audit and notification', as
   const target = await UserModel.findOne({
     authId: 'u-verification-owner',
   }).lean();
+  // A legacy enhanced label must not remain an active review level.
+  await UserModel.updateOne({ _id: target._id }, { $set: { 'verification.tier': 'enhanced' } });
   const reviewed = await request(app)
     .patch(`/api/v1/users/${target._id}/verification`)
     .set(admin)
-    .send({ status: 'approved', tier: 'enhanced' });
+    .send({ status: 'approved' });
   assert.equal(reviewed.status, 200);
   assert.equal(reviewed.body.data.verification.status, 'approved');
-  assert.equal(reviewed.body.data.verification.tier, 'enhanced');
+  assert.equal(reviewed.body.data.verification.tier, 'basic');
   assert.equal(
     reviewed.body.data.verification.history[0].status,
     'approved',
@@ -700,7 +702,6 @@ test('submits and reviews identity verification with audit and notification', as
     .set(admin)
     .send({
       status: 'approved',
-      tier: 'enhanced',
       attemptId: licenceAttempt.attemptId,
       licenceClasses: ['D'], expiresAt: '2035-01-01',
       identityMatchConfirmed: true, classReviewConfirmed: true,
@@ -808,7 +809,8 @@ test('passport approval verifies identity but does not replace vehicle MyKad and
   const reviewed = await request(app)
     .patch(`/api/v1/users/${user._id}/verification`)
     .set(admin)
-    .send({ status: 'approved', attemptId: submitted.body.data.verification.history[0].attemptId });
+    // A deprecated tier field from older clients is ignored by matchedData.
+    .send({ status: 'approved', tier: 'enhanced', attemptId: submitted.body.data.verification.history[0].attemptId });
   assert.equal(reviewed.status, 200);
   assert.equal(reviewed.body.data.verification.status, 'approved');
   assert.equal(reviewed.body.data.verification.tier, 'basic');
@@ -820,7 +822,7 @@ test('passport approval verifies identity but does not replace vehicle MyKad and
   assert.deepEqual(requirements.body.data.missingDocumentTypes, ['mykad', 'driving_licence']);
 });
 
-test('resolves category KYC rules without disabling always-required categories', async () => {
+test('mandatory category KYC is not disabled by price or old high-value settings', async () => {
   const renterIdentity = identity();
   await request(app).post('/api/v1/users/session').set(renterIdentity);
 
@@ -829,7 +831,7 @@ test('resolves category KYC rules without disabling always-required categories',
     .query({ category: 'Devices', dailyPrice: 999 })
     .set(renterIdentity);
   assert.equal(belowThreshold.status, 200);
-  assert.deepEqual(belowThreshold.body.data.requiredDocumentTypes, []);
+  assert.deepEqual(belowThreshold.body.data.requiredDocumentTypes, ['mykad']);
 
   const highValue = await request(app)
     .get('/api/v1/users/me/verification/requirements')
@@ -845,7 +847,7 @@ test('resolves category KYC rules without disabling always-required categories',
     .get('/api/v1/users/me/verification/requirements')
     .query({ category: 'Devices', dailyPrice: 5000 })
     .set(renterIdentity);
-  assert.deepEqual(disabledHighValue.body.data.requiredDocumentTypes, []);
+  assert.deepEqual(disabledHighValue.body.data.requiredDocumentTypes, ['mykad']);
 
   const vehicle = await request(app)
     .get('/api/v1/users/me/verification/requirements')

@@ -172,7 +172,6 @@ export const verificationDecisionValidation = [
       ['approved', 'rejected', 'resubmission_required'].includes(status),
     ),
   ),
-  body('tier').optional().isIn(['basic', 'enhanced']),
   body('licenceClasses').optional().isArray({ min: 1, max: 15 }).custom((classes) => new Set(classes).size === classes.length),
   body('licenceClasses.*').optional().isIn(LICENCE_CLASSES),
   body('expiresAt').optional().matches(/^\d{4}-\d{2}-\d{2}$/).isISO8601({ strict: true }),

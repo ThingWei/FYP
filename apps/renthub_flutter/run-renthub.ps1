@@ -42,7 +42,8 @@ function Test-RentHubApiReady {
             -TimeoutSec 2
         return $response.success -eq $true -and `
             $response.data.capabilities -contains 'product-catalog-v1' -and `
-            $response.data.capabilities -contains 'mykad-capture-validation-v1'
+            $response.data.capabilities -contains 'mykad-capture-validation-v1' -and `
+            $response.data.capabilities -contains 'mandatory-identity-access-v1'
     }
     catch {
         return $false

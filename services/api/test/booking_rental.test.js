@@ -55,8 +55,12 @@ async function startProfiles() {
   await request(app).post('/api/v1/users/session').set(renter);
   await request(app).post('/api/v1/users/session').set(owner);
   await request(app).post('/api/v1/users/session').set(serviceOwner);
+  await approveTestIdentity('u-renter');
+}
+
+async function approveTestIdentity(authId) {
   await UserModel.updateOne(
-    { authId: 'u-renter' },
+    { authId },
     {
       $set: {
         'verification.status': 'approved',
@@ -626,6 +630,7 @@ test('locks approved dates against another booking', async () => {
       'x-user-email': 'renter2@renthub.my',
       'x-user-name': 'Mei Ling',
     });
+  await approveTestIdentity('u-renter-two');
   const conflict = await request(app)
     .post('/api/v1/bookings')
     .set({ ...renter, 'x-user-id': 'u-renter-two' })
@@ -771,6 +776,7 @@ test('approval expires only competing pending physical requests and releases aut
       'x-user-email': 'renter2@renthub.my',
       'x-user-name': 'Mei Ling',
     });
+  await approveTestIdentity('u-renter-two');
   const first = await createCameraBooking({
     idempotencyKey: 'booking-test:approval-race-a',
   });

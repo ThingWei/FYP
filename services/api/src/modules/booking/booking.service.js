@@ -16,6 +16,7 @@ import { assertDrivingEligibility } from '../user/drivingEligibility.js';
 import { PlatformSettingModel } from '../admin/platformSetting.model.js';
 import {
   approvedDocumentTypes,
+  assertMarketplaceIdentity,
   resolveKycRequirement,
 } from '../user/kycRequirements.js';
 import { BOOKING_STATUSES } from './booking.model.js';
@@ -232,6 +233,7 @@ export const bookingService = {
     const requirement = resolveKycRequirement(platform, listing);
     const { startDate, endDate } = bookingDates(listing, input);
     assertDrivingEligibility(renter, listing, endDate);
+    assertMarketplaceIdentity(renter, 'create_booking', listing.category);
     const approvedDocuments = approvedDocumentTypes(renter);
     const missingDocuments = requirement.requiredDocumentTypes.filter(
       (type) => !approvedDocuments.has(type),
