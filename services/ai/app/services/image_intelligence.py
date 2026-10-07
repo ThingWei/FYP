@@ -15,6 +15,8 @@ from ..schemas import (
     VerificationResponse,
 )
 
+DOCUMENT_FRAME_CONTRACT = 'opencv-document-yolo-v2'
+
 
 def _decode_images(request: VerificationRequest):
     try:
@@ -55,10 +57,38 @@ def _quality(image) -> dict[str, Any]:
         'isBlurry': blur < 75,
         'isTooDark': brightness < 40,
         'isTooBright': brightness > 225,
-        'hasUsableResolution': width >= 640 and height >= 400,
+        # A portrait photo has the same usable resolution as its rotated copy.
+        'hasUsableResolution': max(width, height) >= 640 and min(width, height) >= 400,
         'glareRatio': round(glare_ratio, 4),
         'hasSevereGlare': glare_ratio > 0.12,
     }
+
+
+def _quality_issues(quality) -> list[dict[str, str]]:
+    """One policy for both live capture and final document submission."""
+    checks = [
+        (not quality['hasUsableResolution'], 'low_resolution',
+         'Image resolution is too low. Retake with a higher-resolution camera setting.'),
+        (quality['isBlurry'], 'blur',
+         'Image is blurry. Clean the lens, let the camera focus and hold steady.'),
+        (quality['isTooDark'], 'too_dark', 'Image is too dark. Improve lighting.'),
+        (quality['isTooBright'], 'too_bright',
+         'Image is overexposed. Avoid direct light and reduce brightness.'),
+        (quality['hasSevereGlare'], 'glare',
+         'Image has strong glare. Tilt the light or card slightly to reduce reflections.'),
+    ]
+    return [{'code': code, 'message': message} for failed, code, message in checks if failed]
+
+
+def _document_guide(width, height):
+    # Shared with Flutter kycDocumentGuide: preserve the visible card ratio,
+    # rather than subtracting equal margins from a pre-sized aspect-ratio box.
+    guide_width = min(width * 0.88, height * 0.68 * 1.586)
+    guide_height = guide_width / 1.586
+    return [(width - guide_width) / (2 * width),
+            (height - guide_height) / (2 * height),
+            (width + guide_width) / (2 * width),
+            (height + guide_height) / (2 * height)]
 
 
 def _document_crop(image):
@@ -462,47 +492,48 @@ class ImageIntelligenceService:
             return DocumentFrameResponse(
                 available=True, detected=False, ready=False, confidence=0,
                 guidance=errors[0] if errors else 'Frame could not be decoded',
-                adapter='opencv-document-yolo-v1',
+                adapter=DOCUMENT_FRAME_CONTRACT,
             )
         image = decoded[0][1]
         quality = _quality(image)
+        issues = _quality_issues(quality)
+        quality['issues'] = issues
+        height, width = image.shape[:2]
+        guide = _document_guide(width, height)
         detector, _path = _document_yolo_model()
         if detector is None:
             return DocumentFrameResponse(
                 available=False, detected=False, ready=False, confidence=0,
                 guidance='Document detector unavailable. Use manual capture.',
-                quality=quality, adapter='opencv-document-yolo-v1',
+                quality=quality, guide_box=guide, adapter=DOCUMENT_FRAME_CONTRACT,
             )
         prediction = detector.predict(image, verbose=False)[0]
         if not prediction.boxes or len(prediction.boxes) == 0:
             return DocumentFrameResponse(
                 available=True, detected=False, ready=False, confidence=0,
-                guidance='No document detected', quality=quality,
-                adapter='opencv-document-yolo-v1',
+                guidance='No document detected', quality=quality, guide_box=guide,
+                adapter=DOCUMENT_FRAME_CONTRACT,
             )
         best_index = int(prediction.boxes.conf.argmax())
         confidence = float(prediction.boxes.conf[best_index])
         x1, y1, x2, y2 = [
             float(value) for value in prediction.boxes.xyxy[best_index].tolist()
         ]
-        height, width = image.shape[:2]
         box = [x1 / width, y1 / height, x2 / width, y2 / height]
         area = max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
-        inside_guide = box[0] >= 0.06 and box[1] >= 0.16 and box[2] <= 0.94 and box[3] <= 0.84
+        guide_area = (guide[2] - guide[0]) * (guide[3] - guide[1])
+        inside_guide = (box[0] >= guide[0] - 0.01 and box[1] >= guide[1] - 0.01
+                        and box[2] <= guide[2] + 0.01 and box[3] <= guide[3] + 0.01)
         if confidence < float(os.getenv('DOCUMENT_DETECTION_THRESHOLD', '0.65')):
             guidance = 'Hold steady while the document is detected'
-        elif area < 0.28:
+        elif area < guide_area * 0.65:
             guidance = 'Move document closer'
-        elif area > 0.78:
+        elif area > guide_area * 1.05:
             guidance = 'Move document farther'
         elif not inside_guide:
             guidance = 'Align document inside frame'
-        elif quality['isBlurry']:
-            guidance = 'Hold steady'
-        elif quality['isTooDark'] or quality['isTooBright']:
-            guidance = 'Improve lighting'
-        elif quality['hasSevereGlare']:
-            guidance = 'Reduce glare and reflections'
+        elif issues:
+            guidance = issues[0]['message']
         else:
             guidance = 'Ready to capture'
         ready = guidance == 'Ready to capture'
@@ -514,7 +545,8 @@ class ImageIntelligenceService:
             guidance=guidance,
             quality=quality,
             bounding_box=[round(value, 4) for value in box],
-            adapter='opencv-document-yolo-v1',
+            guide_box=guide,
+            adapter=DOCUMENT_FRAME_CONTRACT,
         )
 
     def verify_document(self, request: VerificationRequest) -> VerificationResponse:
@@ -526,15 +558,17 @@ class ImageIntelligenceService:
                 adapter='opencv-easyocr-spacy-v1',
             )
         qualities = [_quality(image) for _, image in decoded]
-        severe_quality = [
-            item for item in qualities
-            if item['isBlurry'] or item['isTooDark'] or item['isTooBright']
-            or item['hasSevereGlare'] or not item['hasUsableResolution']
-        ]
-        if severe_quality:
+        quality_reasons = []
+        for index, quality in enumerate(qualities):
+            quality['issues'] = _quality_issues(quality)
+            label = (('MyKad front', 'MyKad back')[index]
+                     if request.expected_type == 'mykad' and len(qualities) == 2
+                     else f'Image {index + 1}')
+            quality_reasons.extend(f"{label}: {issue['message']}" for issue in quality['issues'])
+        if quality_reasons:
             return VerificationResponse(
                 accepted=False, outcome='rescan_required', confidence=0,
-                reasons=['One or more images are blurry, poorly lit, low resolution, or affected by severe glare'],
+                reasons=quality_reasons,
                 adapter='opencv-easyocr-spacy-risk-v2',
                 quality={'images': qualities},
             )

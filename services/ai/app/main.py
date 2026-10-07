@@ -7,6 +7,7 @@ from .routers.recommendation import router as recommendation_router
 from .routers.verification import router as verification_router
 from .services.pricing import _artifact as pricing_artifact
 from .services.mykad_field_risk import availability as mykad_field_availability
+from .services.image_intelligence import DOCUMENT_FRAME_CONTRACT
 
 app = FastAPI(title='RentHub AI Service', version='2.0.0')
 
@@ -39,6 +40,7 @@ def health():
     }
     return {
         'status': 'ok',
+        'document_frame_contract': DOCUMENT_FRAME_CONTRACT,
         'model_mode': 'artifact-backed',
         'artifacts': artifacts,
         'ready_artifact_count': sum(artifacts.values()),

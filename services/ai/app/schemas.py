@@ -51,6 +51,7 @@ class DocumentFrameResponse(BaseModel):
     guidance: str
     quality: dict[str, Any] = Field(default_factory=dict)
     bounding_box: list[float] | None = None
+    guide_box: list[float] | None = None
     adapter: str
 
 

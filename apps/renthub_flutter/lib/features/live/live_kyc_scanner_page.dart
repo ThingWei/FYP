@@ -1,10 +1,80 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/theme/app_theme.dart';
+
+bool kycFrameRequiresServiceRestart(Map<String, dynamic> result) =>
+    result['available'] == true &&
+    result['adapter'] != 'opencv-document-yolo-v2';
+
+/// Same normalized geometry as the AI service's document guide.
+Rect kycDocumentGuide(Size size) {
+  const ratio = 1.586;
+  final width = math.min(size.width * 0.88, size.height * 0.68 * ratio);
+  return Rect.fromCenter(
+    center: Offset(size.width / 2, size.height / 2),
+    width: width,
+    height: width / ratio,
+  );
+}
+
+/// Fits the preview without stretching/cropping and keeps the guide on it.
+class KycScannerViewport extends StatelessWidget {
+  const KycScannerViewport({
+    super.key,
+    required this.aspectRatio,
+    required this.preview,
+    this.showGuide = true,
+    this.ready = false,
+  });
+
+  final double aspectRatio;
+  final Widget preview;
+  final bool showGuide;
+  final bool ready;
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: AspectRatio(
+          aspectRatio: aspectRatio,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final guide = kycDocumentGuide(constraints.biggest);
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    preview,
+                    if (showGuide)
+                      Positioned.fromRect(
+                        rect: guide,
+                        child: IgnorePointer(
+                          child: Container(
+                            key: const ValueKey('kyc-card-guide'),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: ready ? AppColors.success : Colors.white,
+                                width: 3,
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      );
+}
 
 typedef KycFrameAnalyzer = Future<Map<String, dynamic>> Function(
   Uint8List bytes,
@@ -61,6 +131,7 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
   bool initializing = true;
   bool analyzing = false;
   bool detectorAvailable = true;
+  bool scannerServiceOutdated = false;
   double confidence = 0;
 
   bool get cameraPlatformSupported =>
@@ -104,11 +175,11 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
       );
       final next = CameraController(
         backCamera,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
       );
       await next.initialize();
-      await next.setJpegImageQuality(70);
+      await next.setJpegImageQuality(90);
       if (!mounted) {
         await next.dispose();
         return;
@@ -160,13 +231,17 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
       final bytes = await picture.readAsBytes();
       final result = await widget.analyzeFrame(bytes, widget.documentType);
       if (!mounted) return;
-      final available = result['available'] as bool? ?? false;
-      final ready = result['ready'] as bool? ?? false;
+      final outdated = kycFrameRequiresServiceRestart(result);
+      final available = (result['available'] as bool? ?? false) && !outdated;
+      final ready = (result['ready'] as bool? ?? false) && available;
       setState(() {
+        scannerServiceOutdated = outdated;
         detectorAvailable = available;
-        confidence = (result['confidence'] as num?)?.toDouble() ?? 0;
-        guidance =
-            result['guidance'] as String? ?? 'Align document inside frame';
+        confidence =
+            outdated ? 0 : (result['confidence'] as num?)?.toDouble() ?? 0;
+        guidance = outdated
+            ? 'Scanner service is outdated. Restart the RentHub AI service, then tap Retry.'
+            : result['guidance'] as String? ?? 'Align document inside frame';
       });
       if (!available) {
         timer?.cancel();
@@ -222,6 +297,18 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
     if (detectorAvailable) _startAnalysis();
   }
 
+  void _retryService() {
+    setState(() {
+      scannerServiceOutdated = false;
+      detectorAvailable = true;
+      confidence = 0;
+      guidance = 'Checking scanner service';
+      stability.reset();
+    });
+    _startAnalysis();
+    unawaited(_analyze());
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -268,8 +355,14 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
                 ),
                 if (confidence > 0)
                   Text(
-                    'Document detection ${(confidence * 100).toStringAsFixed(0)}%',
+                    'Detection confidence ${(confidence * 100).toStringAsFixed(0)}%',
                     style: const TextStyle(color: AppColors.secondaryText),
+                  ),
+                if (confidence > 0)
+                  const Text(
+                    'Detecting a card does not confirm image sharpness or identity.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.secondaryText),
                   ),
                 const SizedBox(height: 16),
                 if (captured != null)
@@ -289,6 +382,12 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
                         ),
                       ),
                     ],
+                  )
+                else if (camera != null && scannerServiceOutdated)
+                  FilledButton.icon(
+                    onPressed: _retryService,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
                   )
                 else if (camera != null && !detectorAvailable)
                   FilledButton.icon(
@@ -315,38 +414,19 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
     }
     final controller = camera;
     if (controller == null) return const SizedBox.shrink();
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (captured == null)
-            CameraPreview(controller)
-          else
-            Image.memory(captured!.bytes, fit: BoxFit.cover),
-          if (captured == null)
-            IgnorePointer(
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: 1.58,
-                  child: Container(
-                    margin: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: guidance == 'Ready to capture' ||
-                                guidance == 'Hold steady'
-                            ? AppColors.success
-                            : Colors.white,
-                        width: 3,
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+    final orientation = controller.value.lockedCaptureOrientation ??
+        controller.value.deviceOrientation;
+    final landscape = orientation == DeviceOrientation.landscapeLeft ||
+        orientation == DeviceOrientation.landscapeRight;
+    return KycScannerViewport(
+      aspectRatio: landscape
+          ? controller.value.aspectRatio
+          : 1 / controller.value.aspectRatio,
+      showGuide: captured == null,
+      ready: guidance == 'Ready to capture' || guidance == 'Hold steady',
+      preview: captured == null
+          ? CameraPreview(controller)
+          : Image.memory(captured!.bytes, fit: BoxFit.contain),
     );
   }
 }

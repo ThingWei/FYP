@@ -1,0 +1,28 @@
+{
+  "model": "YOLOv8n document detector",
+  "purpose": "whole_document_detection",
+  "seed": 42,
+  "artifact": "document_yolo.pt",
+  "classes": [
+    "mykad_front",
+    "mykad_back"
+  ],
+  "sideSplitImageCounts": null,
+  "evaluationSplit": "validation",
+  "automaticRuntimeActivation": false,
+  "metrics": {
+    "metrics/precision(B)": 0.9986426675462687,
+    "metrics/recall(B)": 1.0,
+    "metrics/mAP50(B)": 0.995,
+    "metrics/mAP50-95(B)": 0.9941771481826654,
+    "fitness": 0.9942594333643989
+  },
+  "requiredEvaluationSlices": [
+    "rotation",
+    "perspective",
+    "partial_misalignment",
+    "distance_scale",
+    "lighting"
+  ],
+  "limitations": "Detection is not proof of document authenticity. Test-set evaluation is separate."
+}

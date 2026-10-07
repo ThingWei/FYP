@@ -6,6 +6,90 @@ import 'package:renthub_flutter/features/live/live_kyc_scanner_page.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
 
 void main() {
+  test(
+      'old or missing scanner contract requires an AI restart, not moving closer',
+      () {
+    expect(
+        kycFrameRequiresServiceRestart({
+          'available': true,
+          'ready': true,
+          'adapter': 'opencv-document-yolo-v1',
+          'guidance': 'Move document closer',
+        }),
+        isTrue);
+    expect(kycFrameRequiresServiceRestart({'available': true}), isTrue);
+    expect(
+        kycFrameRequiresServiceRestart({
+          'available': true,
+          'adapter': 'opencv-document-yolo-v2',
+        }),
+        isFalse);
+    expect(
+        kycFrameRequiresServiceRestart({
+          'available': false,
+          'adapter': 'document-detector-unavailable',
+        }),
+        isFalse);
+  });
+
+  test('card guide preserves ratio, margins and center in either orientation',
+      () {
+    for (final size in [
+      const Size(328, 583),
+      const Size(358, 636),
+      const Size(720, 1280),
+      const Size(1280, 720),
+    ]) {
+      final guide = kycDocumentGuide(size);
+      expect(guide.width / guide.height, closeTo(1.586, 0.00001));
+      expect(guide.center.dx, closeTo(size.width / 2, 0.00001));
+      expect(guide.center.dy, closeTo(size.height / 2, 0.00001));
+      expect(guide.left, greaterThanOrEqualTo(0));
+      expect(guide.top, greaterThanOrEqualTo(0));
+      expect(guide.right, lessThanOrEqualTo(size.width));
+      expect(guide.bottom, lessThanOrEqualTo(size.height));
+    }
+  });
+
+  testWidgets('preview and visible border retain their own aspect ratios',
+      (tester) async {
+    for (final size in [const Size(360, 640), const Size(390, 844)]) {
+      await tester.binding.setSurfaceSize(size);
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: KycScannerViewport(
+            aspectRatio: 720 / 1280,
+            preview: ColoredBox(
+              key: ValueKey('synthetic-camera'),
+              color: Colors.grey,
+            ),
+          ),
+        ),
+      ));
+      final preview =
+          tester.getSize(find.byKey(const ValueKey('synthetic-camera')));
+      final border =
+          tester.getRect(find.byKey(const ValueKey('kyc-card-guide')));
+      expect(preview.aspectRatio, closeTo(720 / 1280, 0.00001));
+      expect(border.width / border.height, closeTo(1.586, 0.00001));
+      expect(tester.takeException(), isNull);
+    }
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('captured preview hides the alignment guide', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: KycScannerViewport(
+          aspectRatio: 720 / 1280,
+          showGuide: false,
+          preview: ColoredBox(color: Colors.grey),
+        ),
+      ),
+    ));
+    expect(find.byKey(const ValueKey('kyc-card-guide')), findsNothing);
+  });
+
   test('auto-capture requires three consecutive ready frames', () {
     final stability = KycScanStability(requiredStableFrames: 3);
     expect(stability.register(ready: true), isFalse);

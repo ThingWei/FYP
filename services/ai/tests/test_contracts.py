@@ -43,7 +43,10 @@ def price_payload():
     }
 
 
-def test_health(): assert client.get('/health').json()['status'] == 'ok'
+def test_health():
+    result = client.get('/health').json()
+    assert result['status'] == 'ok'
+    assert result['document_frame_contract'] == 'opencv-document-yolo-v2'
 
 
 def test_price_request_rejects_incompatible_schema_version():

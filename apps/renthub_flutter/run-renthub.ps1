@@ -3,6 +3,7 @@ param(
     [string]$Device = 'windows',
     [switch]$Admin,
     [switch]$SkipAi,
+    [switch]$NoAiReload,
     [switch]$SkipBlockchain,
     [switch]$CheckOnly,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -50,11 +51,55 @@ function Test-RentHubApiReady {
 function Get-RentHubAiHealth {
     try {
         return Invoke-RestMethod `
-            -Uri 'http://localhost:8001/health' `
+            -Uri 'http://127.0.0.1:8001/health' `
             -TimeoutSec 3
     }
     catch {
         return $null
+    }
+}
+
+function Test-RentHubAiCompatible {
+    param([object]$Health)
+
+    return $null -ne $Health -and $Health.status -eq 'ok' -and `
+        $Health.document_frame_contract -eq 'opencv-document-yolo-v2'
+}
+
+function Get-RentHubAiArguments {
+    param([switch]$DisableReload)
+
+    $aiArguments = @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8001')
+    if (-not $DisableReload) {
+        # Watch code only, not private identity datasets or training/model outputs.
+        $aiArguments += @('--reload', '--reload-dir', 'app')
+    }
+    return $aiArguments
+}
+
+function Stop-RentHubOwnedAiProcess {
+    param(
+        [Parameter(Mandatory = $true)][System.Diagnostics.Process]$OwnedProcess,
+        [Parameter(Mandatory = $true)][datetime]$StartedAt
+    )
+
+    try {
+        if ($OwnedProcess.HasExited) { return }
+        $current = Get-Process -Id $OwnedProcess.Id -ErrorAction SilentlyContinue
+        if ($null -eq $current) { return }
+        if ($current.StartTime -ne $StartedAt) {
+            Write-Warning 'AI process ID was reused; leaving that unrelated process untouched.'
+            return
+        }
+        # Uvicorn reload and the Windows venv launcher have child processes.
+        # Only this invocation's verified root tree may be stopped, never all Python.
+        & taskkill.exe /PID $OwnedProcess.Id /T /F | Out-Null
+        if ($LASTEXITCODE -ne 0 -and -not $OwnedProcess.HasExited) {
+            Write-Warning "Could not stop the AI tree owned by this launcher (root $($OwnedProcess.Id))."
+        }
+    }
+    catch {
+        Write-Warning 'AI cleanup could not complete. Check port 8001 before starting another server.'
     }
 }
 
@@ -124,6 +169,7 @@ $blockchainErrorLog = Join-Path $blockchainLogDirectory 'launcher-ganache-error.
 $blockchainDataDirectory = Join-Path $blockchainDirectory '.data\ganache'
 $apiProcess = $null
 $aiProcess = $null
+$aiProcessStartedAt = $null
 $blockchainProcess = $null
 $startedApi = $false
 $startedAi = $false
@@ -266,21 +312,35 @@ try {
 
     if (-not $SkipAi) {
         $aiHealth = Get-RentHubAiHealth
-        if ($null -ne $aiHealth -and $aiHealth.status -eq 'ok') {
-            Write-Host 'RentHub AI service is already ready on port 8001.' -ForegroundColor Green
+        if (Test-RentHubAiCompatible -Health $aiHealth) {
+            Write-Host 'RentHub AI service is already ready with the current scanner contract on port 8001.' -ForegroundColor Green
+            Write-Host 'Reusing the existing AI process. Its original owner controls reload and shutdown.' -ForegroundColor DarkGray
         }
         else {
+            if (Test-RentHubTcpPort -HostName '127.0.0.1' -Port 8001) {
+                if ($null -ne $aiHealth -and $aiHealth.status -eq 'ok') {
+                    throw 'The AI service on port 8001 is outdated (scanner contract v2 is required). Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. Re-running without stopping that process would reuse old code. No existing service was stopped.'
+                }
+                throw 'Port 8001 is occupied by an unhealthy or different service. Stop the identified owning process before rerunning this launcher. Do not start a second AI server on that port.'
+            }
             New-Item -ItemType Directory -Path $aiLogDirectory -Force | Out-Null
-            Write-Host 'Starting the RentHub AI service...' -ForegroundColor Cyan
+            $aiArguments = Get-RentHubAiArguments -DisableReload:$NoAiReload
+            if ($NoAiReload) {
+                Write-Host 'Starting the RentHub AI service without development reload...' -ForegroundColor Cyan
+            }
+            else {
+                Write-Host 'Starting the RentHub AI service with automatic app-code reload...' -ForegroundColor Cyan
+            }
             $aiProcess = Start-Process `
                 -FilePath $aiPython `
-                -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8001') `
+                -ArgumentList $aiArguments `
                 -WorkingDirectory $aiDirectory `
                 -WindowStyle Hidden `
                 -RedirectStandardOutput $aiStandardLog `
                 -RedirectStandardError $aiErrorLog `
                 -PassThru
             $startedAi = $true
+            $aiProcessStartedAt = $aiProcess.StartTime
 
             $aiReady = $false
             for ($attempt = 0; $attempt -lt 45; $attempt++) {
@@ -288,7 +348,7 @@ try {
                     break
                 }
                 $aiHealth = Get-RentHubAiHealth
-                if ($null -ne $aiHealth -and $aiHealth.status -eq 'ok') {
+                if (Test-RentHubAiCompatible -Health $aiHealth) {
                     $aiReady = $true
                     break
                 }
@@ -304,7 +364,7 @@ try {
                 }
                 throw "The AI service did not become ready. Review $aiErrorLog.`n$details"
             }
-            Write-Host 'RentHub AI service is ready.' -ForegroundColor Green
+            Write-Host 'RentHub AI service is ready with the current scanner contract.' -ForegroundColor Green
         }
 
         if ($aiHealth.artifacts.price_model -eq $true) {
@@ -464,9 +524,9 @@ try {
     }
 }
 finally {
-    if ($startedAi -and $null -ne $aiProcess -and -not $aiProcess.HasExited) {
-        Write-Host 'Stopping the AI process started by this launcher...' -ForegroundColor DarkGray
-        Stop-Process -Id $aiProcess.Id -Force
+    if ($startedAi -and $null -ne $aiProcess -and $null -ne $aiProcessStartedAt) {
+        Write-Host 'Stopping the AI process tree started by this launcher...' -ForegroundColor DarkGray
+        Stop-RentHubOwnedAiProcess -OwnedProcess $aiProcess -StartedAt $aiProcessStartedAt
     }
     if ($startedApi -and $null -ne $apiProcess -and -not $apiProcess.HasExited) {
         Write-Host 'Stopping the API process started by this launcher...' -ForegroundColor DarkGray

@@ -104,12 +104,47 @@ def assign_group_ids(rows):
     return members
 
 
-def inspect_dataset(source, groups_csv=None):
+def parse_yolo_annotation(line, class_count, allow_polygons=False):
+    """Strict boxes by default; opt-in outlines are converted from actual polygons."""
+    parts = line.split()
+    polygon = len(parts) >= 7 and len(parts) % 2 == 1
+    if len(parts) != 5 and not (allow_polygons and polygon):
+        raise ValueError('Expected YOLO class x_center y_center width height')
+    try:
+        class_id = int(parts[0])
+        values = tuple(map(float, parts[1:]))
+    except ValueError as error:
+        raise ValueError('Invalid YOLO numeric value') from error
+    if not 0 <= class_id < class_count or not all(math.isfinite(v) for v in values):
+        raise ValueError('YOLO class/coordinates outside allowed range')
+    if len(parts) == 5:
+        x, y, width, height = values
+        if not (0 <= x <= 1 and 0 <= y <= 1 and 0 < width <= 1 and 0 < height <= 1):
+            raise ValueError('YOLO class/coordinates outside allowed range')
+        if x - width / 2 < -0.001 or y - height / 2 < -0.001 or \
+                x + width / 2 > 1.001 or y + height / 2 > 1.001:
+            raise ValueError('YOLO bounding box extends outside image')
+        return class_id, values, 'box'
+    if not all(0 <= v <= 1 for v in values):
+        raise ValueError('YOLO polygon coordinates outside image')
+    points = list(zip(values[::2], values[1::2]))
+    area = abs(sum(a[0] * b[1] - b[0] * a[1]
+                   for a, b in zip(points, points[1:] + points[:1]))) / 2
+    if len(set(points)) < 3 or area <= 1e-8:
+        raise ValueError('YOLO polygon is degenerate')
+    xs, ys = values[::2], values[1::2]
+    left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
+    return class_id, ((left + right) / 2, (top + bottom) / 2,
+                      right - left, bottom - top), 'polygon'
+
+
+def inspect_dataset(source, groups_csv=None, allow_polygons=False, tolerate_invalid_classes=()):
     source = Path(source).resolve()
     names = dataset_names(source / 'data.yaml')
     reviewed = _reviewed_groups(source, groups_csv)
     rows = []
     counts = Counter()
+    invalid_excluded = Counter()
     for split in ('train', 'valid', 'val', 'test'):
         images = source / split / 'images'
         labels = source / split / 'labels'
@@ -132,27 +167,27 @@ def inspect_dataset(source, groups_csv=None):
             with Image.open(path) as image:
                 image.load()
             classes = []
+            annotations = []
             for line in label.read_text(encoding='utf-8-sig').splitlines():
                 if not line.strip():
                     continue
-                parts = line.split()
-                if len(parts) != 5:
-                    raise ValueError('Expected YOLO class x_center y_center width height')
                 try:
-                    class_id = int(parts[0])
-                    x, y, width, height = map(float, parts[1:])
-                except ValueError as error:
-                    raise ValueError('Invalid YOLO numeric value') from error
-                if not 0 <= class_id < len(names) or not all(
-                    math.isfinite(value) for value in (x, y, width, height)
-                ) or not (0 <= x <= 1 and 0 <= y <= 1 and 0 < width <= 1
-                          and 0 < height <= 1):
-                    raise ValueError('YOLO class/coordinates outside allowed range')
-                # Allow only numerical rounding at image edges.
-                if x - width / 2 < -0.001 or y - height / 2 < -0.001 or \
-                        x + width / 2 > 1.001 or y + height / 2 > 1.001:
-                    raise ValueError('YOLO bounding box extends outside image')
+                    class_id, geometry, kind = parse_yolo_annotation(line, len(names), allow_polygons)
+                except ValueError:
+                    # Explicitly excluded document types may have bad geometry. Still
+                    # retain their class so a mixed target image cannot slip through.
+                    try:
+                        excluded_id = int(line.split()[0])
+                    except ValueError:
+                        raise ValueError('Invalid YOLO numeric value') from None
+                    if not 0 <= excluded_id < len(names) or excluded_id not in tolerate_invalid_classes:
+                        raise
+                    classes.append(excluded_id)
+                    counts[names[excluded_id]] += 1
+                    invalid_excluded[names[excluded_id]] += 1
+                    continue
                 classes.append(class_id)
+                annotations.append((class_id, geometry, kind))
                 counts[names[class_id]] += 1
             normalized_name = re.sub(r'\.rf\.[^.]+$', '', path.stem,
                                      flags=re.IGNORECASE)
@@ -164,6 +199,7 @@ def inspect_dataset(source, groups_csv=None):
                                  else normalized_name),
                 'content_hash': hashlib.sha256(path.read_bytes()).hexdigest(),
                 'classes': classes,
+                'annotations': annotations,
             })
         if labels.is_dir() and set(labels.glob('*.txt')) - used_labels:
             raise ValueError('Orphan YOLO labels without matching images')
@@ -194,6 +230,7 @@ def inspect_dataset(source, groups_csv=None):
         'originalCrossSplitGroups': sum(len(splits) > 1 for splits in group_splits.values()),
         'originalCrossSplitExactDuplicates': sum(len(splits) > 1 for splits in hash_splits.values()),
         'uniqueImageHashes': len(hash_splits), 'classAnnotationCounts': dict(counts),
+        'invalidExcludedAnnotationCounts': dict(invalid_excluded),
         'warnings': [
             'Field annotations cannot train the whole-card scanner or tamper classifier.',
             'Licence, consent, provenance and identity-level grouping need human review.',
@@ -247,7 +284,10 @@ def write_prepared_dataset(rows, names, output, report, seed=42):
         relative = Path(split) / 'images' / f"{opaque_name}{row['path'].suffix.lower()}"
         shutil.copyfile(row['path'], output / relative)
         target_label = output / split / 'labels' / f'{opaque_name}.txt'
-        if 'label_map' in row:
+        if 'prepared_labels' in row:
+            # Used only by explicit document-outline preparation, never guesses boxes.
+            target_label.write_text('\n'.join(row['prepared_labels']) + '\n', encoding='utf-8')
+        elif 'label_map' in row:
             remapped = []
             for line in row['label'].read_text(encoding='utf-8-sig').splitlines():
                 if line.strip():

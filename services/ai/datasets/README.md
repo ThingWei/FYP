@@ -208,3 +208,35 @@ a separately tested localization/preprocessing adapter. No runtime activation is
 performed. Two-epoch warmup, final-two-block fine-tuning, fixed BatchNorm statistics,
 validation-only checkpoint selection and side/edit-family test slices are defaults.
 See the result document for the measured old baseline and remaining limitations.
+
+## MyKad whole-card scanner dataset
+
+The supplied `KYC DOCUMENT DETECTION.v5i.yolov8` export is stored privately under
+`.data/datasets/mykad_whole_card_raw/`. The dedicated tool retains only exact
+MyKad front/rear document classes and converts existing polygon outlines to
+enclosing YOLO detection boxes. It does not generate card boxes from fields.
+Other-document, mixed-document and unreviewed empty examples are excluded rather
+than assumed to be reviewed background negatives. Invalid MyKad labels fail;
+invalid geometry on explicitly excluded classes is recorded in the source audit.
+
+```powershell
+.\.venv\Scripts\python.exe -m app.training.prepare_mykad_whole_card `
+  ".data/datasets/mykad_whole_card_raw/KYC DOCUMENT DETECTION.v5i.yolov8" --dry-run
+
+# v1 already prepared; use a different output version for repeats:
+.\.venv\Scripts\python.exe -m app.training.prepare_mykad_whole_card `
+  ".data/datasets/mykad_whole_card_raw/KYC DOCUMENT DETECTION.v5i.yolov8" `
+  --output .data/datasets/mykad_whole_card_prepared_v1
+
+# Optional scanner training after licence/consent, grouping and visual review:
+.\.venv\Scripts\python.exe -m app.training.train_document_yolo `
+  .data/datasets/mykad_whole_card_prepared_v1/data.yaml --epochs 80
+```
+
+Preparation creates a new private copy, checks both sides in every grouped split,
+and strictly re-audits written boxes/groups. Originals remain unchanged. It does
+not train or activate a model. Scanner training exports `models/document_yolo.pt`;
+restart the AI service after successful training. Localization is not identity
+authentication. Wrong-document rejection and holder-independent evaluation are
+not established by filtering the training set. See
+`../../../docs/MYKAD_WHOLE_CARD_DATASET_RESULT.md` for actual counts and limitations.
