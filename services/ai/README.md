@@ -12,9 +12,13 @@ hard-coded confidence values when a model is missing.
 - `POST /verify/document-frame`: KYC-specific YOLOv8 document presence,
   alignment, size, quality, and glare guidance for the Flutter live scanner.
   A missing detector returns `available: false` and never invents confidence.
-- `POST /verify/item`: requires at least three images and combines OpenCV quality
-  checks, duplicate detection, a trained YOLO detector and an EfficientNet-B0 risk
-  classifier.
+- `POST /verify/item`: requires at least three images, reports OpenCV quality and
+  within-submission duplicate signals, category-aware YOLO object evidence and
+  item-specific EfficientNet-B0 risk assistance when a compatible artifact exists.
+  The local `yolov8n.pt` can be used as a clearly labelled general pretrained
+  fallback; requests never download weights. Unsupported object classes and missing
+  risk models require manual review, not a fabricated pass. This is not an
+  ownership/authenticity, exact model, book genre or condition assessment.
 - `POST /recommend/items`: 60% TF-IDF/cosine content score plus 40% Surprise SVD
   collaborative score. It uses a compatible evaluated artifact, can fit a
   deterministic request-time SVD from sufficient live marketplace interactions,
@@ -39,7 +43,7 @@ npm run export:pricing-data
 
 cd ..\ai
 python -m app.training.train_tabular_models --real-export ..\api\.data\pricing_observations.json --synthetic-rows 5000
-python -m app.training.train_image_risk path/to/reviewed-risk-images
+python -m app.training.train_image_risk .data/datasets/item-risk/manifest.csv --acknowledge-source-permission
 python -m app.training.train_yolo path/to/dataset.yaml
 python -m app.training.train_document_risk .data/datasets/kyc-risk-manifest.csv
 python -m app.training.train_document_yolo .data/datasets/document-yolo/data.yaml
@@ -53,6 +57,16 @@ residuals, and writes the model atomically only after a fresh-load smoke test.
 Synthetic evaluation must be identified as such in the FYP report. The image
 models require labelled datasets; the repository intentionally does not invent
 those results.
+
+The item-risk trainer now requires a permissioned CSV manifest with
+`path,label,item_id,split,source_type` (paths relative to the CSV). Use
+`normal`/`risky` labels, `train`/`validation`/`test` splits, and
+`reviewed_real`/`synthetic_manipulation` provenance. Keep all views and derivatives
+of one item in the same split. It rejects repeated content and cross-split item
+groups, selects the best validation epoch, reports held-out test metrics, and
+embeds the runtime contract in its TorchScript export. Caller-supplied grouping
+and labels still need independent review. MyKad risk datasets/weights must not
+be substituted. See [item verification result](../../docs/ITEM_LEGITIMACY_VERIFICATION_RESULT.md).
 
 Expected runtime files:
 

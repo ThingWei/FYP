@@ -16,6 +16,7 @@ import 'live_agreement.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_shared_pages.dart';
+import 'live_item_verification_panel.dart';
 
 class LiveOwnerShell extends StatefulWidget {
   const LiveOwnerShell({
@@ -388,6 +389,9 @@ class LiveOwnerListingsPage extends StatelessWidget {
                   final listing = controller.ownerListings[index];
                   return Card(
                     child: ListTile(
+                      onTap: listing.isService
+                          ? null
+                          : () => showItemPhotoReview(context, listing),
                       leading: CircleAvatar(
                         child: Icon(listing.isService
                             ? Icons.design_services_outlined
@@ -398,7 +402,7 @@ class LiveOwnerListingsPage extends StatelessWidget {
                         '${formatMoney(listing.dailyPrice)} · ${listing.status.replaceAll('_', ' ')}'
                         '${listing.promotionActive ? '\n${listing.promotionLabel} · ${listing.promotionDiscountPercent.toStringAsFixed(0)}% off' : ''}'
                         '${listing.bundleActive ? '\n${listing.bundleTitle}' : ''}'
-                        '${listing.itemVerificationOutcome.isNotEmpty ? '\nAI image check: ${listing.itemVerificationOutcome.replaceAll('_', ' ')}' : ''}',
+                        '${listing.itemVerificationOutcome.isNotEmpty && !listing.isService ? '\n${listing.itemPhotoCheckLabel} · Tap to view' : ''}',
                       ),
                       isThreeLine: listing.promotionActive ||
                           listing.bundleActive ||

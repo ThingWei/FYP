@@ -432,26 +432,6 @@ def _text_region_signals(image, results) -> tuple[str, list[str]]:
     return ('suspicious' if indicators else 'normal'), indicators
 
 
-@lru_cache(maxsize=1)
-def _yolo_model():
-    path = Path(os.getenv('YOLO_MODEL_PATH', 'models/item_yolo.pt'))
-    if not path.is_file():
-        return None, path
-    from ultralytics import YOLO
-    return YOLO(str(path)), path
-
-
-@lru_cache(maxsize=1)
-def _risk_model():
-    path = Path(os.getenv('IMAGE_RISK_MODEL_PATH', 'models/image_risk_efficientnet.pt'))
-    if not path.is_file():
-        return None, path
-    import torch
-    model = torch.jit.load(str(path), map_location='cpu')
-    model.eval()
-    return model, path
-
-
 def _perceptual_hash(image) -> str:
     import cv2
 
@@ -801,64 +781,9 @@ class ImageIntelligenceService:
         )
 
     def verify_item(self, request: VerificationRequest) -> VerificationResponse:
+        from .item_verification import verify
+
         decoded, errors = _decode_images(request)
-        if len(decoded) < 3:
-            return VerificationResponse(
-                accepted=False, outcome='rejected', confidence=0,
-                reasons=errors + ['At least three valid item images are required'],
-                adapter='opencv-yolo-efficientnet-v1',
-            )
-        yolo, yolo_path = _yolo_model()
-        risk_model, risk_path = _risk_model()
-        qualities = [_quality(image) for _, image in decoded]
-        hashes = [_perceptual_hash(image) for _, image in decoded]
-        duplicate_count = len(hashes) - len(set(hashes))
-        reasons = list(errors)
-        risk_indicators = []
-        if duplicate_count:
-            risk_indicators.append(f'{duplicate_count} duplicate or near-identical image(s) detected')
-        poor_quality = sum(
-            item['isBlurry'] or item['isTooDark'] or item['isTooBright'] or not item['hasUsableResolution']
-            for item in qualities
-        )
-        if poor_quality:
-            risk_indicators.append(f'{poor_quality} image(s) have quality issues')
-        labels = []
-        detection_confidences = []
-        if yolo is not None:
-            for _, image in decoded:
-                result = yolo.predict(image, verbose=False)[0]
-                for box in result.boxes:
-                    labels.append(str(result.names[int(box.cls.item())]))
-                    detection_confidences.append(float(box.conf.item()))
-        else:
-            reasons.append(f'YOLO model artifact is unavailable at {yolo_path}')
-        risk_scores = []
-        if risk_model is not None:
-            risk_scores = [_risk_probability(risk_model, image) for _, image in decoded]
-            if max(risk_scores, default=0) >= 0.65:
-                risk_indicators.append('Trained risk classifier found a high-risk image')
-        else:
-            reasons.append(f'EfficientNet risk model artifact is unavailable at {risk_path}')
-        expected = (request.expected_category or request.expected_type or '').lower()
-        category_match = not expected or any(expected in label.lower() or label.lower() in expected for label in labels)
-        if labels and not category_match:
-            risk_indicators.append('Detected object class does not match the submitted category')
-        confidence = sum(detection_confidences) / len(detection_confidences) if detection_confidences else 0
-        fully_available = yolo is not None and risk_model is not None
-        accepted = fully_available and category_match and not risk_indicators and confidence >= 0.55
-        outcome = 'approved' if accepted else ('manual_review' if not fully_available or confidence < 0.55 else 'warning')
-        return VerificationResponse(
-            accepted=accepted, outcome=outcome,
-            confidence=round(max(0, min(1, confidence)), 4),
-            labels=sorted(set(labels)),
-            reasons=reasons or ['Item images passed automated checks'],
-            adapter='opencv-yolo-efficientnet-v1',
-            model_versions={
-                **({'objectDetection': yolo_path.name} if yolo else {}),
-                **({'riskClassifier': risk_path.name} if risk_model else {}),
-            },
-            quality={'images': qualities, 'duplicateCount': duplicate_count},
-            extracted_fields={'categoryMatched': category_match},
-            risk_indicators=risk_indicators,
+        return verify(
+            request, decoded, errors, _quality, _perceptual_hash, _risk_probability,
         )

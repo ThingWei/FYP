@@ -6,6 +6,7 @@ import { app } from '../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../src/config/database.js';
 import { storageAdapter } from '../src/integrations/storageAdapter.js';
 import { UploadAssetModel } from '../src/modules/upload/upload.model.js';
+import { ListingModel } from '../src/modules/listing/listing.model.js';
 
 let mongodb;
 const identity = (id = 'u-owner') => ({
@@ -93,4 +94,25 @@ test('rejects a file whose bytes do not match an allowed format', async () => {
 
   assert.equal(response.status, 415);
   assert.equal(response.body.error.code, 'UNSUPPORTED_FILE');
+});
+
+test('retains item photos referenced by previous moderation evidence', async () => {
+  const uploaded = await request(app).post('/api/v1/uploads').set(identity())
+    .field('purpose', 'listing_image')
+    .attach('file', png, { filename: 'item.png', contentType: 'image/png' });
+  assert.equal(uploaded.status, 201);
+  const listing = await ListingModel.create({
+    ownerId: 'u-owner', ownerName: 'Owner', title: 'Historical photo evidence',
+    category: 'Devices', listingType: 'physical', dailyPrice: 50, location: 'Kuala Lumpur',
+    condition: 'Good', fulfilmentMethods: ['pickup'],
+    images: [], itemVerificationHistory: [{ images: [uploaded.body.data.contentUrl] }],
+  });
+  try {
+    const removed = await request(app).delete(`/api/v1/uploads/${uploaded.body.data.id}`).set(identity());
+    assert.equal(removed.status, 409);
+    assert.equal(removed.body.error.code, 'UPLOAD_IN_USE');
+    assert.equal((await request(app).get(uploaded.body.data.contentUrl)).status, 200);
+  } finally {
+    await listing.deleteOne();
+  }
 });

@@ -12,6 +12,8 @@ import { ListingModel } from '../src/modules/listing/listing.model.js';
 import { ProductCatalogModel } from '../src/modules/catalog/productCatalog.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
 import { aiClient } from '../src/integrations/aiClient.js';
+import { uploadService } from '../src/modules/upload/upload.service.js';
+import { env } from '../src/config/env.js';
 
 let mongodb;
 
@@ -407,6 +409,108 @@ test('enforces owner submission and administrator moderation transitions', async
     .send({ dailyPrice: 95 });
   assert.equal(edited.status, 200);
   assert.equal(edited.body.data.status, 'draft');
+});
+
+test('persists advisory physical photo evidence and history without auto-publishing', async () => {
+  await startOwner();
+  await UserModel.updateOne({ authId: 'u-owner' }, { $set: {
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }],
+  } });
+  const verifyOriginal = aiClient.verifyItem;
+  const readOriginal = uploadService.readOwnedReferences;
+  let received;
+  uploadService.readOwnedReferences = async () => [{ content_base64: 'fixture' }];
+  aiClient.verifyItem = async (payload) => {
+    received = payload;
+    return { accepted: false, outcome: 'manual_review', confidence: 0,
+      extracted_fields: { authenticityVerified: false, adminReviewRequired: true },
+      reasons: ['Risk classifier unavailable'] };
+  };
+  try {
+    const created = await request(app).post('/api/v1/listings').set(ownerHeaders)
+      .send({ ...cameraInput, subcategory: 'Cameras' });
+    assert.equal(created.status, 201);
+    const id = created.body.data.id;
+    const submitted = await request(app).post(`/api/v1/listings/${id}/submit`).set(ownerHeaders);
+    assert.equal(submitted.status, 200);
+    assert.equal(received.category, 'Devices');
+    assert.equal(received.subcategory, 'Cameras');
+    assert.equal(received.condition, 'Excellent');
+    assert.equal(submitted.body.data.status, 'pending_review');
+    assert.equal(submitted.body.data.itemVerification.outcome, 'manual_review');
+    assert.equal(submitted.body.data.itemVerificationHistory.length, 1);
+    assert.equal(submitted.body.data.itemVerificationHistory[0].subcategory, 'Cameras');
+    await request(app).patch(`/api/v1/listings/${id}/moderation`).set(adminHeaders)
+      .send({ status: 'rejected', reason: 'Please upload clearer views' });
+    const edited = await request(app).patch(`/api/v1/listings/${id}`).set(ownerHeaders)
+      .send({ condition: 'Good' });
+    assert.equal(edited.status, 200);
+    assert.equal(edited.body.data.itemVerification, undefined);
+    assert.equal(edited.body.data.itemVerificationHistory.length, 1);
+    await request(app).post(`/api/v1/listings/${id}/submit`).set(ownerHeaders);
+    const saved = await ListingModel.findOne({ publicId: id });
+    assert.equal(saved.itemVerificationHistory.length, 2);
+    assert.equal(saved.itemVerificationHistory[1].condition, 'Good');
+    assert.equal(saved.status, 'pending_review');
+  } finally {
+    aiClient.verifyItem = verifyOriginal;
+    uploadService.readOwnedReferences = readOriginal;
+  }
+});
+
+test('strict submission preserves failed evidence and still needs admin approval for a candidate', async () => {
+  await startOwner();
+  await UserModel.updateOne({ authId: 'u-owner' }, { $set: {
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }],
+  } });
+  const originalMode = env.aiEnforcementMode;
+  const originalVerify = aiClient.verifyItem;
+  const originalRead = uploadService.readOwnedReferences;
+  env.aiEnforcementMode = 'strict';
+  uploadService.readOwnedReferences = async () => [{ content_base64: 'fixture' }];
+  aiClient.verifyItem = async () => ({ outcome: 'manual_review', accepted: false });
+  try {
+    const created = await request(app).post('/api/v1/listings').set(ownerHeaders).send(cameraInput);
+    const id = created.body.data.id;
+    const failed = await request(app).post(`/api/v1/listings/${id}/submit`).set(ownerHeaders);
+    assert.equal(failed.status, 409);
+    const saved = await ListingModel.findOne({ publicId: id });
+    assert.equal(saved.status, 'draft');
+    assert.equal(saved.itemVerificationHistory.length, 1);
+    aiClient.verifyItem = async () => ({ outcome: 'approved_candidate', accepted: true });
+    const candidate = await request(app).post(`/api/v1/listings/${id}/submit`).set(ownerHeaders);
+    assert.equal(candidate.status, 200);
+    assert.equal(candidate.body.data.status, 'pending_review');
+    assert.equal(candidate.body.data.itemVerificationHistory.length, 2);
+  } finally {
+    env.aiEnforcementMode = originalMode;
+    aiClient.verifyItem = originalVerify;
+    uploadService.readOwnedReferences = originalRead;
+  }
+});
+
+test('services submit without physical item analysis', async () => {
+  await startOwner();
+  await UserModel.updateOne({ authId: 'u-owner' }, { $set: {
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }],
+  } });
+  const original = aiClient.verifyItem;
+  let calls = 0;
+  aiClient.verifyItem = async () => { calls++; return { outcome: 'warning' }; };
+  try {
+    const created = await request(app).post('/api/v1/listings').set(ownerHeaders).send({
+      title: 'Event Photography Package', category: 'Services', listingType: 'service',
+      dailyPrice: 450, priceUnit: 'package', location: 'Kuala Lumpur',
+      serviceDetails: { packageName: 'Event Coverage', durationMinutes: 180, venueMode: 'renter_location' },
+    });
+    const submitted = await request(app).post(`/api/v1/listings/${created.body.data.id}/submit`).set(ownerHeaders);
+    assert.equal(submitted.status, 200);
+    assert.equal(calls, 0);
+    assert.equal(submitted.body.data.itemVerification, undefined);
+    assert.equal(submitted.body.data.itemVerificationHistory.length, 0);
+  } finally {
+    aiClient.verifyItem = original;
+  }
 });
 
 test('prevents one Owner from changing another Owner listing', async () => {

@@ -8,6 +8,7 @@ from .routers.verification import router as verification_router
 from .services.pricing import _artifact as pricing_artifact
 from .services.mykad_field_risk import availability as mykad_field_availability
 from .services.image_intelligence import DOCUMENT_FRAME_CONTRACT
+from .services.item_verification import CONTRACT as ITEM_CONTRACT, models_status
 
 app = FastAPI(title='RentHub AI Service', version='2.0.0')
 
@@ -16,15 +17,14 @@ app = FastAPI(title='RentHub AI Service', version='2.0.0')
 def health():
     price_bundle, price_path, price_error = pricing_artifact()
     field_status = mykad_field_availability()
+    _, _, item_status = models_status()
     artifacts = {
         'price_model': price_bundle is not None,
         'recommendation_model': Path(
             os.getenv('RECOMMENDATION_MODEL_PATH', 'models/recommendation_svd.pkl')
         ).is_file(),
-        'item_detector': Path(os.getenv('YOLO_MODEL_PATH', 'models/item_yolo.pt')).is_file(),
-        'image_risk_model': Path(
-            os.getenv('IMAGE_RISK_MODEL_PATH', 'models/image_risk_efficientnet.pt')
-        ).is_file(),
+        'item_detector': item_status['detectorAvailable'],
+        'image_risk_model': item_status['riskClassifierAvailable'],
         'document_detector': Path(
             os.getenv('DOCUMENT_YOLO_MODEL_PATH', 'models/document_yolo.pt')
         ).is_file(),
@@ -41,6 +41,8 @@ def health():
     return {
         'status': 'ok',
         'document_frame_contract': DOCUMENT_FRAME_CONTRACT,
+        'item_verification_contract': ITEM_CONTRACT,
+        'item_verification_status': item_status,
         'model_mode': 'artifact-backed',
         'artifacts': artifacts,
         'ready_artifact_count': sum(artifacts.values()),

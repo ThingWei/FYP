@@ -14,6 +14,10 @@ before(async () => {
     request.on('end', () => {
       const payload = JSON.parse(body);
       response.setHeader('content-type', 'application/json');
+      if (request.url === '/verify/item') {
+        response.end(JSON.stringify({ received: payload }));
+        return;
+      }
       if (request.url === '/verify/document') {
         response.end(JSON.stringify({
           accepted: false,
@@ -69,6 +73,16 @@ test('passes protected document bytes to the AI contract without fabricating the
   assert.equal(result.outcome, 'manual_review');
   assert.equal(result.confidence, 0.71);
   assert.equal(result.extracted_fields.received, 1);
+});
+
+test('forwards physical category, subcategory and condition with stored image bytes', async () => {
+  const images = [{ content_base64: 'fixture' }];
+  const result = await aiClient.verifyItem({ images, category: 'Vehicles',
+    subcategory: 'Cars', condition: 'Good', listingType: 'physical' });
+  assert.deepEqual(result.received, { images, expected_category: 'Vehicles',
+    expected_subcategory: 'Cars', expected_condition: 'Good', expected_type: 'physical' });
+  const unavailable = await aiClient.verifyItem({ images: [] });
+  assert.equal(unavailable.outcome, 'unavailable');
 });
 
 test('returns an explicit unavailable result when no stored bytes exist', async () => {

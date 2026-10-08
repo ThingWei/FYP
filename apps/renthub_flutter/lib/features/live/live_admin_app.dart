@@ -10,6 +10,7 @@ import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatMoney;
 import 'live_renthub_controller.dart';
 import 'live_document_field_risk_panel.dart';
+import 'live_item_verification_panel.dart';
 
 class LiveAdminApp extends StatelessWidget {
   const LiveAdminApp({super.key});
@@ -1100,11 +1101,14 @@ class _AdminListings extends StatelessWidget {
         return Card(
           child: ListTile(
             title: Text(listing.title),
+            onTap: listing.isService
+                ? null
+                : () => showItemPhotoReview(context, listing),
             subtitle: Text(
               '${listing.ownerName} · ${formatMoney(listing.dailyPrice)} · ${listing.listingTypeLabel}'
-              '${listing.itemVerificationOutcome.isNotEmpty ? '\nAI image check: ${listing.itemVerificationOutcome.replaceAll('_', ' ')}' : ''}',
+              '${!listing.isService ? '\n${listing.itemPhotoCheckLabel} · Tap to view photos & checks' : ''}',
             ),
-            isThreeLine: listing.itemVerificationOutcome.isNotEmpty,
+            isThreeLine: !listing.isService,
             trailing: listing.status == 'pending_review'
                 ? Wrap(
                     spacing: 8,

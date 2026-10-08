@@ -657,6 +657,8 @@ export const listingService = {
       ...normalizedInput,
       listingType: listing.listingType,
     }));
+    // Edited photos/category/condition must never inherit an old automated result.
+    listing.itemVerification = undefined;
     if (listing.status === 'active' || listing.status === 'rejected') {
       listing.status = 'draft';
       listing.moderationReason = '';
@@ -690,12 +692,23 @@ export const listingService = {
       listing.itemVerification = await aiClient.verifyItem({
         images,
         category: listing.category,
+        subcategory: listing.subcategory,
+        condition: listing.condition,
         listingType: listing.listingType,
+      });
+      listing.itemVerificationHistory.push({
+        checkedAt: new Date(),
+        images: [...listing.images],
+        category: listing.category,
+        subcategory: listing.subcategory,
+        condition: listing.condition,
+        result: listing.itemVerification,
       });
       if (
         env.aiEnforcementMode === 'strict' &&
-        listing.itemVerification.outcome !== 'approved'
+        !['approved', 'approved_candidate'].includes(listing.itemVerification.outcome)
       ) {
+        await listing.save();
         throw new AppError(
           'Item verification must pass before submission',
           409,

@@ -201,7 +201,11 @@ export const uploadService = {
           { 'verification.documentRefs': reference },
         ],
       }),
-      ListingModel.exists({ images: publicPath }),
+      ListingModel.exists({ $or: [
+        { images: publicPath },
+        { 'itemVerificationHistory.images': publicPath },
+        { 'itemVerificationHistory.images': reference },
+      ] }),
       RentalModel.exists({
         $or: [
           { 'handover.evidence': reference },

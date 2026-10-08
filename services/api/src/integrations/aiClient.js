@@ -85,15 +85,18 @@ export const aiClient = {
     }, validateCapture ? { timeout: Math.max(env.aiTimeoutMs, 45000) } : {});
   },
 
-  async verifyItem({ images, category, listingType }) {
+  async verifyItem({ images, category, subcategory, condition, listingType }) {
     if (!images?.length) {
       return unavailableVerification('No stored listing-image bytes were available for analysis');
     }
     return request('/verify/item', {
       images,
       expected_category: category,
+      expected_subcategory: subcategory,
+      expected_condition: condition,
       expected_type: listingType,
-    }, unavailableVerification('AI service could not analyse the item images'));
+    }, unavailableVerification('AI service could not analyse the item images'),
+    { timeout: Math.max(env.aiTimeoutMs, 45000) });
   },
 
   recommendItems(payload) {

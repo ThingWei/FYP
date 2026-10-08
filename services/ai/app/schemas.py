@@ -15,6 +15,8 @@ class VerificationRequest(BaseModel):
     image_url: str | None = None
     expected_type: str | None = None
     expected_category: str | None = None
+    expected_subcategory: str | None = None
+    expected_condition: str | None = None
     profile_name: str | None = None
     review_threshold: float = Field(default=0.8, ge=0, le=1)
     minimum_age: int = Field(default=18, ge=18, le=100)

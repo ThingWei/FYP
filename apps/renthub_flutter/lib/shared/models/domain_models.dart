@@ -222,6 +222,7 @@ class Listing {
     this.recommendationCollaborativeScore,
     this.itemVerificationOutcome = '',
     this.itemVerificationReasons = const [],
+    this.itemVerification = const {},
   });
   final String id, title, category, condition, ownerName, location;
   final String subcategory, brand, productModel;
@@ -252,6 +253,14 @@ class Listing {
       recommendationContentScore,
       recommendationCollaborativeScore;
   final List<String> itemVerificationReasons;
+  final Map<String, dynamic> itemVerification;
+
+  String get itemPhotoCheckLabel => switch (itemVerificationOutcome) {
+        'approved' || 'approved_candidate' => 'No automated concerns found',
+        'warning' || 'rejected' || 'rescan_required' => 'Photos need review',
+        'manual_review' || 'unavailable' => 'Manual photo review needed',
+        _ => 'Photos not checked yet',
+      };
 
   double get displayPrice => promotionalPrice ?? dailyPrice;
 
@@ -328,6 +337,7 @@ class Listing {
       recommendationCollaborativeScore:
           (recommendation['collaborative_score'] as num?)?.toDouble(),
       itemVerificationOutcome: verification['outcome'] as String? ?? '',
+      itemVerification: verification,
       itemVerificationReasons:
           (verification['reasons'] as List? ?? const []).cast<String>(),
     );
