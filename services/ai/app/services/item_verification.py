@@ -158,6 +158,7 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         'conditionAssessment': 'not_assessed',
         'matchGranularity': 'object_type_only',
         'categoryMatched': None,
+        'confidenceMeaning': 'view_coverage_weighted_detection_score_not_authenticity_probability',
     }
     if len(decoded) < 3:
         return VerificationResponse(
@@ -186,8 +187,12 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
     matching_scores = []
     per_image = []
     failures = False
-    for index, (_, image) in enumerate(decoded):
-        evidence = {'imageIndex': index, 'detections': [], 'categoryMatched': None}
+    source_indices = {id(entry): index for index, entry in enumerate(request.images)}
+    for index, (submitted, image) in enumerate(decoded):
+        evidence = {'imageIndex': source_indices.get(id(submitted), index),
+                    'imageWidth': image.shape[1], 'imageHeight': image.shape[0],
+                    'quality': qualities[index],
+                    'detections': [], 'categoryMatched': None}
         if detector is not None:
             try:
                 # Ultralytics caches mutable prediction state on the model.
@@ -200,10 +205,21 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
                         continue
                     matches = supported and normalize(label) in allowed
                     labels.add(label)
-                    evidence['detections'].append({
+                    detection = {
                         'label': label, 'confidence': round(score, 4),
                         'matchesCategory': matches,
-                    })
+                    }
+                    try:
+                        coordinates = box.xyxy[0].tolist()
+                        normalized_box = [float(value) / size for value, size in
+                                          zip(coordinates, [image.shape[1], image.shape[0]] * 2)]
+                        if (len(normalized_box) == 4 and
+                            all(math.isfinite(value) and 0 <= value <= 1 for value in normalized_box) and
+                            normalized_box[0] < normalized_box[2] and normalized_box[1] < normalized_box[3]):
+                            detection['boundingBox'] = normalized_box
+                    except (AttributeError, TypeError, ValueError, IndexError):
+                        pass  # Older adapters/fixtures may not expose coordinates.
+                    evidence['detections'].append(detection)
                     if matches:
                         matching_scores.append(score)
                 if supported:
@@ -232,8 +248,8 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
     if not supported:
         reasons.append('The detector does not cover this specific category; this is not a mismatch')
     elif not failures:
-        fields['categoryMatched'] = bool(matching_scores)
         matched_views = sum(e['categoryMatched'] is True for e in per_image)
+        fields['categoryMatched'] = matched_views == len(per_image) and not errors
         if not matching_scores:
             indicators.append('Expected item type was not detected clearly in the photos; admin review needed')
         elif matched_views < 2:
@@ -248,6 +264,18 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         indicators.append('Some supplied images could not be decoded')
     complete = detector is not None and risk is not None and supported and not failures
     all_views_match = all(e['categoryMatched'] is True for e in per_image)
+    submitted_views = max(len(request.images), len(decoded))
+    matched_views = sum(e['categoryMatched'] is True for e in per_image)
+    fields.update({
+        'matchingViewCount': matched_views, 'submittedViewCount': submitted_views,
+        'analysedViewCount': len(per_image),
+        'categoryMatchStatus': ('unsupported' if not supported else 'analysis_incomplete' if failures or errors
+                                else 'all_views_detected' if all_views_match else 'partial_views' if matched_views
+                                else 'not_detected'),
+    })
+    reasons.append('Detection scores are not calibrated authenticity probabilities. '
+                   'Illustrations, wallpapers and screenshots can produce confident false detections; '
+                   'review the highlighted region in every photo.')
     accepted = complete and all_views_match and not indicators
     outcome = 'approved_candidate' if accepted else (
         'warning' if indicators else 'manual_review')
@@ -256,7 +284,8 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
     reasons.append('These checks do not prove ownership, authenticity, brand/model or stated condition')
     return VerificationResponse(
         accepted=accepted, outcome=outcome,
-        confidence=round(sum(matching_scores) / len(matching_scores), 4) if matching_scores else 0,
+        confidence=round(sum(max((d['confidence'] for d in e['detections'] if d['matchesCategory']), default=0)
+                             for e in per_image) / submitted_views, 4),
         labels=sorted(labels), reasons=reasons, adapter=CONTRACT,
         model_versions={key: value for key, value in {
             'objectDetection': status['detectorVersion'],

@@ -10,6 +10,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_photo_widgets.dart';
 import 'live_agreement.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
@@ -2096,9 +2097,8 @@ class _RenterRentalActions extends StatelessWidget {
               );
               if (accepted && context.mounted) {
                 try {
-                  final evidence = await context
-                      .read<LiveRentHubController>()
-                      .pickAndUpload(purpose: 'return_evidence');
+                  final evidence = await pickAndPreviewUpload(context,
+                      purpose: 'return_evidence');
                   if (evidence != null && context.mounted) {
                     await _action(
                       context,

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   evidenceCounts,
+  pricingEvidenceDisclosure,
   evidenceRelevance,
   robustPriceStats,
   selectComparableTier,
@@ -13,6 +14,29 @@ const profile = {
   category: 'Devices', subcategory: 'Cameras', brand: 'Sony',
   product_model: 'A7 III', state: 'Kuala Lumpur', condition: 'Excellent',
 };
+
+test('pricing disclosures distinguish exact, brand, subcategory and category evidence', () => {
+  for (const [tier, scope] of [
+    ['exact_product_malaysia', 'product_estimate'],
+    ['subcategory_brand_malaysia', 'brand_estimate'],
+    ['subcategory_local', 'subcategory_estimate'],
+    ['category_wide', 'category_estimate'],
+  ]) {
+    const result = pricingEvidenceDisclosure({comparable_active_count: 3,
+      comparable_active_median: 70, active_comparable_tier: tier});
+    assert.equal(result.pricing_scope, scope);
+    assert.equal(result.product_specific_evidence, scope === 'product_estimate');
+  }
+});
+
+test('counts or catalog identity alone cannot support a precise product price', () => {
+  for (const evidence of [{}, {comparable_active_count: 3}, {exact_active_count: 1},
+    {comparable_active_count: 3, comparable_active_median: Infinity}]) {
+    const result = pricingEvidenceDisclosure(evidence);
+    assert.equal(result.evidence_status, 'insufficient');
+    assert.equal(result.product_specific_evidence, false);
+  }
+});
 
 test('uses the narrowest comparable tier with enough evidence', () => {
   const exact = Array.from({ length: 3 }, (_, index) => ({

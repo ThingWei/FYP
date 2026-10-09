@@ -2,6 +2,13 @@
 
 Date: 4 October 2026
 
+9 October update: pricing now distinguishes product-specific evidence from
+broad estimates, discloses unseen identities/synthetic-heavy training and
+withholds numeric predictions when there is no usable price evidence. Catalog
+identity alone does not establish a rental price. See
+[photo and pricing safeguards](ITEM_PHOTO_AND_PRICING_SAFEGUARDS_RESULT.md)
+for the audit, limitations and regression results.
+
 ## Outcome
 
 RentHub now routes catalog searches through a product-domain provider selected by

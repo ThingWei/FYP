@@ -15,10 +15,12 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
-  ApiClient(this.baseUrl, {this.tokenProvider, this.headersProvider});
+  ApiClient(this.baseUrl,
+      {this.tokenProvider, this.headersProvider, this.downloadClient});
   final String baseUrl;
   final Future<String?> Function()? tokenProvider;
   final Future<Map<String, String>> Function()? headersProvider;
+  final http.Client? downloadClient;
 
   static String get _clientDescription =>
       'RentHub ${kIsWeb ? 'Web' : 'App'} on ${defaultTargetPlatform.name}';
@@ -63,21 +65,25 @@ class ApiClient {
     final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
     if (response.statusCode >= 400) {
       final errorPayload = decoded?['error'];
-      final rawMessage = errorPayload?['message']?.toString() ?? 'Request failed';
+      final rawMessage =
+          errorPayload?['message']?.toString() ?? 'Request failed';
       final errorDetails = errorPayload?['details'];
       String message = rawMessage;
       if (errorDetails is List && errorDetails.isNotEmpty) {
-        final parts = errorDetails.map((item) {
-          if (item is Map) {
-            final field = item['field']?.toString();
-            final detail = item['message']?.toString();
-            if ((field ?? '').isNotEmpty && (detail ?? '').isNotEmpty) {
-              return '$field: $detail';
-            }
-            if ((detail ?? '').isNotEmpty) return detail!;
-          }
-          return item.toString();
-        }).where((item) => item.isNotEmpty).toList();
+        final parts = errorDetails
+            .map((item) {
+              if (item is Map) {
+                final field = item['field']?.toString();
+                final detail = item['message']?.toString();
+                if ((field ?? '').isNotEmpty && (detail ?? '').isNotEmpty) {
+                  return '$field: $detail';
+                }
+                if ((detail ?? '').isNotEmpty) return detail!;
+              }
+              return item.toString();
+            })
+            .where((item) => item.isNotEmpty)
+            .toList();
         if (parts.isNotEmpty) {
           message = '$rawMessage (${parts.join('; ')})';
         }
@@ -123,16 +129,30 @@ class ApiClient {
   }
 
   Future<Uint8List> downloadBytes(String value) async {
-    final token = await tokenProvider?.call();
-    final additionalHeaders = await headersProvider?.call() ?? const {};
-    final response = await http.get(
-      Uri.parse(absoluteUrl(value)),
-      headers: {
-        'x-renthub-client': _clientDescription,
-        if (token != null) 'authorization': 'Bearer $token',
-        ...additionalHeaders,
-      },
-    );
+    final target = Uri.parse(absoluteUrl(value));
+    final api = Uri.parse(baseUrl);
+    if (!{'http', 'https'}.contains(target.scheme)) {
+      throw ApiException(400, 'Unsupported image URL.');
+    }
+    // Public storage URLs must never receive RentHub session credentials.
+    final trusted = target.scheme == api.scheme &&
+        target.host == api.host &&
+        target.port == api.port &&
+        target.path.startsWith('${api.path.replaceAll(RegExp(r'/+$'), '')}/');
+    final token = trusted ? await tokenProvider?.call() : null;
+    final additionalHeaders = trusted
+        ? await headersProvider?.call() ?? const <String, String>{}
+        : const <String, String>{};
+    final headers = <String, String>{
+      'x-renthub-client': _clientDescription,
+      if (token != null) 'authorization': 'Bearer $token',
+      ...additionalHeaders,
+    };
+    final response = await (downloadClient?.get(target, headers: headers) ??
+        http.get(
+          target,
+          headers: headers,
+        ));
     if (response.statusCode >= 400) {
       var message = 'Image download failed';
       try {

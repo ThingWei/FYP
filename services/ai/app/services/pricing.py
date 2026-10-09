@@ -60,13 +60,48 @@ def _confidence(prediction, half_width, evidence, row, supported, match_type):
     return score, label
 
 
+def evidence_disclosure(evidence):
+    """Catalog recognition is not evidence of a product's rental-market price."""
+    usable = []
+    for prefix, count_key, median_key, exact_key in (
+        ('active', 'comparable_active_count', 'comparable_active_median', 'exact_active_count'),
+        ('historical', 'historical_rental_count', 'historical_rental_median', 'exact_completed_rental_count'),
+    ):
+        count = int(evidence.get(count_key) or 0)
+        median = _number(evidence.get(median_key))
+        if count > 0 and median is not None and median > 0:
+            tier = str(evidence.get(f'{prefix}_comparable_tier') or '')
+            usable.append('product' if tier.startswith('exact_') or int(evidence.get(exact_key) or 0) > 0
+                          else 'brand' if 'brand' in tier else 'subcategory' if tier.startswith('subcategory')
+                          else 'category')
+    scope = next((level for level in ('product', 'brand', 'subcategory', 'category') if level in usable), None)
+    return {'pricing_scope': f'{scope}_estimate' if scope else 'insufficient_evidence',
+            'product_specific_evidence': scope == 'product',
+            'evidence_status': 'product_specific' if scope == 'product' else 'broad' if scope else 'insufficient'}
+
+
+def identity_coverage(model, row):
+    coverage = {'brand': 'unknown', 'product_model': 'unknown'}
+    features = getattr(model, 'named_steps', {}).get('features')
+    for _, transformer, columns in getattr(features, 'transformers_', []):
+        encoder = getattr(transformer, 'named_steps', {}).get('encoder')
+        if encoder is None:
+            continue
+        for key in coverage:
+            if key in columns:
+                coverage[key] = 'represented' if row[key] in encoder.categories_[list(columns).index(key)] else 'unseen'
+    return coverage
+
+
 class XGBoostPriceService:
     def recommend(self, request: PriceRecommendationRequest) -> PriceRecommendationResponse:
         bundle, path, error = _artifact()
         evidence = request.market_evidence
+        disclosure = evidence_disclosure(evidence)
         if bundle is None:
             return PriceRecommendationResponse(
                 available=False,
+                **disclosure,
                 confidence=0,
                 confidence_label='low',
                 adapter='xgboost-v2',
@@ -86,6 +121,16 @@ class XGBoostPriceService:
             'canonicalProductId': profile.get('canonicalProductId'),
             'source': profile.get('catalogSource'),
         }
+        if disclosure['evidence_status'] == 'insufficient':
+            return PriceRecommendationResponse(
+                available=False, **disclosure, confidence=0, confidence_label='low',
+                adapter='xgboost-v2', model_source='insufficient_data', model_version=bundle['model_version'],
+                evidence=evidence, product_match=product_match,
+                warnings=['No usable current listing or completed-rental price evidence is available. '
+                          'A precise product price cannot be supported; enter your own daily price.',
+                          'No matching completed-rental evidence was available.',
+                          'Catalog recognition identifies the product, not its market rental price.'],
+            )
         row = {
             'category': str(profile.get('category') or 'Unknown'),
             'subcategory': str(profile.get('subcategory') or 'Unknown'),
@@ -126,6 +171,7 @@ class XGBoostPriceService:
         category_models = bundle.get('category_models', {})
         model = category_models.get(row['category'], bundle['global_model'])
         model_source = 'category_xgboost' if row['category'] in category_models else 'global_xgboost'
+        coverage = identity_coverage(model, row)
         prediction = float(model.predict(pd.DataFrame([row], columns=expected))[0])
         if not math.isfinite(prediction):
             return PriceRecommendationResponse(
@@ -151,6 +197,25 @@ class XGBoostPriceService:
             prediction, half_width, evidence, row, supported, match_type,
         )
         warnings = []
+        confidence_cap = 0.49 * (0.75 + 0.25 * {
+            'exact_catalog_match': 1.0, 'fuzzy_catalog_match': 0.85,
+            'catalog_brand_match_model_manual': 0.65, 'manual_entry': 0.45,
+        }.get(match_type, 0.45))
+        if not disclosure['product_specific_evidence']:
+            confidence, confidence_label = min(confidence, confidence_cap), 'low'
+            warnings.append('Insufficient product-specific rental evidence. This is a broader '
+                            f'{disclosure["pricing_scope"].replace("_estimate", "")} estimate, '
+                            'not a verified price for the selected brand/model. Different products may receive the same estimate.')
+        unseen = [key.replace('_', ' ') for key, status in coverage.items() if status == 'unseen']
+        if unseen:
+            warnings.append('Training did not represent this ' + ' and '.join(unseen) +
+                            '; the model cannot infer its unique market value from its name.')
+        sources = bundle.get('metrics', {}).get('dataset', {}).get('sourceTypes', {})
+        synthetic_count = sum(int(count) for source, count in sources.items() if 'synthetic' in source or 'demo' in source)
+        if synthetic_count and synthetic_count >= sum(int(count) for count in sources.values()) / 2:
+            confidence, confidence_label = min(confidence, confidence_cap), 'low'
+            warnings.append('The pricing model was trained predominantly on synthetic/demo data; '
+                            'real-market product-specific accuracy has not been established.')
         if row['category'] not in supported:
             warnings.append('The category was not represented in the training data.')
         if row['brand'] == 'Unknown' or row['product_model'] == 'Unknown':
@@ -172,6 +237,8 @@ class XGBoostPriceService:
         metrics = bundle.get('metrics', {})
         return PriceRecommendationResponse(
             available=True,
+            **disclosure,
+            identity_model_coverage=coverage,
             suggested_daily_price=round(prediction, 2),
             lower_bound=round(lower, 2),
             upper_bound=round(upper, 2),

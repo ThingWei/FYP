@@ -126,6 +126,10 @@ class PriceRecommendationRequest(BaseModel):
 
 class PriceRecommendationResponse(BaseModel):
     available: bool
+    pricing_scope: str = 'unavailable'
+    product_specific_evidence: bool = False
+    evidence_status: str = 'insufficient'
+    identity_model_coverage: dict[str, str] = Field(default_factory=dict)
     suggested_daily_price: float | None = None
     lower_bound: float | None = None
     upper_bound: float | None = None

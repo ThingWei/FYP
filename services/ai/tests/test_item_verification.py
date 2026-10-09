@@ -131,9 +131,11 @@ def test_missing_and_corrupt_models_are_explicit(monkeypatch, tmp_path):
 def test_existing_local_general_detector_loads_without_download(monkeypatch, tmp_path):
     if not (items.ROOT / 'yolov8n.pt').is_file():
         pytest.skip('Optional local pretrained artifact is not distributed in Git')
+    pretrained = items.ROOT / 'yolov8n.pt'
+    monkeypatch.setattr(items, 'ROOT', tmp_path)
     monkeypatch.delenv('YOLO_MODEL_PATH', raising=False)
     monkeypatch.setenv('ITEM_ALLOW_PRETRAINED_DETECTOR', 'true')
-    monkeypatch.setenv('ITEM_PRETRAINED_YOLO_PATH', str(items.ROOT / 'yolov8n.pt'))
+    monkeypatch.setenv('ITEM_PRETRAINED_YOLO_PATH', str(pretrained))
     monkeypatch.setenv('IMAGE_RISK_MODEL_PATH', str(tmp_path / 'missing.pt'))
     detector, risk, status = items.models_status()
     assert detector is not None
@@ -171,3 +173,33 @@ def test_endpoint_keeps_rejection_and_advisory_contract():
     result = response.json()
     assert result['outcome'] == 'rejected'
     assert result['extracted_fields']['expectedSubcategory'] == 'Cars'
+
+
+def test_one_high_score_view_does_not_become_whole_submission_confidence(monkeypatch):
+    class OneViewDetector(Detector):
+        def predict(self, image, **kwargs):
+            self.detected = ['car'] if int(image[0, 0, 0]) == 0 else ['person']
+            return super().predict(image, **kwargs)
+    result = verify(monkeypatch, detector=OneViewDetector(['car', 'person'], score=0.97))
+    assert result.confidence == pytest.approx(0.97 / 3, abs=0.0001)
+    assert result.extracted_fields['matchingViewCount'] == 1
+    assert result.extracted_fields['submittedViewCount'] == 3
+    assert result.extracted_fields['categoryMatchStatus'] == 'partial_views'
+    assert result.extracted_fields['categoryMatched'] is False
+    assert result.accepted is False
+    assert any('wallpapers' in reason for reason in result.reasons)
+
+
+def test_per_photo_boxes_are_normalized_for_inspection(monkeypatch):
+    class BoxDetector(Detector):
+        def predict(self, image, **kwargs):
+            result = super().predict(image, **kwargs)
+            for box in result[0].boxes:
+                box.xyxy = np.array([[1, 2, 9, 8]])
+            return result
+    result = verify(monkeypatch, detector=BoxDetector(['car']))
+    for photo in result.extracted_fields['images']:
+        assert photo['imageWidth'] == 10
+        assert photo['imageHeight'] == 10
+        assert photo['detections'][0]['boundingBox'] == [0.1, 0.2, 0.9, 0.8]
+        assert 'quality' in photo

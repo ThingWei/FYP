@@ -1,10 +1,9 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../shared/models/domain_models.dart';
 import 'live_renthub_controller.dart';
+import 'live_photo_widgets.dart';
 
 /// Display evidence without turning object confidence into an authenticity score.
 class ItemVerificationPanel extends StatelessWidget {
@@ -34,12 +33,22 @@ class ItemVerificationPanel extends StatelessWidget {
         const Text(
             'Photo checks assist administrator review. They do not prove '
             'authenticity, ownership, exact brand/model or item condition.'),
+        const Text(
+            'A high detector score can still be wrong, including on wallpapers and illustrations.'),
         if (evidence.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text('Item type: ${listing.category}'
               '${listing.subcategory.isEmpty ? '' : ' → ${listing.subcategory}'}'),
           Text(
               'Category check: ${matched == true ? 'Expected type detected' : matched == false ? 'Expected type not detected clearly' : 'Not assessed / unsupported'}'),
+          if (fields['matchingViewCount'] is num)
+            Text(
+                'Expected type detected in ${fields['matchingViewCount']} of ${fields['submittedViewCount']} submitted views.'),
+          if (fields['categoryMatchStatus'] == 'partial_views')
+            const Text(
+                'Partial match only. A high score in one view does not clear the other photos.'),
+          const Text(
+              'Detection scores are not authenticity probabilities. Check every photo and highlighted box.'),
           Text(
               'Object detector: ${models['detectorAvailable'] == true ? models['detectorSource'] == 'general_pretrained' ? 'General pretrained model (limited coverage)' : 'Configured item model' : 'Unavailable'}'),
           Text(
@@ -63,11 +72,18 @@ class ItemVerificationPanel extends StatelessWidget {
             const SizedBox(height: 12),
             Text('Photo ${((image['imageIndex'] as num?)?.toInt() ?? 0) + 1}',
                 style: Theme.of(context).textTheme.labelLarge),
+            if ((image['detections'] as List? ?? const []).isEmpty)
+              const Text('No supported object detected clearly in this photo.'),
             for (final detection
                 in (image['detections'] as List? ?? const []).whereType<Map>())
               Text('${detection['label']}: '
                   '${(((detection['confidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}% object-detection confidence'
                   '${detection['matchesCategory'] == true ? ' (expected type)' : ''}'),
+            if ((image['quality'] as Map?)?['isBlurry'] == true)
+              const Text('Quality concern: blurry photo.'),
+            if ((image['quality'] as Map?)?['isTooDark'] == true ||
+                (image['quality'] as Map?)?['isTooBright'] == true)
+              const Text('Quality concern: lighting.'),
             if (image['imageRiskScore'] is num)
               Text('Learned image-risk score: '
                   '${((image['imageRiskScore'] as num) * 100).toStringAsFixed(0)}% (not probability of a fake item)'),
@@ -83,6 +99,13 @@ class ItemVerificationPanel extends StatelessWidget {
 
 Future<void> showItemPhotoReview(BuildContext context, Listing listing) {
   final controller = context.read<LiveRentHubController>();
+  final fields =
+      listing.itemVerification['extracted_fields'] as Map? ?? const {};
+  final evidenceByIndex = <int, Map>{
+    for (final image
+        in (fields['images'] as List? ?? const []).whereType<Map>())
+      ((image['imageIndex'] as num?)?.toInt() ?? 0): image,
+  };
   return showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
@@ -101,54 +124,13 @@ Future<void> showItemPhotoReview(BuildContext context, Listing listing) {
                 runSpacing: 8,
                 children: [
                   for (var index = 0; index < listing.images.length; index++)
-                    SizedBox(
-                      width: 128,
-                      height: 128,
-                      child: FutureBuilder<Uint8List>(
-                        future: Future<Uint8List>.sync(() => controller
-                            .downloadProtectedUpload(listing.images[index])),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasError) {
-                            return Center(
-                                child: Text('Photo ${index + 1} unavailable'));
-                          }
-                          if (!snapshot.hasData) {
-                            return const Center(
-                                child: CircularProgressIndicator());
-                          }
-                          return Semantics(
-                            label: 'Enlarge listing photo ${index + 1}',
-                            button: true,
-                            child: InkWell(
-                              onTap: () => showDialog<void>(
-                                context: context,
-                                builder: (context) => Dialog(
-                                  child: Column(children: [
-                                    Align(
-                                      alignment: Alignment.topRight,
-                                      child: IconButton(
-                                        tooltip: 'Close photo',
-                                        onPressed: () => Navigator.pop(context),
-                                        icon: const Icon(Icons.close),
-                                      ),
-                                    ),
-                                    Expanded(
-                                        child: InteractiveViewer(
-                                      child: Image.memory(snapshot.data!,
-                                          fit: BoxFit.contain),
-                                    )),
-                                  ]),
-                                ),
-                              ),
-                              child: Image.memory(snapshot.data!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => const Center(
-                                      child: Text('Photo unavailable'))),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
+                    LivePhotoThumbnail(
+                        reference: listing.images[index],
+                        label: 'Listing photo ${index + 1}',
+                        controller: controller,
+                        evidence: evidenceByIndex[index],
+                        width: 128,
+                        height: 128),
                 ],
               ),
               const SizedBox(height: 16),

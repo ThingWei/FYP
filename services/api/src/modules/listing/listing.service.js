@@ -28,6 +28,7 @@ import {
   PRICING_FALLBACK_MIN_OBSERVATIONS,
   PRICING_COMPLETED_PAYMENT_STATUSES,
   evidenceCounts,
+  pricingEvidenceDisclosure,
   robustPriceStats,
   selectComparableTier,
   statisticalFallback,
@@ -486,13 +487,15 @@ export const listingService = {
       owner_completed_rentals: ownerCompletedRentals,
       prediction_month: new Date().getUTCMonth() + 1,
     });
+    const disclosure = pricingEvidenceDisclosure(marketEvidence);
     if (recommendation.available) {
-      return { ...recommendation, product_match: productMatch };
+      return { ...recommendation, ...disclosure, product_match: productMatch };
     }
     const fallback = statisticalFallback(activeStats, historicalStats);
     if (!fallback) {
       return {
         ...recommendation,
+        ...disclosure,
         model_source: 'insufficient_data',
         evidence: marketEvidence,
         product_match: productMatch,
@@ -511,9 +514,11 @@ export const listingService = {
     );
     return {
       available: true,
+      ...disclosure,
       ...fallback,
-      confidence: fallbackConfidence.score,
-      confidence_label: fallbackConfidence.label,
+      confidence: disclosure.product_specific_evidence
+        ? fallbackConfidence.score : Math.min(fallbackConfidence.score, 0.49),
+      confidence_label: disclosure.product_specific_evidence ? fallbackConfidence.label : 'low',
       currency: 'MYR',
       adapter: 'market-statistical-fallback-v1',
       model_source: fallback.source,
@@ -527,6 +532,9 @@ export const listingService = {
       ],
       warnings: [
         'This is a market-statistical fallback, not an AI prediction.',
+        ...(!disclosure.product_specific_evidence ? [
+          'Insufficient product-specific evidence; this broader estimate is not a verified price for the selected brand/model.',
+        ] : []),
         ...(recommendation.error ? [recommendation.error] : []),
       ],
       similar_listing_average: activeStats.mean,

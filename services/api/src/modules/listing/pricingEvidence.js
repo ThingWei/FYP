@@ -131,6 +131,26 @@ export function evidenceCounts(items, profile) {
   };
 }
 
+export function pricingEvidenceDisclosure(evidence) {
+  const levels = [];
+  for (const [prefix, countKey, medianKey, exactKey] of [
+    ['active', 'comparable_active_count', 'comparable_active_median', 'exact_active_count'],
+    ['historical', 'historical_rental_count', 'historical_rental_median', 'exact_completed_rental_count'],
+  ]) {
+    const median = Number(evidence[medianKey]);
+    if (!(Number(evidence[countKey]) > 0 && Number.isFinite(median) && median > 0)) continue;
+    const tier = String(evidence[`${prefix}_comparable_tier`] ?? '');
+    levels.push(tier.startsWith('exact_') || Number(evidence[exactKey]) > 0 ? 'product'
+      : tier.includes('brand') ? 'brand' : tier.startsWith('subcategory') ? 'subcategory' : 'category');
+  }
+  const scope = ['product', 'brand', 'subcategory', 'category'].find((level) => levels.includes(level));
+  return {
+    pricing_scope: scope ? `${scope}_estimate` : 'insufficient_evidence',
+    product_specific_evidence: scope === 'product',
+    evidence_status: scope === 'product' ? 'product_specific' : scope ? 'broad' : 'insufficient',
+  };
+}
+
 function quantile(sorted, position) {
   if (!sorted.length) return null;
   const index = (sorted.length - 1) * position;

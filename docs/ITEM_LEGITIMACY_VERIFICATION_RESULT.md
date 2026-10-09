@@ -1,5 +1,11 @@
 # RentHub item-photo verification — implementation result
 
+9 October update: public listing photo loading is fixed; all existing photo
+inputs have confirmation previews. New verification results include boxes,
+per-photo quality and view-coverage-weighted detection scores. These do not fix
+model false positives or prove authenticity. See
+[photo and pricing safeguards](ITEM_PHOTO_AND_PRICING_SAFEGUARDS_RESULT.md).
+
 Updated: 8 October 2026. Scope: physical listing photos only; identity verification,
 pricing, booking workflow and service listings retain their existing behavior.
 

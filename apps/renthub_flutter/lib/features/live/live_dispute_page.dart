@@ -6,6 +6,7 @@ import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_photo_widgets.dart';
 
 class LiveDisputePage extends StatefulWidget {
   const LiveDisputePage({
@@ -31,11 +32,11 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
 
   Future<void> pickEvidence() async {
     try {
-      final reference =
-          await context.read<LiveRentHubController>().pickAndUpload(
-                purpose: 'dispute_evidence',
-                allowPdf: true,
-              );
+      final reference = await pickAndPreviewUpload(
+        context,
+        purpose: 'dispute_evidence',
+        allowPdf: true,
+      );
       if (reference != null && mounted) {
         setState(() => evidenceRefs.add(reference));
       }
@@ -202,7 +203,8 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
         mounted) {
       try {
         final controller = context.read<LiveRentHubController>();
-        final evidence = await controller.pickAndUpload(
+        final evidence = await pickAndPreviewUpload(
+          context,
           purpose: 'claim_evidence',
           allowPdf: true,
         );
@@ -316,16 +318,10 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               ),
             ),
             for (var index = 0; index < evidenceRefs.length; index++)
-              ListTile(
-                dense: true,
-                leading: const Icon(Icons.lock_outline),
-                title: Text('Evidence ${index + 1}'),
-                trailing: IconButton(
-                  tooltip: 'Remove evidence',
-                  onPressed: () => removeEvidence(index),
-                  icon: const Icon(Icons.close),
-                ),
-              ),
+              PhotoAttachmentTile(
+                  reference: evidenceRefs[index],
+                  label: 'Evidence ${index + 1}',
+                  onRemove: () => removeEvidence(index)),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: loading ? null : create,
@@ -418,6 +414,11 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               icon: const Icon(Icons.attach_file),
               label: Text('Attach evidence (${evidenceRefs.length})'),
             ),
+            for (var index = 0; index < evidenceRefs.length; index++)
+              PhotoAttachmentTile(
+                  reference: evidenceRefs[index],
+                  label: 'Response evidence ${index + 1}',
+                  onRemove: () => removeEvidence(index)),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: () => respond(dispute),

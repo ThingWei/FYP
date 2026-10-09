@@ -10,6 +10,7 @@ import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import 'live_renthub_controller.dart';
+import 'live_photo_widgets.dart';
 import 'live_loyalty_page.dart';
 import 'live_kyc_scanner_page.dart';
 import 'live_identity_policy.dart';
@@ -237,7 +238,9 @@ class _LiveChatPageState extends State<LiveChatPage> {
     try {
       final message = await context
           .read<LiveRentHubController>()
-          .pickAndSendMessageImage(widget.conversation.id);
+          .pickAndSendMessageImage(widget.conversation.id,
+              confirmSelection: (bytes, name) =>
+                  confirmPhotoSelection(context, bytes, name));
       if (message != null) _addMessage(message);
     } catch (exception) {
       if (mounted) {
@@ -1438,9 +1441,8 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
   Future<void> _pickDocument() async {
     if (documentRefs.length >= requiredDocuments) return;
     try {
-      final reference = await context
-          .read<LiveRentHubController>()
-          .pickAndUpload(purpose: 'verification_document');
+      final reference =
+          await pickAndPreviewUpload(context, purpose: 'verification_document');
       if (reference != null && mounted) {
         setState(() => documentRefs.add(reference));
       }
@@ -1652,17 +1654,12 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                     : const Icon(Icons.check_circle, color: AppColors.success),
               ),
               for (var index = 0; index < documentRefs.length; index++)
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.lock_outline),
-                  title: Text(documentType == 'mykad'
+                PhotoAttachmentTile(
+                  reference: documentRefs[index],
+                  label: documentType == 'mykad'
                       ? (index == 0 ? 'MyKad front' : 'MyKad back')
-                      : 'Driving licence / MyJPJ evidence'),
-                  trailing: IconButton(
-                    tooltip: 'Remove document',
-                    onPressed: submitting ? null : () => _removeDocument(index),
-                    icon: const Icon(Icons.close),
-                  ),
+                      : 'Driving licence / MyJPJ evidence',
+                  onRemove: submitting ? null : () => _removeDocument(index),
                 ),
               const SizedBox(height: 16),
               FilledButton.icon(

@@ -129,8 +129,7 @@ class PhotoFixtureController extends LiveRentHubController {
   PhotoFixtureController() : super(ApiClient('http://unused.invalid'));
 
   @override
-  Future<Uint8List> downloadProtectedUpload(String reference) async =>
-      base64Decode(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a41cAAAAASUVORK5CYII=',
+  Future<Uint8List> downloadPhoto(String reference) async => base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       );
 }

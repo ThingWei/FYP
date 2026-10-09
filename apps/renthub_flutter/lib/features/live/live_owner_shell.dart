@@ -12,6 +12,7 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
+import 'live_photo_widgets.dart';
 import 'live_agreement.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
@@ -599,6 +600,22 @@ class _LiveListingFormState extends State<LiveListingForm> {
     }
   }
 
+  String get _pricingInputSnapshot => [
+        category,
+        subcategory,
+        condition,
+        brand.text,
+        productModel.text,
+        itemAge.text,
+        expectedRentalDays.text,
+        location.text,
+        canonicalProductId,
+        catalogBrandId,
+        _productMatchType,
+      ]
+          .map((value) => '${value?.toString().length ?? 0}:${value ?? ''}')
+          .join('|');
+
   String get _productMatchType {
     if (canonicalProductId != null) return selectedCatalogMatchType;
     if (catalogBrandId != null) return 'catalog_brand_match_model_manual';
@@ -913,6 +930,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       );
       return;
     }
+    final inputSnapshot = _pricingInputSnapshot;
     setState(() => suggestingPrice = true);
     try {
       final suggestion =
@@ -932,7 +950,9 @@ class _LiveListingFormState extends State<LiveListingForm> {
                 catalogSource: catalogSource,
                 location: location.text.trim(),
               );
-      if (mounted) setState(() => priceRecommendation = suggestion);
+      if (mounted && inputSnapshot == _pricingInputSnapshot) {
+        setState(() => priceRecommendation = suggestion);
+      }
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -946,11 +966,11 @@ class _LiveListingFormState extends State<LiveListingForm> {
   Future<void> _addImage() async {
     if (images.length >= 10) return;
     try {
-      final reference =
-          await context.read<LiveRentHubController>().pickAndUpload(
-                purpose: 'listing_image',
-                publicUrl: true,
-              );
+      final reference = await pickAndPreviewUpload(
+        context,
+        purpose: 'listing_image',
+        publicUrl: true,
+      );
       if (reference != null && mounted) setState(() => images.add(reference));
     } catch (exception) {
       if (mounted) {
@@ -1172,18 +1192,11 @@ class _LiveListingFormState extends State<LiveListingForm> {
                           style: TextStyle(color: AppColors.secondaryText),
                         ),
                         for (var index = 0; index < images.length; index++)
-                          ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.image_outlined),
-                            title: Text('Image ${index + 1}'),
-                            trailing: IconButton(
-                              tooltip: 'Remove image',
-                              onPressed:
-                                  saving ? null : () => _removeImage(index),
-                              icon: const Icon(Icons.close),
-                            ),
-                          ),
+                          PhotoAttachmentTile(
+                              reference: images[index],
+                              label: 'Image ${index + 1}',
+                              onRemove:
+                                  saving ? null : () => _removeImage(index)),
                       ],
                     ),
                   ),
@@ -1504,6 +1517,16 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                     ),
                                   ),
                                   Text(
+                                      priceRecommendation![
+                                                  'product_specific_evidence'] ==
+                                              true
+                                          ? 'Product-specific evidence estimate — advisory only'
+                                          : '${(priceRecommendation!['pricing_scope'] as String? ?? 'market_estimate').replaceAll('_', ' ')} — not a verified price for this product',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600)),
+                                  const Text(
+                                      'Catalog recognition identifies the product; it does not establish its rental price.'),
+                                  Text(
                                     'Range ${formatMoney((priceRecommendation!['lower_bound'] as num).toDouble())}–${formatMoney((priceRecommendation!['upper_bound'] as num).toDouble())}',
                                   ),
                                   const SizedBox(height: 4),
@@ -1532,7 +1555,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                           child: Text(
                                             recognised
                                                 ? 'Product recognised as ${match['brand']} ${match['model']}'
-                                                : 'Product identity is manual; broader evidence was used',
+                                                : 'Product identity was entered manually; check the evidence scope below',
                                           ),
                                         ),
                                       ],
@@ -1604,7 +1627,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                       ),
                                     ),
                                   const Text(
-                                    'Market-based advisory only. You remain in control of the final daily price.',
+                                    'Advisory estimate only. You remain in control of the final daily price.',
                                     style: TextStyle(
                                       color: AppColors.secondaryText,
                                       fontSize: 12,
@@ -2452,9 +2475,8 @@ class _OwnerRentalCard extends StatelessWidget {
             return;
           }
           try {
-            final evidence = await context
-                .read<LiveRentHubController>()
-                .pickAndUpload(purpose: 'handover_evidence');
+            final evidence = await pickAndPreviewUpload(context,
+                purpose: 'handover_evidence');
             if (evidence != null && context.mounted) {
               await _run(
                 context,

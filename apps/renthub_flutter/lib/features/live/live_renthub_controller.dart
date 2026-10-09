@@ -73,6 +73,7 @@ class LiveRentHubController extends ChangeNotifier {
     required String purpose,
     bool allowPdf = false,
     bool publicUrl = false,
+    Future<bool> Function(Uint8List bytes, String filename)? confirmSelection,
   }) async {
     final file = await FilePicker.pickFile(
       type: FileType.custom,
@@ -87,6 +88,9 @@ class LiveRentHubController extends ChangeNotifier {
     if (file == null) return null;
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) throw ApiException(400, 'The selected file is empty.');
+    if (confirmSelection != null && !await confirmSelection(bytes, file.name)) {
+      return null;
+    }
     final uploaded = await _perform(
       () => api.uploadFile(
         '/uploads',
@@ -174,6 +178,28 @@ class LiveRentHubController extends ChangeNotifier {
       throw ApiException(400, 'The protected upload reference is invalid.');
     }
     return api.downloadBytes('/api/v1/uploads/${match.group(0)}/content');
+  }
+
+  Future<Uint8List> downloadPhoto(String reference) async {
+    final value = reference.trim();
+    final uri = Uri.tryParse(value);
+    if (uri != null &&
+        (uri.scheme == 'http' ||
+            uri.scheme == 'https' ||
+            (!uri.hasScheme && value.startsWith('/api/v1/uploads/')))) {
+      return api.downloadBytes(value);
+    }
+    if (!RegExp(r'^(upload://)?UPL-[A-Z0-9]+$', caseSensitive: false)
+        .hasMatch(value)) {
+      throw ApiException(400, 'The photo reference is invalid.');
+    }
+    try {
+      return await downloadProtectedUpload(value);
+    } on ApiException catch (error) {
+      if (error.status != 404) rethrow;
+      final id = value.replaceFirst(RegExp(r'^upload://'), '');
+      return api.downloadBytes('/api/v1/uploads/public/$id/content');
+    }
   }
 
   Future<T> _perform<T>(Future<T> Function() operation) async {
@@ -1120,8 +1146,12 @@ class LiveRentHubController extends ChangeNotifier {
         return message;
       });
 
-  Future<Message?> pickAndSendMessageImage(String threadId) async {
-    final reference = await pickAndUpload(purpose: 'message_image');
+  Future<Message?> pickAndSendMessageImage(
+    String threadId, {
+    Future<bool> Function(Uint8List bytes, String filename)? confirmSelection,
+  }) async {
+    final reference = await pickAndUpload(
+        purpose: 'message_image', confirmSelection: confirmSelection);
     if (reference == null) return null;
     try {
       return await sendMessage(threadId, '', attachmentRef: reference);
