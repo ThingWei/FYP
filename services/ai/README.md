@@ -81,6 +81,22 @@ models/easyocr/                 # downloaded separately or with explicit opt-in
 metrics/*.json
 ```
 
+## Open Images item-detector dataset
+
+From `services/ai`, inspect available RentHub mappings without downloading photos:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.training.prepare_open_images --list-classes
+```
+
+The helper can select a bounded subset, create image lists and YOLO labels, and
+export `data.yaml` after download validation. Large metadata and photo downloads
+require separate opt-ins. **The training annotation CSV alone is about 2.26 GB**,
+even with a small photo quota. See the
+[step-by-step preparation guide](../../docs/OPEN_IMAGES_ITEM_DATASET_RESULT.md)
+before downloading. This prepares object-detection data, not authenticity/risk
+labels, and does not run model training. Your existing `downloader.py` is unchanged.
+
 ## Recommendation dataset and artifact
 
 The recommendation export is separate from pricing data and includes only a

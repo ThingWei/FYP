@@ -1,6 +1,7 @@
 """Train the RentHub item detector from an Ultralytics dataset YAML."""
 
 import argparse
+import json
 from pathlib import Path
 
 from ultralytics import YOLO
@@ -14,6 +15,11 @@ def main():
     args = parser.parse_args()
     if not args.dataset_yaml.is_file():
         raise FileNotFoundError(args.dataset_yaml)
+    report = args.dataset_yaml.parent / 'preparation_result.json'
+    if (args.dataset_yaml.parent / 'selection.json').is_file() and (
+        not report.is_file() or not json.loads(report.read_text(encoding='utf-8')).get('trainingReady')
+    ):
+        raise ValueError('Open Images preparation is incomplete; inspect preparation_result.json before training')
     result = YOLO('yolov8n.pt').train(
         data=str(args.dataset_yaml), epochs=args.epochs, imgsz=640,
         seed=args.seed, project='training_runs', name='renthub_items', exist_ok=True,
