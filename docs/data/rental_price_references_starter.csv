@@ -1,0 +1,21 @@
+category,subcategory,brand,model,quotedAmount,rentalDays,currency,sourceName,sourceUrl,observedDate,location,state,condition,itemAgeYears,packageNotes
+Devices,Cameras,Canon,EOS 5D,100.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS 5D Mark II,150.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS 5D Mark III,180.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS 5D Mark IV,250.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS RP,180.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS R,230.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS R7,250.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS R6,250.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS R6 Mark II,350.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS R5,400.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Canon,EOS R3,800.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Nikon,D750,159.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Nikon,D780,299.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; daily tariff; no condition or item-age claim
+Devices,Cameras,Sony,Alpha 7 III,210.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; advertised as A7 Mark III; no condition or item-age claim
+Devices,Cameras,Sony,Alpha 7 IV,310.00,1,MYR,RENTISM,https://www.rentism.com.my/price-list/,2026-10-10,,,,,Body only; advertised as A7 Mark IV; no condition or item-age claim
+Equipment,Event equipment,Casio,XJ-V10X,120.00,1,MYR,AVMProjector,https://www.avmprojector.com/rental,2026-10-10,,,,,Projector with cables and bag; screen and setup excluded; indicative advertised tariff
+Equipment,Event equipment,BenQ,TS819ST,120.00,1,MYR,AVMProjector,https://www.avmprojector.com/rental,2026-10-10,,,,,Projector with cables bag and remote; screen and setup excluded; indicative advertised tariff
+Equipment,Event equipment,NEC,NP-P451W,250.00,1,MYR,AVMProjector,https://www.avmprojector.com/rental,2026-10-10,,,,,Projector with cables bag and remote; screen and setup excluded; indicative advertised tariff
+Equipment,Event equipment,Panasonic,PT-DZ570U,350.00,1,MYR,AVMProjector,https://www.avmprojector.com/rental,2026-10-10,,,,,Projector with cables bag and remote; screen and setup excluded; indicative advertised tariff
+Vehicles,Cars,Toyota,Camry,500.00,1,MYR,DRIVOR,https://drivor.my/vehicle/toyota-camry/,2026-10-10,,,,,Self-drive one-day tariff in 1–3-day band; 400 km/day allowance; deposit and extra charges excluded

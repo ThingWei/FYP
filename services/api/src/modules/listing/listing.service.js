@@ -16,6 +16,7 @@ import {
 import { listingRepository } from './listing.repository.js';
 import { uploadService } from '../upload/upload.service.js';
 import { resolveProductIdentity } from '../catalog/catalog.service.js';
+import { PricingReferenceModel } from './pricingReference.model.js';
 import {
   buildRecommendationInteractions,
   modelInteraction,
@@ -346,7 +347,7 @@ export const listingService = {
     const evidenceStart = new Date(
       Date.now() - PRICING_EVIDENCE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
     );
-    const [activeCandidates, completedBookings, ownerRating, ownerCompletedRentals] =
+    const [platformCandidates, completedBookings, ownerRating, ownerCompletedRentals, externalReferences] =
       await Promise.all([
         ListingModel.find({
           status: 'active',
@@ -403,7 +404,17 @@ export const listingService = {
         status: 'completed',
         paymentStatus: { $in: PRICING_COMPLETED_PAYMENT_STATUSES },
       }),
+      PricingReferenceModel.find({ active: true, sourceType: 'external_asking_price',
+        country: 'MY', currency: 'MYR', category: profile.category, subcategory: profile.subcategory,
+        observedAt: { $gte: evidenceStart, $lte: new Date() }, dailyPrice: { $gt: 0 },
+        reviewedAt: { $exists: true },
+      }).sort({ observedAt: -1 }).limit(PRICING_EVIDENCE_QUERY_LIMIT).lean(),
     ]);
+    const activeCandidates = [
+      ...platformCandidates.map((item) => ({ ...item, sourceType: 'marketplace_listing' })),
+      ...externalReferences.map((item) => ({ ...item,
+        itemAgeYears: item.itemAgeYears ?? undefined, updatedAt: item.observedAt })),
+    ];
     const completedListingIds = [
       ...new Set(completedBookings.map((booking) => booking.listingId)),
     ];
@@ -459,6 +470,8 @@ export const listingService = {
       comparable_active_median: activeStats.median,
       comparable_active_mean: activeStats.mean,
       comparable_active_iqr: activeStats.iqr,
+      marketplace_active_listing_count: activeTier.items.filter((item) => item.sourceType === 'marketplace_listing').length,
+      external_asking_price_count: activeTier.items.filter((item) => item.sourceType === 'external_asking_price').length,
       historical_rental_count: historicalStats.count,
       historical_rental_median: historicalStats.median,
       historical_rental_mean: historicalStats.mean,

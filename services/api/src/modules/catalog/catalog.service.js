@@ -1,6 +1,7 @@
 import { env } from '../../config/env.js';
 import { AppError } from '../../core/errors.js';
-import { catalogProvider } from './catalog.provider.js';
+import { catalogProvider, isValidWikidataFallback } from './catalog.provider.js';
+import { searchCuratedCatalog } from './catalog.curated.js';
 import { ProductCatalogModel, PRODUCT_MATCH_TYPES } from './productCatalog.model.js';
 
 export function normalizeCatalogText(value) {
@@ -87,6 +88,35 @@ async function cached(input, freshOnly, primaryOnly = false) {
     .lean();
 }
 
+export function mergeCatalogRecords(records, input) {
+  const kept = [];
+  const browseLabels = new Set(searchCuratedCatalog(input).map((item) => compactCatalogText(item.label)));
+  for (const record of records) {
+    const label = input.entityType === 'brand' ? record.brand : record.model;
+    if (record.source === 'wikidata' && !isValidWikidataFallback({
+      label, description: record.description, aliases: record.aliases,
+    }, input)) continue;
+    const identityText = (value) => {
+      const normalized = normalizeCatalogText(value), brand = normalizeCatalogText(input.brand);
+      return compactCatalogText(input.entityType !== 'brand' && normalized.startsWith(`${brand} `)
+        ? normalized.slice(brand.length + 1) : normalized);
+    };
+    const names = [label, ...(record.aliases ?? [])].map(identityText).filter(Boolean);
+    if (!kept.some((item) => [input.entityType === 'brand' ? item.brand : item.model,
+      ...(item.aliases ?? [])].map(identityText).some((name) => names.includes(name)))) {
+      kept.push(record);
+    }
+  }
+  return kept.sort((a, b) => {
+    const left = input.entityType === 'brand' ? a.brand : a.model;
+    const right = input.entityType === 'brand' ? b.brand : b.model;
+    return (!normalizeCatalogText(input.query) ? Number(browseLabels.has(compactCatalogText(right))) -
+      Number(browseLabels.has(compactCatalogText(left))) : 0) ||
+      Number(matchesCatalogText(input.query, [right])) -
+      Number(matchesCatalogText(input.query, [left])) || left.localeCompare(right);
+  }).slice(0, env.catalogMaxResults);
+}
+
 async function storeProviderItems(input, items) {
   const stored = [];
   for (const item of items) {
@@ -140,9 +170,11 @@ async function search(input) {
   // Only a fresh primary-provider record may short-circuit the provider chain.
   // A prior general fallback must not prevent a domain provider from running.
   const fresh = await cached(input, true, true);
+  const curated = await storeProviderItems(input, searchCuratedCatalog(input));
   if (fresh.length) {
     return {
-      items: fresh.map((item) => publicItem(item, input.query)),
+      items: mergeCatalogRecords([...fresh, ...curated, ...await cached(input, true)], input)
+        .map((item) => publicItem(item, input.query)),
       provider: 'mongodb-cache',
       providerAvailable: true,
       stale: false,
@@ -158,13 +190,14 @@ async function search(input) {
       : providerResult.provider;
     const stored = await storeProviderItems(input, providerItems);
     return {
-      items: stored.map((item) => publicItem(item, input.query)),
+      items: mergeCatalogRecords([...stored, ...curated, ...await cached(input, true)], input)
+        .map((item) => publicItem(item, input.query)),
       provider: providerName,
-      providerAvailable: true,
+      providerAvailable: providerResult.providerAvailable !== false,
       stale: false,
     };
   } catch {
-    const stale = await cached(input, false);
+    const stale = mergeCatalogRecords([...await cached(input, false), ...curated], input);
     if (!stale.length) {
       throw new AppError(
         'The product catalog is temporarily unavailable. Manual entry remains available.',

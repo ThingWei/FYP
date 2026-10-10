@@ -16,11 +16,38 @@ class ApiException implements Exception {
 
 class ApiClient {
   ApiClient(this.baseUrl,
-      {this.tokenProvider, this.headersProvider, this.downloadClient});
+      {this.tokenProvider,
+      this.headersProvider,
+      this.downloadClient,
+      this.client});
   final String baseUrl;
   final Future<String?> Function()? tokenProvider;
   final Future<Map<String, String>> Function()? headersProvider;
   final http.Client? downloadClient;
+  final http.Client? client;
+
+  dynamic _decode(http.Response response) {
+    try {
+      if (response.statusCode == 204 && response.body.isEmpty) {
+        return {'data': null};
+      }
+      final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+      if (decoded != null && decoded is! Map) {
+        throw const FormatException();
+      }
+      if (response.statusCode < 400 && decoded is! Map) {
+        throw const FormatException();
+      }
+      if (response.statusCode < 400 && !(decoded as Map).containsKey('data')) {
+        throw const FormatException();
+      }
+      return decoded;
+    } on FormatException {
+      throw ApiException(response.statusCode >= 400 ? response.statusCode : 502,
+          'Unexpected response from RentHub',
+          code: 'INVALID_RESPONSE');
+    }
+  }
 
   static String get _clientDescription =>
       'RentHub ${kIsWeb ? 'Web' : 'App'} on ${defaultTargetPlatform.name}';
@@ -61,13 +88,15 @@ class ApiClient {
         ...additionalHeaders,
       });
     if (body != null) request.body = jsonEncode(body);
-    final response = await http.Response.fromStream(await request.send());
-    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+    final response = await http.Response.fromStream(
+        await (client?.send(request) ?? request.send()));
+    final decoded = _decode(response);
     if (response.statusCode >= 400) {
-      final errorPayload = decoded?['error'];
+      final payload = decoded?['error'];
+      final errorPayload = payload is Map ? payload : const <String, dynamic>{};
       final rawMessage =
-          errorPayload?['message']?.toString() ?? 'Request failed';
-      final errorDetails = errorPayload?['details'];
+          errorPayload['message']?.toString() ?? 'Request failed';
+      final errorDetails = errorPayload['details'];
       String message = rawMessage;
       if (errorDetails is List && errorDetails.isNotEmpty) {
         final parts = errorDetails
@@ -91,7 +120,7 @@ class ApiClient {
       throw ApiException(
         response.statusCode,
         message,
-        code: errorPayload?['code'],
+        code: errorPayload['code']?.toString(),
         details: errorDetails,
       );
     }
@@ -115,15 +144,24 @@ class ApiClient {
       ..fields['purpose'] = purpose
       ..files
           .add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-    final response = await http.Response.fromStream(await request.send());
-    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+    final response = await http.Response.fromStream(
+        await (client?.send(request) ?? request.send()));
+    final decoded = _decode(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         response.statusCode,
-        decoded?['error']?['message'] ?? 'Upload failed',
-        code: decoded?['error']?['code'],
-        details: decoded?['error']?['details'],
+        decoded?['error'] is Map
+            ? decoded['error']['message']?.toString() ?? 'Upload failed'
+            : 'Upload failed',
+        code: decoded?['error'] is Map
+            ? decoded['error']['code']?.toString()
+            : null,
+        details: decoded?['error'] is Map ? decoded['error']['details'] : null,
       );
+    }
+    if (decoded?['data'] is! Map) {
+      throw ApiException(502, 'Unexpected upload response',
+          code: 'INVALID_RESPONSE');
     }
     return Map<String, dynamic>.from(decoded['data'] as Map);
   }

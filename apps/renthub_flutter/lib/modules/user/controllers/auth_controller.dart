@@ -1,3 +1,4 @@
+import '../../../core/network/user_facing_error.dart';
 import '../../../shared/controllers/loadable_controller.dart';
 import '../../../shared/models/domain_models.dart';
 import '../repositories/auth_repository.dart';
@@ -52,7 +53,8 @@ class AuthController extends LoadableController {
       user = updated;
       selectedRole = updated.activeRole ?? role;
     } catch (exception) {
-      error = exception.toString();
+      lastError = exception;
+      error = friendlyError(exception);
       rethrow;
     } finally {
       loading = false;

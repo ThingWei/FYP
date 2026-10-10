@@ -1,3 +1,4 @@
+import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
 import 'dart:async';
@@ -203,7 +204,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
       if (!mounted) return;
       setState(() {
         loading = false;
-        error = exception.toString();
+        error = friendlyError(exception);
       });
     }
   }
@@ -227,7 +228,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(exception.toString())),
+          SnackBar(content: Text(friendlyError(exception))),
         );
       }
     } finally {
@@ -248,7 +249,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(exception.toString())),
+          SnackBar(content: Text(friendlyError(exception))),
         );
       }
     } finally {
@@ -327,7 +328,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(exception.toString())),
+          SnackBar(content: Text(friendlyError(exception))),
         );
       }
     } finally {
@@ -931,7 +932,7 @@ class _LiveEditProfilePageState extends State<_LiveEditProfilePage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -1007,7 +1008,7 @@ class _LiveAddressesPage extends StatelessWidget {
     } catch (exception) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -1255,7 +1256,7 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -1341,7 +1342,7 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(exception.toString())),
+          SnackBar(content: Text(friendlyError(exception))),
         );
       }
     } finally {
@@ -1509,7 +1510,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -1525,7 +1526,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -1538,7 +1539,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -1585,7 +1586,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => submitting = false);

@@ -150,21 +150,22 @@ void main() {
     await tester.pumpWidget(
         app(LiveListingForm(isService: false, listing: listing), controller));
     // Programmatic malformed values bypass formatters, but not submit validators.
-    await enter(tester, 'Typical rental days', '366');
-    await press(tester, 'Get AI price suggestion');
+    await enter(tester, 'Expected rental length (days)', '366');
+    await press(tester, 'Suggest a daily price');
     expect(api.calls, isEmpty);
     expect(
         tester
-            .state<FormFieldState<String>>(field('Typical rental days'))
+            .state<FormFieldState<String>>(
+                field('Expected rental length (days)'))
             .errorText,
         isNotNull);
-    await enter(tester, 'Typical rental days', '1');
+    await enter(tester, 'Expected rental length (days)', '1');
     await enter(tester, 'Item age (years)', '101');
-    await press(tester, 'Get AI price suggestion');
+    await press(tester, 'Suggest a daily price');
     expect(api.calls, isEmpty);
     await enter(tester, 'Item age (years)', '3.5');
     tester.widget<TextFormField>(field('Daily price (RM)')).controller!.clear();
-    await press(tester, 'Get AI price suggestion');
+    await press(tester, 'Suggest a daily price');
     final body = api.calls.single.$3 as Map;
     expect((body['itemProfile'] as Map)['item_age_years'], 3.5);
     expect(body['rentalDurationDays'], 1);

@@ -1,3 +1,4 @@
+import '../core/network/user_facing_error.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -183,7 +184,7 @@ class _RentHubAppState extends State<RentHubApp> {
                       )
                           .catchError((Object error) {
                         messengerKey.currentState?.showSnackBar(
-                          SnackBar(content: Text(error.toString())),
+                          SnackBar(content: Text(friendlyError(error))),
                         );
                       }),
                     );

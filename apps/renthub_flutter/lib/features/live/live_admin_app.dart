@@ -1,3 +1,4 @@
+import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import '../renter/booking/booking_flow.dart' show formatMoney;
 import 'live_renthub_controller.dart';
 import 'live_document_field_risk_panel.dart';
 import 'live_item_verification_panel.dart';
+import 'live_pricing_references.dart';
 
 class LiveAdminApp extends StatelessWidget {
   const LiveAdminApp({super.key});
@@ -111,10 +113,14 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
                     : controller.error != null && controller.profile == null
                         ? RentHubFeedbackState(
                             kind: FeedbackKind.error,
-                            title: 'Admin API unavailable',
+                            title: controller.errorTitle,
                             message: controller.error!,
-                            actionLabel: 'Try Again',
-                            onAction: _load,
+                            actionLabel: controller.sessionExpired
+                                ? 'Sign in again'
+                                : 'Try Again',
+                            onAction: controller.sessionExpired
+                                ? () => context.read<AuthController>().logout()
+                                : _load,
                           )
                         : _page(selected),
               ),
@@ -450,7 +456,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
                 return RentHubFeedbackState(
                   kind: FeedbackKind.error,
                   title: 'Document preview unavailable',
-                  message: snapshot.error.toString(),
+                  message: friendlyError(snapshot.error),
                 );
               }
               if (!snapshot.hasData) {
@@ -638,7 +644,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
     } catch (exception) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
     reason.dispose();
@@ -966,7 +972,7 @@ class _AdminUsers extends StatelessWidget {
     } catch (exception) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -1013,7 +1019,7 @@ class _AdminUsers extends StatelessWidget {
       } catch (exception) {
         if (context.mounted) {
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(exception.toString())));
+              .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
         }
       }
     }
@@ -1119,8 +1125,8 @@ class _AdminListings extends StatelessWidget {
               );
         } catch (exception) {
           if (context.mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(exception.toString())));
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(friendlyError(exception))));
           }
         }
       }
@@ -1133,10 +1139,24 @@ class _AdminListings extends StatelessWidget {
     final data = context.watch<LiveRentHubController>();
     return ListView.separated(
       padding: const EdgeInsets.all(24),
-      itemCount: data.adminListings.length,
+      itemCount: data.adminListings.length + 1,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
-        final listing = data.adminListings[index];
+        if (index == 0) {
+          return Card(
+              child: ListTile(
+            leading: const Icon(Icons.price_check_outlined),
+            title: const Text('Rental-price references'),
+            subtitle: const Text('Review and import advertised rental prices'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                    builder: (_) => LivePricingReferencesPage(
+                        api: PricingReferenceApi(data.api)))),
+          ));
+        }
+        final listing = data.adminListings[index - 1];
         return Card(
           child: ListTile(
             title: Text(listing.title),
@@ -1239,7 +1259,7 @@ class _AdminBookingsTransactions extends StatelessWidget {
       } catch (exception) {
         if (context.mounted) {
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(exception.toString())));
+              .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
         }
       }
     }
@@ -1299,7 +1319,7 @@ class _AdminDisputesClaims extends StatelessWidget {
 
   void _showError(BuildContext context, Object exception) {
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(exception.toString())));
+        .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
   }
 
   Future<void> _viewCase(BuildContext context, Dispute dispute) async {
@@ -1810,7 +1830,7 @@ class _AdminReportingPanel extends StatelessWidget {
 
   void _showError(BuildContext context, Object exception) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(exception.toString())),
+      SnackBar(content: Text(friendlyError(exception))),
     );
   }
 
@@ -2177,7 +2197,7 @@ class _AdminMessageReports extends StatelessWidget {
     } catch (exception) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
     resolution.dispose();
@@ -2405,7 +2425,7 @@ class _AdminReviews extends StatelessWidget {
     } catch (exception) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
     reason.dispose();
@@ -2647,7 +2667,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -2696,7 +2716,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }

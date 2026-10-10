@@ -32,6 +32,7 @@ import {
   runLifecycleJobs,
 } from '../../operations/lifecycleJobs.js';
 import { technologyHealth } from '../../operations/technologyHealth.js';
+import { pricingReferenceRouter } from './pricingReference.routes.js';
 
 const auditSchema = new mongoose.Schema(
   {
@@ -354,6 +355,7 @@ router.post(
   ),
 );
 router.use(authenticate, authorize('admin'));
+router.use('/pricing-references', pricingReferenceRouter(repository.create));
 router.get(
   '/technology-health',
   asyncHandler(async (_req, res) => ok(res, await technologyHealth())),

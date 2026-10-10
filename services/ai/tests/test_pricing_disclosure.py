@@ -17,6 +17,7 @@ class Model:
         self.named_steps = {'features': SimpleNamespace(transformers_=[('categorical', transformer, ['brand', 'product_model'])])}
     def predict(self, frame):
         self.calls += 1
+        self.last_frame = frame
         return np.array([70.0])
 
 
@@ -100,3 +101,24 @@ def test_counts_without_usable_prices_are_not_market_evidence(monkeypatch):
     bundle(monkeypatch)
     result = pricing.XGBoostPriceService().recommend(request({'comparable_active_count': 10}))
     assert not result.available
+
+
+def test_reviewed_advertisements_reach_existing_features_without_historical_fabrication(monkeypatch):
+    model = bundle(monkeypatch)
+    evidence = {
+        **active('exact_product_malaysia', 3),
+        'comparable_active_count': 3,
+        'marketplace_active_listing_count': 0,
+        'external_asking_price_count': 3,
+        'historical_rental_count': 0,
+        'marketplace_completed_rental_count': 0,
+        'demo_seed_completed_rental_count': 0,
+    }
+    result = pricing.XGBoostPriceService().recommend(request(evidence))
+    assert result.available
+    assert model.last_frame.iloc[0]['comparable_active_count'] == 3
+    assert model.last_frame.iloc[0]['comparable_active_median'] == 70
+    assert model.last_frame.iloc[0]['historical_rental_count'] == 0
+    assert result.evidence['external_asking_price_count'] == 3
+    assert result.evidence['marketplace_completed_rental_count'] == 0
+    assert set(model.last_frame.columns) == set(FEATURES)

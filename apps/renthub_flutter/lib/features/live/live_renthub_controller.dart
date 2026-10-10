@@ -1,3 +1,4 @@
+import '../../core/network/user_facing_error.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -28,6 +29,12 @@ class LiveRentHubController extends ChangeNotifier {
 
   bool loading = false;
   String? error;
+  Object? lastError;
+  String get errorTitle => UserFacingError.from(lastError).title;
+  bool get sessionExpired =>
+      lastError is ApiException &&
+      (lastError as ApiException).status == 401 &&
+      (lastError as ApiException).code != 'INVALID_CREDENTIALS';
   User? profile;
   List<Listing> listings = [];
   List<Listing> recommendedListings = [];
@@ -74,6 +81,9 @@ class LiveRentHubController extends ChangeNotifier {
     bool allowPdf = false,
     bool publicUrl = false,
     Future<bool> Function(Uint8List bytes, String filename)? confirmSelection,
+    Future<String?> Function(
+            Uint8List bytes, String filename, Future<String> Function() upload)?
+        uploadSelection,
   }) async {
     final file = await FilePicker.pickFile(
       type: FileType.custom,
@@ -91,15 +101,20 @@ class LiveRentHubController extends ChangeNotifier {
     if (confirmSelection != null && !await confirmSelection(bytes, file.name)) {
       return null;
     }
-    final uploaded = await _perform(
-      () => api.uploadFile(
-        '/uploads',
-        bytes: bytes,
-        filename: file.name,
-        purpose: purpose,
-      ),
-    );
-    return uploaded[publicUrl ? 'contentUrl' : 'reference'] as String;
+    Future<String> uploadSelected() async {
+      final uploaded = await _perform(() => api.uploadFile(
+            '/uploads',
+            bytes: bytes,
+            filename: file.name,
+            purpose: purpose,
+          ));
+      return uploaded[publicUrl ? 'contentUrl' : 'reference'] as String;
+    }
+
+    if (uploadSelection != null) {
+      return uploadSelection(bytes, file.name, uploadSelected);
+    }
+    return uploadSelected();
   }
 
   Future<String> uploadVerificationCapture(
@@ -205,11 +220,13 @@ class LiveRentHubController extends ChangeNotifier {
   Future<T> _perform<T>(Future<T> Function() operation) async {
     loading = true;
     error = null;
+    lastError = null;
     notifyListeners();
     try {
       return await operation();
     } catch (exception) {
-      error = exception.toString();
+      lastError = exception;
+      error = friendlyError(exception);
       rethrow;
     } finally {
       loading = false;

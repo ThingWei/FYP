@@ -1,3 +1,6 @@
+import 'live_price_suggestion.dart';
+import 'live_catalog_picker.dart';
+import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
 import 'dart:async';
@@ -6,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/renthub_categories.dart';
-import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
@@ -73,17 +75,20 @@ class _LiveOwnerShellState extends State<LiveOwnerShell> {
               child: RentHubFeedbackState(
                 kind: FeedbackKind.loading,
                 title: 'Loading Owner workspace',
-                message: 'Reading listings and requests from MongoDB…',
+                message: 'Getting your listings and requests ready…',
               ),
             )
           : controller.error != null && controller.profile == null
               ? SafeArea(
                   child: RentHubFeedbackState(
                     kind: FeedbackKind.error,
-                    title: 'Backend unavailable',
+                    title: controller.errorTitle,
                     message: controller.error!,
-                    actionLabel: 'Try Again',
-                    onAction: _load,
+                    actionLabel: controller.sessionExpired
+                        ? 'Sign in again'
+                        : 'Try Again',
+                    onAction:
+                        controller.sessionExpired ? widget.onLogout : _load,
                   ),
                 )
               : IndexedStack(index: index, children: pages),
@@ -162,7 +167,7 @@ class LiveOwnerDashboard extends StatelessWidget {
       } catch (exception) {
         if (context.mounted) {
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(exception.toString())));
+              .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
         }
       }
     }
@@ -203,7 +208,7 @@ class LiveOwnerDashboard extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const Text(
-              'Live marketplace activity from MongoDB',
+              'Your marketplace activity',
               style: TextStyle(color: AppColors.secondaryText),
             ),
             const SizedBox(height: 20),
@@ -555,17 +560,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
   late String? savedListingId = widget.listing?.id;
   bool suggestingPrice = false;
   bool validatingPricing = false;
-  bool catalogLoading = false;
-  bool brandSearchAttempted = false;
-  bool modelSearchAttempted = false;
-  String? brandCatalogError;
-  String? modelCatalogError;
   bool manualBrand = false;
   bool manualModel = false;
-  Timer? brandDebounce;
-  Timer? modelDebounce;
-  List<Map<String, dynamic>> brandSuggestions = [];
-  List<Map<String, dynamic>> modelSuggestions = [];
   String? catalogBrandId;
   String? canonicalProductId;
   String? catalogSource;
@@ -637,272 +633,141 @@ class _LiveListingFormState extends State<LiveListingForm> {
   }
 
   void _clearCatalogIdentity() {
-    brandDebounce?.cancel();
-    modelDebounce?.cancel();
     brand.clear();
     productModel.clear();
-    brandSuggestions = [];
-    modelSuggestions = [];
     catalogBrandId = null;
     canonicalProductId = null;
     catalogSource = null;
     selectedCatalogMatchType = 'manual_entry';
     manualBrand = false;
     manualModel = false;
-    brandSearchAttempted = false;
-    modelSearchAttempted = false;
-    brandCatalogError = null;
-    modelCatalogError = null;
   }
 
-  String _catalogErrorMessage(Object exception) {
-    if (exception is ApiException) {
-      if (exception.code == 'NOT_FOUND') {
-        return 'The product catalog API is not loaded. Restart RentHub and try again. Manual entry remains available.';
-      }
-      if (exception.code == 'CATALOG_UNAVAILABLE') return exception.message;
-      if (exception.status == 401 || exception.status == 403) {
-        return 'The product catalog could not be accessed for this account. Sign in again or use manual entry.';
-      }
-    }
-    return 'The product catalog request failed. Check the API connection and try again, or use manual entry.';
-  }
-
-  void _onBrandChanged(String value) {
-    _clearPriceRecommendation();
-    brandDebounce?.cancel();
+  void _manualBrandChanged(String value) {
     setState(() {
+      priceRecommendation = null;
       catalogBrandId = null;
       canonicalProductId = null;
       catalogSource = null;
       selectedCatalogMatchType = 'manual_entry';
-      productModel.clear();
-      modelSuggestions = [];
-      brandSuggestions = [];
-      brandSearchAttempted = false;
-      modelSearchAttempted = false;
-      brandCatalogError = null;
-      modelCatalogError = null;
-    });
-    if (manualBrand || value.trim().length < 2) return;
-    if (value.trim().runes.length > 80 ||
-        InputRules.brandMaker.validate(value) != null) {
-      setState(() => brandCatalogError =
-          'Catalog searches allow up to 80 characters. Use a shorter search or manual entry.');
-      return;
-    }
-    brandDebounce = Timer(const Duration(milliseconds: 400), () async {
-      if (mounted) setState(() => catalogLoading = true);
-      try {
-        final results =
-            await context.read<LiveRentHubController>().searchCatalogBrands(
-                  category: category,
-                  subcategory: subcategory,
-                  query: value.trim(),
-                );
-        if (mounted && brand.text.trim() == value.trim()) {
-          setState(() {
-            brandSuggestions = results;
-            brandSearchAttempted = true;
-            brandCatalogError = null;
-          });
-        }
-      } catch (exception) {
-        if (mounted && brand.text.trim() == value.trim()) {
-          setState(() {
-            brandSearchAttempted = true;
-            brandCatalogError = _catalogErrorMessage(exception);
-          });
-        }
-      } finally {
-        if (mounted) setState(() => catalogLoading = false);
-      }
     });
   }
 
-  void _selectBrand(Map<String, dynamic> result) {
+  void _manualModelChanged(String value) {
     setState(() {
+      priceRecommendation = null;
+      canonicalProductId = null;
+      selectedCatalogMatchType = 'manual_entry';
+    });
+  }
+
+  void _toggleManualBrand() {
+    setState(() {
+      manualBrand = !manualBrand;
+      manualModel = manualBrand;
+      catalogBrandId = null;
+      canonicalProductId = null;
+      catalogSource = null;
+      selectedCatalogMatchType = 'manual_entry';
+      priceRecommendation = null;
+    });
+  }
+
+  void _toggleManualModel() {
+    setState(() {
+      manualModel = !manualModel;
+      canonicalProductId = null;
+      selectedCatalogMatchType = 'manual_entry';
+      priceRecommendation = null;
+    });
+  }
+
+  Future<void> _pickBrand() async {
+    final requestedCategory = category, requestedSubcategory = subcategory;
+    final controller = context.read<LiveRentHubController>();
+    final result = await showCatalogPicker(
+      context,
+      title: category == RentHubCategories.books
+          ? 'Choose an author or publisher'
+          : 'Choose a brand',
+      labelKey: 'brand',
+      currentValue: brand.text,
+      load: (query) => controller.searchCatalogBrands(
+          category: requestedCategory,
+          subcategory: requestedSubcategory,
+          query: query),
+    );
+    if (!mounted ||
+        result == null ||
+        category != requestedCategory ||
+        subcategory != requestedSubcategory) {
+      return;
+    }
+    if (result['_manual'] == true) {
+      if (!manualBrand) _toggleManualBrand();
+      return;
+    }
+    setState(() {
+      final changed = brand.text != result['brand'] ||
+          catalogBrandId != result['catalogBrandId'];
       brand.text = result['brand'] as String? ?? '';
       catalogBrandId = result['catalogBrandId'] as String?;
       catalogSource = result['catalogSource'] as String?;
       manualBrand = false;
       manualModel = false;
-      brandSuggestions = [];
-      brandSearchAttempted = false;
-      brandCatalogError = null;
-      modelCatalogError = null;
-      productModel.clear();
-      canonicalProductId = null;
+      if (changed) {
+        productModel.clear();
+        canonicalProductId = null;
+      }
+      priceRecommendation = null;
     });
-    unawaited(_loadModelSuggestions(''));
-  }
-
-  Future<void> _loadModelSuggestions(String query) async {
-    final requestedBrandId = catalogBrandId;
-    final requestedBrand = brand.text.trim();
-    if (manualModel || requestedBrandId == null) return;
-    if (query.runes.length > 80 ||
-        InputRules.productModel.validate(query) != null) {
-      if (mounted) {
-        setState(() => modelCatalogError =
-            'Catalog searches allow up to 80 characters. Use a shorter search or manual entry.');
-      }
-      return;
-    }
-    if (mounted) setState(() => catalogLoading = true);
-    try {
-      final results =
-          await context.read<LiveRentHubController>().searchCatalogModels(
-                category: category,
-                subcategory: subcategory,
-                brand: requestedBrand,
-                query: query,
-                catalogBrandId: requestedBrandId,
-              );
-      if (mounted &&
-          catalogBrandId == requestedBrandId &&
-          brand.text.trim() == requestedBrand &&
-          productModel.text.trim() == query) {
-        setState(() {
-          modelSuggestions = results;
-          modelSearchAttempted = true;
-          modelCatalogError = null;
-        });
-      }
-    } catch (exception) {
-      if (mounted &&
-          catalogBrandId == requestedBrandId &&
-          productModel.text.trim() == query) {
-        setState(() {
-          modelSearchAttempted = true;
-          modelCatalogError = _catalogErrorMessage(exception);
-        });
-      }
-    } finally {
-      if (mounted) setState(() => catalogLoading = false);
+    // The model picker loads its first page on opening, without a search term.
+    if (productModel.text.isEmpty) {
+      await _pickModel();
     }
   }
 
-  void _onModelChanged(String value) {
-    _clearPriceRecommendation();
-    modelDebounce?.cancel();
-    setState(() {
-      canonicalProductId = null;
-      selectedCatalogMatchType = 'manual_entry';
-      modelSuggestions = [];
-      modelSearchAttempted = false;
-      modelCatalogError = null;
-    });
-    if (manualModel || catalogBrandId == null || value.trim().length < 2) {
-      return;
-    }
-    modelDebounce = Timer(
-      const Duration(milliseconds: 400),
-      () => _loadModelSuggestions(value.trim()),
+  Future<void> _pickModel() async {
+    final requestedCategory = category, requestedSubcategory = subcategory;
+    final requestedBrand = brand.text, requestedId = catalogBrandId;
+    if (requestedId == null) return;
+    final controller = context.read<LiveRentHubController>();
+    final result = await showCatalogPicker(
+      context,
+      title: category == RentHubCategories.books
+          ? 'Choose a title or edition'
+          : 'Choose a model',
+      labelKey: 'model',
+      currentValue: productModel.text,
+      load: (query) => controller.searchCatalogModels(
+          category: requestedCategory,
+          subcategory: requestedSubcategory,
+          brand: requestedBrand,
+          catalogBrandId: requestedId,
+          query: query),
     );
-  }
-
-  void _selectModel(Map<String, dynamic> result) {
+    if (!mounted ||
+        result == null ||
+        category != requestedCategory ||
+        subcategory != requestedSubcategory ||
+        catalogBrandId != requestedId ||
+        brand.text != requestedBrand ||
+        manualBrand) {
+      return;
+    }
+    if (result['_manual'] == true) {
+      if (!manualModel) _toggleManualModel();
+      return;
+    }
     setState(() {
       productModel.text = result['model'] as String? ?? '';
       canonicalProductId = result['canonicalProductId'] as String?;
-      catalogBrandId = result['catalogBrandId'] as String? ?? catalogBrandId;
       catalogSource = result['catalogSource'] as String?;
-      selectedCatalogMatchType = result['queryMatch'] == 'exact'
-          ? 'exact_catalog_match'
-          : 'fuzzy_catalog_match';
+      // Explicitly selecting an entry is an exact selection, not a fuzzy search guess.
+      selectedCatalogMatchType = 'exact_catalog_match';
       manualModel = false;
-      modelSuggestions = [];
-      modelSearchAttempted = false;
-      modelCatalogError = null;
+      priceRecommendation = null;
     });
-  }
-
-  Widget _catalogResults(
-    List<Map<String, dynamic>> results,
-    void Function(Map<String, dynamic>) onSelected,
-  ) {
-    if (results.isEmpty) return const SizedBox.shrink();
-    return Card(
-      margin: const EdgeInsets.only(top: 4),
-      child: Column(
-        children: results
-            .take(6)
-            .map(
-              (item) => ListTile(
-                dense: true,
-                leading: const Icon(Icons.inventory_2_outlined),
-                title: Text(
-                  item['entityType'] == 'brand'
-                      ? item['brand'] as String
-                      : item['model'] as String,
-                ),
-                subtitle: Text(item['description'] as String? ?? ''),
-                onTap: () => onSelected(item),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _catalogSearchState({
-    required List<Map<String, dynamic>> results,
-    required bool attempted,
-    required bool manual,
-    required String emptyMessage,
-    required VoidCallback onRetry,
-    String? error,
-  }) {
-    if (manual) return const SizedBox.shrink();
-    if (error != null) {
-      return Container(
-        margin: const EdgeInsets.only(top: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.error.withValues(alpha: 0.06),
-          border: Border.all(color: AppColors.error.withValues(alpha: 0.35)),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.cloud_off_outlined, color: AppColors.error),
-            const SizedBox(width: 8),
-            Expanded(child: Text(error)),
-            TextButton(onPressed: onRetry, child: const Text('Retry')),
-          ],
-        ),
-      );
-    }
-    if (results.isNotEmpty) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 6),
-        child: Row(
-          children: [
-            Icon(Icons.check_circle_outline,
-                size: 18, color: AppColors.success),
-            SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                'Catalog matches found. Select the correct result.',
-                style: TextStyle(color: AppColors.success),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    if (attempted) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 6),
-        child: Text(
-          emptyMessage,
-          style: const TextStyle(color: AppColors.secondaryText),
-        ),
-      );
-    }
-    return const SizedBox.shrink();
   }
 
   String _listingState() {
@@ -998,9 +863,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
         setState(() => priceRecommendation = suggestion);
       }
     } catch (exception) {
-      if (mounted) {
+      if (mounted && inputSnapshot == _pricingInputSnapshot) {
+        setState(() => priceRecommendation = {'available': false});
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => suggestingPrice = false);
@@ -1019,7 +885,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -1032,7 +898,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -1076,8 +942,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   @override
   void dispose() {
-    brandDebounce?.cancel();
-    modelDebounce?.cancel();
     title.dispose();
     description.dispose();
     price.dispose();
@@ -1171,7 +1035,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -1188,659 +1052,495 @@ class _LiveListingFormState extends State<LiveListingForm> {
           ),
         ),
         body: SafeArea(
-          child: Form(
-            key: formKey,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                TextFormField(
-                  controller: title,
-                  decoration: (const InputDecoration(labelText: 'Title'))
-                      .copyWith(counterText: '', errorMaxLines: 3),
-                  validator: InputValidation.compose(
-                      InputRules.title.validate,
-                      (value) => (value?.trim().length ?? 0) >= 3
-                          ? null
-                          : 'Enter at least 3 characters'),
-                  inputFormatters:
-                      InputValidation.formatters(InputRules.title, title),
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                  maxLength: InputRules.title.maxLength,
-                  maxLengthEnforcement: InputValidation.lengthEnforcement,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: description,
-                  maxLines: 4,
-                  decoration: (const InputDecoration(labelText: 'Description'))
-                      .copyWith(counterText: '', errorMaxLines: 3),
-                  validator: InputRules.description.validate,
-                  inputFormatters: InputValidation.formatters(
-                      InputRules.description, description),
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                  maxLength: InputRules.description.maxLength,
-                  maxLengthEnforcement: InputValidation.lengthEnforcement,
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Listing images',
-                                style: TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            Text('${images.length}/10'),
-                            IconButton(
-                              tooltip: 'Upload listing image',
-                              onPressed: saving || images.length >= 10
-                                  ? null
-                                  : _addImage,
-                              icon: const Icon(
-                                  Icons.add_photo_alternate_outlined),
-                            ),
-                          ],
-                        ),
-                        const Text(
-                          'JPEG, PNG, or WebP. Physical items need at least three views for AI-assisted verification.',
-                          style: TextStyle(color: AppColors.secondaryText),
-                        ),
-                        for (var index = 0; index < images.length; index++)
-                          PhotoAttachmentTile(
-                              reference: images[index],
-                              label: 'Image ${index + 1}',
-                              onRemove:
-                                  saving ? null : () => _removeImage(index)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (!widget.isService)
-                  DropdownButtonFormField<String>(
-                    initialValue: category,
-                    decoration: const InputDecoration(labelText: 'Category'),
-                    items: const [
-                      RentHubCategories.devices,
-                      RentHubCategories.vehicles,
-                      RentHubCategories.equipment,
-                      RentHubCategories.clothing,
-                      RentHubCategories.books,
-                    ]
-                        .map((value) =>
-                            DropdownMenuItem(value: value, child: Text(value)))
-                        .toList(),
-                    onChanged: (value) => setState(() {
-                      category = value!;
-                      subcategory = subcategories[category]!.first;
-                      priceRecommendation = null;
-                      _clearCatalogIdentity();
-                    }),
-                  ),
-                if (!widget.isService) const SizedBox(height: 12),
-                if (!widget.isService) ...[
-                  DropdownButtonFormField<String>(
-                    key: ValueKey(category),
-                    initialValue: subcategory,
-                    decoration: const InputDecoration(
-                      labelText: 'Specific category',
-                    ),
-                    items: subcategories[category]!
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) => setState(() {
-                      subcategory = value!;
-                      priceRecommendation = null;
-                      _clearCatalogIdentity();
-                    }),
-                  ),
-                  const SizedBox(height: 12),
-                  if (category == RentHubCategories.vehicles) ...[
-                    DropdownButtonFormField<String>(
-                      initialValue: requiredLicenceClass,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                          labelText: 'Required driving licence class',
-                          helperText:
-                              'Choose the class suitable for this vehicle. No automatic JPJ validation.'),
-                      items: [
-                        '',
-                        'A',
-                        'A1',
-                        'B',
-                        'B1',
-                        'B2',
-                        'C',
-                        'D',
-                        'DA',
-                        'E',
-                        'E1',
-                        'E2',
-                        'F',
-                        'G',
-                        'H',
-                        'I'
-                      ]
-                          .map((value) => DropdownMenuItem(
-                              value: value,
-                              child: Text(
-                                  value.isEmpty
-                                      ? 'Administrator-reviewed classes (legacy default)'
-                                      : value,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis)))
-                          .toList(),
-                      onChanged: (value) =>
-                          setState(() => requiredLicenceClass = value ?? ''),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  DropdownButtonFormField<String>(
-                    initialValue: condition,
-                    decoration: const InputDecoration(labelText: 'Condition'),
-                    items: const [
-                      'Fair',
-                      'Good',
-                      'Very good',
-                      'Excellent',
-                      'Like New'
-                    ]
-                        .map((value) =>
-                            DropdownMenuItem(value: value, child: Text(value)))
-                        .toList(),
-                    onChanged: (value) => setState(() {
-                      condition = value!;
-                      priceRecommendation = null;
-                    }),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: brand,
-                    key: brandFieldKey,
-                    onChanged: _onBrandChanged,
-                    decoration: (InputDecoration(
-                      labelText: category == RentHubCategories.books
-                          ? 'Author / publisher'
-                          : 'Brand / maker',
-                      hintText: category == RentHubCategories.books
-                          ? 'For example, J.R.R. Tolkien'
-                          : 'For example, Apple, Sony or Canon',
-                      suffixIcon: catalogLoading
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.search),
-                    )).copyWith(counterText: '', errorMaxLines: 3),
-                    validator: (value) => validatingPricing &&
-                            (value?.trim().isEmpty ?? true)
-                        ? 'Enter a brand or author before requesting a price'
-                        : InputRules.brandMaker.validate(value),
-                    inputFormatters: InputValidation.formatters(
-                        InputRules.brandMaker, brand),
-                    autovalidateMode: AutovalidateMode.onUserInteraction,
-                    maxLength: InputRules.brandMaker.maxLength,
-                    maxLengthEnforcement: InputValidation.lengthEnforcement,
-                  ),
-                  _catalogSearchState(
-                    results: brandSuggestions,
-                    attempted: brandSearchAttempted,
-                    manual: manualBrand,
-                    error: brandCatalogError,
-                    emptyMessage:
-                        'No catalog match found. Manual entry is still available.',
-                    onRetry: () => _onBrandChanged(brand.text),
-                  ),
-                  _catalogResults(brandSuggestions, _selectBrand),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton(
-                      onPressed: () => setState(() {
-                        brandDebounce?.cancel();
-                        modelDebounce?.cancel();
-                        manualBrand = !manualBrand;
-                        manualModel = manualBrand;
-                        catalogBrandId = null;
-                        canonicalProductId = null;
-                        catalogSource = null;
-                        selectedCatalogMatchType = 'manual_entry';
-                        brandSuggestions = [];
-                        modelSuggestions = [];
-                        brandSearchAttempted = false;
-                        modelSearchAttempted = false;
-                        brandCatalogError = null;
-                        modelCatalogError = null;
-                        brand.clear();
-                        productModel.clear();
-                      }),
-                      child: Text(
-                        manualBrand
-                            ? 'Search the product catalog instead'
-                            : "Can't find your brand? Enter manually",
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: productModel,
-                    key: modelFieldKey,
-                    enabled: brand.text.trim().isNotEmpty &&
-                        (manualBrand || catalogBrandId != null),
-                    onChanged: _onModelChanged,
-                    decoration: (InputDecoration(
-                      labelText: category == RentHubCategories.books
-                          ? 'Exact title / edition'
-                          : 'Exact product / model',
-                      hintText: category == RentHubCategories.books
-                          ? 'For example, The Lord of the Rings Trilogy'
-                          : 'For example, iPhone 15 Pro Max 256GB',
-                    )).copyWith(counterText: '', errorMaxLines: 3),
-                    validator: (value) => validatingPricing &&
-                            (value?.trim().isEmpty ?? true)
-                        ? 'Enter the exact product before requesting a price'
-                        : InputRules.productModel.validate(value),
-                    inputFormatters: InputValidation.formatters(
-                        InputRules.productModel, productModel),
-                    autovalidateMode: AutovalidateMode.onUserInteraction,
-                    maxLength: InputRules.productModel.maxLength,
-                    maxLengthEnforcement: InputValidation.lengthEnforcement,
-                  ),
-                  _catalogSearchState(
-                    results: modelSuggestions,
-                    attempted: modelSearchAttempted,
-                    manual: manualModel,
-                    error: modelCatalogError,
-                    emptyMessage:
-                        'No model match found. You can enter the model manually.',
-                    onRetry: () => productModel.text.trim().isEmpty
-                        ? unawaited(_loadModelSuggestions(''))
-                        : _onModelChanged(productModel.text),
-                  ),
-                  _catalogResults(modelSuggestions, _selectModel),
-                  if (catalogBrandId != null)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton(
-                        onPressed: () => setState(() {
-                          modelDebounce?.cancel();
-                          manualModel = !manualModel;
-                          canonicalProductId = null;
-                          selectedCatalogMatchType = 'manual_entry';
-                          modelSuggestions = [];
-                          modelSearchAttempted = false;
-                          modelCatalogError = null;
-                          productModel.clear();
-                        }),
-                        child: Text(
-                          manualModel
-                              ? 'Search catalog models instead'
-                              : "Can't find the model? Enter manually",
-                        ),
-                      ),
-                    ),
-                  if (canonicalProductId != null)
-                    const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        Icons.verified_outlined,
-                        color: AppColors.success,
-                      ),
-                      title: Text('Product recognised'),
-                      subtitle: Text(
-                        'The canonical product identity will improve comparable matching.',
-                      ),
-                    )
-                  else if (brand.text.trim().isNotEmpty &&
-                      productModel.text.trim().isNotEmpty)
-                    const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.info_outline),
-                      title: Text('Manual product entry'),
-                      subtitle: Text(
-                        'Pricing will use broader brand, subcategory and category evidence.',
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                  Row(
+          child: Center(
+            child: SizedBox(
+              width: 680,
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: itemAge,
-                          key: ageFieldKey,
-                          onChanged: (_) => _clearPriceRecommendation(),
+                      const ListingSectionHeading(
+                          'Details', 'Help renters understand what you offer.'),
+                      TextFormField(
+                        controller: title,
+                        decoration: (const InputDecoration(labelText: 'Title'))
+                            .copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputValidation.compose(
+                            InputRules.title.validate,
+                            (value) => (value?.trim().length ?? 0) >= 3
+                                ? null
+                                : 'Enter at least 3 characters'),
+                        inputFormatters:
+                            InputValidation.formatters(InputRules.title, title),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.title.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: description,
+                        maxLines: 4,
+                        decoration:
+                            (const InputDecoration(labelText: 'Description'))
+                                .copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputRules.description.validate,
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.description, description),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.description.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
+                      ),
+                      const SizedBox(height: 12),
+                      const ListingSectionHeading('Photos',
+                          'Show your listing clearly, from different angles.'),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Listing images',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                  Text('${images.length}/10'),
+                                  IconButton(
+                                    tooltip: 'Upload listing image',
+                                    onPressed: saving || images.length >= 10
+                                        ? null
+                                        : _addImage,
+                                    icon: const Icon(
+                                        Icons.add_photo_alternate_outlined),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                widget.isService
+                                    ? 'Add photos of your work. JPEG, PNG or WebP.'
+                                    : 'Add at least 3 clear views of the item for review. JPEG, PNG or WebP.',
+                                style:
+                                    TextStyle(color: AppColors.secondaryText),
+                              ),
+                              for (var index = 0;
+                                  index < images.length;
+                                  index++)
+                                PhotoAttachmentTile(
+                                    reference: images[index],
+                                    label: 'Image ${index + 1}',
+                                    onRemove: saving
+                                        ? null
+                                        : () => _removeImage(index)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (!widget.isService)
+                        const ListingSectionHeading('Product',
+                            'Choose the item type, brand and model.'),
+                      if (!widget.isService)
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          initialValue: category,
+                          decoration:
+                              const InputDecoration(labelText: 'Category'),
+                          items: const [
+                            RentHubCategories.devices,
+                            RentHubCategories.vehicles,
+                            RentHubCategories.equipment,
+                            RentHubCategories.clothing,
+                            RentHubCategories.books,
+                          ]
+                              .map((value) => DropdownMenuItem(
+                                  value: value, child: Text(value)))
+                              .toList(),
+                          onChanged: (value) => setState(() {
+                            category = value!;
+                            subcategory = subcategories[category]!.first;
+                            priceRecommendation = null;
+                            _clearCatalogIdentity();
+                          }),
+                        ),
+                      if (!widget.isService) const SizedBox(height: 12),
+                      if (!widget.isService) ...[
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          key: ValueKey(category),
+                          initialValue: subcategory,
+                          decoration: const InputDecoration(
+                            labelText: 'Specific category',
+                          ),
+                          items: subcategories[category]!
+                              .map(
+                                (value) => DropdownMenuItem(
+                                  value: value,
+                                  child: Text(value),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) => setState(() {
+                            subcategory = value!;
+                            priceRecommendation = null;
+                            _clearCatalogIdentity();
+                          }),
+                        ),
+                        const SizedBox(height: 12),
+                        if (category == RentHubCategories.vehicles) ...[
+                          DropdownButtonFormField<String>(
+                            initialValue: requiredLicenceClass,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                                labelText: 'Required driving licence class',
+                                helperText:
+                                    'Choose the class suitable for this vehicle. The renter’s licence will be reviewed.'),
+                            items: [
+                              '',
+                              'A',
+                              'A1',
+                              'B',
+                              'B1',
+                              'B2',
+                              'C',
+                              'D',
+                              'DA',
+                              'E',
+                              'E1',
+                              'E2',
+                              'F',
+                              'G',
+                              'H',
+                              'I'
+                            ]
+                                .map((value) => DropdownMenuItem(
+                                    value: value,
+                                    child: Text(
+                                        value.isEmpty
+                                            ? 'Licence class to be reviewed'
+                                            : value,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis)))
+                                .toList(),
+                            onChanged: (value) => setState(
+                                () => requiredLicenceClass = value ?? ''),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          initialValue: condition,
+                          decoration:
+                              const InputDecoration(labelText: 'Condition'),
+                          items: const [
+                            'Fair',
+                            'Good',
+                            'Very good',
+                            'Excellent',
+                            'Like New'
+                          ]
+                              .map((value) => DropdownMenuItem(
+                                  value: value, child: Text(value)))
+                              .toList(),
+                          onChanged: (value) => setState(() {
+                            condition = value!;
+                            priceRecommendation = null;
+                          }),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: brand,
+                          key: brandFieldKey,
+                          readOnly: !manualBrand,
+                          onTap: manualBrand ? null : _pickBrand,
+                          onChanged: _manualBrandChanged,
+                          decoration: (InputDecoration(
+                            labelText: category == RentHubCategories.books
+                                ? 'Author / publisher'
+                                : 'Brand / maker',
+                            hintText: category == RentHubCategories.books
+                                ? 'For example, J.R.R. Tolkien'
+                                : 'For example, Apple, Sony or Canon',
+                            suffixIcon: Icon(manualBrand
+                                ? Icons.edit_outlined
+                                : Icons.expand_more),
+                          )).copyWith(counterText: '', errorMaxLines: 3),
+                          validator: (value) => validatingPricing &&
+                                  (value?.trim().isEmpty ?? true)
+                              ? 'Enter a brand or author before requesting a price'
+                              : InputRules.brandMaker.validate(value),
+                          inputFormatters: InputValidation.formatters(
+                              InputRules.brandMaker, brand),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength: InputRules.brandMaker.maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
+                        ),
+                        Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton(
+                                onPressed: _toggleManualBrand,
+                                child: Text(manualBrand
+                                    ? 'Choose from the catalogue'
+                                    : 'Enter brand manually'))),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: productModel,
+                          key: modelFieldKey,
+                          enabled: brand.text.trim().isNotEmpty &&
+                              (manualBrand || catalogBrandId != null),
+                          readOnly: !manualModel && !manualBrand,
+                          onTap: manualModel || manualBrand ? null : _pickModel,
+                          onChanged: _manualModelChanged,
+                          decoration: (InputDecoration(
+                            labelText: category == RentHubCategories.books
+                                ? 'Title / edition'
+                                : 'Model',
+                            suffixIcon: Icon(manualModel || manualBrand
+                                ? Icons.edit_outlined
+                                : Icons.expand_more),
+                            hintText: category == RentHubCategories.books
+                                ? 'For example, The Lord of the Rings Trilogy'
+                                : 'For example, iPhone 15 Pro Max 256GB',
+                          )).copyWith(counterText: '', errorMaxLines: 3),
+                          validator: (value) => validatingPricing &&
+                                  (value?.trim().isEmpty ?? true)
+                              ? 'Enter the exact product before requesting a price'
+                              : InputRules.productModel.validate(value),
+                          inputFormatters: InputValidation.formatters(
+                              InputRules.productModel, productModel),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength: InputRules.productModel.maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
+                        ),
+                        if (catalogBrandId != null)
+                          Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                  onPressed: _toggleManualModel,
+                                  child: Text(manualModel
+                                      ? 'Choose from the catalogue'
+                                      : 'Enter model manually'))),
+                        if (canonicalProductId != null)
+                          const ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.check_circle_outline,
+                              color: AppColors.primary,
+                            ),
+                            title: Text('Product found'),
+                            subtitle: Text(
+                              'This matches a catalogue entry, not proof of authenticity.',
+                            ),
+                          )
+                        else if (brand.text.trim().isNotEmpty &&
+                            productModel.text.trim().isNotEmpty)
+                          const ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.info_outline),
+                            title: Text('Manual product entry'),
+                            subtitle: Text(
+                              'You can still list this item. Price suggestions may use broader comparisons.',
+                            ),
+                          ),
+                        const SizedBox(height: 12),
+                        ListingFieldPair(
+                          first: TextFormField(
+                            controller: itemAge,
+                            key: ageFieldKey,
+                            onChanged: (_) => _clearPriceRecommendation(),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: (const InputDecoration(
+                              labelText: 'Item age (years)',
+                            )).copyWith(counterText: '', errorMaxLines: 3),
+                            validator: InputValidation.compose(
+                                InputRules.itemAgeYears.validate, (value) {
+                              final parsed = double.tryParse(value ?? '');
+                              return parsed != null &&
+                                      parsed >= 0 &&
+                                      parsed <= 100
+                                  ? null
+                                  : 'Use 0 to 100';
+                            }),
+                            inputFormatters: InputValidation.formatters(
+                                InputRules.itemAgeYears, itemAge),
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            maxLength: InputRules.itemAgeYears.maxLength,
+                            maxLengthEnforcement:
+                                InputValidation.lengthEnforcement,
+                          ),
+                          second: TextFormField(
+                            controller: expectedRentalDays,
+                            key: daysFieldKey,
+                            onChanged: (_) => _clearPriceRecommendation(),
+                            keyboardType: TextInputType.number,
+                            decoration: (const InputDecoration(
+                              labelText: 'Expected rental length (days)',
+                            )).copyWith(counterText: '', errorMaxLines: 3),
+                            validator: InputValidation.compose(
+                                InputRules.typicalRentalDays.validate, (value) {
+                              final parsed = int.tryParse(value ?? '');
+                              return parsed != null &&
+                                      parsed >= 1 &&
+                                      parsed <= 365
+                                  ? null
+                                  : 'Use 1 to 365';
+                            }),
+                            inputFormatters: InputValidation.formatters(
+                                InputRules.typicalRentalDays,
+                                expectedRentalDays),
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            maxLength: InputRules.typicalRentalDays.maxLength,
+                            maxLengthEnforcement:
+                                InputValidation.lengthEnforcement,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      const ListingSectionHeading('Pricing',
+                          'You choose the final price renters will pay.'),
+                      TextFormField(
+                        controller: price,
+                        onChanged: (_) => _clearPriceRecommendation(),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: (InputDecoration(
+                          labelText: widget.isService
+                              ? 'Package price (RM)'
+                              : 'Daily price (RM)',
+                        )).copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputValidation.compose(
+                            InputRules.priceRm.validate,
+                            (value) => (double.tryParse(value ?? '') ?? 0) > 0
+                                ? null
+                                : 'Enter a valid price'),
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.priceRm, price),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.priceRm.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
+                      ),
+                      if (!widget.isService) ...[
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: suggestingPrice ? null : _suggestPrice,
+                          icon: const Icon(Icons.auto_awesome_outlined),
+                          label: Text(suggestingPrice
+                              ? 'Finding a price…'
+                              : 'Suggest a daily price'),
+                        ),
+                        if (priceRecommendation != null) ...[
+                          const SizedBox(height: 8),
+                          LivePriceSuggestion(
+                            suggestion:
+                                PriceSuggestionView(priceRecommendation!),
+                            onRetry: suggestingPrice ? null : _suggestPrice,
+                            onUse: () => setState(() {
+                              price.text =
+                                  PriceSuggestionView(priceRecommendation!)
+                                      .amount!
+                                      .toStringAsFixed(2);
+                            }),
+                          ),
+                        ],
+                      ],
+                      const SizedBox(height: 12),
+                      if (!widget.isService) ...[
+                        TextFormField(
+                          controller: deposit,
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true),
                           decoration: (const InputDecoration(
-                            labelText: 'Item age (years)',
-                          )).copyWith(counterText: '', errorMaxLines: 3),
+                                  labelText: 'Security deposit (RM)'))
+                              .copyWith(counterText: '', errorMaxLines: 3),
                           validator: InputValidation.compose(
-                              InputRules.itemAgeYears.validate, (value) {
-                            final parsed = double.tryParse(value ?? '');
-                            return parsed != null &&
-                                    parsed >= 0 &&
-                                    parsed <= 100
-                                ? null
-                                : 'Use 0 to 100';
-                          }),
+                              InputRules.securityDepositRm.validate,
+                              (value) => double.tryParse(value ?? '') == null
+                                  ? 'Enter a valid deposit'
+                                  : null),
                           inputFormatters: InputValidation.formatters(
-                              InputRules.itemAgeYears, itemAge),
+                              InputRules.securityDepositRm, deposit),
                           autovalidateMode: AutovalidateMode.onUserInteraction,
-                          maxLength: InputRules.itemAgeYears.maxLength,
+                          maxLength: InputRules.securityDepositRm.maxLength,
                           maxLengthEnforcement:
                               InputValidation.lengthEnforcement,
                         ),
+                      ],
+                      const ListingSectionHeading('Location and availability',
+                          'Tell renters where your listing is offered. Manage dates after saving.'),
+                      TextFormField(
+                        controller: location,
+                        key: locationFieldKey,
+                        onChanged: (_) => _clearPriceRecommendation(),
+                        decoration:
+                            (const InputDecoration(labelText: 'Location'))
+                                .copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputValidation.compose(
+                            InputRules.location2.validate,
+                            (value) => (value?.trim().length ?? 0) >= 2
+                                ? null
+                                : 'Enter a location'),
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.location2, location),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.location2.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: expectedRentalDays,
-                          key: daysFieldKey,
-                          onChanged: (_) => _clearPriceRecommendation(),
+                      const SizedBox(height: 12),
+                      if (widget.isService)
+                        TextFormField(
+                          controller: duration,
                           keyboardType: TextInputType.number,
                           decoration: (const InputDecoration(
-                            labelText: 'Typical rental days',
-                          )).copyWith(counterText: '', errorMaxLines: 3),
+                                  labelText: 'Duration (minutes)'))
+                              .copyWith(counterText: '', errorMaxLines: 3),
                           validator: InputValidation.compose(
-                              InputRules.typicalRentalDays.validate, (value) {
+                              InputRules.durationMinutes.validate, (value) {
                             final parsed = int.tryParse(value ?? '');
-                            return parsed != null &&
-                                    parsed >= 1 &&
-                                    parsed <= 365
+                            return parsed != null && parsed >= 15
                                 ? null
-                                : 'Use 1 to 365';
+                                : 'Minimum duration is 15 minutes';
                           }),
                           inputFormatters: InputValidation.formatters(
-                              InputRules.typicalRentalDays, expectedRentalDays),
+                              InputRules.durationMinutes, duration),
                           autovalidateMode: AutovalidateMode.onUserInteraction,
-                          maxLength: InputRules.typicalRentalDays.maxLength,
+                          maxLength: InputRules.durationMinutes.maxLength,
                           maxLengthEnforcement:
                               InputValidation.lengthEnforcement,
                         ),
+                      const SizedBox(height: 20),
+                      const Text(
+                          'Approved MyKad verification is required to submit or publish. Saving a draft does not require verification.'),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: saving || checkingIdentity
+                            ? null
+                            : () => _save(submitForReview: false),
+                        child: const Text('Save Draft'),
+                      ),
+                      const SizedBox(height: 12),
+                      RentHubActionButton(
+                        label: widget.listing == null
+                            ? 'Save & Submit for Review'
+                            : 'Save Changes & Resubmit',
+                        loading: saving || checkingIdentity,
+                        onPressed:
+                            saving || checkingIdentity ? null : () => _save(),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                ],
-                TextFormField(
-                  controller: price,
-                  onChanged: (_) => _clearPriceRecommendation(),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: (InputDecoration(
-                    labelText: widget.isService
-                        ? 'Package price (RM)'
-                        : 'Daily price (RM)',
-                  )).copyWith(counterText: '', errorMaxLines: 3),
-                  validator: InputValidation.compose(
-                      InputRules.priceRm.validate,
-                      (value) => (double.tryParse(value ?? '') ?? 0) > 0
-                          ? null
-                          : 'Enter a valid price'),
-                  inputFormatters:
-                      InputValidation.formatters(InputRules.priceRm, price),
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                  maxLength: InputRules.priceRm.maxLength,
-                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
-                if (!widget.isService) ...[
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: suggestingPrice ? null : _suggestPrice,
-                    icon: const Icon(Icons.auto_awesome_outlined),
-                    label: Text(suggestingPrice
-                        ? 'Checking model…'
-                        : 'Get AI price suggestion'),
-                  ),
-                  if (priceRecommendation != null) ...[
-                    const SizedBox(height: 8),
-                    Card(
-                      color: AppColors.blueSurface,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: priceRecommendation!['available'] == true
-                            ? Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Suggested ${formatMoney((priceRecommendation!['suggested_daily_price'] as num).toDouble())} per day',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  Text(
-                                      priceRecommendation![
-                                                  'product_specific_evidence'] ==
-                                              true
-                                          ? 'Product-specific evidence estimate — advisory only'
-                                          : '${(priceRecommendation!['pricing_scope'] as String? ?? 'market_estimate').replaceAll('_', ' ')} — not a verified price for this product',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w600)),
-                                  const Text(
-                                      'Catalog recognition identifies the product; it does not establish its rental price.'),
-                                  Text(
-                                    'Range ${formatMoney((priceRecommendation!['lower_bound'] as num).toDouble())}–${formatMoney((priceRecommendation!['upper_bound'] as num).toDouble())}',
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Builder(builder: (context) {
-                                    final match =
-                                        priceRecommendation!['product_match']
-                                                as Map? ??
-                                            const {};
-                                    final recognised = {
-                                      'exact_catalog_match',
-                                      'fuzzy_catalog_match',
-                                    }.contains(match['type']);
-                                    return Row(
-                                      children: [
-                                        Icon(
-                                          recognised
-                                              ? Icons.verified_outlined
-                                              : Icons.edit_outlined,
-                                          size: 18,
-                                          color: recognised
-                                              ? AppColors.success
-                                              : AppColors.warning,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            recognised
-                                                ? 'Product recognised as ${match['brand']} ${match['model']}'
-                                                : 'Product identity was entered manually; check the evidence scope below',
-                                          ),
-                                        ),
-                                      ],
-                                    );
-                                  }),
-                                  Text(
-                                    '${(priceRecommendation!['confidence_label'] as String? ?? 'low').toUpperCase()} confidence ${(((priceRecommendation!['confidence'] as num?)?.toDouble() ?? 0) * 100).round()}% · ${(priceRecommendation!['model_source'] as String? ?? 'unknown').replaceAll('_', ' ')}',
-                                  ),
-                                  Builder(builder: (context) {
-                                    final evidence =
-                                        priceRecommendation!['evidence']
-                                                as Map? ??
-                                            const {};
-                                    final activeMedian =
-                                        evidence['comparable_active_median']
-                                            as num?;
-                                    final historicalMedian =
-                                        evidence['historical_rental_median']
-                                            as num?;
-                                    return Text(
-                                      '${evidence['exact_active_count'] ?? 0} exact and ${evidence['similar_active_count'] ?? evidence['comparable_active_count'] ?? 0} similar active listing(s)${activeMedian == null ? '' : ' · selected median ${formatMoney(activeMedian.toDouble())}'}; ${evidence['exact_completed_rental_count'] ?? 0} exact and ${evidence['similar_completed_rental_count'] ?? evidence['historical_rental_count'] ?? 0} similar completed rental(s)${historicalMedian == null ? '' : ' · selected median ${formatMoney(historicalMedian.toDouble())}'}',
-                                      style: const TextStyle(
-                                        color: AppColors.secondaryText,
-                                        fontSize: 12,
-                                      ),
-                                    );
-                                  }),
-                                  const SizedBox(height: 8),
-                                  for (final warning
-                                      in (priceRecommendation!['warnings']
-                                                  as List? ??
-                                              const [])
-                                          .cast<String>())
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Icon(
-                                            Icons.info_outline,
-                                            size: 16,
-                                            color: AppColors.warning,
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Expanded(child: Text(warning)),
-                                        ],
-                                      ),
-                                    ),
-                                  for (final reason
-                                      in (priceRecommendation!['explanation']
-                                                  as List? ??
-                                              const [])
-                                          .cast<String>())
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Icon(
-                                            Icons.check_circle_outline,
-                                            size: 16,
-                                            color: AppColors.info,
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Expanded(child: Text(reason)),
-                                        ],
-                                      ),
-                                    ),
-                                  const Text(
-                                    'Advisory estimate only. You remain in control of the final daily price.',
-                                    style: TextStyle(
-                                      color: AppColors.secondaryText,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  TextButton(
-                                    onPressed: () => setState(() {
-                                      price.text = (priceRecommendation![
-                                              'suggested_daily_price'] as num)
-                                          .toStringAsFixed(2);
-                                    }),
-                                    child: const Text('Use suggested price'),
-                                  ),
-                                ],
-                              )
-                            : Text(
-                                ((priceRecommendation!['warnings'] as List?) ??
-                                            const [])
-                                        .cast<String>()
-                                        .join(' ')
-                                        .trim()
-                                        .isNotEmpty
-                                    ? ((priceRecommendation!['warnings']
-                                                as List?) ??
-                                            const [])
-                                        .cast<String>()
-                                        .join(' ')
-                                    : 'Pricing is unavailable because there is not enough compatible model or market evidence. Your entered price is unchanged.',
-                              ),
-                      ),
-                    ),
-                  ],
-                ],
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: location,
-                  key: locationFieldKey,
-                  onChanged: (_) => _clearPriceRecommendation(),
-                  decoration: (const InputDecoration(labelText: 'Location'))
-                      .copyWith(counterText: '', errorMaxLines: 3),
-                  validator: InputValidation.compose(
-                      InputRules.location2.validate,
-                      (value) => (value?.trim().length ?? 0) >= 2
-                          ? null
-                          : 'Enter a location'),
-                  inputFormatters: InputValidation.formatters(
-                      InputRules.location2, location),
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                  maxLength: InputRules.location2.maxLength,
-                  maxLengthEnforcement: InputValidation.lengthEnforcement,
-                ),
-                const SizedBox(height: 12),
-                if (widget.isService)
-                  TextFormField(
-                    controller: duration,
-                    keyboardType: TextInputType.number,
-                    decoration:
-                        (const InputDecoration(labelText: 'Duration (minutes)'))
-                            .copyWith(counterText: '', errorMaxLines: 3),
-                    validator: InputValidation.compose(
-                        InputRules.durationMinutes.validate, (value) {
-                      final parsed = int.tryParse(value ?? '');
-                      return parsed != null && parsed >= 15
-                          ? null
-                          : 'Minimum duration is 15 minutes';
-                    }),
-                    inputFormatters: InputValidation.formatters(
-                        InputRules.durationMinutes, duration),
-                    autovalidateMode: AutovalidateMode.onUserInteraction,
-                    maxLength: InputRules.durationMinutes.maxLength,
-                    maxLengthEnforcement: InputValidation.lengthEnforcement,
-                  )
-                else ...[
-                  TextFormField(
-                    controller: deposit,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: (const InputDecoration(
-                            labelText: 'Security deposit (RM)'))
-                        .copyWith(counterText: '', errorMaxLines: 3),
-                    validator: InputValidation.compose(
-                        InputRules.securityDepositRm.validate,
-                        (value) => double.tryParse(value ?? '') == null
-                            ? 'Enter a valid deposit'
-                            : null),
-                    inputFormatters: InputValidation.formatters(
-                        InputRules.securityDepositRm, deposit),
-                    autovalidateMode: AutovalidateMode.onUserInteraction,
-                    maxLength: InputRules.securityDepositRm.maxLength,
-                    maxLengthEnforcement: InputValidation.lengthEnforcement,
-                  ),
-                ],
-                const SizedBox(height: 20),
-                const Text(
-                    'Approved MyKad verification is required to submit or publish. Saving a draft does not require verification.'),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: saving || checkingIdentity
-                      ? null
-                      : () => _save(submitForReview: false),
-                  child: const Text('Save Draft'),
-                ),
-                const SizedBox(height: 12),
-                RentHubActionButton(
-                  label: widget.listing == null
-                      ? 'Save & Submit for Review'
-                      : 'Save Changes & Resubmit',
-                  loading: saving || checkingIdentity,
-                  onPressed: saving || checkingIdentity ? null : () => _save(),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1888,7 +1588,7 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => loading = false);
@@ -1992,7 +1692,7 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -2187,7 +1887,7 @@ class _LivePromotionPageState extends State<LivePromotionPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -2342,7 +2042,7 @@ class _LiveBundlePageState extends State<LiveBundlePage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => saving = false);
@@ -2498,8 +2198,8 @@ class LiveOwnerRequestsPage extends StatelessWidget {
           }
         } catch (exception) {
           if (context.mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(exception.toString())));
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(friendlyError(exception))));
           }
         }
       }
@@ -2620,7 +2320,7 @@ class _OwnerRentalCard extends StatelessWidget {
     } catch (exception) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -2682,7 +2382,7 @@ class _OwnerRentalCard extends StatelessWidget {
           } catch (exception) {
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(exception.toString())),
+                SnackBar(content: Text(friendlyError(exception))),
               );
             }
           }

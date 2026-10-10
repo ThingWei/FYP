@@ -1,3 +1,4 @@
+import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
@@ -76,17 +77,20 @@ class _LiveRenterShellState extends State<LiveRenterShell> {
               child: RentHubFeedbackState(
                 kind: FeedbackKind.loading,
                 title: 'Connecting to RentHub',
-                message: 'Loading your MongoDB marketplace data…',
+                message: 'Getting your marketplace ready…',
               ),
             )
           : controller.error != null && controller.profile == null
               ? SafeArea(
                   child: RentHubFeedbackState(
                     kind: FeedbackKind.error,
-                    title: 'Backend unavailable',
+                    title: controller.errorTitle,
                     message: controller.error!,
-                    actionLabel: 'Try Again',
-                    onAction: _load,
+                    actionLabel: controller.sessionExpired
+                        ? 'Sign in again'
+                        : 'Try Again',
+                    onAction:
+                        controller.sessionExpired ? widget.onLogout : _load,
                   ),
                 )
               : IndexedStack(index: index, children: pages),
@@ -186,7 +190,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted) setState(() => searching = false);
@@ -528,7 +532,8 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                                         ScaffoldMessenger.of(context)
                                             .showSnackBar(
                                           SnackBar(
-                                            content: Text(exception.toString()),
+                                            content:
+                                                Text(friendlyError(exception)),
                                           ),
                                         );
                                       }
@@ -1014,7 +1019,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
           .getRenterListingAvailability(widget.listing.id);
       if (mounted) setState(() => availability = loaded);
     } catch (exception) {
-      if (mounted) setState(() => availabilityError = exception.toString());
+      if (mounted) setState(() => availabilityError = friendlyError(exception));
     } finally {
       if (mounted) setState(() => availabilityLoading = false);
     }
@@ -1145,7 +1150,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
     details.dispose();
@@ -1168,7 +1173,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -1348,7 +1353,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
           }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(exception.toString())),
+            SnackBar(content: Text(friendlyError(exception))),
           );
         }
       }
@@ -1895,7 +1900,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
       } catch (exception) {
         if (mounted) {
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(exception.toString())));
+              .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
         }
       }
     }
@@ -2041,7 +2046,7 @@ class _RenterRentalActions extends StatelessWidget {
     } catch (exception) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -2184,7 +2189,7 @@ class _RenterRentalActions extends StatelessWidget {
                 } catch (exception) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(exception.toString())),
+                      SnackBar(content: Text(friendlyError(exception))),
                     );
                   }
                 }

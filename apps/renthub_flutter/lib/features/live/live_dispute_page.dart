@@ -1,3 +1,4 @@
+import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
@@ -45,7 +46,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -58,7 +59,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -116,7 +117,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -141,7 +142,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(exception.toString())));
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
   }
@@ -243,7 +244,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
       } catch (exception) {
         if (mounted) {
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(exception.toString())));
+              .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
         }
       }
     } else if (accepted == true && mounted) {

@@ -311,18 +311,6 @@ void main() {
           'queryMatch': 'exact',
         },
       ],
-      [
-        {
-          'entityType': 'product',
-          'brand': 'Sony Group',
-          'model': 'Sony Alpha 7S III',
-          'canonicalProductId': 'wikidata:Q123',
-          'catalogBrandId': 'wikidata:Q41187',
-          'catalogSource': 'wikidata',
-          'description': 'Mirrorless camera',
-          'queryMatch': 'fuzzy',
-        },
-      ],
       {
         'available': true,
         'suggested_daily_price': 92.5,
@@ -356,38 +344,37 @@ void main() {
     );
     final brandField = find.widgetWithText(TextFormField, 'Brand / maker');
     await tester.ensureVisible(brandField);
-    await tester.enterText(brandField, 'Sony');
-    await tester.pump(const Duration(milliseconds: 450));
-    await tester.pump();
-    expect(
-      find.text('Catalog matches found. Select the correct result.'),
-      findsOneWidget,
-    );
+    await tester.tap(brandField);
+    await tester.pumpAndSettle();
+    expect(find.text('Choose a brand'), findsOneWidget);
     await tester.tap(find.text('Sony Group'));
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('Sony Alpha 7S III'), findsOneWidget);
 
-    final modelField =
-        find.widgetWithText(TextFormField, 'Exact product / model');
-    await tester.enterText(modelField, 'Sony Alpha 7S III');
-    await tester.pump(const Duration(milliseconds: 450));
-    await tester.pump();
     await tester.tap(find.text('Sony Alpha 7S III').last);
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(
+        tester
+            .widget<TextFormField>(find.widgetWithText(TextFormField, 'Model',
+                skipOffstage: false))
+            .controller!
+            .text,
+        'Sony Alpha 7S III');
 
-    final suggestButton = find.text('Get AI price suggestion');
+    final suggestButton = find.text('Suggest a daily price');
     await tester.ensureVisible(suggestButton);
     await tester.tap(suggestButton);
     await tester.pumpAndSettle();
-    expect(find.textContaining('Suggested RM 92.50'), findsOneWidget);
+    expect(api.calls.length, 3,
+        reason: api.calls.map((call) => call.$2).join('\n'));
+    expect(find.text('RM 92.50 / day'), findsOneWidget);
 
-    final acceptButton = find.text('Use suggested price');
+    final acceptButton = find.text('Use this price');
     final acceptControl = find.ancestor(
       of: acceptButton,
-      matching: find.byType(TextButton),
+      matching: find.byType(FilledButton),
     );
-    tester.widget<TextButton>(acceptControl).onPressed!();
+    tester.widget<FilledButton>(acceptControl).onPressed!();
     await tester.pump();
     final priceField = find.widgetWithText(
       TextFormField,
@@ -418,14 +405,15 @@ void main() {
     );
     final brandField = find.widgetWithText(TextFormField, 'Brand / maker');
     await tester.ensureVisible(brandField);
-    await tester.enterText(brandField, 'Unknown maker');
-    await tester.pump(const Duration(milliseconds: 450));
-    await tester.pump();
+    await tester.tap(brandField);
+    await tester.pumpAndSettle();
     expect(
-      find.text('No catalog match found. Manual entry is still available.'),
+      find.text('No matches found. Try another search or enter manually.'),
       findsOneWidget,
     );
-    expect(find.byIcon(Icons.cloud_off_outlined), findsNothing);
+    expect(find.text('Enter manually'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
 
     final unavailableApi = RecordingOwnerApiClient([
       ApiException(
@@ -445,16 +433,15 @@ void main() {
     final unavailableBrandField =
         find.widgetWithText(TextFormField, 'Brand / maker');
     await tester.ensureVisible(unavailableBrandField);
-    await tester.enterText(unavailableBrandField, 'Toyota');
-    await tester.pump(const Duration(milliseconds: 450));
-    await tester.pump();
-    expect(find.byIcon(Icons.cloud_off_outlined), findsOneWidget);
+    await tester.tap(unavailableBrandField);
+    await tester.pumpAndSettle();
+    expect(find.text('Enter manually'), findsOneWidget);
     expect(
       find.textContaining('temporarily unavailable'),
       findsOneWidget,
     );
     expect(
-      find.text('No catalog match found. Manual entry is still available.'),
+      find.text('No matches found. Try another search or enter manually.'),
       findsNothing,
     );
     expect(tester.takeException(), isNull);

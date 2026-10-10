@@ -46,7 +46,9 @@ void main() {
     );
 
     expect(controller.selectedRole, UserRole.renter);
-    expect(controller.error, contains('Role persistence failed'));
+    expect(controller.error, 'Something went wrong. Please try again.');
+    expect(
+        controller.lastError.toString(), contains('Role persistence failed'));
   });
 
   test('mock password reset completes without authenticating', () async {

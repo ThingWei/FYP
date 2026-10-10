@@ -162,10 +162,14 @@ async function searchVehicles(input) {
       })
       .slice(0, env.catalogMaxResults);
   }
-  const makeId = rawCanonicalId(input.catalogBrandId, 'nhtsa-vpic');
+  let makeId = rawCanonicalId(input.catalogBrandId, 'nhtsa-vpic');
+  if (!/^\d+$/.test(makeId)) {
+    makeId = (await vehicleMakes(vehicleType)).find((item) =>
+      [item.label, ...(item.aliases ?? [])].some((name) => normalized(name) === normalized(input.brand)))?.id ?? '';
+  }
   if (!/^\d+$/.test(makeId)) return [];
   const url = new URL(
-    `/api/vehicles/GetModelsForMakeId/${encodeURIComponent(makeId)}`,
+    `/api/vehicles/GetModelsForMakeIdYear/makeId/${encodeURIComponent(makeId)}/vehicletype/${vehicleType}`,
     env.catalogVehicleProviderUrl,
   );
   url.searchParams.set('format', 'json');
@@ -217,7 +221,12 @@ SELECT DISTINCT ?manufacturer ?manufacturerLabel WHERE {
       source: 'wikidata-smartphones',
     })));
   }
-  const brandId = rawCanonicalId(input.catalogBrandId, 'wikidata-smartphones');
+  let brandId = rawCanonicalId(input.catalogBrandId, 'wikidata-smartphones');
+  if (!/^Q\d+$/.test(brandId)) {
+    const brands = await searchSmartphones({ ...input, entityType: 'brand', query: input.brand });
+    brandId = brands.find((item) => [item.label, ...(item.aliases ?? [])]
+      .some((name) => normalized(name) === normalized(input.brand)))?.id ?? '';
+  }
   if (!/^Q\d+$/.test(brandId)) return [];
   const queryFilter = normalized(input.query)
     ? `FILTER(CONTAINS(LCASE(?modelLabel), ${sparqlString(input.query)}))`
@@ -244,11 +253,12 @@ SELECT DISTINCT ?model ?modelLabel WHERE {
 
 async function searchBooks(input) {
   if (input.entityType === 'brand') {
+    if (!normalized(input.query)) return [];
     const url = new URL('/search/authors.json', env.catalogBookProviderUrl);
     url.searchParams.set('q', input.query);
     url.searchParams.set('limit', String(env.catalogMaxResults));
     const payload = await getJson(url);
-    return unique((payload.docs ?? []).map((author) => ({
+    const authors = unique((payload.docs ?? []).map((author) => ({
       id: String(author.key ?? '').replace('/authors/', ''),
       label: String(author.name ?? '').trim(),
       aliases: author.alternate_names ?? [],
@@ -257,9 +267,26 @@ async function searchBooks(input) {
         : 'Author in the Open Library catalog',
       source: 'openlibrary',
     })));
+    const valid = [];
+    for (const author of authors.slice(0, 5)) {
+      if (searchCuratedCatalog({ ...input, query: author.label }).some((item) => normalized(item.label) === normalized(author.label))) {
+        valid.push(author);
+      } else if (/^OL\d+A$/i.test(author.id)) {
+        const worksUrl = new URL(`/authors/${author.id}/works.json`, env.catalogBookProviderUrl);
+        worksUrl.searchParams.set('limit', '20');
+        const works = await getJson(worksUrl);
+        if ((works.entries ?? []).some((work) => bookMatchesDomain(work, input))) valid.push(author);
+      }
+    }
+    return valid;
   }
-  const authorId = rawCanonicalId(input.catalogBrandId, 'openlibrary')
+  let authorId = rawCanonicalId(input.catalogBrandId, 'openlibrary')
     .replace('/authors/', '');
+  if (!/^OL\d+A$/i.test(authorId)) {
+    const authors = await searchBooks({ ...input, entityType: 'brand', query: input.brand });
+    authorId = authors.find((author) => [author.label, ...(author.aliases ?? [])]
+      .some((name) => normalized(name) === normalized(input.brand)))?.id ?? '';
+  }
   if (!/^OL\d+A$/i.test(authorId)) return [];
   const url = new URL(
     `/authors/${encodeURIComponent(authorId)}/works.json`,
@@ -268,7 +295,7 @@ async function searchBooks(input) {
   url.searchParams.set('limit', String(Math.max(env.catalogMaxResults * 4, 40)));
   const payload = await getJson(url);
   const query = normalized(input.query);
-  return unique((payload.entries ?? []).map((work) => ({
+  return unique((payload.entries ?? []).filter((work) => bookMatchesDomain(work, input)).map((work) => ({
     id: String(work.key ?? '').replace('/works/', ''),
     label: String(work.title ?? '').trim(),
     aliases: [],
@@ -279,12 +306,22 @@ async function searchBooks(input) {
     .slice(0, env.catalogMaxResults);
 }
 
+export function bookMatchesDomain(work, input) {
+  const known = searchCuratedCatalog({ ...input, entityType: 'product', query: '' });
+  if (known.some((item) => normalized(item.label) === normalized(work.title))) return true;
+  const subjects = normalized((work.subjects ?? []).join(' '));
+  const terms = {
+    Textbooks: ['textbook', 'study and teaching', 'problems exercises', 'college textbook'],
+    'Reference books': ['encyclopedia', 'encyclopedias', 'dictionary', 'dictionaries', 'reference'],
+    Fiction: ['fiction', 'novel', 'fantasy', 'mystery'],
+    'Other books': ['guidebook', 'travel', 'nonfiction', 'non fiction', 'cookbook', 'biography'],
+  };
+  return (terms[input.subcategory] ?? []).some((term) => subjects.includes(term));
+}
+
 export function isValidWikidataFallback(item, input) {
   const text = normalized(`${item.label} ${item.description} ${(item.aliases ?? []).join(' ')}`);
-  const domainTerms = [
-    ...(categoryTerms[input.category] ?? []),
-    ...(subcategoryTerms[input.subcategory] ?? []),
-  ];
+  const domainTerms = subcategoryTerms[input.subcategory] ?? categoryTerms[input.category] ?? [];
   const hasDomain = domainTerms.some((term) => text.includes(term));
   if (!hasDomain) return false;
   if (input.entityType === 'brand') {
@@ -317,6 +354,8 @@ export function rankCatalogProviderItems(items, input) {
 }
 
 async function searchValidatedWikidata(input) {
+  // Browsing must never become an unrestricted general entity search.
+  if (!normalized(input.query)) return [];
   const url = new URL(env.catalogProviderUrl);
   url.search = new URLSearchParams({
     action: 'wbsearchentities',
@@ -352,15 +391,30 @@ async function search(input) {
   const attempted = [];
   const errors = [];
   let successfulProvider = null;
+  const collected = [];
   for (const strategy of catalogProviderStrategies(input)) {
+    if (strategy === 'wikidata-validated' && collected.length) continue;
     attempted.push(strategy);
     try {
       const items = await providers[strategy](input);
       successfulProvider = strategy;
-      if (items.length) return { provider: strategy, attempted, items };
+      collected.push(...items);
     } catch (error) {
       errors.push(`${strategy}: ${error.message}`);
     }
+  }
+  if (collected.length) {
+    const seen = new Set();
+    const brand = normalized(input.brand);
+    const items = collected.filter((item) => {
+      let key = normalized(item.label);
+      if (input.entityType !== 'brand' && key.startsWith(`${brand} `)) key = key.slice(brand.length + 1);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return { provider: collected[0].source, attempted, items,
+      providerAvailable: errors.length === 0 };
   }
   if (successfulProvider && errors.length === 0) {
     return { provider: successfulProvider, attempted, items: [] };

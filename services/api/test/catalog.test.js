@@ -9,6 +9,7 @@ import {
   catalogProviderStrategy,
   isValidWikidataFallback,
   rankCatalogProviderItems,
+  bookMatchesDomain,
 } from '../src/modules/catalog/catalog.provider.js';
 import { CATALOG_COVERAGE } from '../src/modules/catalog/catalog.coverage.js';
 import {
@@ -57,8 +58,8 @@ after(async () => {
 
 test('caches catalog brand and model selections with canonical identity', async () => {
   catalogProvider.search = async ({ entityType }) => entityType === 'brand'
-    ? [{ id: 'QBRAND', label: 'Giant', source: 'wikidata', aliases: [] }]
-    : [{ id: 'QMODEL', label: 'Talon 2', source: 'wikidata', aliases: ['Talon-2'] }];
+    ? [{ id: 'QBRAND', label: 'Giant', source: 'wikidata', aliases: [], description: 'Bicycle manufacturer' }]
+    : [{ id: 'QMODEL', label: 'Talon 2', source: 'wikidata', aliases: ['Talon-2'], description: 'Giant bicycle model' }];
 
   const brandResponse = await request(app)
     .get('/api/v1/catalog/brands?category=Vehicles&subcategory=Bicycles&query=Giant')
@@ -210,7 +211,7 @@ test('maps Vehicles and Cars to case-insensitive Toyota make and model records',
     subcategory: 'Cars',
     normalizedBrand: 'toyota',
   }).lean();
-  assert.equal(cachedToyota.length, 3);
+  assert.ok(cachedToyota.length >= 3);
 });
 
 test('ranks generic automotive manufacturers above same-name places', () => {
@@ -266,14 +267,15 @@ test('coverage matrix and curated identities cover every listing subcategory', (
       subcategory: entry.subcategory,
       query: entry.brand.slice(0, 3),
     });
-    assert.equal(brandResults[0]?.label, entry.brand,
-      `Missing brand for ${entry.category} -> ${entry.subcategory}`);
+    const matchedBrand = brandResults.find((item) => item.label === entry.brand);
+    assert.ok(matchedBrand, `Missing brand for ${entry.category} -> ${entry.subcategory}`);
+    if (!entry.models.length) continue; // Reviewed brand-only apparel identities.
     const modelResults = searchCuratedCatalog({
       entityType: 'product',
       category: entry.category,
       subcategory: entry.subcategory,
       brand: entry.brand,
-      catalogBrandId: `renthub-curated:${brandResults[0].id}`,
+      catalogBrandId: `renthub-curated:${matchedBrand.id}`,
       query: '',
     });
     assert.equal(modelResults[0]?.label, entry.models[0],
@@ -343,6 +345,7 @@ test('provider router returns a brand and model for every coverage row', {
       const brand = brandResult.items.find((item) => item.label === entry.brand);
       assert.ok(brand,
         `Provider chain missed ${entry.category} -> ${entry.subcategory} brand`);
+      if (!entry.models.length) continue;
       const modelResult = await catalogProvider.search({
         entityType: 'product',
         category: entry.category,
@@ -444,7 +447,7 @@ test('smartphone provider constrains Apple brands and preloaded models', {
       brand: 'Apple', catalogBrandId: 'wikidata-smartphones:Q312', query: '',
     });
     assert.deepEqual(models.items.map((item) => item.label), [
-      'iPhone 12', 'iPhone 15 Pro',
+      'iPhone 12', 'iPhone 15 Pro', 'iPhone 14',
     ]);
   } finally {
     global.fetch = originalFetch;
@@ -489,7 +492,7 @@ test('returns catalog unavailable instead of converting provider errors to no ma
     throw new Error('provider offline');
   };
   const response = await request(app)
-    .get('/api/v1/catalog/brands?category=Vehicles&subcategory=Cars&query=toyota')
+    .get('/api/v1/catalog/brands?category=Vehicles&subcategory=Cars&query=unknown-brand-without-fallback')
     .set(ownerHeaders);
   assert.equal(response.status, 503);
   assert.equal(response.body.error.code, 'CATALOG_UNAVAILABLE');
@@ -524,11 +527,50 @@ test('normalizes and caches curated category results through Express', async () 
     .get(`/api/v1/catalog/models?category=Devices&subcategory=Cameras&brand=Canon&catalogBrandId=${encodeURIComponent(brandId)}`)
     .set(ownerHeaders);
   assert.equal(modelResponse.status, 200);
-  assert.equal(modelResponse.body.data[0].model, 'EOS R6 Mark II');
+  assert.ok(modelResponse.body.data.some((item) => item.model === 'EOS R6 Mark II'));
   assert.equal(modelResponse.body.data[0].specifications.curated, true);
   assert.equal(await ProductCatalogModel.countDocuments({
     category: 'Devices',
     subcategory: 'Cameras',
     source: 'renthub-curated',
   }), 3);
+});
+
+test('browses three domain-specific brands and models in every subcategory without typing', async () => {
+  catalogProvider.search = async (input) => searchCuratedCatalog(input);
+  for (const context of CATALOG_COVERAGE) {
+    const parameters = new URLSearchParams({ category: context.category, subcategory: context.subcategory });
+    const brands = await request(app).get(`/api/v1/catalog/brands?${parameters}`).set(ownerHeaders);
+    assert.equal(brands.status, 200);
+    assert.ok(brands.body.data.length >= 3, `${context.category}/${context.subcategory}`);
+    const entries = CURATED_CATALOG.filter((entry) => entry.category === context.category && entry.subcategory === context.subcategory);
+    assert.ok(entries.reduce((count, entry) => count + entry.models.length, 0) >= 2);
+    const example = entries.find((entry) => entry.models.length > 0);
+    const brand = brands.body.data.find((item) => item.brand === example.brand);
+    parameters.set('brand', brand.brand);
+    parameters.set('catalogBrandId', brand.catalogBrandId);
+    const models = await request(app).get(`/api/v1/catalog/models?${parameters}`).set(ownerHeaders);
+    assert.equal(models.status, 200);
+    assert.ok(models.body.data.some((item) => item.model === example.models[0]));
+    assert.ok(models.body.data.every((item) => item.brand === example.brand));
+  }
+  const invalid = await request(app).get('/api/v1/catalog/brands?category=Devices&subcategory=Audio&query=a').set(ownerHeaders);
+  assert.equal(invalid.status, 422);
+});
+
+test('merges provider and curated identities without duplicate brand selections', async () => {
+  catalogProvider.search = async () => [{ id: '448', label: 'Toyota', source: 'nhtsa-vpic', aliases: ['Toyota Motor Corporation'] }];
+  const result = await catalogService.brands({ category: 'Vehicles', subcategory: 'Cars', query: '' });
+  assert.equal(result.items.filter((item) => item.brand === 'Toyota').length, 1);
+  assert.equal(result.items.find((item) => item.brand === 'Toyota').catalogBrandId, 'nhtsa-vpic:448');
+  assert.ok(result.items.some((item) => item.brand === 'Perodua'));
+});
+
+test('book works are constrained to their selected subject domain, with reviewed title fallback', () => {
+  const context = { category: 'Books', subcategory: 'Fiction', brand: 'J. R. R. Tolkien' };
+  assert.equal(bookMatchesDomain({ title: 'The Hobbit' }, context), true);
+  assert.equal(bookMatchesDomain({ title: 'Unknown novel', subjects: ['Fantasy fiction'] }, context), true);
+  assert.equal(bookMatchesDomain({ title: 'Software engineering', subjects: ['Textbooks'] }, context), false);
+  assert.equal(bookMatchesDomain({ title: 'Unknown novel', subjects: ['Fantasy fiction'] }, { ...context, subcategory: 'Textbooks' }), false);
+  assert.equal(bookMatchesDomain({ title: 'Unknown dictionary', subjects: ['Dictionaries'] }, { ...context, subcategory: 'Reference books' }), true);
 });

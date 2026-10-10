@@ -1,6 +1,110 @@
 # RentHub product catalog coverage result
 
-Date: 4 October 2026
+## 10 October 2026: searchable selection and expanded starter identities
+
+Brand opens a searchable sheet with an initial list. Choosing a brand immediately
+opens a model sheet with its first page. Books display **Author/publisher** and
+**Title/edition**. Search needs two characters; browsing needs none. The sheets
+always offer manual entry, including during loading, empty results and outages.
+Manual/catalogue switches preserve text but clear obsolete product IDs and price
+estimates. Saved selections remain visible even if absent from the current page.
+Request versions and identity/context snapshots discard stale results.
+
+### Current coverage and representative test matrix
+
+Every row below passes query-less brand browsing (at least three brands/authors)
+and one matching model-page regression. There are at least two distinct named
+products/titles **per subcategory**, not necessarily for every brand. Brand-only
+apparel entries deliberately offer manual garment names rather than invented SKUs.
+
+| Category | Subcategory | Starter brands/authors | Tested brand → product/title | Provider | Test |
+| --- | --- | --- | --- | --- | --- |
+| Devices | Smartphones | Apple, Samsung, Google | Apple → iPhone 15 Pro | smartphone graph + curated | PASS |
+| Devices | Cameras | Canon, Sony, Nikon | Canon → EOS R6 Mark II | curated | PASS |
+| Devices | Computers | Dell, Apple, Lenovo | Dell → XPS 13 | curated | PASS |
+| Devices | Audio | Sony, JBL, Bose | Sony → WH-1000XM5 | curated | PASS |
+| Devices | Gaming | Nintendo, Sony, Microsoft | Nintendo → Switch OLED | curated | PASS |
+| Devices | Other devices | Garmin, Apple, Samsung | Garmin → Instinct 2 | curated | PASS |
+| Vehicles | Cars | Toyota, Perodua, Proton | Toyota → Camry | vPIC + curated | PASS |
+| Vehicles | Motorcycles | Yamaha, Honda, Kawasaki | Yamaha → Y15ZR | vPIC + curated | PASS |
+| Vehicles | Bicycles | Giant, Trek, Specialized | Giant → Talon 2 | curated | PASS |
+| Vehicles | Other vehicles | Segway, Xiaomi, Razor | Segway → Ninebot Max G2 | curated | PASS |
+| Equipment | Event equipment | Yamaha, Epson, BenQ | Yamaha → MG10XU | curated | PASS |
+| Equipment | Tools | Bosch, Makita, DeWalt | Bosch → GSB 18V-50 | curated | PASS |
+| Equipment | Sports equipment | Wilson, Yonex, Head | Wilson → Pro Staff 97 | curated | PASS |
+| Equipment | Other equipment | Karcher, Dyson, Nilfisk | Karcher → K2 Power Control | curated | PASS |
+| Books | Textbooks | James Stewart, OpenStax, David Halliday | James Stewart → Calculus | Open Library + curated | PASS |
+| Books | Reference books | DK, Oxford University Press, Merriam-Webster | DK → Knowledge Encyclopedia | Open Library + curated | PASS |
+| Books | Fiction | J. R. R. Tolkien, J. K. Rowling, Agatha Christie | Tolkien → The Lord of the Rings | Open Library + curated | PASS |
+| Books | Other books | Lonely Planet, Rick Steves, DK | Lonely Planet → Malaysia | Open Library + curated | PASS |
+| Clothing | Formal wear | Padini, Hugo Boss, Uniqlo | Hugo Boss → Huge/Genius Suit | curated | PASS |
+| Clothing | Costumes | Rubie's, Disguise, Smiffys | Rubie's → Wicked Witch Deluxe Adult Costume | curated | PASS |
+| Clothing | Traditional wear | Jakel, Ariani, Rizman Ruzaini | Ariani → Afshin Baju Kurung | curated | PASS |
+| Clothing | Other clothing | Uniqlo, The North Face, Columbia | Uniqlo → Ultra Light Down Jacket | curated | PASS |
+
+All rows additionally use valid MongoDB cache, validated Wikidata on non-empty
+search when no useful domain results exist, and unconditional manual fallback.
+No manufacturer-specific API was added. Identity source links are stored on
+every curated row in `catalog.curated.js` and normalized into
+`specifications.identitySourceUrl`. These are manufacturer/publisher product or
+collection pages, not rental-price sources. Some older product families may
+require archived documentation or manual variant/edition entry.
+
+### Provider, merge and identity rules
+
+- Curated entries supplement structured providers, rather than being discarded
+  after the first provider succeeds. Fresh/stale valid cache is merged too.
+- Equivalent labels/aliases are deduplicated in category/subcategory context;
+  a returned structured entry retains its actual provider ID. Model equivalence
+  also removes redundant leading brand names. This is not global SKU resolution.
+- Empty-query browsing never launches unrestricted generic Wikidata text search.
+  Cars/motorcycles can browse typed vPIC makes; smartphones use the existing
+  classified manufacturer graph. Books initially use curated/cache identities.
+- vPIC model queries include vehicle type, including when resolving a curated
+  make label to a provider ID. This avoids motorcycle/car cross-contamination.
+  Type-only model queries are documented by [NHTSA vPIC](https://vpic.nhtsa.dot.gov/api/).
+- Smartphone graph models require the selected manufacturer and smartphone class.
+  Open Library authors/works now require relevant subcategory subjects or a known
+  curated title. A curated author ID can resolve to the corresponding provider ID.
+- General Wikidata fallback and its cache require **subcategory** semantics, not
+  just broad category text. Underclassified legitimate products can be omitted.
+- Legacy generic apparel style names were removed from starter suggestions.
+  Existing saved listings are not migrated or deleted. Named examples include
+  [Hugo Boss Huge/Genius](https://www.hugoboss.com/us/virgin-wool-suit-slim-fit-huge%2Fgenius/hbna50275643_021.html),
+  [Uniqlo AirSense](https://www.uniqlo.com/my/en/special-feature/airsense/women),
+  [Disguise costumes](https://disguise.com/brand/mario.html), and
+  [Ariani collections](https://www.arianionline.my/).
+
+### Price evidence remains independent
+
+Curated identities contain no price rules. Separately reviewed CSV observations
+live in `pricing_references`, never `bookings` or `product_catalog` prices.
+See [pricing result](AI_PRICING_PRODUCT_CATALOG_RESULT.md) for import instructions,
+provenance and inference limits. More identity choices do not imply more
+completed rentals or a validated product-specific price.
+
+### Current verification and remaining limits
+
+- Relevant API suite: 56 passed, one optional live-AI E2E skipped.
+- Flutter full suite: 203 passed, three skipped; new picker/import UI suite:
+  12 passed, including 360/390 px picker, 390/1024/1440 px admin and larger text.
+- AI pricing suite: 16 passed. Flutter web build passed.
+- Targeted Flutter analysis is clean. Full analysis retains two unrelated existing
+  Auth0 test named-parameter errors in `test/auth0_persistence_test.dart`
+  (`latestLinkProvider`, `mobileLinkPollInterval`).
+- Provider tests use controlled fixtures, not a guarantee that every external
+  provider is currently online. Public rental source pages were checked separately.
+- Full catalogue coverage means a reviewed starter strategy for all 22 domains,
+  not every Malaysian brand, variant, size or edition. Manual entry stays essential.
+- Native Android/iOS file picking was not device-tested; administrator CSV selection
+  was verified with Tab/Enter and generated mobile/desktop previews were inspected;
+  the selection/import logic and responsive layout have automated widget coverage.
+- No existing uncommitted work, live database history or Auth0 configuration was
+  reset. No production dependency, retraining or automated scraping was added.
+
+## Earlier implementation details
+
+Historical baseline: 4 October 2026 (verification figures below belong to that earlier implementation).
 
 ## Architecture
 
@@ -8,7 +112,7 @@ Date: 4 October 2026
 Flutter Owner listing form
   -> existing authenticated RentHub Express catalog API
   -> category/subcategory coverage resolver
-  -> ordered provider chain
+  -> merged provider/curated/cache strategy
   -> common RentHub brand/model schema
   -> MongoDB product_catalog cache
   -> explicit manual-entry fallback
@@ -46,9 +150,9 @@ rental price or pricing adjustment is stored there.
 | Books | Reference books | Open Library author/works | RentHub curated -> validated Wikidata -> manual | DK -> Knowledge Encyclopedia |
 | Books | Fiction | Open Library author/works | RentHub curated -> validated Wikidata -> manual | J. R. R. Tolkien -> The Lord of the Rings |
 | Books | Other books | Open Library author/works | RentHub curated -> validated Wikidata -> manual | Lonely Planet -> Malaysia |
-| Clothing | Formal wear | RentHub curated | validated Wikidata -> manual | Padini -> Slim Fit Two-Piece Suit |
-| Clothing | Costumes | RentHub curated | validated Wikidata -> manual | Rubie's -> Darth Vader Costume |
-| Clothing | Traditional wear | RentHub curated | validated Wikidata -> manual | Jakel -> Baju Melayu Modern |
+| Clothing | Formal wear | RentHub curated | validated Wikidata -> manual | Hugo Boss -> Huge/Genius Suit; Uniqlo -> AirSense Jacket |
+| Clothing | Costumes | RentHub curated | validated Wikidata -> manual | Disguise -> Luigi Classic Adult |
+| Clothing | Traditional wear | RentHub curated | validated Wikidata -> manual | Ariani -> Afshin Baju Kurung |
 | Clothing | Other clothing | RentHub curated | validated Wikidata -> manual | Uniqlo -> Ultra Light Down Jacket |
 
 Unknown future subcategories receive `validated Wikidata -> manual-entry` until
@@ -70,8 +174,8 @@ they are deliberately added to the matrix.
 
 ### Curated fallback
 
-The curated catalog guarantees at least one reviewed brand and two model
-identities for every current specific-category dropdown value. It is intentionally
+The curated catalog guarantees at least three reviewed brands/authors and two named product/title
+examples per subcategory for every current specific-category dropdown value. It is intentionally
 small and version-controlled. It is not a claim of complete worldwide product
 coverage and is not a price dataset.
 
@@ -106,7 +210,7 @@ No provider and no curated record supplies rental prices. Catalog identity is
 used only to improve comparable matching. Pricing remains:
 
 ```text
-MongoDB completed rentals / active comparables
+MongoDB completed rentals / active comparables / reviewed asking-price references
   -> renthub-price-v2 request
   -> trained XGBoost artifact
   -> calibrated suggestion and confidence

@@ -12,7 +12,10 @@ const common = [
   query('query').custom(textInput).bail().trim().isLength({ min: 2, max: 80 }),
 ];
 
-export const brandCatalogValidation = common;
+export const brandCatalogValidation = [
+  ...context,
+  query('query').optional({ checkFalsy: true }).custom(textInput).bail().trim().isLength({ min: 2, max: 80 }),
+];
 export const modelCatalogValidation = [
   ...context,
   query('query').optional({ checkFalsy: true }).custom(textInput).bail().trim().isLength({ min: 2, max: 80 }),

@@ -1,3 +1,4 @@
+import '../../core/network/user_facing_error.dart';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -70,8 +71,109 @@ Future<String?> pickAndPreviewUpload(
         purpose: purpose,
         allowPdf: allowPdf,
         publicUrl: publicUrl,
-        confirmSelection: (bytes, name) =>
-            confirmPhotoSelection(context, bytes, name),
+        uploadSelection: (bytes, name, upload) async {
+          if (!isPdfBytes(bytes)) {
+            try {
+              final codec = await ui.instantiateImageCodec(bytes);
+              final frame = await codec.getNextFrame();
+              frame.image.dispose();
+              codec.dispose();
+            } catch (_) {
+              throw ApiException(400, 'Image cannot be previewed',
+                  code: 'INVALID_PHOTO');
+            }
+          }
+          if (!context.mounted) return null;
+          return showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => PhotoUploadPreview(
+                bytes: bytes, filename: name, upload: upload),
+          );
+        },
+      );
+}
+
+/// Keeps the selected bytes in memory until upload succeeds or is cancelled.
+class PhotoUploadPreview extends StatefulWidget {
+  const PhotoUploadPreview(
+      {super.key,
+      required this.bytes,
+      required this.filename,
+      required this.upload});
+  final Uint8List bytes;
+  final String filename;
+  final Future<String> Function() upload;
+  @override
+  State<PhotoUploadPreview> createState() => _PhotoUploadPreviewState();
+}
+
+class _PhotoUploadPreviewState extends State<PhotoUploadPreview> {
+  bool busy = false;
+  String? error;
+  Future<void> _upload() async {
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final reference = await widget.upload();
+      if (mounted) Navigator.pop(context, reference);
+    } catch (exception) {
+      if (mounted) setState(() => error = friendlyError(exception));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: !busy,
+        child: AlertDialog(
+          title:
+              Text(isPdfBytes(widget.bytes) ? 'Preview file' : 'Preview photo'),
+          content: SizedBox(
+            width: 600,
+            child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(widget.filename,
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 12),
+              SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.32,
+                  child: isPdfBytes(widget.bytes)
+                      ? const Center(
+                          child: Text(
+                              'PDF selected. A photo preview is not available.'))
+                      : InteractiveViewer(
+                          maxScale: 5,
+                          child:
+                              Image.memory(widget.bytes, fit: BoxFit.contain))),
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                Text(error!, style: const TextStyle(color: AppColors.error)),
+                const Text(
+                    'Your selected file is still here. You can retry without choosing it again.'),
+              ],
+              if (busy)
+                const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: LinearProgressIndicator()),
+            ])),
+          ),
+          actions: [
+            TextButton(
+                onPressed: busy ? null : () => Navigator.pop(context),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: busy ? null : _upload,
+                child: Text(busy
+                    ? 'Uploading…'
+                    : error != null
+                        ? 'Retry upload'
+                        : 'Upload')),
+          ],
+        ),
       );
 }
 
