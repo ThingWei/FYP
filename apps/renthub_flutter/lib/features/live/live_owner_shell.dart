@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -122,17 +124,23 @@ class LiveOwnerDashboard extends StatelessWidget {
 
   Future<void> _flag(BuildContext context, Review review) async {
     final reason = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Flag suspicious review?'),
-        content: TextField(
+        content: TextFormField(
           controller: reason,
           minLines: 2,
           maxLines: 4,
-          decoration: const InputDecoration(
+          decoration: (const InputDecoration(
             labelText: 'Reason for administrator review',
-          ),
+          )).copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.reasonForAdministratorReview.validate,
+          inputFormatters: InputValidation.formatters(
+              InputRules.reasonForAdministratorReview, reason),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          maxLength: InputRules.reasonForAdministratorReview.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
         ),
         actions: [
           TextButton(
@@ -140,7 +148,7 @@ class LiveOwnerDashboard extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Submit Flag'),
           ),
         ],
@@ -511,6 +519,11 @@ class LiveListingForm extends StatefulWidget {
 
 class _LiveListingFormState extends State<LiveListingForm> {
   final formKey = GlobalKey<FormState>();
+  final brandFieldKey = GlobalKey<FormFieldState<String>>();
+  final modelFieldKey = GlobalKey<FormFieldState<String>>();
+  final ageFieldKey = GlobalKey<FormFieldState<String>>();
+  final daysFieldKey = GlobalKey<FormFieldState<String>>();
+  final locationFieldKey = GlobalKey<FormFieldState<String>>();
   late final title = TextEditingController(text: widget.listing?.title);
   late final description =
       TextEditingController(text: widget.listing?.description);
@@ -541,6 +554,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   bool checkingIdentity = false;
   late String? savedListingId = widget.listing?.id;
   bool suggestingPrice = false;
+  bool validatingPricing = false;
   bool catalogLoading = false;
   bool brandSearchAttempted = false;
   bool modelSearchAttempted = false;
@@ -671,6 +685,12 @@ class _LiveListingFormState extends State<LiveListingForm> {
       modelCatalogError = null;
     });
     if (manualBrand || value.trim().length < 2) return;
+    if (value.trim().runes.length > 80 ||
+        InputRules.brandMaker.validate(value) != null) {
+      setState(() => brandCatalogError =
+          'Catalog searches allow up to 80 characters. Use a shorter search or manual entry.');
+      return;
+    }
     brandDebounce = Timer(const Duration(milliseconds: 400), () async {
       if (mounted) setState(() => catalogLoading = true);
       try {
@@ -721,6 +741,14 @@ class _LiveListingFormState extends State<LiveListingForm> {
     final requestedBrandId = catalogBrandId;
     final requestedBrand = brand.text.trim();
     if (manualModel || requestedBrandId == null) return;
+    if (query.runes.length > 80 ||
+        InputRules.productModel.validate(query) != null) {
+      if (mounted) {
+        setState(() => modelCatalogError =
+            'Catalog searches allow up to 80 characters. Use a shorter search or manual entry.');
+      }
+      return;
+    }
     if (mounted) setState(() => catalogLoading = true);
     try {
       final results =
@@ -904,6 +932,22 @@ class _LiveListingFormState extends State<LiveListingForm> {
   }
 
   Future<void> _suggestPrice() async {
+    var valid = true;
+    validatingPricing = true;
+    for (final key in [
+      brandFieldKey,
+      modelFieldKey,
+      ageFieldKey,
+      daysFieldKey,
+      locationFieldKey
+    ]) {
+      final field = key.currentState;
+      if (field != null && field.widget.enabled && !field.validate()) {
+        valid = false;
+      }
+    }
+    validatingPricing = false;
+    if (!valid) return;
     final age = double.tryParse(itemAge.text);
     final rentalDays = int.tryParse(expectedRentalDays.text);
     if (age == null || age < 0 || age > 100) {
@@ -1048,6 +1092,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   }
 
   Future<void> _save({bool submitForReview = true}) async {
+    if (!InputValidation.validate(context)) return;
     if (!formKey.currentState!.validate() || saving || checkingIdentity) return;
     if (submitForReview) {
       setState(() => checkingIdentity = true);
@@ -1150,16 +1195,31 @@ class _LiveListingFormState extends State<LiveListingForm> {
               children: [
                 TextFormField(
                   controller: title,
-                  decoration: const InputDecoration(labelText: 'Title'),
-                  validator: (value) => (value?.trim().length ?? 0) >= 3
-                      ? null
-                      : 'Enter at least 3 characters',
+                  decoration: (const InputDecoration(labelText: 'Title'))
+                      .copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputValidation.compose(
+                      InputRules.title.validate,
+                      (value) => (value?.trim().length ?? 0) >= 3
+                          ? null
+                          : 'Enter at least 3 characters'),
+                  inputFormatters:
+                      InputValidation.formatters(InputRules.title, title),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.title.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: description,
                   maxLines: 4,
-                  decoration: const InputDecoration(labelText: 'Description'),
+                  decoration: (const InputDecoration(labelText: 'Description'))
+                      .copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputRules.description.validate,
+                  inputFormatters: InputValidation.formatters(
+                      InputRules.description, description),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.description.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
                 const SizedBox(height: 12),
                 Card(
@@ -1307,8 +1367,9 @@ class _LiveListingFormState extends State<LiveListingForm> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: brand,
+                    key: brandFieldKey,
                     onChanged: _onBrandChanged,
-                    decoration: InputDecoration(
+                    decoration: (InputDecoration(
                       labelText: category == RentHubCategories.books
                           ? 'Author / publisher'
                           : 'Brand / maker',
@@ -1321,7 +1382,16 @@ class _LiveListingFormState extends State<LiveListingForm> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.search),
-                    ),
+                    )).copyWith(counterText: '', errorMaxLines: 3),
+                    validator: (value) => validatingPricing &&
+                            (value?.trim().isEmpty ?? true)
+                        ? 'Enter a brand or author before requesting a price'
+                        : InputRules.brandMaker.validate(value),
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.brandMaker, brand),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.brandMaker.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
                   _catalogSearchState(
                     results: brandSuggestions,
@@ -1364,17 +1434,27 @@ class _LiveListingFormState extends State<LiveListingForm> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: productModel,
+                    key: modelFieldKey,
                     enabled: brand.text.trim().isNotEmpty &&
                         (manualBrand || catalogBrandId != null),
                     onChanged: _onModelChanged,
-                    decoration: InputDecoration(
+                    decoration: (InputDecoration(
                       labelText: category == RentHubCategories.books
                           ? 'Exact title / edition'
                           : 'Exact product / model',
                       hintText: category == RentHubCategories.books
                           ? 'For example, The Lord of the Rings Trilogy'
                           : 'For example, iPhone 15 Pro Max 256GB',
-                    ),
+                    )).copyWith(counterText: '', errorMaxLines: 3),
+                    validator: (value) => validatingPricing &&
+                            (value?.trim().isEmpty ?? true)
+                        ? 'Enter the exact product before requesting a price'
+                        : InputRules.productModel.validate(value),
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.productModel, productModel),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.productModel.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
                   _catalogSearchState(
                     results: modelSuggestions,
@@ -1437,40 +1517,55 @@ class _LiveListingFormState extends State<LiveListingForm> {
                       Expanded(
                         child: TextFormField(
                           controller: itemAge,
+                          key: ageFieldKey,
                           onChanged: (_) => _clearPriceRecommendation(),
                           keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
+                              decimal: true),
+                          decoration: (const InputDecoration(
                             labelText: 'Item age (years)',
-                          ),
-                          validator: (value) {
+                          )).copyWith(counterText: '', errorMaxLines: 3),
+                          validator: InputValidation.compose(
+                              InputRules.itemAgeYears.validate, (value) {
                             final parsed = double.tryParse(value ?? '');
                             return parsed != null &&
                                     parsed >= 0 &&
                                     parsed <= 100
                                 ? null
                                 : 'Use 0 to 100';
-                          },
+                          }),
+                          inputFormatters: InputValidation.formatters(
+                              InputRules.itemAgeYears, itemAge),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength: InputRules.itemAgeYears.maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextFormField(
                           controller: expectedRentalDays,
+                          key: daysFieldKey,
                           onChanged: (_) => _clearPriceRecommendation(),
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
+                          decoration: (const InputDecoration(
                             labelText: 'Typical rental days',
-                          ),
-                          validator: (value) {
+                          )).copyWith(counterText: '', errorMaxLines: 3),
+                          validator: InputValidation.compose(
+                              InputRules.typicalRentalDays.validate, (value) {
                             final parsed = int.tryParse(value ?? '');
                             return parsed != null &&
                                     parsed >= 1 &&
                                     parsed <= 365
                                 ? null
                                 : 'Use 1 to 365';
-                          },
+                          }),
+                          inputFormatters: InputValidation.formatters(
+                              InputRules.typicalRentalDays, expectedRentalDays),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength: InputRules.typicalRentalDays.maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
                         ),
                       ),
                     ],
@@ -1482,14 +1577,21 @@ class _LiveListingFormState extends State<LiveListingForm> {
                   onChanged: (_) => _clearPriceRecommendation(),
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
+                  decoration: (InputDecoration(
                     labelText: widget.isService
                         ? 'Package price (RM)'
                         : 'Daily price (RM)',
-                  ),
-                  validator: (value) => (double.tryParse(value ?? '') ?? 0) > 0
-                      ? null
-                      : 'Enter a valid price',
+                  )).copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputValidation.compose(
+                      InputRules.priceRm.validate,
+                      (value) => (double.tryParse(value ?? '') ?? 0) > 0
+                          ? null
+                          : 'Enter a valid price'),
+                  inputFormatters:
+                      InputValidation.formatters(InputRules.priceRm, price),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.priceRm.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
                 if (!widget.isService) ...[
                   const SizedBox(height: 8),
@@ -1664,11 +1766,20 @@ class _LiveListingFormState extends State<LiveListingForm> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: location,
+                  key: locationFieldKey,
                   onChanged: (_) => _clearPriceRecommendation(),
-                  decoration: const InputDecoration(labelText: 'Location'),
-                  validator: (value) => (value?.trim().length ?? 0) >= 2
-                      ? null
-                      : 'Enter a location',
+                  decoration: (const InputDecoration(labelText: 'Location'))
+                      .copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputValidation.compose(
+                      InputRules.location2.validate,
+                      (value) => (value?.trim().length ?? 0) >= 2
+                          ? null
+                          : 'Enter a location'),
+                  inputFormatters: InputValidation.formatters(
+                      InputRules.location2, location),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.location2.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
                 const SizedBox(height: 12),
                 if (widget.isService)
@@ -1676,24 +1787,39 @@ class _LiveListingFormState extends State<LiveListingForm> {
                     controller: duration,
                     keyboardType: TextInputType.number,
                     decoration:
-                        const InputDecoration(labelText: 'Duration (minutes)'),
-                    validator: (value) {
+                        (const InputDecoration(labelText: 'Duration (minutes)'))
+                            .copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputValidation.compose(
+                        InputRules.durationMinutes.validate, (value) {
                       final parsed = int.tryParse(value ?? '');
                       return parsed != null && parsed >= 15
                           ? null
                           : 'Minimum duration is 15 minutes';
-                    },
+                    }),
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.durationMinutes, duration),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.durationMinutes.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   )
                 else ...[
                   TextFormField(
                     controller: deposit,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                        labelText: 'Security deposit (RM)'),
-                    validator: (value) => double.tryParse(value ?? '') == null
-                        ? 'Enter a valid deposit'
-                        : null,
+                    decoration: (const InputDecoration(
+                            labelText: 'Security deposit (RM)'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputValidation.compose(
+                        InputRules.securityDepositRm.validate,
+                        (value) => double.tryParse(value ?? '') == null
+                            ? 'Enter a valid deposit'
+                            : null),
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.securityDepositRm, deposit),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.securityDepositRm.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
                 ],
                 const SizedBox(height: 20),
@@ -1793,16 +1919,22 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
     );
     if (lastDay == null || !mounted) return;
     final reason = TextEditingController();
-    final value = await showDialog<String>(
+    final value = await InputValidation.showFormDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Block these dates?'),
-        content: TextField(
+        content: TextFormField(
           controller: reason,
-          decoration: const InputDecoration(
+          decoration: (const InputDecoration(
             labelText: 'Reason (optional)',
             hintText: 'Maintenance or personal use',
-          ),
+          )).copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.reasonOptional.validate,
+          inputFormatters:
+              InputValidation.formatters(InputRules.reasonOptional, reason),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          maxLength: InputRules.reasonOptional.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
         ),
         actions: [
           TextButton(
@@ -1810,7 +1942,8 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, reason.text.trim()),
+            onPressed: () =>
+                InputValidation.popIfValid(dialogContext, reason.text.trim()),
             child: const Text('Block Dates'),
           ),
         ],
@@ -1843,6 +1976,7 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
   }
 
   Future<void> _save() async {
+    if (!InputValidation.validate(context)) return;
     setState(() => saving = true);
     try {
       await context.read<LiveRentHubController>().saveListingAvailability(
@@ -1850,8 +1984,8 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
         {
           'unavailableRanges': ranges,
           'weeklyHours': weeklyHours,
-          'minimumNoticeHours': int.tryParse(notice.text) ?? 0,
-          'bufferHours': int.tryParse(buffer.text) ?? 0,
+          'minimumNoticeHours': int.parse(notice.text),
+          'bufferHours': int.parse(buffer.text),
         },
       );
       if (mounted) Navigator.pop(context);
@@ -1893,22 +2027,36 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
+                        child: TextFormField(
                           controller: notice,
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
+                          decoration: (const InputDecoration(
                             labelText: 'Minimum notice (hours)',
-                          ),
+                          )).copyWith(counterText: '', errorMaxLines: 3),
+                          validator: InputRules.minimumNoticeHours.validate,
+                          inputFormatters: InputValidation.formatters(
+                              InputRules.minimumNoticeHours, notice),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength: InputRules.minimumNoticeHours.maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: TextField(
+                        child: TextFormField(
                           controller: buffer,
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
+                          decoration: (const InputDecoration(
                             labelText: 'Buffer (hours)',
-                          ),
+                          )).copyWith(counterText: '', errorMaxLines: 3),
+                          validator: InputRules.bufferHours.validate,
+                          inputFormatters: InputValidation.formatters(
+                              InputRules.bufferHours, buffer),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength: InputRules.bufferHours.maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
                         ),
                       ),
                     ],
@@ -2011,6 +2159,7 @@ class _LivePromotionPageState extends State<LivePromotionPage> {
   }
 
   Future<void> _save() async {
+    if (!InputValidation.validate(context)) return;
     final percentage = double.tryParse(discount.text);
     if (label.text.trim().length < 2 ||
         percentage == null ||
@@ -2070,16 +2219,32 @@ class _LivePromotionPageState extends State<LivePromotionPage> {
               Text(widget.listing.title,
                   style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 16),
-              TextField(
+              TextFormField(
                 controller: label,
-                decoration: const InputDecoration(labelText: 'Promotion label'),
+                decoration:
+                    (const InputDecoration(labelText: 'Promotion label'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.promotionLabel.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.promotionLabel, label),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.promotionLabel.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
               const SizedBox(height: 12),
-              TextField(
+              TextFormField(
                 controller: discount,
-                keyboardType: TextInputType.number,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 decoration:
-                    const InputDecoration(labelText: 'Discount percentage'),
+                    (const InputDecoration(labelText: 'Discount percentage'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.discountPercentage.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.discountPercentage, discount),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.discountPercentage.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
               const SizedBox(height: 12),
               ListTile(
@@ -2096,6 +2261,9 @@ class _LivePromotionPageState extends State<LivePromotionPage> {
                 trailing: const Icon(Icons.calendar_today_outlined),
                 onTap: () => _pick(false),
               ),
+              if (!end.isAfter(start))
+                const Text('End date must be after start date',
+                    style: TextStyle(color: AppColors.error)),
               const SizedBox(height: 20),
               FilledButton(
                 onPressed: saving ? null : _save,
@@ -2145,6 +2313,7 @@ class _LiveBundlePageState extends State<LiveBundlePage> {
   }
 
   Future<void> _save() async {
+    if (!InputValidation.validate(context)) return;
     final percentage = double.tryParse(discount.text);
     if (title.text.trim().length < 3 ||
         selected.length < 2 ||
@@ -2208,16 +2377,31 @@ class _LiveBundlePageState extends State<LiveBundlePage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            TextField(
+            TextFormField(
               controller: title,
-              decoration: const InputDecoration(labelText: 'Bundle title'),
+              decoration: (const InputDecoration(labelText: 'Bundle title'))
+                  .copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.bundleTitle.validate,
+              inputFormatters:
+                  InputValidation.formatters(InputRules.bundleTitle, title),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.bundleTitle.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             const SizedBox(height: 12),
-            TextField(
+            TextFormField(
               controller: discount,
-              keyboardType: TextInputType.number,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               decoration:
-                  const InputDecoration(labelText: 'Bundle discount (%)'),
+                  (const InputDecoration(labelText: 'Bundle discount (%)'))
+                      .copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.bundleDiscount.validate,
+              inputFormatters: InputValidation.formatters(
+                  InputRules.bundleDiscount, discount),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.bundleDiscount.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             const SizedBox(height: 16),
             Text('Select 2 to 5 physical listings',
@@ -2263,14 +2447,21 @@ class LiveOwnerRequestsPage extends StatelessWidget {
     String status,
   ) async {
     final reason = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('${status == 'approved' ? 'Approve' : 'Reject'} booking?'),
         content: status == 'rejected'
-            ? TextField(
+            ? TextFormField(
                 controller: reason,
-                decoration: const InputDecoration(labelText: 'Reason'),
+                decoration: (const InputDecoration(labelText: 'Reason'))
+                    .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.reason.validate,
+                inputFormatters:
+                    InputValidation.formatters(InputRules.reason, reason),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.reason.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               )
             : Text(
                 booking.listingType == 'physical'
@@ -2283,7 +2474,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
             child: const Text('Back'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: Text(status == 'approved' ? 'Approve' : 'Reject'),
           ),
         ],

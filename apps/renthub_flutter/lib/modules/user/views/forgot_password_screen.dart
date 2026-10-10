@@ -1,3 +1,5 @@
+import '../../../core/validation/input_validation.dart';
+import '../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -220,9 +222,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               hint: 'name@example.com',
               icon: Icons.mail_outline,
               keyboardType: TextInputType.emailAddress,
-              validator: (value) => value != null && value.contains('@')
-                  ? null
-                  : 'Enter a valid email address',
+              validator: InputValidation.compose(
+                  InputRules.emailAddress.validate,
+                  (value) => value != null && value.contains('@')
+                      ? null
+                      : 'Enter a valid email address'),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.emailAddress, email),
+              maxLength: InputRules.emailAddress.maxLength,
             ),
           ],
         _ResetStep.code => [
@@ -232,9 +239,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               hint: '123456',
               icon: Icons.pin_outlined,
               keyboardType: TextInputType.number,
-              validator: (value) => RegExp(r'^\d{6}$').hasMatch(value ?? '')
-                  ? null
-                  : 'Enter all six digits',
+              validator: InputValidation.compose(
+                  InputRules.sixDigitCode.validate,
+                  (value) => RegExp(r'^\d{6}$').hasMatch(value ?? '')
+                      ? null
+                      : 'Enter all six digits'),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.sixDigitCode, code),
+              maxLength: InputRules.sixDigitCode.maxLength,
             ),
           ],
         _ResetStep.password => [
@@ -243,9 +255,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               label: 'New Password',
               obscure: true,
               icon: Icons.lock_outline,
-              validator: (value) => (value?.length ?? 0) >= 8
-                  ? null
-                  : 'Use at least 8 characters',
+              validator: InputValidation.compose(
+                  InputRules.newPassword.validate,
+                  (value) => (value?.length ?? 0) >= 8
+                      ? null
+                      : 'Use at least 8 characters'),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.newPassword, password),
+              maxLength: InputRules.newPassword.maxLength,
             ),
             const SizedBox(height: 16),
             RentHubTextField(
@@ -253,8 +270,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               label: 'Confirm Password',
               obscure: true,
               icon: Icons.lock_outline,
-              validator: (value) =>
-                  value == password.text ? null : 'Passwords do not match',
+              validator: InputValidation.compose(
+                  InputRules.confirmPassword.validate,
+                  (value) =>
+                      value == password.text ? null : 'Passwords do not match'),
+              inputFormatters: InputValidation.formatters(
+                  InputRules.confirmPassword, confirmPassword),
+              maxLength: InputRules.confirmPassword.maxLength,
             ),
           ],
         _ResetStep.success => const [],

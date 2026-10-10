@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -209,7 +211,7 @@ class _CreateBundlePageState extends State<_CreateBundlePage> {
   void _save() {
     setState(() => submitted = true);
     if (!formKey.currentState!.validate() || selected.length < 2) return;
-    Navigator.pop(
+    InputValidation.popIfValid(
       context,
       _BundleRecord(
         name: name.text.trim(),
@@ -230,10 +232,18 @@ class _CreateBundlePageState extends State<_CreateBundlePage> {
               children: [
                 TextFormField(
                   controller: name,
-                  decoration: const InputDecoration(labelText: 'Bundle name'),
-                  validator: (value) => (value?.trim().length ?? 0) < 3
-                      ? 'Enter a bundle name'
-                      : null,
+                  decoration: (const InputDecoration(labelText: 'Bundle name'))
+                      .copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputValidation.compose(
+                      InputRules.bundleName.validate,
+                      (value) => (value?.trim().length ?? 0) < 3
+                          ? 'Enter a bundle name'
+                          : null),
+                  inputFormatters:
+                      InputValidation.formatters(InputRules.bundleName, name),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.bundleName.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
                 const SizedBox(height: 16),
                 Text('Choose at least two items',

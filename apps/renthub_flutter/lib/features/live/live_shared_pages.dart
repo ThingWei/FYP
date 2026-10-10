@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -34,7 +36,7 @@ Future<bool> ensureMarketplaceIdentity(BuildContext context,
               onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Not now')),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
+            onPressed: () => InputValidation.popIfValid(dialogContext, true),
             child: Text(profile.mykadStatus == 'pending'
                 ? 'View verification status'
                 : 'Verify MyKad'),
@@ -212,6 +214,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
   }
 
   Future<void> _send() async {
+    if (!InputValidation.validate(context)) return;
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
     setState(() => sending = true);
@@ -256,7 +259,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
   Future<void> _report(Message message) async {
     var reason = 'inappropriate';
     final details = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -282,13 +285,18 @@ class _LiveChatPageState extends State<LiveChatPage> {
                     setDialogState(() => reason = value ?? reason),
               ),
               const SizedBox(height: 12),
-              TextField(
+              TextFormField(
                 controller: details,
                 maxLength: 1000,
-                decoration: const InputDecoration(
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
+                decoration: (const InputDecoration(
                   labelText: 'Details',
                   hintText: 'Explain what happened',
-                ),
+                )).copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.details.validate,
+                inputFormatters:
+                    InputValidation.formatters(InputRules.details, details),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
               ),
             ],
           ),
@@ -298,7 +306,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: () => InputValidation.popIfValid(dialogContext, true),
               child: const Text('Submit Report'),
             ),
           ],
@@ -423,14 +431,15 @@ class _LiveChatPageState extends State<LiveChatPage> {
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: TextField(
+              child: TextFormField(
                 controller: input,
                 enabled: !sending,
                 maxLength: 2000,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
                 minLines: 1,
                 maxLines: 4,
-                onSubmitted: (_) => _send(),
-                decoration: InputDecoration(
+                onFieldSubmitted: (_) => _send(),
+                decoration: (InputDecoration(
                   hintText: 'Write a message',
                   counterText: '',
                   prefixIcon: IconButton(
@@ -448,7 +457,11 @@ class _LiveChatPageState extends State<LiveChatPage> {
                           )
                         : const Icon(Icons.send),
                   ),
-                ),
+                )).copyWith(errorMaxLines: 3),
+                validator: InputRules.writeAMessage.validate,
+                inputFormatters:
+                    InputValidation.formatters(InputRules.writeAMessage, input),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
               ),
             ),
           ),
@@ -936,20 +949,34 @@ class _LiveEditProfilePageState extends State<_LiveEditProfilePage> {
               children: [
                 TextFormField(
                   controller: name,
-                  decoration: const InputDecoration(labelText: 'Display name'),
+                  decoration: (const InputDecoration(labelText: 'Display name'))
+                      .copyWith(counterText: '', errorMaxLines: 3),
                   textInputAction: TextInputAction.next,
-                  validator: (value) => (value?.trim().length ?? 0) < 2
-                      ? 'Enter at least 2 characters'
-                      : null,
+                  validator: InputValidation.compose(
+                      InputRules.displayName.validate,
+                      (value) => (value?.trim().length ?? 0) < 2
+                          ? 'Enter at least 2 characters'
+                          : null),
+                  inputFormatters:
+                      InputValidation.formatters(InputRules.displayName, name),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.displayName.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: phone,
-                  decoration: const InputDecoration(
+                  decoration: (const InputDecoration(
                     labelText: 'Phone number',
                     hintText: '+60 12-345 6789',
-                  ),
+                  )).copyWith(counterText: '', errorMaxLines: 3),
                   keyboardType: TextInputType.phone,
+                  validator: InputRules.phoneNumber.validate,
+                  inputFormatters:
+                      InputValidation.formatters(InputRules.phoneNumber, phone),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.phoneNumber.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -992,7 +1019,7 @@ class _LiveAddressesPage extends StatelessWidget {
     final city = TextEditingController();
     final state = TextEditingController(text: 'Selangor');
     final postcode = TextEditingController();
-    final address = await showDialog<UserAddress>(
+    final address = await InputValidation.showFormDialog<UserAddress>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Add Malaysian address'),
@@ -1013,9 +1040,24 @@ class _LiveAddressesPage extends StatelessWidget {
                   ]) ...[
                     TextFormField(
                       controller: field.$1,
-                      decoration: InputDecoration(labelText: field.$2),
+                      decoration: (InputDecoration(labelText: field.$2))
+                          .copyWith(counterText: '', errorMaxLines: 3),
                       keyboardType: field.$3,
-                      validator: (value) {
+                      validator: InputValidation.compose(
+                          InputRule(field.$2,
+                                  kind: field.$2 == 'Postcode'
+                                      ? InputKind.digits
+                                      : InputKind.text,
+                                  exactLength:
+                                      field.$2 == 'Postcode' ? 5 : null,
+                                  maxLength: field.$2 == 'Postcode'
+                                      ? 5
+                                      : field.$2 == 'Label'
+                                          ? 40
+                                          : field.$2 == 'Address line'
+                                              ? 120
+                                              : 80)
+                              .validate, (value) {
                         if (value?.trim().isEmpty ?? true) {
                           return '${field.$2} is required';
                         }
@@ -1024,7 +1066,36 @@ class _LiveAddressesPage extends StatelessWidget {
                           return 'Enter a 5-digit postcode';
                         }
                         return null;
-                      },
+                      }),
+                      inputFormatters: InputValidation.formatters(
+                          InputRule(field.$2,
+                              kind: field.$2 == 'Postcode'
+                                  ? InputKind.digits
+                                  : InputKind.text,
+                              exactLength: field.$2 == 'Postcode' ? 5 : null,
+                              maxLength: field.$2 == 'Postcode'
+                                  ? 5
+                                  : field.$2 == 'Label'
+                                      ? 40
+                                      : field.$2 == 'Address line'
+                                          ? 120
+                                          : 80),
+                          field.$1),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      maxLength: InputRule(field.$2,
+                              kind: field.$2 == 'Postcode'
+                                  ? InputKind.digits
+                                  : InputKind.text,
+                              exactLength: field.$2 == 'Postcode' ? 5 : null,
+                              maxLength: field.$2 == 'Postcode'
+                                  ? 5
+                                  : field.$2 == 'Label'
+                                      ? 40
+                                      : field.$2 == 'Address line'
+                                          ? 120
+                                          : 80)
+                          .maxLength,
+                      maxLengthEnforcement: InputValidation.lengthEnforcement,
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -1041,7 +1112,7 @@ class _LiveAddressesPage extends StatelessWidget {
           FilledButton(
             onPressed: () {
               if (!(formKey.currentState?.validate() ?? false)) return;
-              Navigator.pop(
+              InputValidation.popIfValid(
                 dialogContext,
                 UserAddress(
                   label: label.text.trim(),
@@ -1194,7 +1265,7 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
   Future<void> _deactivate() async {
     final reason = TextEditingController();
     var confirmed = false;
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
@@ -1213,16 +1284,21 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
                   'the account later.',
                 ),
                 const SizedBox(height: 16),
-                TextField(
+                TextFormField(
                   controller: reason,
                   minLines: 2,
                   maxLines: 4,
                   maxLength: 500,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                   onChanged: (_) => setDialogState(() {}),
-                  decoration: const InputDecoration(
+                  decoration: (const InputDecoration(
                     labelText: 'Reason for leaving',
                     hintText: 'At least 5 characters',
-                  ),
+                  )).copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputRules.reasonForLeaving.validate,
+                  inputFormatters: InputValidation.formatters(
+                      InputRules.reasonForLeaving, reason),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
                 ),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1244,7 +1320,7 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: AppColors.error),
               onPressed: confirmed && reason.text.trim().length >= 5
-                  ? () => Navigator.pop(dialogContext, true)
+                  ? () => InputValidation.popIfValid(dialogContext, true)
                   : null,
               child: const Text('Deactivate Account'),
             ),
@@ -1494,7 +1570,8 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                       onPressed: () => Navigator.pop(dialogContext, false),
                       child: const Text('Cancel')),
                   FilledButton(
-                      onPressed: () => Navigator.pop(dialogContext, true),
+                      onPressed: () =>
+                          InputValidation.popIfValid(dialogContext, true),
                       child: const Text('Submit'))
                 ],
               ));

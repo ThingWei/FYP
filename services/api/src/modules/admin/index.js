@@ -1,3 +1,5 @@
+import { textInput } from '../../core/inputValidation.js';
+import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import mongoose from 'mongoose';
 import { Router } from 'express';
 import { body, matchedData, param, query } from 'express-validator';
@@ -214,9 +216,9 @@ const service = {
 const router = Router();
 const reportSubmissionValidation = [
   body('targetType').isIn(REPORT_TARGET_TYPES),
-  body('targetId').trim().isLength({ min: 2, max: 100 }),
+  body('targetId').custom(textInput).bail().trim().isLength({ min: 2, max: 100 }),
   body('reason').isIn(REPORT_REASONS),
-  body('details').optional().trim().isLength({ max: 1000 }),
+  body('details').optional().custom(textInput).bail().trim().isLength({ max: 1000 }),
   body().custom((value) => {
     if (value.reason === 'other' && !value.details?.trim()) {
       throw new Error('Details are required for an other report');
@@ -225,31 +227,31 @@ const reportSubmissionValidation = [
   }),
 ];
 const reportsValidation = [
-  query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
+  query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
   query('targetType').optional().isIn(REPORT_TARGET_TYPES),
   query('status').optional().isIn(['open', 'resolved', 'dismissed']),
 ];
 const reportDecisionValidation = [
   param('reportId').matches(/^RPT-MOD-[A-Z0-9-]+$/i),
   body('status').isIn(['resolved', 'dismissed']),
-  body('resolution').trim().isLength({ min: 5, max: 1000 }),
+  body('resolution').custom(textInput).bail().trim().isLength({ min: 5, max: 1000 }),
 ];
 const settingsValidation = [
-  body('marketplaceFeePercent').optional().isFloat({ min: 0, max: 20 }).toFloat(),
+  body('marketplaceFeePercent').optional().custom(numericInput).bail().isFloat({ min: 0, max: 20 }).toFloat(),
   body('maintenanceMode').optional().isBoolean().toBoolean(),
   body('highValueKycEnabled').optional().isBoolean().toBoolean(),
   body('highValueThreshold')
     .optional()
-    .isFloat({ min: 0, max: 1_000_000 })
+    .custom(moneyInput).bail().isFloat({ min: 0, max: 1_000_000 })
     .toFloat(),
-  body('reportAutoHideThreshold').optional().isInt({ min: 1, max: 100 }).toInt(),
-  body('verificationOcrThreshold').optional().isInt({ min: 0, max: 100 }).toInt(),
+  body('reportAutoHideThreshold').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }).toInt(),
+  body('verificationOcrThreshold').optional().custom(wholeInput).bail().isInt({ min: 0, max: 100 }).toInt(),
   body('verificationManualReviewThreshold')
     .optional()
-    .isFloat({ min: 0, max: 1 })
+    .custom(numericInput).bail().isFloat({ min: 0, max: 1 })
     .toFloat(),
-  body('minimumVerificationAge').optional().isInt({ min: 18, max: 100 }).toInt(),
+  body('minimumVerificationAge').optional().custom(wholeInput).bail().isInt({ min: 18, max: 100 }).toInt(),
   body('kycRequirements').optional().isArray({ min: 6, max: 6 }),
   body('kycRequirements.*.category').optional().isIn([
     'Clothing',
@@ -265,20 +267,17 @@ const settingsValidation = [
     .isIn(['mykad', 'passport', 'driving_licence']),
   body('kycRequirements.*.highValueOnly').optional().isBoolean().toBoolean(),
   body('supportEmail').optional().isEmail().normalizeEmail(),
-  body('bookingPolicy').optional().trim().isLength({ min: 10, max: 3000 }),
-  body('contentPolicy').optional().trim().isLength({ min: 10, max: 3000 }),
+  body('bookingPolicy').optional().custom(textInput).bail().trim().isLength({ min: 10, max: 3000 }),
+  body('contentPolicy').optional().custom(textInput).bail().trim().isLength({ min: 10, max: 3000 }),
   body('notificationTemplates').optional().isObject(),
   body('notificationTemplates.bookingApproved')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .isLength({ min: 5, max: 300 }),
   body('notificationTemplates.verificationUpdate')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .isLength({ min: 5, max: 300 }),
   body('notificationTemplates.reportResolved')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .isLength({ min: 5, max: 300 }),
   body('categories').optional().isArray({ min: 6, max: 6 }),
   body('categories.*.name').optional().isIn([
@@ -293,24 +292,24 @@ const settingsValidation = [
 ];
 const reportGenerationValidation = [
   body('reportType').isIn(ADMIN_REPORT_TYPES),
-  body('rangeDays').optional().isInt({ min: 1, max: 365 }).toInt(),
+  body('rangeDays').optional().custom(wholeInput).bail().isInt({ min: 1, max: 365 }).toInt(),
 ];
 const reportScheduleValidation = [
-  body('name').trim().isLength({ min: 3, max: 120 }),
+  body('name').custom(textInput).bail().trim().isLength({ min: 3, max: 120 }),
   body('reportType').isIn(ADMIN_REPORT_TYPES),
   body('cadence').isIn(REPORT_CADENCES),
-  body('rangeDays').optional().isInt({ min: 1, max: 365 }).toInt(),
+  body('rangeDays').optional().custom(wholeInput).bail().isInt({ min: 1, max: 365 }).toInt(),
   body('enabled').optional().isBoolean().toBoolean(),
-  body('nextRunAt').optional().isISO8601().toDate(),
+  body('nextRunAt').optional().isISO8601({ strict: true }).toDate(),
 ];
 const reportScheduleUpdateValidation = [
   param('scheduleId').matches(/^RPT-SCH-[A-F0-9]+$/i),
-  body('name').optional().trim().isLength({ min: 3, max: 120 }),
+  body('name').optional().custom(textInput).bail().trim().isLength({ min: 3, max: 120 }),
   body('reportType').optional().isIn(ADMIN_REPORT_TYPES),
   body('cadence').optional().isIn(REPORT_CADENCES),
-  body('rangeDays').optional().isInt({ min: 1, max: 365 }).toInt(),
+  body('rangeDays').optional().custom(wholeInput).bail().isInt({ min: 1, max: 365 }).toInt(),
   body('enabled').optional().isBoolean().toBoolean(),
-  body('nextRunAt').optional().isISO8601().toDate(),
+  body('nextRunAt').optional().isISO8601({ strict: true }).toDate(),
   body().custom((value) => {
     const allowed = [
       'name',

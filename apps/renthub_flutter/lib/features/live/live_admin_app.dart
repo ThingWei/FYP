@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -496,7 +498,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
     final expiry = TextEditingController();
     bool identityMatchConfirmed = false;
     bool classReviewConfirmed = false;
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -531,14 +533,31 @@ class _AdminVerificationState extends State<_AdminVerification> {
                       'No JPJ API / official QR or government authentication. Review licence / MyJPJ evidence against approved MyKad.'),
                 ],
                 if (status == 'approved' && driving) ...[
-                  TextField(
-                      controller: classes,
-                      decoration: const InputDecoration(
-                          labelText: 'Reviewed licence classes (e.g. D, B2)')),
-                  TextField(
-                      controller: expiry,
-                      decoration: const InputDecoration(
-                          labelText: 'Valid until (YYYY-MM-DD)')),
+                  TextFormField(
+                    controller: classes,
+                    decoration: (const InputDecoration(
+                            labelText: 'Reviewed licence classes (e.g. D, B2)'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputRules.reviewedLicenceClassesEGDB2.validate,
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.reviewedLicenceClassesEGDB2, classes),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.reviewedLicenceClassesEGDB2.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
+                  ),
+                  TextFormField(
+                    controller: expiry,
+                    decoration: (const InputDecoration(
+                            labelText: 'Valid until (YYYY-MM-DD)'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputRules.validUntilYyyyMmDd.validate,
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.validUntilYyyyMmDd, expiry),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.validUntilYyyyMmDd.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
+                    keyboardType: TextInputType.number,
+                  ),
                   CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       value: identityMatchConfirmed,
@@ -555,12 +574,18 @@ class _AdminVerificationState extends State<_AdminVerification> {
                           () => classReviewConfirmed = value ?? false)),
                 ],
                 if (status != 'approved')
-                  TextField(
+                  TextFormField(
                     controller: reason,
                     maxLines: 3,
-                    decoration: const InputDecoration(
+                    decoration: (const InputDecoration(
                       labelText: 'Required reason',
-                    ),
+                    )).copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputRules.requiredReason.validate,
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.requiredReason, reason),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.requiredReason.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
               ],
             )),
@@ -571,7 +596,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: () => InputValidation.popIfValid(dialogContext, true),
               child: const Text('Confirm'),
             ),
           ],
@@ -920,7 +945,7 @@ class _AdminUsers extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Reactivate'),
           ),
         ],
@@ -951,13 +976,20 @@ class _AdminUsers extends StatelessWidget {
     Map<String, dynamic> user,
   ) async {
     final reason = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Suspend ${user['displayName']}?'),
-        content: TextField(
+        content: TextFormField(
           controller: reason,
-          decoration: const InputDecoration(labelText: 'Required reason'),
+          decoration: (const InputDecoration(labelText: 'Required reason'))
+              .copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.requiredReason.validate,
+          inputFormatters:
+              InputValidation.formatters(InputRules.requiredReason, reason),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          maxLength: InputRules.requiredReason.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
         ),
         actions: [
           TextButton(
@@ -965,7 +997,7 @@ class _AdminUsers extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Suspend'),
           ),
         ],
@@ -1043,15 +1075,22 @@ class _AdminListings extends StatelessWidget {
     String status,
   ) async {
     final reason = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('${status == 'active' ? 'Approve' : 'Reject'} listing?'),
         content: status == 'rejected'
-            ? TextField(
+            ? TextFormField(
                 controller: reason,
                 decoration:
-                    const InputDecoration(labelText: 'Rejection reason'),
+                    (const InputDecoration(labelText: 'Rejection reason'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.rejectionReason.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.rejectionReason, reason),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.rejectionReason.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               )
             : Text(listing.title),
         actions: [
@@ -1060,7 +1099,7 @@ class _AdminListings extends StatelessWidget {
             child: const Text('Back'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: Text(status == 'active' ? 'Approve' : 'Reject'),
           ),
         ],
@@ -1143,23 +1182,37 @@ class _AdminBookingsTransactions extends StatelessWidget {
     final amount =
         TextEditingController(text: transaction.amount.toStringAsFixed(2));
     final reason = TextEditingController(text: 'Administrator-approved refund');
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Issue simulated refund?'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(
+            TextFormField(
               controller: amount,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Amount (RM)'),
+              decoration: (const InputDecoration(labelText: 'Amount (RM)'))
+                  .copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.amountRm.validate,
+              inputFormatters:
+                  InputValidation.formatters(InputRules.amountRm, amount),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.amountRm.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             const SizedBox(height: 12),
-            TextField(
+            TextFormField(
               controller: reason,
-              decoration: const InputDecoration(labelText: 'Reason'),
+              decoration: (const InputDecoration(labelText: 'Reason'))
+                  .copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.reason.validate,
+              inputFormatters:
+                  InputValidation.formatters(InputRules.reason, reason),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.reason.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
           ],
         ),
@@ -1169,7 +1222,7 @@ class _AdminBookingsTransactions extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Refund'),
           ),
         ],
@@ -1351,7 +1404,7 @@ class _AdminDisputesClaims extends StatelessWidget {
     String status,
   ) async {
     final note = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
@@ -1359,11 +1412,18 @@ class _AdminDisputesClaims extends StatelessWidget {
               ? 'Escalate dispute?'
               : 'Request more evidence?',
         ),
-        content: TextField(
+        content: TextFormField(
           controller: note,
           minLines: 3,
           maxLines: 5,
-          decoration: const InputDecoration(labelText: 'Required note'),
+          decoration: (const InputDecoration(labelText: 'Required note'))
+              .copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.requiredNote.validate,
+          inputFormatters:
+              InputValidation.formatters(InputRules.requiredNote, note),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          maxLength: InputRules.requiredNote.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
         ),
         actions: [
           TextButton(
@@ -1371,7 +1431,7 @@ class _AdminDisputesClaims extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Confirm'),
           ),
         ],
@@ -1399,7 +1459,7 @@ class _AdminDisputesClaims extends StatelessWidget {
     final renterAmount = TextEditingController();
     final ownerAmount = TextEditingController();
     final notes = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -1432,31 +1492,50 @@ class _AdminDisputesClaims extends StatelessWidget {
                   ),
                   if (outcome == 'split') ...[
                     const SizedBox(height: 12),
-                    TextField(
+                    TextFormField(
                       controller: renterAmount,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                          labelText: 'Renter amount (RM)'),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: (const InputDecoration(
+                              labelText: 'Renter amount (RM)'))
+                          .copyWith(counterText: '', errorMaxLines: 3),
+                      validator: InputRules.renterAmountRm.validate,
+                      inputFormatters: InputValidation.formatters(
+                          InputRules.renterAmountRm, renterAmount),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      maxLength: InputRules.renterAmountRm.maxLength,
+                      maxLengthEnforcement: InputValidation.lengthEnforcement,
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    TextFormField(
                       controller: ownerAmount,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration:
-                          const InputDecoration(labelText: 'Owner amount (RM)'),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: (const InputDecoration(
+                              labelText: 'Owner amount (RM)'))
+                          .copyWith(counterText: '', errorMaxLines: 3),
+                      validator: InputRules.ownerAmountRm.validate,
+                      inputFormatters: InputValidation.formatters(
+                          InputRules.ownerAmountRm, ownerAmount),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      maxLength: InputRules.ownerAmountRm.maxLength,
+                      maxLengthEnforcement: InputValidation.lengthEnforcement,
                     ),
                   ],
                   const SizedBox(height: 12),
-                  TextField(
+                  TextFormField(
                     controller: notes,
                     minLines: 3,
                     maxLines: 5,
                     decoration:
-                        const InputDecoration(labelText: 'Decision notes'),
+                        (const InputDecoration(labelText: 'Decision notes'))
+                            .copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputRules.decisionNotes.validate,
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.decisionNotes, notes),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.decisionNotes.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
                   const SizedBox(height: 10),
                   const Text(
@@ -1473,7 +1552,7 @@ class _AdminDisputesClaims extends StatelessWidget {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => InputValidation.popIfValid(context, true),
               child: const Text('Record Decision'),
             ),
           ],
@@ -1521,7 +1600,7 @@ class _AdminDisputesClaims extends StatelessWidget {
       text:
           status == 'approved' ? claim.amountRequested.toStringAsFixed(2) : '',
     );
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('${status == 'approved' ? 'Approve' : 'Reject'} claim?'),
@@ -1531,19 +1610,34 @@ class _AdminDisputesClaims extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (status == 'approved')
-                TextField(
+                TextFormField(
                   controller: amount,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration:
-                      const InputDecoration(labelText: 'Approved amount (RM)'),
+                      (const InputDecoration(labelText: 'Approved amount (RM)'))
+                          .copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputRules.approvedAmountRm.validate,
+                  inputFormatters: InputValidation.formatters(
+                      InputRules.approvedAmountRm, amount),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.approvedAmountRm.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
               if (status == 'approved') const SizedBox(height: 12),
-              TextField(
+              TextFormField(
                 controller: reason,
                 minLines: 2,
                 maxLines: 4,
-                decoration: const InputDecoration(labelText: 'Decision reason'),
+                decoration:
+                    (const InputDecoration(labelText: 'Decision reason'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.decisionReason.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.decisionReason, reason),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.decisionReason.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
             ],
           ),
@@ -1554,7 +1648,7 @@ class _AdminDisputesClaims extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Confirm'),
           ),
         ],
@@ -1770,7 +1864,7 @@ class _AdminReportingPanel extends StatelessWidget {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: () => InputValidation.popIfValid(dialogContext, true),
               child: const Text('Generate'),
             ),
           ],
@@ -1797,7 +1891,7 @@ class _AdminReportingPanel extends StatelessWidget {
     var reportType = 'platform_summary';
     var cadence = 'monthly';
     var rangeDays = 30;
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -1808,9 +1902,16 @@ class _AdminReportingPanel extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(
+                  TextFormField(
                     controller: name,
-                    decoration: const InputDecoration(labelText: 'Name'),
+                    decoration: (const InputDecoration(labelText: 'Name'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputRules.name.validate,
+                    inputFormatters:
+                        InputValidation.formatters(InputRules.name, name),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.name.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
@@ -1867,7 +1968,7 @@ class _AdminReportingPanel extends StatelessWidget {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(
+              onPressed: () => InputValidation.popIfValid(
                 dialogContext,
                 name.text.trim().length >= 3,
               ),
@@ -2027,18 +2128,24 @@ class _AdminMessageReports extends StatelessWidget {
     required bool messageReport,
   }) async {
     final resolution = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title:
             Text(status == 'resolved' ? 'Resolve report?' : 'Dismiss report?'),
-        content: TextField(
+        content: TextFormField(
           controller: resolution,
           minLines: 2,
           maxLines: 4,
-          decoration: const InputDecoration(
+          decoration: (const InputDecoration(
             labelText: 'Required resolution note',
-          ),
+          )).copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.requiredResolutionNote.validate,
+          inputFormatters: InputValidation.formatters(
+              InputRules.requiredResolutionNote, resolution),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          maxLength: InputRules.requiredResolutionNote.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
         ),
         actions: [
           TextButton(
@@ -2046,7 +2153,7 @@ class _AdminMessageReports extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(
+            onPressed: () => InputValidation.popIfValid(
               context,
               resolution.text.trim().length >= 5,
             ),
@@ -2246,18 +2353,24 @@ class _AdminReviews extends StatelessWidget {
     String status,
   ) async {
     final reason = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(status == 'hidden' ? 'Hide review?' : 'Restore review?'),
         content: status == 'hidden'
-            ? TextField(
+            ? TextFormField(
                 controller: reason,
                 minLines: 2,
                 maxLines: 4,
-                decoration: const InputDecoration(
+                decoration: (const InputDecoration(
                   labelText: 'Moderation reason',
-                ),
+                )).copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.moderationReason.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.moderationReason, reason),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.moderationReason.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               )
             : Text(review.text),
         actions: [
@@ -2266,7 +2379,7 @@ class _AdminReviews extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: Text(status == 'hidden' ? 'Hide' : 'Restore'),
           ),
         ],
@@ -2635,6 +2748,10 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                                   ? 'Enter 0 to 20'
                                   : null;
                             },
+                            rule: const InputRule('Marketplace fee',
+                                kind: InputKind.decimal,
+                                maxLength: 30,
+                                max: 20),
                           ),
                           _RuleField(
                             controller: highValueThreshold,
@@ -2643,6 +2760,11 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                                 (double.tryParse(value ?? '') ?? -1) < 0
                                     ? 'Enter zero or more'
                                     : null,
+                            rule: const InputRule(
+                                'Additional-document threshold',
+                                kind: InputKind.money,
+                                maxLength: 30,
+                                max: 1000000),
                           ),
                           _RuleField(
                             controller: reportThreshold,
@@ -2655,6 +2777,11 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                                   ? 'Enter 1 to 100'
                                   : null;
                             },
+                            rule: const InputRule('Auto-hide report threshold',
+                                kind: InputKind.integer,
+                                maxLength: 30,
+                                min: 1,
+                                max: 100),
                           ),
                           _RuleField(
                             controller: ocrThreshold,
@@ -2667,6 +2794,10 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                                   ? 'Enter 0 to 100'
                                   : null;
                             },
+                            rule: const InputRule('OCR confidence threshold',
+                                kind: InputKind.integer,
+                                maxLength: 30,
+                                max: 100),
                           ),
                           _RuleField(
                             controller: reviewThreshold,
@@ -2677,6 +2808,8 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                                   ? 'Enter 0 to 1'
                                   : null;
                             },
+                            rule: const InputRule('Manual-review threshold',
+                                kind: InputKind.decimal, maxLength: 30, max: 1),
                           ),
                           _RuleField(
                             controller: minimumAge,
@@ -2689,6 +2822,11 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                                   ? 'Enter 18 to 100'
                                   : null;
                             },
+                            rule: const InputRule('Minimum verification age',
+                                kind: InputKind.integer,
+                                maxLength: 30,
+                                min: 18,
+                                max: 100),
                           ),
                         ],
                       ),
@@ -2763,11 +2901,20 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                       TextFormField(
                         controller: supportEmail,
                         decoration:
-                            const InputDecoration(labelText: 'Support email'),
-                        validator: (value) => value != null &&
-                                RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(value)
-                            ? null
-                            : 'Enter a valid email',
+                            (const InputDecoration(labelText: 'Support email'))
+                                .copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputValidation.compose(
+                            InputRules.supportEmail.validate,
+                            (value) => value != null &&
+                                    RegExp(r'^[^@]+@[^@]+\.[^@]+$')
+                                        .hasMatch(value)
+                                ? null
+                                : 'Enter a valid email'),
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.supportEmail, supportEmail),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.supportEmail.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                     ],
                   ),
@@ -2802,11 +2949,46 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                           controller: field.$1,
                           minLines: field.$2.contains('policy') ? 2 : 1,
                           maxLines: field.$2.contains('policy') ? 4 : 2,
-                          decoration: InputDecoration(labelText: field.$2),
-                          validator: (value) =>
-                              (value?.trim().length ?? 0) < field.$3
+                          decoration: (InputDecoration(labelText: field.$2))
+                              .copyWith(counterText: '', errorMaxLines: 3),
+                          validator: InputValidation.compose(
+                              InputRule(field.$2,
+                                      minLength: field.$1 == bookingPolicy ||
+                                              field.$1 == contentPolicy
+                                          ? 10
+                                          : 5,
+                                      maxLength: field.$1 == bookingPolicy ||
+                                              field.$1 == contentPolicy
+                                          ? 3000
+                                          : 300)
+                                  .validate,
+                              (value) => (value?.trim().length ?? 0) < field.$3
                                   ? 'Enter at least ${field.$3} characters'
-                                  : null,
+                                  : null),
+                          inputFormatters: InputValidation.formatters(
+                              InputRule(field.$2,
+                                  minLength: field.$1 == bookingPolicy ||
+                                          field.$1 == contentPolicy
+                                      ? 10
+                                      : 5,
+                                  maxLength: field.$1 == bookingPolicy ||
+                                          field.$1 == contentPolicy
+                                      ? 3000
+                                      : 300),
+                              field.$1),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength: InputRule(field.$2,
+                                  minLength: field.$1 == bookingPolicy ||
+                                          field.$1 == contentPolicy
+                                      ? 10
+                                      : 5,
+                                  maxLength: field.$1 == bookingPolicy ||
+                                          field.$1 == contentPolicy
+                                      ? 3000
+                                      : 300)
+                              .maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
                         ),
                         const SizedBox(height: 12),
                       ],
@@ -2888,16 +3070,22 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                         controller: physicalPoints,
                         label: 'Physical completion points',
                         validator: _wholeNumber,
+                        rule: const InputRule('Physical completion points',
+                            kind: InputKind.integer, maxLength: 30, max: 10000),
                       ),
                       _RuleField(
                         controller: servicePoints,
                         label: 'Service completion points',
                         validator: _wholeNumber,
+                        rule: const InputRule('Service completion points',
+                            kind: InputKind.integer, maxLength: 30, max: 10000),
                       ),
                       _RuleField(
                         controller: referralPoints,
                         label: 'Referrer reward points',
                         validator: _wholeNumber,
+                        rule: const InputRule('Referrer reward points',
+                            kind: InputKind.integer, maxLength: 30, max: 10000),
                       ),
                       _RuleField(
                         controller: friendReward,
@@ -2908,19 +3096,28 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                               ? 'Enter zero or more'
                               : null;
                         },
+                        rule: const InputRule('Friend reward',
+                            kind: InputKind.money, maxLength: 30, max: 1000),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: redemptionOptions,
-                    decoration: const InputDecoration(
+                    decoration: (const InputDecoration(
                       labelText: 'Reward options (points:RM)',
                       helperText: 'Example: 500:5, 1000:10',
-                    ),
-                    validator: (value) => (value?.trim().isEmpty ?? true)
-                        ? 'At least one reward is required'
-                        : null,
+                    )).copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputValidation.compose(
+                        InputRules.rewardOptionsPointsRm.validate,
+                        (value) => (value?.trim().isEmpty ?? true)
+                            ? 'At least one reward is required'
+                            : null),
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.rewardOptionsPointsRm, redemptionOptions),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules.rewardOptionsPointsRm.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
                   const SizedBox(height: 16),
                   Align(
@@ -2979,20 +3176,29 @@ class _RuleField extends StatelessWidget {
     required this.controller,
     required this.label,
     required this.validator,
+    required this.rule,
   });
 
   final TextEditingController controller;
   final String label;
   final String? Function(String?) validator;
+  final InputRule rule;
 
   @override
   Widget build(BuildContext context) => SizedBox(
         width: 260,
         child: TextFormField(
           controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(labelText: label),
-          validator: validator,
+          keyboardType: rule.kind == InputKind.integer
+              ? TextInputType.number
+              : const TextInputType.numberWithOptions(decimal: true),
+          maxLength: rule.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
+          decoration: (InputDecoration(labelText: label))
+              .copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputValidation.compose(rule.validate, validator),
+          inputFormatters: InputValidation.formatters(rule, controller),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
         ),
       );
 }

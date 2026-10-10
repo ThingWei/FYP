@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -256,14 +258,22 @@ class _RenterHomeState extends State<RenterHome> {
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 14),
-                    TextField(
+                    TextFormField(
                       key: const Key('home-search-field'),
                       readOnly: true,
                       onTap: () => widget.onExplore(''),
-                      decoration: const InputDecoration(
+                      decoration: (const InputDecoration(
                         prefixIcon: Icon(Icons.search),
                         hintText: 'Search items, vehicles, services…',
-                      ),
+                      )).copyWith(counterText: '', errorMaxLines: 3),
+                      validator:
+                          InputRules.searchItemsVehiclesServices.validate,
+                      inputFormatters: InputValidation.formatters(
+                          InputRules.searchItemsVehiclesServices, null),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      maxLength:
+                          InputRules.searchItemsVehiclesServices.maxLength,
+                      maxLengthEnforcement: InputValidation.lengthEnforcement,
                     ),
                   ],
                 ),
@@ -794,7 +804,8 @@ class ExplorePageState extends State<ExplorePage> {
                 ),
                 const SizedBox(height: 12),
                 FilledButton(
-                  onPressed: () => Navigator.pop(sheetContext, true),
+                  onPressed: () =>
+                      InputValidation.popIfValid(sheetContext, true),
                   child: const Text('Show results'),
                 ),
               ],
@@ -839,11 +850,11 @@ class ExplorePageState extends State<ExplorePage> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
+              child: TextFormField(
                 key: const Key('search-results-field'),
                 controller: search,
                 onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
+                decoration: (InputDecoration(
                   prefixIcon: const Icon(Icons.search),
                   hintText: 'Search physical items',
                   suffixIcon: IconButton(
@@ -856,7 +867,13 @@ class ExplorePageState extends State<ExplorePage> {
                           },
                     icon: const Icon(Icons.close),
                   ),
-                ),
+                )).copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.searchPhysicalItems.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.searchPhysicalItems, search),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.searchPhysicalItems.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
             ),
             SizedBox(
@@ -1914,13 +1931,19 @@ class MessagesPage extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.symmetric(vertical: 8),
             children: [
-              const Padding(
+              Padding(
                 padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: TextField(
-                  decoration: InputDecoration(
+                child: TextFormField(
+                  decoration: (InputDecoration(
                     prefixIcon: Icon(Icons.search),
                     hintText: 'Search conversations',
-                  ),
+                  )).copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputRules.searchConversations.validate,
+                  inputFormatters: InputValidation.formatters(
+                      InputRules.searchConversations, null),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.searchConversations.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
               ),
               for (final listing in MockData.listings.take(4))
@@ -1970,6 +1993,7 @@ class _InteractiveChatPageState extends State<InteractiveChatPage> {
   }
 
   void _send() {
+    if (!InputValidation.validate(context)) return;
     final value = input.text.trim();
     if (value.isEmpty) return;
     setState(() {
@@ -2023,17 +2047,23 @@ class _InteractiveChatPageState extends State<InteractiveChatPage> {
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(12),
-                child: TextField(
+                child: TextFormField(
                   controller: input,
-                  onSubmitted: (_) => _send(),
-                  decoration: InputDecoration(
+                  onFieldSubmitted: (_) => _send(),
+                  decoration: (InputDecoration(
                     hintText: 'Write a message',
                     suffixIcon: IconButton(
                       tooltip: 'Send message',
                       onPressed: _send,
                       icon: const Icon(Icons.send),
                     ),
-                  ),
+                  )).copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputRules.writeAMessage.validate,
+                  inputFormatters: InputValidation.formatters(
+                      InputRules.writeAMessage, input),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.writeAMessage.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
               ),
             ),
@@ -2075,14 +2105,20 @@ class ChatPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SafeArea(
+            SafeArea(
               child: Padding(
                 padding: EdgeInsets.all(12),
-                child: TextField(
-                  decoration: InputDecoration(
+                child: TextFormField(
+                  decoration: (InputDecoration(
                     hintText: 'Write a message',
                     suffixIcon: Icon(Icons.send),
-                  ),
+                  )).copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputRules.writeAMessage.validate,
+                  inputFormatters: InputValidation.formatters(
+                      InputRules.writeAMessage, null),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.writeAMessage.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
                 ),
               ),
             ),

@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -369,12 +371,18 @@ class _AdminRecordsPageState extends State<_AdminRecordsPage> {
           const SizedBox(height: 16),
           Row(children: [
             Expanded(
-              child: TextField(
+              child: TextFormField(
                 onChanged: (value) => setState(() => query = value),
-                decoration: InputDecoration(
+                decoration: (InputDecoration(
                   prefixIcon: const Icon(Icons.search),
                   hintText: 'Search $title',
-                ),
+                )).copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.searchTitle.validate,
+                inputFormatters:
+                    InputValidation.formatters(InputRules.searchTitle, null),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.searchTitle.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
             ),
             const SizedBox(width: 12),
@@ -458,17 +466,23 @@ class _AdminRecordDetailPageState extends State<_AdminRecordDetailPage> {
 
   Future<void> _action(String next, {bool destructive = false}) async {
     final reason = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    final confirmed = await InputValidation.showFormDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: Text('$next ${widget.record.name}?'),
-            content: TextField(
+            content: TextFormField(
               controller: reason,
               minLines: 2,
               maxLines: 3,
-              decoration: const InputDecoration(
+              decoration: (const InputDecoration(
                 labelText: 'Required reason / audit note',
-              ),
+              )).copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.requiredReasonAuditNote.validate,
+              inputFormatters: InputValidation.formatters(
+                  InputRules.requiredReasonAuditNote, reason),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.requiredReasonAuditNote.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             actions: [
               TextButton(
@@ -479,7 +493,7 @@ class _AdminRecordDetailPageState extends State<_AdminRecordDetailPage> {
                 style: destructive
                     ? FilledButton.styleFrom(backgroundColor: AppColors.error)
                     : null,
-                onPressed: () => Navigator.pop(
+                onPressed: () => InputValidation.popIfValid(
                   dialogContext,
                   reason.text.trim().length >= 5,
                 ),
@@ -707,28 +721,49 @@ class _PlatformSettingsPageState extends State<_PlatformSettingsPage> {
                           const SizedBox(height: 12),
                           TextFormField(
                             controller: platformFee,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: (const InputDecoration(
                               labelText: 'Prototype platform fee (%)',
-                            ),
-                            validator: (value) {
+                            )).copyWith(counterText: '', errorMaxLines: 3),
+                            validator: InputValidation.compose(
+                                InputRules.prototypePlatformFee.validate,
+                                (value) {
                               final number = double.tryParse(value ?? '');
                               return number == null || number < 0 || number > 20
                                   ? 'Enter a value from 0 to 20'
                                   : null;
-                            },
+                            }),
+                            inputFormatters: InputValidation.formatters(
+                                InputRules.prototypePlatformFee, platformFee),
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            maxLength:
+                                InputRules.prototypePlatformFee.maxLength,
+                            maxLengthEnforcement:
+                                InputValidation.lengthEnforcement,
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
                             controller: referralPoints,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
+                            decoration: (const InputDecoration(
                               labelText: 'Successful referral points',
-                            ),
-                            validator: (value) =>
-                                (int.tryParse(value ?? '') ?? 0) < 1
+                            )).copyWith(counterText: '', errorMaxLines: 3),
+                            validator: InputValidation.compose(
+                                InputRules.successfulReferralPoints.validate,
+                                (value) => (int.tryParse(value ?? '') ?? 0) < 1
                                     ? 'Enter at least 1 point'
-                                    : null,
+                                    : null),
+                            inputFormatters: InputValidation.formatters(
+                                InputRules.successfulReferralPoints,
+                                referralPoints),
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            maxLength:
+                                InputRules.successfulReferralPoints.maxLength,
+                            maxLengthEnforcement:
+                                InputValidation.lengthEnforcement,
                           ),
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
@@ -1138,18 +1173,26 @@ class _AdminProfileSettingsPageState extends State<_AdminProfileSettingsPage> {
                       Text('Security & Password',
                           style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 12),
-                      const TextField(
+                      TextFormField(
                         obscureText: true,
                         decoration:
-                            InputDecoration(labelText: 'Current password'),
+                            (InputDecoration(labelText: 'Current password'))
+                                .copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputRules.currentPassword.validate,
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.currentPassword, null),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.currentPassword.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                       const SizedBox(height: 12),
                       RentHubActionButton(
                         label: 'Update Password',
-                        onPressed: () => showMockSuccess(
-                          context,
-                          'Admin password updated for this prototype session',
-                        ),
+                        onPressed: () {
+                          if (!InputValidation.validate(context)) return;
+                          showMockSuccess(context,
+                              'Admin password updated for this prototype session');
+                        },
                       ),
                     ],
                   ),

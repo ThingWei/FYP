@@ -1,3 +1,5 @@
+import { textInput } from '../../core/inputValidation.js';
+import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import { body, param, query } from 'express-validator';
 import { LICENCE_CLASSES } from '../user/drivingEligibility.js';
 import {
@@ -40,26 +42,23 @@ function onlyEditableFields(value) {
   return true;
 }
 
-const listingId = param('id')
-  .trim()
+const listingId = param('id').custom(textInput).bail().trim()
   .matches(/^(?:[a-f\d]{24}|l-[a-z\d-]+)$/i)
   .withMessage('Invalid listing identifier');
 
 const listingFields = [
-  body('title').optional().trim().isLength({ min: 3, max: 120 }),
-  body('description').optional().trim().isLength({ max: 3000 }),
+  body('title').optional().custom(textInput).bail().trim().isLength({ min: 3, max: 120 }),
+  body('description').optional().custom(textInput).bail().trim().isLength({ max: 3000 }),
   body('category').optional().isIn(LISTING_CATEGORIES),
-  body('subcategory').optional().trim().isLength({ max: 100 }),
+  body('subcategory').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   body('requiredLicenceClass').optional().isIn(['', ...LICENCE_CLASSES]),
-  body('brand').optional().trim().isLength({ max: 100 }),
-  body('productModel').optional().trim().isLength({ max: 120 }),
+  body('brand').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
+  body('productModel').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
   body('canonicalProductId')
-    .optional({ nullable: true })
-    .trim()
+    .optional({ nullable: true }).custom(textInput).bail().trim()
     .isLength({ min: 3, max: 160 }),
   body('catalogBrandId')
-    .optional({ nullable: true })
-    .trim()
+    .optional({ nullable: true }).custom(textInput).bail().trim()
     .isLength({ min: 3, max: 160 }),
   body('productMatchType')
     .optional()
@@ -69,48 +68,45 @@ const listingFields = [
       'manual_entry',
       'catalog_brand_match_model_manual',
     ]),
-  body('catalogSource').optional({ nullable: true }).trim().isLength({ max: 80 }),
-  body('itemAgeYears').optional().isFloat({ min: 0, max: 100 }).toFloat(),
+  body('catalogSource').optional({ nullable: true }).custom(textInput).bail().trim().isLength({ max: 80 }),
+  body('itemAgeYears').optional().custom(numericInput).bail().isFloat({ min: 0, max: 100 }).toFloat(),
   body('listingType').optional().isIn(LISTING_TYPES),
-  body('dailyPrice').optional().isFloat({ min: 1, max: 1_000_000 }).toFloat(),
+  body('dailyPrice').optional().custom(moneyInput).bail().isFloat({ min: 1, max: 1_000_000 }).toFloat(),
   body('priceUnit').optional().isIn(['day', 'hour', 'session', 'package']),
   body('condition')
     .optional()
     .isIn(['Fair', 'Good', 'Very good', 'Excellent', 'Like New']),
   body('securityDeposit')
     .optional()
-    .isFloat({ min: 0, max: 1_000_000 })
+    .custom(moneyInput).bail().isFloat({ min: 0, max: 1_000_000 })
     .toFloat(),
   body('damageWaiverAvailable').optional().isBoolean().toBoolean(),
   body('damageWaiverFee')
     .optional()
-    .isFloat({ min: 0, max: 100_000 })
+    .custom(moneyInput).bail().isFloat({ min: 0, max: 100_000 })
     .toFloat(),
   body('fulfilmentMethods').optional().isArray({ min: 1, max: 2 }),
   body('fulfilmentMethods.*').optional().isIn(['pickup', 'owner_delivery']),
   body('serviceDetails').optional().isObject(),
   body('serviceDetails.packageName')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .isLength({ min: 2, max: 100 }),
   body('serviceDetails.durationMinutes')
     .optional()
-    .isInt({ min: 15, max: 10_080 })
+    .custom(wholeInput).bail().isInt({ min: 15, max: 10_080 })
     .toInt(),
   body('serviceDetails.venueMode')
     .optional()
     .isIn(['owner_location', 'renter_location', 'online', 'flexible']),
   body('serviceDetails.inclusions').optional().isArray({ max: 30 }),
   body('serviceDetails.inclusions.*')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .isLength({ min: 1, max: 160 }),
-  body('location').optional().trim().isLength({ min: 2, max: 160 }),
-  body('state').optional().trim().isLength({ max: 80 }),
+  body('location').optional().custom(textInput).bail().trim().isLength({ min: 2, max: 160 }),
+  body('state').optional().custom(textInput).bail().trim().isLength({ max: 80 }),
   body('images').optional().isArray({ max: 10 }),
   body('images.*')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .custom((value) => isUploadReference(value, { publicOnly: true }))
     .withMessage('Each image must reference a public upload'),
 ];
@@ -149,21 +145,21 @@ export const updateListingValidation = [
 export const listingIdValidation = [listingId];
 
 export const listListingsValidation = [
-  query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
-  query('search').optional().trim().isLength({ max: 100 }),
+  query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
+  query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
+  query('search').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   query('category').optional().isIn(LISTING_CATEGORIES),
   query('type').optional().isIn(LISTING_TYPES),
-  query('location').optional().trim().isLength({ max: 100 }),
+  query('location').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   query('verified').optional().isBoolean(),
   query('promoted').optional().isBoolean(),
   query('sort')
     .optional()
     .isIn(['recommended', 'price_asc', 'price_desc', 'rating', 'newest', 'trust']),
-  query('minPrice').optional().isFloat({ min: 0 }),
-  query('maxPrice').optional().isFloat({ min: 0 }),
-  query('availableFrom').optional().isISO8601(),
-  query('availableTo').optional().isISO8601(),
+  query('minPrice').optional().custom(moneyInput).bail().isFloat({ min: 0 }),
+  query('maxPrice').optional().custom(moneyInput).bail().isFloat({ min: 0 }),
+  query('availableFrom').optional().isISO8601({ strict: true }),
+  query('availableTo').optional().isISO8601({ strict: true }),
   query().custom((value) => {
     if (value.minPrice && value.maxPrice && Number(value.minPrice) > Number(value.maxPrice)) {
       throw new Error('minPrice cannot exceed maxPrice');
@@ -179,23 +175,23 @@ export const listListingsValidation = [
 ];
 
 export const listMineValidation = [
-  query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
+  query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
   query('status').optional().isIn(LISTING_STATUSES),
 ];
 
 export const recommendationValidation = [
-  query('limit').optional().isInt({ min: 1, max: 30 }).toInt(),
-  query('search').optional().trim().isLength({ max: 100 }),
+  query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 30 }).toInt(),
+  query('search').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   query('category').optional().isIn(LISTING_CATEGORIES),
   query('type').optional().isIn(LISTING_TYPES),
-  query('location').optional().trim().isLength({ max: 100 }),
+  query('location').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   query('verified').optional().isBoolean(),
   query('promoted').optional().isBoolean(),
-  query('minPrice').optional().isFloat({ min: 0 }),
-  query('maxPrice').optional().isFloat({ min: 0 }),
-  query('availableFrom').optional().isISO8601(),
-  query('availableTo').optional().isISO8601(),
+  query('minPrice').optional().custom(moneyInput).bail().isFloat({ min: 0 }),
+  query('maxPrice').optional().custom(moneyInput).bail().isFloat({ min: 0 }),
+  query('availableFrom').optional().isISO8601({ strict: true }),
+  query('availableTo').optional().isISO8601({ strict: true }),
   query().custom((value) => {
     if (value.minPrice && value.maxPrice && Number(value.minPrice) > Number(value.maxPrice)) {
       throw new Error('minPrice cannot exceed maxPrice');
@@ -212,22 +208,20 @@ export const recommendationValidation = [
 
 export const priceRecommendationValidation = [
   body('itemProfile').isObject(),
-  body('excludeListingId').optional().trim().matches(/^l-[a-z\d-]+$/i),
+  body('excludeListingId').optional().custom(textInput).bail().trim().matches(/^l-[a-z\d-]+$/i),
   body('itemProfile.category').isIn(
     LISTING_CATEGORIES.filter((category) => category !== 'Services'),
   ),
-  body('itemProfile.subcategory').optional().trim().isLength({ max: 100 }),
+  body('itemProfile.subcategory').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   body('itemProfile.condition')
     .isIn(['Fair', 'Good', 'Very good', 'Excellent', 'Like New']),
-  body('itemProfile.brand').optional().trim().isLength({ max: 100 }),
-  body('itemProfile.product_model').optional().trim().isLength({ max: 120 }),
+  body('itemProfile.brand').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
+  body('itemProfile.product_model').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
   body('itemProfile.canonicalProductId')
-    .optional({ nullable: true })
-    .trim()
+    .optional({ nullable: true }).custom(textInput).bail().trim()
     .isLength({ min: 3, max: 160 }),
   body('itemProfile.catalogBrandId')
-    .optional({ nullable: true })
-    .trim()
+    .optional({ nullable: true }).custom(textInput).bail().trim()
     .isLength({ min: 3, max: 160 }),
   body('itemProfile.productMatchType')
     .optional()
@@ -238,37 +232,52 @@ export const priceRecommendationValidation = [
       'catalog_brand_match_model_manual',
     ]),
   body('itemProfile.catalogSource')
-    .optional({ nullable: true })
-    .trim()
+    .optional({ nullable: true }).custom(textInput).bail().trim()
     .isLength({ max: 80 }),
-  body('itemProfile.location').optional().trim().isLength({ max: 160 }),
-  body('itemProfile.state').optional().trim().isLength({ max: 80 }),
+  body('itemProfile.location').optional().custom(textInput).bail().trim().isLength({ max: 160 }),
+  body('itemProfile.state').optional().custom(textInput).bail().trim().isLength({ max: 80 }),
   body('itemProfile.item_age_years')
     .optional()
-    .isFloat({ min: 0, max: 100 })
+    .custom(numericInput).bail().isFloat({ min: 0, max: 100 })
     .toFloat(),
   body('rentalDurationDays')
-    .optional({ values: 'falsy' })
-    .isInt({ min: 1, max: 365 })
+    .optional()
+    .custom(wholeInput).bail().isInt({ min: 1, max: 365 })
     .toInt(),
 ];
 
 export const availabilityValidation = [
   listingId,
+  body('unavailableRanges').optional().custom((ranges) => {
+    if (!Array.isArray(ranges) || ranges.some((range) => !range?.start || !range?.end ||
+        !Number.isFinite(Date.parse(range.start)) || !Number.isFinite(Date.parse(range.end)) ||
+        new Date(range.start) >= new Date(range.end))) {
+      throw new Error('Every unavailable range needs a valid start before its end');
+    }
+    return true;
+  }),
+  body('weeklyHours').optional().custom((hours) => {
+    if (!Array.isArray(hours) || hours.some((row) => row?.weekday === undefined ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(row?.startTime) ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(row?.endTime) || row.startTime >= row.endTime)) {
+      throw new Error('Every weekly interval needs a weekday and start time before end time');
+    }
+    return true;
+  }),
   body('unavailableRanges').optional().isArray({ max: 100 }),
-  body('unavailableRanges.*.start').optional().isISO8601(),
-  body('unavailableRanges.*.end').optional().isISO8601(),
-  body('unavailableRanges.*.reason').optional().trim().isLength({ max: 120 }),
+  body('unavailableRanges.*.start').optional().isISO8601({ strict: true }),
+  body('unavailableRanges.*.end').optional().isISO8601({ strict: true }),
+  body('unavailableRanges.*.reason').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
   body('weeklyHours').optional().isArray({ max: 14 }),
-  body('weeklyHours.*.weekday').optional().isInt({ min: 0, max: 6 }).toInt(),
+  body('weeklyHours.*.weekday').optional().custom(wholeInput).bail().isInt({ min: 0, max: 6 }).toInt(),
   body('weeklyHours.*.startTime')
     .optional()
     .matches(/^([01]\d|2[0-3]):[0-5]\d$/),
   body('weeklyHours.*.endTime')
     .optional()
     .matches(/^([01]\d|2[0-3]):[0-5]\d$/),
-  body('minimumNoticeHours').optional().isInt({ min: 0, max: 8760 }).toInt(),
-  body('bufferHours').optional().isInt({ min: 0, max: 168 }).toInt(),
+  body('minimumNoticeHours').optional().custom(wholeInput).bail().isInt({ min: 0, max: 8760 }).toInt(),
+  body('bufferHours').optional().custom(wholeInput).bail().isInt({ min: 0, max: 168 }).toInt(),
 ];
 
 export const promotionValidation = [
@@ -286,10 +295,10 @@ export const promotionValidation = [
     return true;
   }),
   body('enabled').optional().isBoolean().toBoolean(),
-  body('label').trim().isLength({ min: 2, max: 80 }),
-  body('discountPercent').isFloat({ min: 5, max: 80 }).toFloat(),
-  body('startsAt').isISO8601().toDate(),
-  body('endsAt').isISO8601().toDate(),
+  body('label').custom(textInput).bail().trim().isLength({ min: 2, max: 80 }),
+  body('discountPercent').custom(numericInput).bail().isFloat({ min: 5, max: 80 }).toFloat(),
+  body('startsAt').isISO8601({ strict: true }).toDate(),
+  body('endsAt').isISO8601({ strict: true }).toDate(),
   body().custom((value) => {
     if (new Date(value.startsAt) >= new Date(value.endsAt)) {
       throw new Error('endsAt must be after startsAt');
@@ -312,14 +321,14 @@ export const bundleValidation = [
     return true;
   }),
   body('active').optional().isBoolean().toBoolean(),
-  body('title').trim().isLength({ min: 3, max: 100 }),
+  body('title').custom(textInput).bail().trim().isLength({ min: 3, max: 100 }),
   body('listingIds').isArray({ min: 2, max: 5 }),
   body('listingIds.*').matches(/^l-[a-z\d-]+$/i),
-  body('discountPercent').isFloat({ min: 5, max: 50 }).toFloat(),
+  body('discountPercent').custom(numericInput).bail().isFloat({ min: 5, max: 50 }).toFloat(),
 ];
 
 export const moderationValidation = [
   listingId,
   body('status').isIn(['active', 'rejected']),
-  body('reason').optional().trim().isLength({ max: 500 }),
+  body('reason').optional().custom(textInput).bail().trim().isLength({ max: 500 }),
 ];

@@ -1,3 +1,5 @@
+import '../../../core/validation/input_validation.dart';
+import '../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -103,10 +105,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.email],
-                      validator: (value) => value != null &&
-                              RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(value)
-                          ? null
-                          : 'Enter a valid email address',
+                      validator: InputValidation.compose(
+                          InputRules.email.validate,
+                          (value) => value != null &&
+                                  RegExp(r'^[^@]+@[^@]+\.[^@]+$')
+                                      .hasMatch(value)
+                              ? null
+                              : 'Enter a valid email address'),
+                      inputFormatters:
+                          InputValidation.formatters(InputRules.email, email),
+                      maxLength: InputRules.email.maxLength,
                     ),
                     const SizedBox(height: 16),
                     RentHubTextField(
@@ -117,10 +125,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       obscure: true,
                       textInputAction: TextInputAction.done,
                       autofillHints: const [AutofillHints.password],
-                      validator: (value) => (value?.length ?? 0) >= 8
-                          ? null
-                          : 'Password must be at least 8 characters',
+                      validator: InputValidation.compose(
+                          InputRules.password.validate,
+                          (value) => (value?.length ?? 0) >= 8
+                              ? null
+                              : 'Password must be at least 8 characters'),
                       onFieldSubmitted: (_) => _login(),
+                      inputFormatters: InputValidation.formatters(
+                          InputRules.password, password),
+                      maxLength: InputRules.password.maxLength,
                     ),
                     Align(
                       alignment: Alignment.centerRight,

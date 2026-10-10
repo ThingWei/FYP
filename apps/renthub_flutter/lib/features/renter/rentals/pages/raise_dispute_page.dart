@@ -1,3 +1,5 @@
+import '../../../../core/validation/input_validation.dart';
+import '../../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../shared/widgets/account_components.dart';
@@ -68,12 +70,19 @@ class _DisputeSubmissionPageState extends State<DisputeSubmissionPage> {
                         controller: details,
                         minLines: 4,
                         maxLines: 6,
-                        decoration: const InputDecoration(
+                        decoration: (const InputDecoration(
                           labelText: 'Describe what happened',
-                        ),
-                        validator: (value) => (value?.trim().length ?? 0) < 15
-                            ? 'Add at least 15 characters'
-                            : null,
+                        )).copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputValidation.compose(
+                            InputRules.describeWhatHappened.validate,
+                            (value) => (value?.trim().length ?? 0) < 15
+                                ? 'Add at least 15 characters'
+                                : null),
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.describeWhatHappened, details),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.describeWhatHappened.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(

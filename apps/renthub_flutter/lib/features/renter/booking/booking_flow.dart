@@ -1,3 +1,5 @@
+import '../../../core/validation/input_validation.dart';
+import '../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -338,6 +340,7 @@ class _BookingDetailsPageState extends State<BookingDetailsPage> {
   }
 
   void _review() {
+    if (!InputValidation.validate(context)) return;
     if (!widget.draft.validateAvailability()) return;
     Navigator.push<void>(
       context,
@@ -447,15 +450,24 @@ class _BookingDetailsPageState extends State<BookingDetailsPage> {
                     trailing: 'Optional',
                   ),
                   const SizedBox(height: 8),
-                  TextField(
+                  TextFormField(
                     controller: purpose,
                     minLines: 2,
                     maxLines: 3,
                     onChanged: draft.setRentalPurpose,
-                    decoration: const InputDecoration(
+                    decoration: (const InputDecoration(
                       hintText:
                           'Briefly explain what you will use the item for.',
-                    ),
+                    )).copyWith(counterText: '', errorMaxLines: 3),
+                    validator: InputRules
+                        .brieflyExplainWhatYouWillUseTheItemFor.validate,
+                    inputFormatters: InputValidation.formatters(
+                        InputRules.brieflyExplainWhatYouWillUseTheItemFor,
+                        purpose),
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    maxLength: InputRules
+                        .brieflyExplainWhatYouWillUseTheItemFor.maxLength,
+                    maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
                   const SizedBox(height: 20),
                   const _SectionTitle(title: 'Fulfilment Method'),
@@ -500,14 +512,25 @@ class _BookingDetailsPageState extends State<BookingDetailsPage> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          TextField(
+                          TextFormField(
                             key: const Key('delivery-location-field'),
                             controller: deliveryAddress,
                             onChanged: draft.setDeliveryLocation,
-                            decoration: const InputDecoration(
+                            decoration: (const InputDecoration(
                               prefixIcon: Icon(Icons.location_on_outlined),
                               labelText: 'Pickup/delivery location',
-                            ),
+                            )).copyWith(counterText: '', errorMaxLines: 3),
+                            validator:
+                                InputRules.pickupDeliveryLocation.validate,
+                            inputFormatters: InputValidation.formatters(
+                                InputRules.pickupDeliveryLocation,
+                                deliveryAddress),
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            maxLength:
+                                InputRules.pickupDeliveryLocation.maxLength,
+                            maxLengthEnforcement:
+                                InputValidation.lengthEnforcement,
                           ),
                         ],
                       ),

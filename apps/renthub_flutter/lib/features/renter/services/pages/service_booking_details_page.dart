@@ -1,3 +1,5 @@
+import '../../../../core/validation/input_validation.dart';
+import '../../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../shared/widgets/account_components.dart';
@@ -113,27 +115,43 @@ class _ServiceBookingPageState extends State<ServiceBookingPage> {
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: venue,
-                          decoration: const InputDecoration(
+                          decoration: (const InputDecoration(
                             labelText: 'Venue or service location',
-                          ),
-                          validator: (value) =>
-                              value == null || value.trim().isEmpty
+                          )).copyWith(counterText: '', errorMaxLines: 3),
+                          validator: InputValidation.compose(
+                              InputRules.venueOrServiceLocation.validate,
+                              (value) => value == null || value.trim().isEmpty
                                   ? 'Venue or service location is required'
-                                  : null,
+                                  : null),
+                          inputFormatters: InputValidation.formatters(
+                              InputRules.venueOrServiceLocation, venue),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength:
+                              InputRules.venueOrServiceLocation.maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           controller: requirements,
                           minLines: 3,
                           maxLines: 5,
-                          decoration: const InputDecoration(
+                          decoration: (const InputDecoration(
                             labelText: 'Event requirements',
                             hintText:
                                 'Venue, event type, deliverables and accessibility needs',
-                          ),
-                          validator: (value) => (value?.trim().length ?? 0) < 10
-                              ? 'Add at least 10 characters'
-                              : null,
+                          )).copyWith(counterText: '', errorMaxLines: 3),
+                          validator: InputValidation.compose(
+                              InputRules.eventRequirements.validate,
+                              (value) => (value?.trim().length ?? 0) < 10
+                                  ? 'Add at least 10 characters'
+                                  : null),
+                          inputFormatters: InputValidation.formatters(
+                              InputRules.eventRequirements, requirements),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          maxLength: InputRules.eventRequirements.maxLength,
+                          maxLengthEnforcement:
+                              InputValidation.lengthEnforcement,
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<int>(

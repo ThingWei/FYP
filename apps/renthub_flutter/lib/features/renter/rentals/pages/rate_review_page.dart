@@ -1,3 +1,5 @@
+import '../../../../core/validation/input_validation.dart';
+import '../../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
@@ -62,20 +64,27 @@ class _ReviewSubmissionPageState extends State<ReviewSubmissionPage> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    TextFormField(
                       controller: review,
                       minLines: 3,
                       maxLines: 5,
-                      decoration: InputDecoration(
+                      decoration: (InputDecoration(
                         labelText: widget.service
                             ? 'Review the service'
                             : 'Review the rental and Owner',
-                      ),
+                      )).copyWith(counterText: '', errorMaxLines: 3),
+                      validator: InputRules.review.validate,
+                      inputFormatters:
+                          InputValidation.formatters(InputRules.review, review),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      maxLength: InputRules.review.maxLength,
+                      maxLengthEnforcement: InputValidation.lengthEnforcement,
                     ),
                     const SizedBox(height: 20),
                     RentHubActionButton(
                       label: 'Submit Review',
                       onPressed: () {
+                        if (!InputValidation.validate(context)) return;
                         showMockSuccess(context, 'Review submitted');
                         Navigator.pop(context);
                       },

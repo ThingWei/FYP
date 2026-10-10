@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -353,45 +355,73 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       TextFormField(
                         controller: name,
                         decoration:
-                            const InputDecoration(labelText: 'Full name'),
-                        validator: (value) =>
-                            value == null || value.trim().isEmpty
+                            (const InputDecoration(labelText: 'Full name'))
+                                .copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputValidation.compose(
+                            InputRules.fullName2.validate,
+                            (value) => value == null || value.trim().isEmpty
                                 ? 'Name is required'
-                                : null,
+                                : null),
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.fullName2, name),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.fullName2.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: email,
                         keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
+                        decoration: (const InputDecoration(
                           labelText: 'Email address',
                           helperText: 'Verified',
-                        ),
-                        validator: (value) => value?.contains('@') == true
-                            ? null
-                            : 'Enter a valid email',
+                        )).copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputValidation.compose(
+                            InputRules.emailAddress2.validate,
+                            (value) => value?.contains('@') == true
+                                ? null
+                                : 'Enter a valid email'),
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.emailAddress2, email),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.emailAddress2.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: phone,
                         keyboardType: TextInputType.phone,
                         decoration:
-                            const InputDecoration(labelText: 'Phone number'),
+                            (const InputDecoration(labelText: 'Phone number'))
+                                .copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputRules.phoneNumber.validate,
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.phoneNumber, phone),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.phoneNumber.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: address,
                         minLines: 2,
                         maxLines: 3,
-                        decoration:
-                            const InputDecoration(labelText: 'Primary address'),
+                        decoration: (const InputDecoration(
+                                labelText: 'Primary address'))
+                            .copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputRules.primaryAddress.validate,
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.primaryAddress, address),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.primaryAddress.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                       const SizedBox(height: 20),
                       RentHubActionButton(
                         label: 'Save Changes',
                         onPressed: () {
                           if (formKey.currentState!.validate()) {
-                            Navigator.pop(context, true);
+                            InputValidation.popIfValid(context, true);
                           }
                         },
                       ),

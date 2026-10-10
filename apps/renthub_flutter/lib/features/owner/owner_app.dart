@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/renthub_categories.dart';
@@ -394,10 +396,17 @@ class _ListingFormState extends State<ListingForm> {
                     ])),
             const SizedBox(height: 16),
             TextFormField(
-                controller: title,
-                decoration: const InputDecoration(labelText: 'Title'),
-                validator: (v) =>
-                    v == null || v.isEmpty ? 'Title is required' : null),
+              controller: title,
+              decoration: (const InputDecoration(labelText: 'Title'))
+                  .copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputValidation.compose(InputRules.title.validate,
+                  (v) => v == null || v.isEmpty ? 'Title is required' : null),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.title, title),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.title.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
+            ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
                 initialValue: category,
@@ -415,30 +424,65 @@ class _ListingFormState extends State<ListingForm> {
                     setState(() => category = value ?? category)),
             const SizedBox(height: 12),
             TextFormField(
-                controller: price,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                    labelText: widget.isService
-                        ? 'Package price (RM)'
-                        : 'Daily price (RM)',
-                    helperText:
-                        'Suggested price: RM ${widget.isService ? '350–700' : '80–140'}'),
-                validator: (value) => (double.tryParse(value ?? '') ?? 0) <= 0
-                    ? 'Enter a valid price'
-                    : null),
+              controller: price,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: (InputDecoration(
+                      labelText: widget.isService
+                          ? 'Package price (RM)'
+                          : 'Daily price (RM)',
+                      helperText:
+                          'Suggested price: RM ${widget.isService ? '350–700' : '80–140'}'))
+                  .copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputValidation.compose(
+                  InputRules.priceRm.validate,
+                  (value) => (double.tryParse(value ?? '') ?? 0) <= 0
+                      ? 'Enter a valid price'
+                      : null),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.priceRm, price),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.priceRm.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
+            ),
             const SizedBox(height: 12),
             TextFormField(
-                controller: location,
-                decoration: const InputDecoration(labelText: 'Location')),
+              controller: location,
+              decoration: (const InputDecoration(labelText: 'Location'))
+                  .copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.location2.validate,
+              inputFormatters:
+                  InputValidation.formatters(InputRules.location2, location),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.location2.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
+            ),
             const SizedBox(height: 12),
             if (widget.isService) ...[
               TextFormField(
-                  decoration:
-                      const InputDecoration(labelText: 'Package details'),
-                  maxLines: 3),
+                decoration:
+                    (const InputDecoration(labelText: 'Package details'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                maxLines: 3,
+                validator: InputRules.packageDetails.validate,
+                inputFormatters:
+                    InputValidation.formatters(InputRules.packageDetails, null),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.packageDetails.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
+              ),
               const SizedBox(height: 12),
               TextFormField(
-                  decoration: const InputDecoration(labelText: 'Duration'))
+                decoration: (const InputDecoration(labelText: 'Duration'))
+                    .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.duration.validate,
+                inputFormatters:
+                    InputValidation.formatters(InputRules.duration, null),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.duration.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
+                keyboardType: TextInputType.number,
+              )
             ] else ...[
               DropdownButtonFormField(
                   initialValue: condition,
@@ -449,8 +493,18 @@ class _ListingFormState extends State<ListingForm> {
                   onChanged: (value) => condition = value ?? condition),
               const SizedBox(height: 12),
               TextFormField(
-                  decoration: const InputDecoration(
-                      labelText: 'Security deposit (RM)')),
+                decoration:
+                    (const InputDecoration(labelText: 'Security deposit (RM)'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.securityDepositRm2.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.securityDepositRm2, null),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.securityDepositRm2.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+              ),
               const SizedBox(height: 12),
               ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -499,7 +553,7 @@ class _ListingFormState extends State<ListingForm> {
                 key: const Key('save-owner-listing'),
                 onPressed: () {
                   if (key.currentState!.validate()) {
-                    Navigator.pop(
+                    InputValidation.popIfValid(
                       context,
                       Listing(
                         id: widget.initialListing?.id ??
@@ -814,11 +868,18 @@ class _OwnerAvailabilityPageState extends State<OwnerAvailabilityPage> {
         heading: 'RM 85.00 / day',
         status: 'Suggested RM 80–140',
         children: [
-          const TextField(
-            decoration: InputDecoration(
+          TextFormField(
+            decoration: (InputDecoration(
               labelText: 'Daily price (RM)',
               helperText: 'Smart-price estimate from similar local listings',
-            ),
+            )).copyWith(counterText: '', errorMaxLines: 3),
+            validator: InputRules.dailyPriceRm.validate,
+            inputFormatters:
+                InputValidation.formatters(InputRules.dailyPriceRm, null),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            maxLength: InputRules.dailyPriceRm.maxLength,
+            maxLengthEnforcement: InputValidation.lengthEnforcement,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -842,6 +903,7 @@ class _OwnerAvailabilityPageState extends State<OwnerAvailabilityPage> {
           RentHubActionButton(
             label: 'Save Availability',
             onPressed: () {
+              if (!InputValidation.validate(context)) return;
               showMockSuccess(context, 'Pricing and availability saved');
               Navigator.pop(context);
             },
@@ -882,23 +944,29 @@ class _OwnerRequestDetailsPageState extends State<OwnerRequestDetailsPage> {
           action: 'Approve',
         ) &&
         mounted) {
-      Navigator.pop(context, 'Active');
+      InputValidation.popIfValid(context, 'Active');
     }
   }
 
   Future<void> _reject() async {
     final reason = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Reject booking request?'),
-            content: TextField(
+            content: TextFormField(
               controller: reason,
               minLines: 2,
               maxLines: 4,
-              decoration: const InputDecoration(
+              decoration: (const InputDecoration(
                 labelText: 'Reason required',
-              ),
+              )).copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.reasonRequired.validate,
+              inputFormatters:
+                  InputValidation.formatters(InputRules.reasonRequired, reason),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.reasonRequired.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             actions: [
               TextButton(
@@ -907,7 +975,7 @@ class _OwnerRequestDetailsPageState extends State<OwnerRequestDetailsPage> {
               ),
               FilledButton(
                 style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-                onPressed: () => Navigator.pop(
+                onPressed: () => InputValidation.popIfValid(
                   dialogContext,
                   reason.text.trim().length >= 5,
                 ),
@@ -918,7 +986,7 @@ class _OwnerRequestDetailsPageState extends State<OwnerRequestDetailsPage> {
         ) ??
         false;
     reason.dispose();
-    if (accepted && mounted) Navigator.pop(context, 'Rejected');
+    if (accepted && mounted) InputValidation.popIfValid(context, 'Rejected');
   }
 
   @override
@@ -1228,13 +1296,19 @@ class OwnerIssuePage extends StatelessWidget {
         heading: title,
         status: 'Action required',
         children: [
-          const TextField(
+          TextFormField(
             minLines: 3,
             maxLines: 5,
-            decoration: InputDecoration(
+            decoration: (InputDecoration(
               labelText: 'Describe the issue',
               hintText: 'Damage, missing parts, late return and estimated cost',
-            ),
+            )).copyWith(counterText: '', errorMaxLines: 3),
+            validator: InputRules.describeTheIssue.validate,
+            inputFormatters:
+                InputValidation.formatters(InputRules.describeTheIssue, null),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            maxLength: InputRules.describeTheIssue.maxLength,
+            maxLengthEnforcement: InputValidation.lengthEnforcement,
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -1288,21 +1362,38 @@ class _OwnerInsuranceClaimPageState extends State<OwnerInsuranceClaimPage> {
             child: Column(children: [
               TextFormField(
                 decoration:
-                    const InputDecoration(labelText: 'Claim amount (RM)'),
-                keyboardType: TextInputType.number,
-                validator: (value) => (double.tryParse(value ?? '') ?? 0) > 0
-                    ? null
-                    : 'Enter a valid amount',
+                    (const InputDecoration(labelText: 'Claim amount (RM)'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                validator: InputValidation.compose(
+                    InputRules.claimAmountRm.validate,
+                    (value) => (double.tryParse(value ?? '') ?? 0) > 0
+                        ? null
+                        : 'Enter a valid amount'),
+                inputFormatters:
+                    InputValidation.formatters(InputRules.claimAmountRm, null),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.claimAmountRm.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 minLines: 3,
                 maxLines: 5,
                 decoration:
-                    const InputDecoration(labelText: 'Incident details'),
-                validator: (value) => (value?.trim().length ?? 0) >= 10
-                    ? null
-                    : 'Add at least 10 characters',
+                    (const InputDecoration(labelText: 'Incident details'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputValidation.compose(
+                    InputRules.incidentDetails.validate,
+                    (value) => (value?.trim().length ?? 0) >= 10
+                        ? null
+                        : 'Add at least 10 characters'),
+                inputFormatters: InputValidation.formatters(
+                    InputRules.incidentDetails, null),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.incidentDetails.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
             ]),
           ),
@@ -1333,16 +1424,25 @@ class OwnerDisputeResolutionPage extends StatelessWidget {
             style: TextStyle(color: AppColors.secondaryText),
           ),
           const SizedBox(height: 12),
-          const TextField(
+          TextFormField(
             minLines: 4,
             maxLines: 6,
-            decoration: InputDecoration(labelText: 'Owner response'),
+            decoration: (InputDecoration(labelText: 'Owner response'))
+                .copyWith(counterText: '', errorMaxLines: 3),
+            validator: InputRules.ownerResponse.validate,
+            inputFormatters:
+                InputValidation.formatters(InputRules.ownerResponse, null),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            maxLength: InputRules.ownerResponse.maxLength,
+            maxLengthEnforcement: InputValidation.lengthEnforcement,
           ),
           const SizedBox(height: 12),
           RentHubActionButton(
             label: 'Submit Response & Evidence',
-            onPressed: () =>
-                showMockSuccess(context, 'Dispute response submitted'),
+            onPressed: () {
+              if (!InputValidation.validate(context)) return;
+              showMockSuccess(context, 'Dispute response submitted');
+            },
           ),
         ],
       );

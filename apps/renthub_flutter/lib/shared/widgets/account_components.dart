@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/domain_models.dart';
@@ -151,6 +152,8 @@ class RentHubTextField extends StatefulWidget {
     this.obscure = false,
     this.autofillHints,
     this.onFieldSubmitted,
+    this.inputFormatters,
+    this.maxLength,
   });
 
   final TextEditingController controller;
@@ -163,6 +166,8 @@ class RentHubTextField extends StatefulWidget {
   final bool obscure;
   final Iterable<String>? autofillHints;
   final ValueChanged<String>? onFieldSubmitted;
+  final List<TextInputFormatter>? inputFormatters;
+  final int? maxLength;
 
   @override
   State<RentHubTextField> createState() => _RentHubTextFieldState();
@@ -179,7 +184,11 @@ class _RentHubTextFieldState extends State<RentHubTextField> {
         obscureText: obscured,
         autofillHints: widget.autofillHints,
         onFieldSubmitted: widget.onFieldSubmitted,
-        decoration: InputDecoration(
+        inputFormatters: widget.inputFormatters,
+        maxLength: widget.maxLength,
+        maxLengthEnforcement: MaxLengthEnforcement.none,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        decoration: (InputDecoration(
           labelText: widget.label,
           hintText: widget.hint,
           prefixIcon: widget.icon == null ? null : Icon(widget.icon, size: 20),
@@ -192,7 +201,7 @@ class _RentHubTextFieldState extends State<RentHubTextField> {
                   ),
                 )
               : null,
-        ),
+        )).copyWith(counterText: '', errorMaxLines: 3),
         validator: widget.validator,
       );
 }

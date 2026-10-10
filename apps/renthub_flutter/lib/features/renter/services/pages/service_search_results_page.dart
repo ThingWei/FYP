@@ -1,3 +1,5 @@
+import '../../../../core/validation/input_validation.dart';
+import '../../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../shared/mock_data/mock_data.dart';
@@ -45,12 +47,18 @@ class _ServiceResultsPageState extends State<ServiceResultsPage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
-            TextField(
+            TextFormField(
               onChanged: (value) => setState(() => _query = value.trim()),
-              decoration: const InputDecoration(
+              decoration: (const InputDecoration(
                 prefixIcon: Icon(Icons.search),
                 hintText: 'Search professional services',
-              ),
+              )).copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.searchProfessionalServices.validate,
+              inputFormatters: InputValidation.formatters(
+                  InputRules.searchProfessionalServices, null),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.searchProfessionalServices.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 8, children: [

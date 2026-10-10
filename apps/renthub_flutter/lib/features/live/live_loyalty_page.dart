@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -51,17 +53,23 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
 
   Future<void> _applyCode() async {
     final code = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Apply referral code'),
-        content: TextField(
+        content: TextFormField(
           controller: code,
           textCapitalization: TextCapitalization.characters,
-          decoration: const InputDecoration(
+          decoration: (const InputDecoration(
             labelText: 'Referral code',
             hintText: 'RH-MEMBER1234',
-          ),
+          )).copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.referralCode.validate,
+          inputFormatters:
+              InputValidation.formatters(InputRules.referralCode, code),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          maxLength: InputRules.referralCode.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
         ),
         actions: [
           TextButton(
@@ -69,7 +77,7 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Apply'),
           ),
         ],

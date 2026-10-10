@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -120,6 +122,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   }
 
   Future<void> respond(Dispute dispute) async {
+    if (!InputValidation.validate(context)) return;
     if (response.text.trim().length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter at least 5 characters.')),
@@ -146,7 +149,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   Future<void> submitClaim(Dispute dispute) async {
     final amount = TextEditingController();
     final details = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Submit damage-waiver claim'),
@@ -155,22 +158,34 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
+              TextFormField(
                 controller: amount,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
+                decoration: (const InputDecoration(
                   labelText: 'Amount requested (RM)',
-                ),
+                )).copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.amountRequestedRm.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.amountRequestedRm, amount),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.amountRequestedRm.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
               const SizedBox(height: 12),
-              TextField(
+              TextFormField(
                 controller: details,
                 minLines: 3,
                 maxLines: 5,
-                decoration: const InputDecoration(
+                decoration: (const InputDecoration(
                   labelText: 'Damage and repair details',
-                ),
+                )).copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.damageAndRepairDetails.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.damageAndRepairDetails, details),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.damageAndRepairDetails.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
               const SizedBox(height: 12),
               const Align(
@@ -189,7 +204,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Submit Claim'),
           ),
         ],
@@ -287,23 +302,38 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             const SizedBox(height: 12),
             TextFormField(
               controller: summary,
-              decoration: const InputDecoration(labelText: 'Short summary'),
-              validator: (value) => (value?.trim().length ?? 0) < 5
-                  ? 'Enter at least 5 characters'
-                  : null,
+              decoration: (const InputDecoration(labelText: 'Short summary'))
+                  .copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputValidation.compose(
+                  InputRules.shortSummary.validate,
+                  (value) => (value?.trim().length ?? 0) < 5
+                      ? 'Enter at least 5 characters'
+                      : null),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.shortSummary, summary),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.shortSummary.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: description,
               minLines: 5,
               maxLines: 8,
-              decoration: const InputDecoration(
+              decoration: (const InputDecoration(
                 labelText: 'What happened?',
                 alignLabelWithHint: true,
-              ),
-              validator: (value) => (value?.trim().length ?? 0) < 20
-                  ? 'Enter at least 20 characters'
-                  : null,
+              )).copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputValidation.compose(
+                  InputRules.whatHappened.validate,
+                  (value) => (value?.trim().length ?? 0) < 20
+                      ? 'Enter at least 20 characters'
+                      : null),
+              inputFormatters: InputValidation.formatters(
+                  InputRules.whatHappened, description),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.whatHappened.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -400,13 +430,21 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             ),
           if (!dispute.closed) ...[
             const SizedBox(height: 16),
-            TextField(
+            TextFormField(
               controller: response,
               minLines: 3,
               maxLines: 5,
-              decoration: const InputDecoration(
+              decoration: (const InputDecoration(
                 labelText: 'Add information or a response',
-              ),
+              )).copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.addInformationOrAResponse.validate,
+              inputFormatters: InputValidation.formatters(
+                  InputRules.addInformationOrAResponse, response),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.addInformationOrAResponse.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(

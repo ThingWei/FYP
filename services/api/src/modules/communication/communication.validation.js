@@ -1,3 +1,5 @@
+import { textInput } from '../../core/inputValidation.js';
+import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import { body, param, query } from 'express-validator';
 import { MESSAGE_REPORT_REASONS } from './messageReport.model.js';
 import { NOTIFICATION_CATEGORIES } from './notification.model.js';
@@ -8,8 +10,8 @@ const threadId = param('threadId')
   .withMessage('Invalid conversation identifier');
 
 export const paginationValidation = [
-  query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
+  query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
 ];
 
 export const bookingThreadValidation = [
@@ -26,10 +28,9 @@ export const sendMessageValidation = [
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
   }),
-  body('text').optional().trim().isLength({ max: 2000 }),
+  body('text').optional().custom(textInput).bail().trim().isLength({ max: 2000 }),
   body('attachmentRef')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .matches(/^upload:\/\/UPL-[A-Z0-9]+$/i)
     .withMessage('Invalid message image reference'),
   body().custom((value) => {
@@ -51,7 +52,7 @@ export const reportMessageValidation = [
     return true;
   }),
   body('reason').isIn(MESSAGE_REPORT_REASONS),
-  body('details').optional().trim().isLength({ max: 1000 }),
+  body('details').optional().custom(textInput).bail().trim().isLength({ max: 1000 }),
   body().custom((value) => {
     if (value.reason === 'other' && !value.details?.trim()) {
       throw new Error('Details are required for an other report');
@@ -74,7 +75,7 @@ export const resolveReportValidation = [
     return true;
   }),
   body('status').isIn(['resolved', 'dismissed']),
-  body('resolution').trim().isLength({ min: 3, max: 1000 }),
+  body('resolution').custom(textInput).bail().trim().isLength({ min: 3, max: 1000 }),
 ];
 
 export const notificationsValidation = [
@@ -94,15 +95,14 @@ export const deviceRegistrationValidation = [
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
   }),
-  body('deviceId').trim().isLength({ min: 8, max: 120 }),
-  body('deviceName').optional().trim().isLength({ max: 120 }),
+  body('deviceId').custom(textInput).bail().trim().isLength({ min: 8, max: 120 }),
+  body('deviceName').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
   body('platform').isIn(PUSH_PLATFORMS),
-  body('token').trim().isLength({ min: 20, max: 4096 }),
+  body('token').custom(textInput).bail().trim().isLength({ min: 20, max: 4096 }),
 ];
 
 export const deviceIdValidation = [
-  param('deviceId')
-    .trim()
+  param('deviceId').custom(textInput).bail().trim()
     .isLength({ min: 8, max: 120 })
     .matches(/^[a-zA-Z0-9._:-]+$/),
 ];

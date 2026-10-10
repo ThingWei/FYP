@@ -1,3 +1,6 @@
+import { textInput } from '../../core/inputValidation.js';
+import { malaysianMobile } from '../../core/inputValidation.js';
+import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import { body, param, query } from 'express-validator';
 import { LICENCE_CLASSES } from './drivingEligibility.js';
 import {
@@ -7,12 +10,11 @@ import {
 } from './user.model.js';
 import { isUploadReference } from '../../core/uploadReference.js';
 
-const userId = param('id')
-  .trim()
+const userId = param('id').custom(textInput).bail().trim()
   .matches(/^(?:[a-f\d]{24}|u-[a-z\d-]+)$/i)
   .withMessage('Invalid user identifier');
 
-const email = () => body('email').trim().isEmail().normalizeEmail();
+const email = () => body('email').custom(textInput).bail().trim().isEmail().normalizeEmail();
 const password = () =>
   body('password')
     .isString()
@@ -26,7 +28,7 @@ export const localLoginValidation = [
 ];
 
 export const localRegistrationValidation = [
-  body('displayName').trim().isLength({ min: 2, max: 80 }),
+  body('displayName').custom(textInput).bail().trim().isLength({ min: 2, max: 80 }),
   email(),
   password(),
   body('role').isIn(['renter', 'owner']),
@@ -45,6 +47,7 @@ export const passwordResetRequestValidation = [email()];
 export const passwordResetConfirmationValidation = [
   email(),
   body('code')
+    .isString().bail()
     .trim()
     .matches(/^\d{6}$/)
     .withMessage('Reset code must contain 6 digits'),
@@ -59,11 +62,10 @@ export const profileValidation = [
     }
     return true;
   }),
-  body('displayName').optional().trim().isLength({ min: 2, max: 80 }),
-  body('phone').optional().trim().isLength({ max: 24 }),
+  body('displayName').optional().custom(textInput).bail().trim().isLength({ min: 2, max: 80 }),
+  body('phone').optional().isString().bail().trim().isLength({ max: 24 }).custom(malaysianMobile),
   body('avatarUrl')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .custom(
       (value) =>
         value === '' ||
@@ -72,13 +74,14 @@ export const profileValidation = [
     )
     .withMessage('avatarUrl must be empty, a valid URL, or a public upload'),
   body('addresses').optional().isArray({ max: 10 }),
-  body('addresses.*.label').optional().trim().notEmpty().isLength({ max: 40 }),
-  body('addresses.*.line1').optional().trim().notEmpty().isLength({ max: 120 }),
-  body('addresses.*.line2').optional().trim().isLength({ max: 120 }),
-  body('addresses.*.city').optional().trim().notEmpty().isLength({ max: 80 }),
-  body('addresses.*.state').optional().trim().notEmpty().isLength({ max: 80 }),
+  body('addresses.*.label').optional().custom(textInput).bail().trim().notEmpty().isLength({ max: 40 }),
+  body('addresses.*.line1').optional().custom(textInput).bail().trim().notEmpty().isLength({ max: 120 }),
+  body('addresses.*.line2').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
+  body('addresses.*.city').optional().custom(textInput).bail().trim().notEmpty().isLength({ max: 80 }),
+  body('addresses.*.state').optional().custom(textInput).bail().trim().notEmpty().isLength({ max: 80 }),
   body('addresses.*.postcode')
     .optional()
+    .isString().bail()
     .trim()
     .matches(/^\d{5}$/),
   body('addresses.*.isDefault').optional().isBoolean(),
@@ -99,22 +102,19 @@ export const verificationSubmissionValidation = [
   }),
   body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
   body('documentRefs').isArray({ min: 1, max: 2 }),
-  body('documentRefs.*')
-    .trim()
+  body('documentRefs.*').custom(textInput).bail().trim()
     .custom((value) => isUploadReference(value))
     .withMessage('Each document must reference an uploaded image'),
 ];
 
 export const targetUserValidation = [
-  param('userId')
-    .trim()
+  param('userId').custom(textInput).bail().trim()
     .matches(/^(?:[a-f\d]{24}|u-[a-z\d-]+)$/i)
     .withMessage('Invalid user identifier'),
 ];
 
 export const savedListingValidation = [
-  param('listingId')
-    .trim()
+  param('listingId').custom(textInput).bail().trim()
     .matches(/^l-[a-z\d-]+$/i)
     .withMessage('Invalid listing identifier'),
 ];
@@ -138,9 +138,9 @@ export const comparisonValidation = [
 export const publicUserValidation = [userId];
 
 export const listValidation = [
-  query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
-  query('search').optional().trim().isLength({ max: 100 }),
+  query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
+  query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
+  query('search').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   query('role').optional().isIn(USER_ROLES),
   query('status').optional().isIn(ACCOUNT_STATUSES),
 ];
@@ -148,7 +148,7 @@ export const listValidation = [
 export const accountStatusValidation = [
   userId,
   body('status').isIn(ACCOUNT_STATUSES),
-  body('reason').optional().trim().isLength({ max: 500 }),
+  body('reason').optional().custom(textInput).bail().trim().isLength({ max: 500 }),
 ];
 
 export const accountDeactivationValidation = [
@@ -156,7 +156,7 @@ export const accountDeactivationValidation = [
     .equals('true')
     .withMessage('Account deactivation must be confirmed')
     .toBoolean(),
-  body('reason').trim().isLength({ min: 5, max: 500 }),
+  body('reason').custom(textInput).bail().trim().isLength({ min: 5, max: 500 }),
   body().custom((value) => {
     const allowed = new Set(['confirmation', 'reason']);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
@@ -177,10 +177,9 @@ export const verificationDecisionValidation = [
   body('expiresAt').optional().matches(/^\d{4}-\d{2}-\d{2}$/).isISO8601({ strict: true }),
   body('identityMatchConfirmed').optional().isBoolean().toBoolean(),
   body('classReviewConfirmed').optional().isBoolean().toBoolean(),
-  body('reason').optional().trim().isLength({ max: 500 }),
+  body('reason').optional().custom(textInput).bail().trim().isLength({ max: 500 }),
   body('attemptId')
-    .optional()
-    .trim()
+    .optional().custom(textInput).bail().trim()
     .matches(/^KYC-[A-F\d]{24}$/i),
 ];
 
@@ -213,6 +212,6 @@ export const verificationRequirementsValidation = [
     'Books',
     'Equipment',
   ]),
-  query('dailyPrice').optional().isFloat({ min: 0, max: 1_000_000 }).toFloat(),
+  query('dailyPrice').optional().custom(moneyInput).bail().isFloat({ min: 0, max: 1_000_000 }).toFloat(),
   query('requiredLicenceClass').optional().isIn(LICENCE_CLASSES),
 ];

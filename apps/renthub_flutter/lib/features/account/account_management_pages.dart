@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -174,13 +176,20 @@ class _SupportRequestPageState extends State<SupportRequestPage> {
                         controller: details,
                         minLines: 5,
                         maxLines: 8,
-                        decoration: const InputDecoration(
+                        decoration: (const InputDecoration(
                           labelText: 'How can we help?',
                           alignLabelWithHint: true,
-                        ),
-                        validator: (value) => (value?.trim().length ?? 0) < 10
-                            ? 'Enter at least 10 characters'
-                            : null,
+                        )).copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputValidation.compose(
+                            InputRules.howCanWeHelp.validate,
+                            (value) => (value?.trim().length ?? 0) < 10
+                                ? 'Enter at least 10 characters'
+                                : null),
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.howCanWeHelp, details),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.howCanWeHelp.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                       const SizedBox(height: 16),
                       RentHubActionButton(
@@ -213,19 +222,25 @@ class _AddressManagementPageState extends State<AddressManagementPage> {
 
   Future<void> _add() async {
     final controller = TextEditingController();
-    final value = await showDialog<String>(
+    final value = await InputValidation.showFormDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Add address'),
-        content: TextField(
+        content: TextFormField(
           controller: controller,
           minLines: 2,
           maxLines: 3,
           autofocus: true,
-          decoration: const InputDecoration(
+          decoration: (const InputDecoration(
             labelText: 'Malaysian address',
             hintText: 'Street, postcode, city and state',
-          ),
+          )).copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.malaysianAddress.validate,
+          inputFormatters: InputValidation.formatters(
+              InputRules.malaysianAddress, controller),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          maxLength: InputRules.malaysianAddress.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
         ),
         actions: [
           TextButton(
@@ -235,7 +250,7 @@ class _AddressManagementPageState extends State<AddressManagementPage> {
           FilledButton(
             onPressed: () {
               final text = controller.text.trim();
-              if (text.length >= 10) Navigator.pop(dialogContext, text);
+              InputValidation.popIfValid(dialogContext, text);
             },
             child: const Text('Add'),
           ),
@@ -323,18 +338,23 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
 
   Future<void> _add() async {
     final controller = TextEditingController();
-    final digits = await showDialog<String>(
+    final digits = await InputValidation.showFormDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Add simulated card'),
-        content: TextField(
+        content: TextFormField(
           controller: controller,
           keyboardType: TextInputType.number,
           maxLength: 4,
-          decoration: const InputDecoration(
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
+          decoration: (const InputDecoration(
             labelText: 'Last four digits',
             helperText: 'No real card information is stored.',
-          ),
+          )).copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.lastFourDigits.validate,
+          inputFormatters:
+              InputValidation.formatters(InputRules.lastFourDigits, controller),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
         ),
         actions: [
           TextButton(
@@ -344,9 +364,7 @@ class _PaymentMethodsPageState extends State<PaymentMethodsPage> {
           FilledButton(
             onPressed: () {
               final value = controller.text.trim();
-              if (RegExp(r'^\d{4}$').hasMatch(value)) {
-                Navigator.pop(dialogContext, value);
-              }
+              InputValidation.popIfValid(dialogContext, value);
             },
             child: const Text('Add'),
           ),

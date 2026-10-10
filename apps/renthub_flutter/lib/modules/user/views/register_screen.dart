@@ -1,3 +1,5 @@
+import '../../../core/validation/input_validation.dart';
+import '../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -148,9 +150,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
               hint: 'Aina Rahman',
               icon: Icons.person_outline,
               textInputAction: TextInputAction.next,
-              validator: (value) => (value?.trim().length ?? 0) >= 2
-                  ? null
-                  : 'Enter your full name',
+              validator: InputValidation.compose(
+                  InputRules.fullName.validate,
+                  (value) => (value?.trim().length ?? 0) >= 2
+                      ? null
+                      : 'Enter your full name'),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.fullName, name),
+              maxLength: InputRules.fullName.maxLength,
             ),
             const SizedBox(height: 16),
             RentHubTextField(
@@ -159,9 +166,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
               hint: 'aina@example.com',
               icon: Icons.mail_outline,
               keyboardType: TextInputType.emailAddress,
-              validator: (value) => value != null && value.contains('@')
-                  ? null
-                  : 'Enter a valid email address',
+              validator: InputValidation.compose(
+                  InputRules.emailAddress.validate,
+                  (value) => value != null && value.contains('@')
+                      ? null
+                      : 'Enter a valid email address'),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.emailAddress, email),
+              maxLength: InputRules.emailAddress.maxLength,
             ),
             const SizedBox(height: 20),
             RentHubActionButton(
@@ -187,10 +199,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
               icon: Icons.phone_outlined,
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.next,
-              validator: (value) =>
-                  (value?.replaceAll(RegExp(r'\D'), '').length ?? 0) >= 9
-                      ? null
-                      : 'Enter a valid Malaysian mobile number',
+              validator: InputValidation.compose(
+                  InputRules.mobileNumber.validate,
+                  (value) =>
+                      (value?.replaceAll(RegExp(r'\D'), '').length ?? 0) >= 9
+                          ? null
+                          : 'Enter a valid Malaysian mobile number'),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.mobileNumber, phone),
+              maxLength: InputRules.mobileNumber.maxLength,
             ),
             const SizedBox(height: 16),
             RentHubTextField(
@@ -199,9 +216,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
               hint: 'At least 8 characters',
               icon: Icons.lock_outline,
               obscure: true,
-              validator: (value) => (value?.length ?? 0) >= 8
-                  ? null
-                  : 'Use at least 8 characters',
+              validator: InputValidation.compose(
+                  InputRules.password.validate,
+                  (value) => (value?.length ?? 0) >= 8
+                      ? null
+                      : 'Use at least 8 characters'),
+              inputFormatters:
+                  InputValidation.formatters(InputRules.password, password),
+              maxLength: InputRules.password.maxLength,
             ),
             const SizedBox(height: 8),
             const Text(

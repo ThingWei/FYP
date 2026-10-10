@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -71,6 +73,7 @@ class _LiveReviewPageState extends State<LiveReviewPage> {
       );
 
   Future<void> _submit() async {
+    if (!InputValidation.validate(context)) return;
     if (comment.text.trim().length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter at least 10 characters.')),
@@ -161,15 +164,20 @@ class _LiveReviewPageState extends State<LiveReviewPage> {
                         _rating('Value', value,
                             (rating) => setState(() => value = rating)),
                       const SizedBox(height: 12),
-                      TextField(
+                      TextFormField(
                         controller: comment,
                         minLines: 3,
                         maxLines: 6,
                         maxLength: 1500,
-                        decoration: const InputDecoration(
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
+                        decoration: (const InputDecoration(
                           labelText: 'Review',
                           hintText: 'Describe your completed experience',
-                        ),
+                        )).copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputRules.review.validate,
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.review, comment),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                       ),
                       const SizedBox(height: 16),
                       RentHubActionButton(

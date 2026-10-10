@@ -1,3 +1,5 @@
+import '../../core/validation/input_validation.dart';
+import '../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -142,6 +144,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
   }
 
   Future<void> _applyFilters({String? quickCategory}) async {
+    if (!InputValidation.validate(context)) return;
     final nextCategory = quickCategory ?? category;
     final useRecommendations =
         widget.featuredOnly && filters.sort == 'recommended';
@@ -259,11 +262,11 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               ),
               const SizedBox(height: 12),
             ],
-            TextField(
+            TextFormField(
               controller: queryController,
               textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _applyFilters(),
-              decoration: InputDecoration(
+              onFieldSubmitted: (_) => _applyFilters(),
+              decoration: (InputDecoration(
                 prefixIcon: Icon(Icons.search),
                 hintText: 'Search rentals and services',
                 suffixIcon: IconButton(
@@ -271,7 +274,13 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                   onPressed: searching ? null : _applyFilters,
                   icon: const Icon(Icons.arrow_forward),
                 ),
-              ),
+              )).copyWith(counterText: '', errorMaxLines: 3),
+              validator: InputRules.searchRentalsAndServices.validate,
+              inputFormatters: InputValidation.formatters(
+                  InputRules.searchRentalsAndServices, queryController),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              maxLength: InputRules.searchRentalsAndServices.maxLength,
+              maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             const SizedBox(height: 12),
             Row(
@@ -616,6 +625,7 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
   }
 
   void _apply() {
+    if (!InputValidation.validate(context)) return;
     final minimum = double.tryParse(minimumPrice.text);
     final maximum = double.tryParse(maximumPrice.text);
     if (minimum != null && maximum != null && minimum > maximum) {
@@ -624,7 +634,7 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
       );
       return;
     }
-    Navigator.pop(
+    InputValidation.popIfValid(
       context,
       DiscoveryFilters(
         type: type,
@@ -677,29 +687,61 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
                 onChanged: (value) => setState(() => type = value ?? 'all'),
               ),
               const SizedBox(height: 12),
-              TextField(
+              TextFormField(
                 controller: location,
-                decoration: const InputDecoration(
+                decoration: (const InputDecoration(
                   labelText: 'Location',
                   hintText: 'Kuala Lumpur',
-                ),
+                )).copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.location.validate,
+                inputFormatters:
+                    InputValidation.formatters(InputRules.location, location),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.location.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: TextField(
+                    child: TextFormField(
                       controller: minimumPrice,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Min RM'),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: (const InputDecoration(labelText: 'Min RM'))
+                          .copyWith(counterText: '', errorMaxLines: 3),
+                      validator: InputRules.minRm.validate,
+                      inputFormatters: InputValidation.formatters(
+                          InputRules.minRm, minimumPrice),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      maxLength: InputRules.minRm.maxLength,
+                      maxLengthEnforcement: InputValidation.lengthEnforcement,
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: TextField(
+                    child: TextFormField(
                       controller: maximumPrice,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Max RM'),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: (const InputDecoration(labelText: 'Max RM'))
+                          .copyWith(counterText: '', errorMaxLines: 3),
+                      validator: (value) {
+                        final error = InputRules.maxRm.validate(value);
+                        if (error != null) return error;
+                        final minimum = double.tryParse(minimumPrice.text);
+                        final maximum = double.tryParse(value ?? '');
+                        return minimum != null &&
+                                maximum != null &&
+                                minimum > maximum
+                            ? 'Maximum price must be at least minimum price'
+                            : null;
+                      },
+                      inputFormatters: InputValidation.formatters(
+                          InputRules.maxRm, maximumPrice),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      maxLength: InputRules.maxRm.maxLength,
+                      maxLengthEnforcement: InputValidation.lengthEnforcement,
                     ),
                   ),
                 ],
@@ -1015,7 +1057,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   ) async {
     var reason = 'misleading';
     final details = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -1051,15 +1093,24 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     setDialogState(() => reason = value ?? reason),
               ),
               const SizedBox(height: 12),
-              TextField(
+              TextFormField(
                 controller: details,
                 maxLines: 3,
                 maxLength: 1000,
-                decoration: InputDecoration(
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
+                decoration: (InputDecoration(
                   labelText: reason == 'other'
                       ? 'Details (required)'
                       : 'Details (optional)',
-                ),
+                )).copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRule('Report details',
+                        optional: reason != 'other', maxLength: 1000)
+                    .validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRule('Report details',
+                        optional: reason != 'other', maxLength: 1000),
+                    details),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
               ),
             ],
           ),
@@ -1069,7 +1120,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(
+              onPressed: () => InputValidation.popIfValid(
                 context,
                 reason != 'other' || details.text.trim().length >= 5,
               ),
@@ -1157,6 +1208,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   }
 
   Future<void> _submit() async {
+    if (!InputValidation.validate(context)) return;
     if (submitting || checkingIdentity || end.isBefore(start)) return;
     setState(() => checkingIdentity = true);
     final approved = await ensureMarketplaceIdentity(context,
@@ -1278,7 +1330,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               content: Text(exception.message),
               actions: [
                 FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
+                  onPressed: () => InputValidation.popIfValid(context, true),
                   child: Text(
                       driving ? 'Review driving eligibility' : 'Verify MyKad'),
                 ),
@@ -1653,11 +1705,17 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                         onTap: _pickServiceTime,
                       ),
                     if (listing.isService)
-                      TextField(
+                      TextFormField(
                         controller: venue,
-                        decoration: const InputDecoration(
+                        decoration: (const InputDecoration(
                           labelText: 'Service venue',
-                        ),
+                        )).copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputRules.serviceVenue.validate,
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.serviceVenue, venue),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        maxLength: InputRules.serviceVenue.maxLength,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
                       )
                     else if (listing.fulfilmentMethods.isNotEmpty)
                       DropdownButtonFormField<String>(
@@ -1689,13 +1747,18 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                         onChanged: (value) => setState(() => waiver = value),
                       ),
                     const SizedBox(height: 12),
-                    TextField(
+                    TextFormField(
                       controller: note,
                       maxLength: 1000,
+                      maxLengthEnforcement: InputValidation.lengthEnforcement,
                       maxLines: 3,
-                      decoration: const InputDecoration(
+                      decoration: (const InputDecoration(
                         labelText: 'Note to Owner (optional)',
-                      ),
+                      )).copyWith(counterText: '', errorMaxLines: 3),
+                      validator: InputRules.noteToOwnerOptional.validate,
+                      inputFormatters: InputValidation.formatters(
+                          InputRules.noteToOwnerOptional, note),
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                     ),
                   ],
                 ),
@@ -1797,13 +1860,20 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
 
   Future<void> _cancel(Booking booking) async {
     final reason = TextEditingController();
-    final accepted = await showDialog<bool>(
+    final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Cancel booking?'),
-        content: TextField(
+        content: TextFormField(
           controller: reason,
-          decoration: const InputDecoration(labelText: 'Cancellation reason'),
+          decoration: (const InputDecoration(labelText: 'Cancellation reason'))
+              .copyWith(counterText: '', errorMaxLines: 3),
+          validator: InputRules.cancellationReason.validate,
+          inputFormatters:
+              InputValidation.formatters(InputRules.cancellationReason, reason),
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          maxLength: InputRules.cancellationReason.maxLength,
+          maxLengthEnforcement: InputValidation.lengthEnforcement,
         ),
         actions: [
           TextButton(
@@ -1811,7 +1881,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
             child: const Text('Keep Booking'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => InputValidation.popIfValid(context, true),
             child: const Text('Cancel Booking'),
           ),
         ],
