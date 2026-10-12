@@ -858,6 +858,7 @@ test('runs service approval, delivery and renter completion lifecycle', async ()
       startDate: '2026-10-03T14:00:00.000Z',
       endDate: '2026-10-03T14:00:00.000Z',
       serviceVenue: 'Glasshouse Seputeh, Kuala Lumpur',
+      serviceLocation: { displayAddress: 'Glasshouse Seputeh, Kuala Lumpur', coordinates: { latitude: 3.11, longitude: 101.68 } },
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });

@@ -1,4 +1,6 @@
 import '../../core/utils/calendar_date.dart';
+import '../../core/location/confirmed_location.dart';
+import 'package:latlong2/latlong.dart';
 
 enum UserRole { renter, owner, admin }
 
@@ -17,14 +19,33 @@ class UserAddress {
     required this.city,
     required this.state,
     required this.postcode,
+    this.id,
+    this.latitude,
+    this.longitude,
     this.line2 = '',
     this.isDefault = false,
   });
 
   final String label, line1, line2, city, state, postcode;
+  final String? id;
+  final double? latitude, longitude;
+  ListingLocationSelection? get mapLocation => latitude == null ||
+          longitude == null
+      ? null
+      : ListingLocationSelection(
+          label: line1,
+          addressLine1: line1,
+          addressLine2: line2,
+          point: LatLng(latitude!, longitude!),
+          city: city,
+          state: state,
+          postcode: postcode);
   final bool isDefault;
 
   factory UserAddress.fromJson(Map<String, dynamic> json) => UserAddress(
+        id: json['_id'] as String?,
+        latitude: (json['coordinates']?['latitude'] as num?)?.toDouble(),
+        longitude: (json['coordinates']?['longitude'] as num?)?.toDouble(),
         label: json['label'] as String,
         line1: json['line1'] as String,
         line2: json['line2'] as String? ?? '',
@@ -35,6 +56,9 @@ class UserAddress {
       );
 
   Map<String, dynamic> toJson() => {
+        if (id != null) '_id': id,
+        if (latitude != null && longitude != null)
+          'coordinates': {'latitude': latitude, 'longitude': longitude},
         'label': label,
         'line1': line1,
         if (line2.isNotEmpty) 'line2': line2,
@@ -45,6 +69,9 @@ class UserAddress {
       };
 
   UserAddress copyWith({bool? isDefault}) => UserAddress(
+        id: id,
+        latitude: latitude,
+        longitude: longitude,
         label: label,
         line1: line1,
         line2: line2,
@@ -191,6 +218,12 @@ class Listing {
     this.ownerName = 'RentHub Owner',
     this.ownerTrustScore = 50,
     this.location = 'Kuala Lumpur',
+    this.latitude,
+    this.longitude,
+    this.state = '',
+    this.locationDetails,
+    this.locationPrecision = 'none',
+    this.venueMode = 'flexible',
     this.verified = false,
     this.isService = false,
     this.rating = 4.5,
@@ -225,6 +258,9 @@ class Listing {
     this.itemVerification = const {},
   });
   final String id, title, category, condition, ownerName, location;
+  final double? latitude, longitude;
+  final String state, locationPrecision, venueMode;
+  final ListingLocationSelection? locationDetails;
   final String subcategory, brand, productModel;
   final String requiredLicenceClass;
   final String canonicalProductId,
@@ -290,8 +326,17 @@ class Listing {
       ownerName: j['ownerName'] ?? 'RentHub Owner',
       ownerTrustScore: (j['ownerTrustScore'] as num?)?.toDouble() ?? 50,
       location: j['location'] ?? 'Kuala Lumpur',
+      latitude: (j['coordinates']?['latitude'] as num?)?.toDouble(),
+      longitude: (j['coordinates']?['longitude'] as num?)?.toDouble(),
+      state: j['state'] as String? ?? '',
+      locationPrecision: j['locationPrecision'] as String? ?? 'none',
+      locationDetails: j['locationDetails'] is Map
+          ? ListingLocationSelection.fromJson(
+              Map<String, dynamic>.from(j['locationDetails']))
+          : null,
+      venueMode: j['serviceDetails']?['venueMode'] as String? ?? 'flexible',
       verified: j['verified'] ?? false,
-      isService: j['isService'] ?? false,
+      isService: j['isService'] ?? j['listingType'] == 'service',
       rating: (j['rating'] as num?)?.toDouble() ?? 4.5,
       description: j['description'] as String? ?? '',
       status: j['status'] as String? ?? 'active',
@@ -465,12 +510,18 @@ class Booking {
     this.total = 0,
     this.fulfilmentMethod,
     this.serviceVenue,
+    this.pickupLocation,
+    this.serviceLocation,
+    this.deliveryLocation,
     this.agreementVersion = '',
     this.agreementAcceptedAt,
   });
   final String id, listingId, status;
   final String listingTitle, listingType, renterName, ownerId, paymentStatus;
   final String? fulfilmentMethod, serviceVenue;
+  final ListingLocationSelection? pickupLocation,
+      serviceLocation,
+      deliveryLocation;
   final String agreementVersion;
   final DateTime? agreementAcceptedAt;
   final double total;
@@ -494,6 +545,18 @@ class Booking {
       listingType: listingType,
       renterName: json['renterName'] as String? ?? '',
       ownerId: json['ownerId'] as String? ?? '',
+      pickupLocation: json['pickupLocationSnapshot'] is Map
+          ? ListingLocationSelection.fromJson(
+              Map<String, dynamic>.from(json['pickupLocationSnapshot']))
+          : null,
+      serviceLocation: json['serviceLocation'] is Map
+          ? ListingLocationSelection.fromJson(
+              Map<String, dynamic>.from(json['serviceLocation']))
+          : null,
+      deliveryLocation: json['deliveryLocation'] is Map
+          ? ListingLocationSelection.fromJson(
+              Map<String, dynamic>.from(json['deliveryLocation']))
+          : null,
       paymentStatus: json['paymentStatus'] as String? ?? 'unpaid',
       total: ((json['pricing'] as Map<String, dynamic>?)?['total'] as num?)
               ?.toDouble() ??
@@ -528,6 +591,9 @@ class Booking {
         total: total,
         fulfilmentMethod: fulfilmentMethod,
         serviceVenue: serviceVenue,
+        pickupLocation: pickupLocation,
+        serviceLocation: serviceLocation,
+        deliveryLocation: deliveryLocation,
         agreementVersion: agreementVersion,
         agreementAcceptedAt: agreementAcceptedAt,
       );

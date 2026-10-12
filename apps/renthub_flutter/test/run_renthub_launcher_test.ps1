@@ -11,7 +11,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw "Launcher syntax errors: $($parseErrors.Count)" }
 
 # Load only these pure/testable helpers, not the launcher's executable body.
-$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess')
+$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -24,6 +24,26 @@ function Assert-Launcher {
     param([bool]$Condition, [string]$Message)
     if (-not $Condition) { throw $Message }
 }
+
+$googleFixture = [pscustomobject]@{
+    project_info = [pscustomobject]@{ project_number = '123456'; project_id = 'demo-renthub' }
+    client = @([pscustomobject]@{
+        client_info = [pscustomobject]@{ mobilesdk_app_id = '1:123456:android:test'; android_client_info = [pscustomobject]@{ package_name = 'com.weith.renthub' } }
+        api_key = @([pscustomobject]@{ current_key = 'public-test-client-key' })
+    })
+}
+$firebaseArguments = @(Get-RentHubFirebaseDefines -FcmMode firebase -TargetDevice phone -Settings @{} -GoogleConfiguration $googleFixture)
+Assert-Launcher ($firebaseArguments -contains '--dart-define=FIREBASE_ENABLED=true') 'Android FCM should be enabled with complete public settings'
+Assert-Launcher ($firebaseArguments -contains '--dart-define=FIREBASE_PROJECT_ID=demo-renthub') 'Android config project'
+Assert-Launcher (-not (($firebaseArguments -join ' ') -match 'private_key|GOOGLE_APPLICATION_CREDENTIALS')) 'No server credentials in Flutter flags'
+Assert-Launcher (@(Get-RentHubFirebaseDefines -FcmMode firebase -TargetDevice windows -Settings @{}).Count -eq 1) 'Windows FCM disabled'
+Assert-Launcher (@(Get-RentHubFirebaseDefines -FcmMode disabled -TargetDevice phone -Settings @{})[0] -eq '--dart-define=FIREBASE_ENABLED=false') 'Explicit disabled FCM remains disabled'
+$caught = $false
+try { Get-RentHubFirebaseDefines -FcmMode firebase -TargetDevice phone -Settings @{} | Out-Null } catch { $caught = $true }
+Assert-Launcher $caught 'Missing Android configuration should produce setup guidance'
+$caught = $false
+try { Get-RentHubFirebaseDefines -FcmMode firebase -TargetDevice phone -Settings @{ FIREBASE_PROJECT_ID = 'different-project' } -GoogleConfiguration $googleFixture | Out-Null } catch { $caught = $true }
+Assert-Launcher $caught 'Mismatched Firebase project must fail clearly'
 
 Assert-Launcher (-not (Test-RentHubAiCompatible $null)) 'Null health must fail'
 Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok' })) 'Old health must fail'
@@ -48,6 +68,9 @@ Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without capture validatio
 $script:apiHealthFixture.data.capabilities += 'mykad-capture-validation-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without mandatory identity must fail'
 $script:apiHealthFixture.data.capabilities += 'mandatory-identity-access-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without listing maps and push status must fail'
+$script:apiHealthFixture.data.capabilities += 'listing-maps-push-status-v1'
+$script:apiHealthFixture.data.capabilities += 'precise-locations-v1'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'

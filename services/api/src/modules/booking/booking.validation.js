@@ -1,3 +1,4 @@
+import { validateLocation } from '../../core/location.js';
 import { textInput } from '../../core/inputValidation.js';
 import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import { body, param, query } from 'express-validator';
@@ -16,6 +17,8 @@ export const createBookingValidation = [
       'endDate',
       'fulfilmentMethod',
       'serviceVenue',
+      'serviceLocation',
+      'deliveryLocation',
       'damageWaiverSelected',
       'renterNote',
       'agreementAccepted',
@@ -34,6 +37,8 @@ export const createBookingValidation = [
   body('startDate').isISO8601({ strict: true }),
   body('endDate').isISO8601({ strict: true }),
   body('fulfilmentMethod').optional().isIn(['pickup', 'owner_delivery']),
+  body('serviceLocation').optional().custom(validateLocation),
+  body('deliveryLocation').optional().custom(validateLocation),
   body('serviceVenue').optional().custom(textInput).bail().trim().isLength({ min: 2, max: 240 }),
   body('damageWaiverSelected').optional().isBoolean().toBoolean(),
   body('renterNote').optional().custom(textInput).bail().trim().isLength({ max: 1000 }),

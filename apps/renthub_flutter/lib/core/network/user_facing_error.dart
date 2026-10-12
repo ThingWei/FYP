@@ -17,6 +17,10 @@ class UserFacingError {
     }
     if (error is ApiException) {
       final known = <String, String>{
+        'MAPS_UNAVAILABLE':
+            'Location search is unavailable. Try again or enter your listing location manually.',
+        'MAPS_BUSY':
+            'Location search is busy. Wait a moment, then press Search again.',
         'PRICE_SOURCE_REVIEW_REQUIRED':
             'This source needs a one-time access review by a maintainer before it can be enabled.',
         'PRICE_SOURCE_PARSER_UNAVAILABLE':

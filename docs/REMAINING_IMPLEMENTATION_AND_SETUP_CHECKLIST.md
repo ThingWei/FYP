@@ -2,6 +2,17 @@
 
 Last verified: 5 October 2026
 
+## 12 October 2026 maps / Android push update
+
+- [x] Added one confirmed OpenStreetMap picker across live listings, saved addresses, service venues, delivery destinations and Explore; new/changed physical locations require pins.
+- [x] Added opt-in Android GPS with reported-accuracy warnings, approximate public areas, private booking snapshots and indexed nearby-radius filtering.
+- [x] Added bounded dry-run-default public-point backfill; it has not been run against the live database.
+- [x] Connected Android FCM client configuration to the launcher, notification channel and visible registration/permission recovery states. Storage remains Supabase; actual FCM configuration is still disabled pending setup.
+- [ ] Configure the free Firebase Cloud Messaging client/server credentials and test delivery on Android.
+- [ ] Verify live tiles/search, Android GPS permissions/accuracy, pin persistence, every location workflow and pending/approved booking privacy on the device.
+
+See [maps and push implementation/setup results](MAPS_AND_PUSH_NOTIFICATIONS_RESULT.md) for current verification, setup instructions and known limitations. Older sections below reflect their original verification date and are not a fresh full-project audit.
+
 This checklist separates code that exists from external services, credentials,
 model artifacts, and production checks that still have to be supplied. No secret
 values are recorded here.

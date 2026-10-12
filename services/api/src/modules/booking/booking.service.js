@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import mongoose from 'mongoose';
+import { bookingLocations, validateLocation } from '../../core/location.js';
 import { env } from '../../config/env.js';
 import { physicalRentalDate } from '../../core/calendarDate.js';
 import { AppError } from '../../core/errors.js';
@@ -38,6 +39,10 @@ function money(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function canonicalLocation(value) {
+  if (!value) return null;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, key === 'coordinates' ? { latitude: value[key].latitude, longitude: value[key].longitude } : value[key]]));
+}
 function requestFingerprint(input, dates) {
   const normalized = {
     listingId: input.listingId,
@@ -45,6 +50,8 @@ function requestFingerprint(input, dates) {
     endDate: dates.endDate.toISOString(),
     fulfilmentMethod: input.fulfilmentMethod ?? null,
     serviceVenue: input.serviceVenue?.trim() || null,
+    serviceLocation: canonicalLocation(input.serviceLocation),
+    deliveryLocation: canonicalLocation(input.deliveryLocation),
     damageWaiverSelected: Boolean(input.damageWaiverSelected),
     renterNote: input.renterNote?.trim() ?? '',
   };
@@ -268,6 +275,20 @@ export const bookingService = {
         'INVALID_FULFILMENT',
       );
     }
+    const venueMode = listing.serviceDetails?.venueMode ?? 'flexible';
+    const pickup = listing.coordinates && (listing.listingType === 'physical' || venueMode === 'owner_location') ? { ...(listing.locationDetails?.toObject?.() ?? {}), coordinates: listing.coordinates.toObject(), displayAddress: listing.locationDetails?.displayAddress ?? listing.location } : undefined;
+    if (listing.listingType === 'physical') {
+      if (input.serviceLocation) throw new AppError('Service venue is not applicable', 422, 'VALIDATION_ERROR');
+      if (input.fulfilmentMethod === 'owner_delivery' && !input.deliveryLocation) throw new AppError('Confirm a delivery address pin', 422, 'LOCATION_PIN_REQUIRED');
+      if (input.fulfilmentMethod !== 'owner_delivery' && input.deliveryLocation) throw new AppError('Delivery address is not applicable', 422, 'VALIDATION_ERROR');
+    } else {
+      if (input.deliveryLocation) throw new AppError('Delivery address is not applicable', 422, 'VALIDATION_ERROR');
+      if (venueMode === 'online') { if (input.serviceLocation) throw new AppError('Online services do not need a map pin', 422, 'VALIDATION_ERROR'); }
+      else if (venueMode === 'owner_location') { if (input.serviceLocation) throw new AppError('The service uses the owner location', 422, 'VALIDATION_ERROR'); }
+      else if (!input.serviceLocation) throw new AppError('Confirm a service venue pin', 422, 'LOCATION_PIN_REQUIRED');
+    }
+    if (input.serviceLocation) validateLocation(input.serviceLocation);
+    if (input.deliveryLocation) validateLocation(input.deliveryLocation);
     const waiverSelected =
       Boolean(input.damageWaiverSelected) && listing.damageWaiverAvailable;
     let booking;
@@ -287,7 +308,11 @@ export const bookingService = {
         startDate,
         endDate,
         fulfilmentMethod: input.fulfilmentMethod,
-        serviceVenue: input.serviceVenue,
+        serviceVenueMode: listing.listingType === 'service' ? venueMode : undefined,
+        serviceVenue: listing.listingType === 'service' ? venueMode === 'online' ? (input.serviceVenue || 'Online') : venueMode === 'owner_location' ? (pickup?.displayAddress ?? listing.location) : input.serviceLocation.displayAddress : undefined,
+        serviceLocation: venueMode === 'online' ? undefined : input.serviceLocation,
+        deliveryLocation: input.deliveryLocation,
+        pickupLocationSnapshot: pickup,
         damageWaiverSelected: waiverSelected,
         renterNote: input.renterNote ?? '',
         agreement: {
@@ -322,6 +347,12 @@ export const bookingService = {
       entityId: booking.publicId,
     });
     return booking;
+  },
+
+  async locations(id, identity) {
+    const booking = await bookingRepository.findParticipantBooking(id, identity);
+    if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
+    return bookingLocations(booking, identity);
   },
 
   async get(id, identity) {

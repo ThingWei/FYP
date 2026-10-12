@@ -907,6 +907,8 @@ class LiveRentHubController extends ChangeNotifier {
     required String paymentMethod,
     String fulfilmentMethod = 'pickup',
     String serviceVenue = 'To be confirmed',
+    Map<String, dynamic>? serviceLocation,
+    Map<String, dynamic>? deliveryLocation,
     bool damageWaiverSelected = false,
     String renterNote = '',
     required bool agreementAccepted,
@@ -927,6 +929,8 @@ class LiveRentHubController extends ChangeNotifier {
                 ? end.toUtc().toIso8601String()
                 : calendarDateApiValue(end),
             if (listing.isService) 'serviceVenue': serviceVenue,
+            if (serviceLocation != null) 'serviceLocation': serviceLocation,
+            if (deliveryLocation != null) 'deliveryLocation': deliveryLocation,
             if (!listing.isService) 'fulfilmentMethod': fulfilmentMethod,
             if (!listing.isService)
               'damageWaiverSelected': damageWaiverSelected,

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { locationSchema } from '../../core/location.js';
 
 export const BOOKING_STATUSES = [
   'pending',
@@ -57,6 +58,10 @@ const bookingSchema = new mongoose.Schema(
     endDate: { type: Date, required: true },
     fulfilmentMethod: { type: String, enum: ['pickup', 'owner_delivery'] },
     serviceVenue: { type: String, trim: true, maxlength: 240 },
+    serviceVenueMode: { type: String, enum: ['owner_location', 'renter_location', 'online', 'flexible'], immutable: true },
+    serviceLocation: { type: locationSchema, immutable: true },
+    deliveryLocation: { type: locationSchema, immutable: true },
+    pickupLocationSnapshot: { type: locationSchema, immutable: true },
     damageWaiverSelected: { type: Boolean, default: false },
     pricing: { type: pricingSchema, required: true },
     paymentStatus: {
@@ -104,6 +109,10 @@ const bookingSchema = new mongoose.Schema(
         delete value.__v;
         delete value.idempotencyKey;
         delete value.idempotencyFingerprint;
+        if (value.serviceVenue) value.serviceVenue = 'Venue shared with booking participants';
+        delete value.serviceLocation;
+        delete value.deliveryLocation;
+        delete value.pickupLocationSnapshot;
         return value;
       },
     },

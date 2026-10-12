@@ -569,6 +569,7 @@ test('validates profile updates and role switching', async () => {
         {
           label: 'Home',
           line1: '18 Jalan Ampang',
+          coordinates: { latitude: 3.15, longitude: 101.71 },
           city: 'Kuala Lumpur',
           state: 'Kuala Lumpur',
           postcode: '50450',
@@ -1130,6 +1131,7 @@ test('rejects more than one default address', async () => {
   const address = {
     label: 'Home',
     line1: '18 Jalan Ampang',
+    coordinates: { latitude: 3.15, longitude: 101.71 },
     city: 'Kuala Lumpur',
     state: 'Kuala Lumpur',
     postcode: '50450',

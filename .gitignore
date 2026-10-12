@@ -13,6 +13,8 @@
 **/*.pyc
 **/firebase-adminsdk-*.json
 **/service-account*.json
+**/google-services.json
+**/GoogleService-Info.plist
 services/ai/models/*.pt
 services/ai/models/*.pkl
 services/ai/models/*.joblib

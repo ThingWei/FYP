@@ -64,8 +64,84 @@ class PushNotificationEvent {
   final bool openedFromNotification;
 }
 
+abstract class PushMessagingClient {
+  Future<void> initialize();
+  Stream<RemoteMessage> get foregroundMessages;
+  Stream<RemoteMessage> get openedMessages;
+  Stream<String> get tokenRefresh;
+  Future<RemoteMessage?> initialMessage();
+  Future<bool> requestPermission();
+  Future<String?> token();
+}
+
+class FirebasePushMessagingClient implements PushMessagingClient {
+  @override
+  Future<void> initialize() async {
+    await Firebase.initializeApp(options: RentHubFirebaseConfiguration.options);
+    FirebaseMessaging.onBackgroundMessage(rentHubFirebaseBackgroundHandler);
+  }
+
+  @override
+  Stream<RemoteMessage> get foregroundMessages => FirebaseMessaging.onMessage;
+  @override
+  Stream<RemoteMessage> get openedMessages =>
+      FirebaseMessaging.onMessageOpenedApp;
+  @override
+  Stream<String> get tokenRefresh => FirebaseMessaging.instance.onTokenRefresh;
+  @override
+  Future<RemoteMessage?> initialMessage() =>
+      FirebaseMessaging.instance.getInitialMessage();
+  @override
+  Future<bool> requestPermission() async {
+    final permission = await FirebaseMessaging.instance.requestPermission(
+        alert: true, badge: true, sound: true, provisional: false);
+    return permission.authorizationStatus == AuthorizationStatus.authorized ||
+        permission.authorizationStatus == AuthorizationStatus.provisional;
+  }
+
+  @override
+  Future<String?> token() => FirebaseMessaging.instance.getToken(
+      vapidKey: kIsWeb && RentHubFirebaseConfiguration.vapidKey.isNotEmpty
+          ? RentHubFirebaseConfiguration.vapidKey
+          : null);
+}
+
+enum PushRegistrationState {
+  disabled,
+  unsupported,
+  unavailable,
+  ready,
+  denied,
+  registered,
+  failed
+}
+
 class PushNotificationService {
-  PushNotificationService(this.api);
+  PushNotificationService(this.api,
+      {PushMessagingClient? messaging,
+      this.enabledOverride,
+      this.platformOverride})
+      : messaging = messaging ?? FirebasePushMessagingClient();
+  final PushMessagingClient messaging;
+  final bool? enabledOverride;
+  final String? platformOverride;
+  PushRegistrationState state = PushRegistrationState.disabled;
+  String get statusMessage => switch (state) {
+        PushRegistrationState.disabled =>
+          'Phone push is not configured yet. Updates remain available in the notification centre.',
+        PushRegistrationState.unsupported =>
+          'Phone push is not available on Windows. Use the Android app; in-app updates still work here.',
+        PushRegistrationState.unavailable =>
+          'Phone push could not start. Check Firebase configuration and try again.',
+        PushRegistrationState.ready =>
+          'Phone push is ready to register. Save settings to enable it on this device.',
+        PushRegistrationState.denied =>
+          'Notifications are blocked by this device. Allow RentHub notifications in Android settings, then try again.',
+        PushRegistrationState.registered =>
+          'This device is registered for push notifications. Delivery also requires the API to be running.',
+        PushRegistrationState.failed =>
+          'Phone push could not be updated on this device. Check your connection and try again.',
+      };
 
   static const _deviceIdKey = 'renthub_push_device_id';
   final ApiClient api;
@@ -73,6 +149,7 @@ class PushNotificationService {
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   bool _initialized = false;
   bool _userEnabled = false;
+  int _registrationGeneration = 0;
   String? _deviceId;
   PushNotificationEvent? _initialEvent;
 
@@ -82,6 +159,7 @@ class PushNotificationService {
   Future<String> currentDeviceId() => _loadDeviceId();
 
   String? get _platform {
+    if (platformOverride != null) return platformOverride;
     if (kIsWeb) return 'web';
     return switch (defaultTargetPlatform) {
       TargetPlatform.android => 'android',
@@ -92,31 +170,45 @@ class PushNotificationService {
   }
 
   Future<void> initialize() async {
-    if (!RentHubFirebaseConfiguration.enabled || _platform == null) return;
+    if (_initialized) return;
+    if (_platform == null) {
+      state = PushRegistrationState.unsupported;
+      return;
+    }
+    if (!(enabledOverride ?? RentHubFirebaseConfiguration.enabled)) {
+      state = PushRegistrationState.disabled;
+      return;
+    }
     final options = RentHubFirebaseConfiguration.options;
-    if (kIsWeb && options == null) return;
+    if (kIsWeb && options == null && enabledOverride == null) {
+      state = PushRegistrationState.unavailable;
+      return;
+    }
     try {
-      await Firebase.initializeApp(options: options);
-      FirebaseMessaging.onBackgroundMessage(
-        rentHubFirebaseBackgroundHandler,
-      );
+      await messaging.initialize();
       _subscriptions.add(
-        FirebaseMessaging.onMessage.listen(
+        messaging.foregroundMessages.listen(
           (message) => _emit(message, opened: false),
         ),
       );
       _subscriptions.add(
-        FirebaseMessaging.onMessageOpenedApp.listen(
+        messaging.openedMessages.listen(
           (message) => _emit(message, opened: true),
         ),
       );
       _subscriptions.add(
-        FirebaseMessaging.instance.onTokenRefresh.listen(_refreshToken),
+        messaging.tokenRefresh.listen(_refreshToken),
       );
-      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      final initial = await messaging.initialMessage();
       if (initial != null) _initialEvent = _event(initial, opened: true);
       _initialized = true;
+      state = PushRegistrationState.ready;
     } catch (error) {
+      for (final subscription in _subscriptions) {
+        await subscription.cancel();
+      }
+      _subscriptions.clear();
+      state = PushRegistrationState.unavailable;
       debugPrint('Firebase Messaging initialization skipped: $error');
     }
   }
@@ -128,58 +220,82 @@ class PushNotificationService {
   }
 
   Future<bool> enableForCurrentUser() async {
-    if (!_initialized) return false;
+    final generation = ++_registrationGeneration;
+    if (!_initialized) await initialize();
+    if (!_initialized || generation != _registrationGeneration) return false;
+    _userEnabled = false;
     try {
-      final permission = await FirebaseMessaging.instance.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
-      if (permission.authorizationStatus != AuthorizationStatus.authorized &&
-          permission.authorizationStatus != AuthorizationStatus.provisional) {
+      if (!await messaging.requestPermission()) {
+        if (generation != _registrationGeneration) return false;
+        state = PushRegistrationState.denied;
         return false;
       }
-      final token = await FirebaseMessaging.instance.getToken(
-        vapidKey: kIsWeb && RentHubFirebaseConfiguration.vapidKey.isNotEmpty
-            ? RentHubFirebaseConfiguration.vapidKey
-            : null,
-      );
-      if (token == null || token.isEmpty) return false;
+      final token = await messaging.token();
+      if (generation != _registrationGeneration) return false;
+      if (token == null || token.isEmpty) {
+        state = PushRegistrationState.failed;
+        return false;
+      }
+      final server = await api.request('GET', '/messages/push/status');
+      if (generation != _registrationGeneration) return false;
+      if (server is! Map || server['enabled'] != true) {
+        state = PushRegistrationState.disabled;
+        return false;
+      }
+      await _register(token, generation: generation);
+      if (generation != _registrationGeneration) return false;
       _userEnabled = true;
-      await _register(token);
+      state = PushRegistrationState.registered;
       return true;
     } catch (error) {
+      if (generation != _registrationGeneration) return false;
+      state = PushRegistrationState.failed;
       debugPrint('Push notification registration failed: $error');
       return false;
     }
   }
 
-  Future<void> disableForCurrentUser() async {
+  Future<bool> disableForCurrentUser() async {
+    _registrationGeneration++;
     _userEnabled = false;
     try {
       final deviceId = await _loadDeviceId();
       await api.request('DELETE', '/messages/push/devices/$deviceId');
+      state = _initialized ? PushRegistrationState.ready : state;
+      return true;
     } catch (error) {
       debugPrint('Push device removal failed: $error');
+      state = PushRegistrationState.failed;
+      // Push cleanup must not prevent local logout and credential removal.
+      return false;
     }
   }
 
-  void forgetCurrentUser() => _userEnabled = false;
+  void forgetCurrentUser() {
+    _registrationGeneration++;
+    _userEnabled = false;
+    if (_initialized) state = PushRegistrationState.ready;
+  }
 
   Future<void> _refreshToken(String token) async {
     if (!_userEnabled) return;
+    final generation = _registrationGeneration;
     try {
-      await _register(token);
+      await _register(token, generation: generation);
+      if (generation != _registrationGeneration) return;
+      state = PushRegistrationState.registered;
     } catch (error) {
+      if (generation != _registrationGeneration) return;
+      state = PushRegistrationState.failed;
       debugPrint('Push token refresh failed: $error');
     }
   }
 
-  Future<void> _register(String token) async {
+  Future<void> _register(String token, {required int generation}) async {
     final platform = _platform;
     if (platform == null) return;
     final deviceId = await _loadDeviceId();
+    if (generation != _registrationGeneration) return;
     await api.request(
       'POST',
       '/messages/push/devices',
@@ -227,6 +343,7 @@ class PushNotificationService {
   }
 
   Future<void> dispose() async {
+    forgetCurrentUser();
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }

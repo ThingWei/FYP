@@ -128,7 +128,7 @@ export const pushDelivery = {
             body: notification.body,
           },
           data: dataPayload(notification),
-          android: { priority: 'high' },
+          android: { priority: 'high', notification: { channelId: 'renthub_updates', sound: 'default' } },
           apns: { payload: { aps: { sound: 'default' } } },
           webpush: env.webAppUrl
             ? { fcmOptions: { link: env.webAppUrl } }

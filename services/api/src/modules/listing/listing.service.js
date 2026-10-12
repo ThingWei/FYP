@@ -1,3 +1,4 @@
+import { requireListingPin, approximatePoint, nearbyFilter } from '../../core/location.js';
 import { AppError } from '../../core/errors.js';
 import { physicalRentalDate } from '../../core/calendarDate.js';
 import { env } from '../../config/env.js';
@@ -125,6 +126,8 @@ function listingInput(input) {
       serviceDetails: input.serviceDetails,
     }),
     ...(input.location !== undefined && { location: input.location }),
+    ...(input.coordinates !== undefined && { coordinates: input.coordinates, publicGeoPoint: approximatePoint(input.coordinates) ?? null }),
+    ...(input.locationDetails !== undefined && { locationDetails: input.locationDetails }),
     ...(input.state !== undefined && { state: input.state }),
     ...(input.images !== undefined && { images: input.images }),
   };
@@ -201,6 +204,7 @@ export const listingService = {
       ...restrictedOwnerIds,
     ])];
     const candidateFilter = {
+      ...nearbyFilter(query),
       status: 'active',
       ownerId: { $nin: excludedOwnerIds },
     };
@@ -209,7 +213,7 @@ export const listingService = {
       candidateFilter.$or = [
         { title: pattern },
         { description: pattern },
-        { location: pattern },
+        { 'locationDetails.city': pattern }, { state: pattern },
       ];
     }
     if (LISTING_CATEGORIES.includes(query.category)) {
@@ -219,7 +223,7 @@ export const listingService = {
       candidateFilter.listingType = query.type;
     }
     if (query.location?.trim()) {
-      candidateFilter.location = escapedPattern(query.location.trim());
+      candidateFilter.$and = [...(candidateFilter.$and ?? []), { $or: [{ 'locationDetails.city': escapedPattern(query.location.trim()) }, { state: escapedPattern(query.location.trim()) }] }];
     }
     if (query.verified !== undefined) {
       candidateFilter.verified = query.verified === 'true';
@@ -297,7 +301,7 @@ export const listingService = {
         brand: item.brand,
         product_model: item.productModel,
         description: item.description,
-        location: item.location,
+        location: item.toJSON().location,
         condition: item.condition ?? '',
         price: item.dailyPrice,
         rating: item.rating,
@@ -563,7 +567,7 @@ export const listingService = {
 
   async list(query) {
     const { page, limit } = pageOptions(query);
-    const filter = {};
+    const filter = nearbyFilter(query);
     const platform = await PlatformSettingModel.findOne({ key: 'platform' })
       .select('categories')
       .lean();
@@ -575,7 +579,7 @@ export const listingService = {
       filter.$or = [
         { title: pattern },
         { description: pattern },
-        { location: pattern },
+        { 'locationDetails.city': pattern }, { state: pattern },
       ];
     }
     if (LISTING_CATEGORIES.includes(query.category)) {
@@ -587,7 +591,7 @@ export const listingService = {
       filter.category = { $in: activeCategories };
     }
     if (['physical', 'service'].includes(query.type)) filter.listingType = query.type;
-    if (query.location?.trim()) filter.location = escapedPattern(query.location.trim());
+    if (query.location?.trim()) filter.$and = [{ $or: [{ 'locationDetails.city': escapedPattern(query.location.trim()) }, { state: escapedPattern(query.location.trim()) }] }];
     if (query.verified !== undefined) filter.verified = query.verified === 'true';
     if (query.promoted === 'true') {
       const now = new Date();
@@ -633,6 +637,7 @@ export const listingService = {
 
   async create(input, identity) {
     const owner = await requireOwner(identity);
+    requireListingPin(input);
     await uploadService.assertOwnedReferences(identity, input.images, ['listing_image']);
     const normalizedInput = await withResolvedProductIdentity(input);
     return listingRepository.create({
@@ -679,7 +684,22 @@ export const listingService = {
         'INVALID_LISTING_STATE',
       );
     }
+    requireListingPin(input, listing);
     const normalizedInput = await withResolvedProductIdentity(input, listing);
+    if (input.coordinates !== undefined && input.locationDetails === undefined && listing.locationDetails) {
+      // Compatibility clients may send only a pin. Never retain mismatched
+      // private details or old GPS accuracy after changing that pin/address.
+      if (input.coordinates === null || input.location !== undefined && input.location !== listing.location) {
+        normalizedInput.locationDetails = null;
+      } else {
+        const details = listing.locationDetails.toObject();
+        delete details.accuracyMeters;
+        normalizedInput.locationDetails = { ...details, coordinates: input.coordinates, source: 'map' };
+      }
+    }
+    if (input.location !== undefined && input.location !== listing.location && input.coordinates === undefined) {
+      normalizedInput.coordinates = null; // Do not retain an old pin after manual location edits.
+    }
     listing.set(listingInput({
       ...normalizedInput,
       listingType: listing.listingType,

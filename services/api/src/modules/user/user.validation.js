@@ -1,3 +1,4 @@
+import { validCoordinates } from '../../core/location.js';
 import { textInput } from '../../core/inputValidation.js';
 import { malaysianMobile } from '../../core/inputValidation.js';
 import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
@@ -74,6 +75,8 @@ export const profileValidation = [
     )
     .withMessage('avatarUrl must be empty, a valid URL, or a public upload'),
   body('addresses').optional().isArray({ max: 10 }),
+  body('addresses.*._id').optional().isMongoId(),
+  body('addresses.*.coordinates').optional().custom((v) => { if (!validCoordinates(v)) throw new Error('Confirm a valid address pin'); return true; }),
   body('addresses.*.label').optional().custom(textInput).bail().trim().notEmpty().isLength({ max: 40 }),
   body('addresses.*.line1').optional().custom(textInput).bail().trim().notEmpty().isLength({ max: 120 }),
   body('addresses.*.line2').optional().custom(textInput).bail().trim().isLength({ max: 120 }),

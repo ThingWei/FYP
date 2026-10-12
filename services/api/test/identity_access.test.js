@@ -30,6 +30,7 @@ async function setIdentity(status, documentType = 'mykad') {
 
 function listingInput(category) {
   return { title: `Synthetic ${category} listing`, category, dailyPrice: 10, location: 'Kuala Lumpur',
+    coordinates: { latitude: 3.14, longitude: 101.68 },
     ...(category === 'Services' ? { listingType: 'service', serviceDetails: {
       packageName: 'Synthetic service', durationMinutes: 60, venueMode: 'flexible',
     } } : { listingType: 'physical', condition: 'Good', fulfilmentMethods: ['pickup'],
@@ -91,6 +92,7 @@ for (const category of LISTING_CATEGORIES) {
         listingId: publicListing.publicId, startDate: '2027-01-10', endDate: '2027-01-10',
         idempotencyKey: `identity-test:${category}:${status}`,
         fulfilmentMethod: 'pickup', serviceVenue: 'Kuala Lumpur',
+        ...(category === 'Services' && { serviceLocation: { displayAddress: 'Kuala Lumpur', coordinates: { latitude: 3.14, longitude: 101.68 } } }),
         agreementAccepted: true, agreementVersion: 'renthub-booking-v1',
       });
       assert.equal(booking.status, 403, `${status}: ${JSON.stringify(booking.body)}`);
@@ -129,6 +131,7 @@ for (const category of LISTING_CATEGORIES) {
       listingId: publicListing.publicId, startDate: '2027-01-10', endDate: '2027-01-10',
       idempotencyKey: `identity-test:${category}:approved`,
       fulfilmentMethod: 'pickup', serviceVenue: 'Kuala Lumpur',
+      ...(category === 'Services' && { serviceLocation: { displayAddress: 'Kuala Lumpur', coordinates: { latitude: 3.14, longitude: 101.68 } } }),
       agreementAccepted: true, agreementVersion: 'renthub-booking-v1',
     });
     assert.equal(booking.status, 201, JSON.stringify(booking.body));

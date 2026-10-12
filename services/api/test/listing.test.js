@@ -46,6 +46,7 @@ const cameraInput = {
   securityDeposit: 300,
   fulfilmentMethods: ['pickup', 'owner_delivery'],
   location: 'Bukit Bintang, Kuala Lumpur',
+  coordinates: { latitude: 3.139, longitude: 101.6869 },
   state: 'Kuala Lumpur',
   images: [
     'local://listing/camera-front.jpg',
@@ -170,6 +171,7 @@ test('only an Owner can create strict physical and service drafts', async () => 
       listingType: 'service',
       dailyPrice: 450,
       location: 'Kuala Lumpur',
+      coordinates: { latitude: 3.139, longitude: 101.6869 },
     });
   assert.equal(invalidService.status, 422);
 
@@ -183,6 +185,7 @@ test('only an Owner can create strict physical and service drafts', async () => 
       dailyPrice: 450,
       priceUnit: 'package',
       location: 'Kuala Lumpur',
+      coordinates: { latitude: 3.139, longitude: 101.6869 },
       serviceDetails: {
         packageName: 'Essential Event Coverage',
         durationMinutes: 180,
@@ -501,6 +504,7 @@ test('services submit without physical item analysis', async () => {
     const created = await request(app).post('/api/v1/listings').set(ownerHeaders).send({
       title: 'Event Photography Package', category: 'Services', listingType: 'service',
       dailyPrice: 450, priceUnit: 'package', location: 'Kuala Lumpur',
+      coordinates: { latitude: 3.139, longitude: 101.6869 },
       serviceDetails: { packageName: 'Event Coverage', durationMinutes: 180, venueMode: 'renter_location' },
     });
     const submitted = await request(app).post(`/api/v1/listings/${created.body.data.id}/submit`).set(ownerHeaders);

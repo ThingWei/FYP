@@ -1,3 +1,6 @@
+import 'live_location_picker.dart';
+import 'live_location_field.dart';
+import 'live_booking_locations.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -158,7 +161,12 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
         'search': queryController.text,
         if (nextCategory != 'All') 'category': nextCategory,
         if (filters.type != 'all') 'type': filters.type,
-        'location': filters.location,
+        if (filters.centre == null) 'location': filters.location,
+        if (filters.centre != null) ...{
+          'latitude': filters.centre!.point.latitude.toString(),
+          'longitude': filters.centre!.point.longitude.toString(),
+          'radiusKm': filters.radiusKm.toString()
+        },
         'minPrice': filters.minimumPrice,
         'maxPrice': filters.maximumPrice,
         if (filters.verifiedOnly) 'verified': 'true',
@@ -567,6 +575,8 @@ class DiscoveryFilters {
   const DiscoveryFilters({
     this.type = 'all',
     this.location = '',
+    this.centre,
+    this.radiusKm = 10,
     this.minimumPrice = '',
     this.maximumPrice = '',
     this.verifiedOnly = false,
@@ -576,12 +586,14 @@ class DiscoveryFilters {
   });
 
   final String type, location, minimumPrice, maximumPrice, sort;
+  final ListingLocationSelection? centre;
+  final int radiusKm;
   final bool verifiedOnly, promotionsOnly;
   final DateTimeRange? dates;
 
   int get activeCount =>
       (type == 'all' ? 0 : 1) +
-      (location.isEmpty ? 0 : 1) +
+      (location.isEmpty && centre == null ? 0 : 1) +
       (minimumPrice.isEmpty && maximumPrice.isEmpty ? 0 : 1) +
       (verifiedOnly ? 1 : 0) +
       (promotionsOnly ? 1 : 0) +
@@ -590,9 +602,11 @@ class DiscoveryFilters {
 }
 
 class LiveDiscoveryFilterPage extends StatefulWidget {
-  const LiveDiscoveryFilterPage({super.key, required this.initial});
+  const LiveDiscoveryFilterPage(
+      {super.key, required this.initial, this.locationMapBuilder});
 
   final DiscoveryFilters initial;
+  final LocationMapBuilder? locationMapBuilder;
 
   @override
   State<LiveDiscoveryFilterPage> createState() =>
@@ -600,6 +614,8 @@ class LiveDiscoveryFilterPage extends StatefulWidget {
 }
 
 class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
+  late ListingLocationSelection? centre = widget.initial.centre;
+  late int radiusKm = widget.initial.radiusKm;
   late String type = widget.initial.type;
   late String sort = widget.initial.sort;
   late bool verifiedOnly = widget.initial.verifiedOnly;
@@ -643,7 +659,9 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
       context,
       DiscoveryFilters(
         type: type,
-        location: location.text.trim(),
+        location: centre == null ? location.text.trim() : '',
+        centre: centre,
+        radiusKm: radiusKm,
         minimumPrice: minimumPrice.text.trim(),
         maximumPrice: maximumPrice.text.trim(),
         verifiedOnly: verifiedOnly,
@@ -692,19 +710,29 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
                 onChanged: (value) => setState(() => type = value ?? 'all'),
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: location,
-                decoration: (const InputDecoration(
-                  labelText: 'Location',
-                  hintText: 'Kuala Lumpur',
-                )).copyWith(counterText: '', errorMaxLines: 3),
-                validator: InputRules.location.validate,
-                inputFormatters:
-                    InputValidation.formatters(InputRules.location, location),
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                maxLength: InputRules.location.maxLength,
-                maxLengthEnforcement: InputValidation.lengthEnforcement,
-              ),
+              LiveLocationField(
+                  mapBuilder: widget.locationMapBuilder,
+                  api: ListingLocationApi(
+                      context.read<LiveRentHubController>().api),
+                  controller: location,
+                  value: centre,
+                  requirePin: false,
+                  allowEmpty: true,
+                  maxLength: 100,
+                  onChanged: (value) => setState(() => centre = value)),
+              if (centre != null) ...[
+                DropdownButtonFormField<int>(
+                    initialValue: radiusKm,
+                    decoration:
+                        const InputDecoration(labelText: 'Search radius'),
+                    items: [5, 10, 25, 50]
+                        .map((km) =>
+                            DropdownMenuItem(value: km, child: Text('$km km')))
+                        .toList(),
+                    onChanged: (value) => setState(() => radiusKm = value!)),
+                const Text(
+                    'Nearby results use approximate public locations. Listings without pins are not included.')
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -932,7 +960,7 @@ class LiveComparisonPage extends StatelessWidget {
                                   'Rating: ${listing.rating.toStringAsFixed(1)} / 5'),
                               Text(
                                   'Owner trust: ${listing.ownerTrustScore.toStringAsFixed(0)} / 100'),
-                              Text('Location: ${listing.location}'),
+                              Text('Approximate area: ${listing.location}'),
                               Text(
                                   'Verified: ${listing.verified ? 'Yes' : 'No'}'),
                               const SizedBox(height: 12),
@@ -959,10 +987,12 @@ class LiveBookingPage extends StatefulWidget {
     super.key,
     required this.listing,
     required this.onSubmitted,
+    this.locationMapBuilder,
   });
 
   final Listing listing;
   final VoidCallback onSubmitted;
+  final LocationMapBuilder? locationMapBuilder;
 
   @override
   State<LiveBookingPage> createState() => _LiveBookingPageState();
@@ -976,7 +1006,9 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   String fulfilmentMethod = 'pickup';
   bool waiver = false;
   bool agreementAccepted = false;
-  final venue = TextEditingController(text: 'Kuala Lumpur');
+  final venue = TextEditingController(text: '');
+  final delivery = TextEditingController();
+  ListingLocationSelection? serviceLocation, deliveryLocation;
   final note = TextEditingController();
   bool submitting = false;
   bool checkingIdentity = false;
@@ -1051,6 +1083,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   @override
   void dispose() {
     venue.dispose();
+    delivery.dispose();
     note.dispose();
     super.dispose();
   }
@@ -1235,9 +1268,12 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       );
       return;
     }
-    if (widget.listing.isService && venue.text.trim().length < 2) {
+    if (widget.listing.isService &&
+        ['flexible', 'renter_location'].contains(widget.listing.venueMode) &&
+        (venue.text.trim().length < 2 || serviceLocation == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter the service venue.')),
+        const SnackBar(
+            content: Text('Choose and confirm a service venue pin.')),
       );
       return;
     }
@@ -1275,6 +1311,13 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       action: 'Continue',
     );
     if (!accepted || !mounted) return;
+    if (!widget.listing.isService &&
+        fulfilmentMethod == 'owner_delivery' &&
+        deliveryLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Choose and confirm a delivery address pin.')));
+      return;
+    }
     setState(() => submitting = true);
     try {
       final bookingStart = widget.listing.isService
@@ -1293,7 +1336,17 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 end: end,
                 paymentMethod: paymentMethod,
                 fulfilmentMethod: fulfilmentMethod,
-                serviceVenue: venue.text.trim(),
+                serviceVenue: widget.listing.venueMode == 'online'
+                    ? 'Online'
+                    : venue.text.trim(),
+                serviceLocation: serviceLocation
+                    ?.copyWith(label: venue.text.trim())
+                    .toJson(),
+                deliveryLocation: fulfilmentMethod == 'owner_delivery'
+                    ? deliveryLocation
+                        ?.copyWith(label: delivery.text.trim())
+                        .toJson()
+                    : null,
                 damageWaiverSelected: waiver,
                 renterNote: note.text,
                 agreementAccepted: agreementAccepted,
@@ -1464,6 +1517,32 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                         style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 4),
                     Text('${listing.ownerName} · ${listing.location}'),
+                    if (listing.locationPrecision == 'approximate') ...[
+                      const Text(
+                          'Approximate area · exact pickup point shared after approval'),
+                      if (listing.latitude != null && listing.longitude != null)
+                        TextButton.icon(
+                          icon: const Icon(Icons.map_outlined),
+                          label: const Text('View approximate area'),
+                          onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => LiveLocationView(
+                                        api: ListingLocationApi(context
+                                            .read<LiveRentHubController>()
+                                            .api),
+                                        approximate: true,
+                                        location:
+                                            ListingLocationSelection.fromJson({
+                                          'label': listing.location,
+                                          'coordinates': {
+                                            'latitude': listing.latitude,
+                                            'longitude': listing.longitude
+                                          }
+                                        }),
+                                      ))),
+                        ),
+                    ],
                     if (!listing.isService)
                       Text('Condition: ${listing.condition}'),
                     if (listing.description.isNotEmpty) ...[
@@ -1709,19 +1788,23 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                         trailing: const Icon(Icons.schedule_outlined),
                         onTap: _pickServiceTime,
                       ),
-                    if (listing.isService)
-                      TextFormField(
-                        controller: venue,
-                        decoration: (const InputDecoration(
-                          labelText: 'Service venue',
-                        )).copyWith(counterText: '', errorMaxLines: 3),
-                        validator: InputRules.serviceVenue.validate,
-                        inputFormatters: InputValidation.formatters(
-                            InputRules.serviceVenue, venue),
-                        autovalidateMode: AutovalidateMode.onUserInteraction,
-                        maxLength: InputRules.serviceVenue.maxLength,
-                        maxLengthEnforcement: InputValidation.lengthEnforcement,
-                      )
+                    if (listing.isService &&
+                        ['flexible', 'renter_location']
+                            .contains(listing.venueMode))
+                      LiveLocationField(
+                          mapBuilder: widget.locationMapBuilder,
+                          api: ListingLocationApi(
+                              context.read<LiveRentHubController>().api),
+                          controller: venue,
+                          value: serviceLocation,
+                          label: 'Service venue',
+                          enabled: !submitting,
+                          onChanged: (value) =>
+                              setState(() => serviceLocation = value))
+                    else if (listing.isService)
+                      Text(listing.venueMode == 'online'
+                          ? 'This service is online. No physical venue is needed.'
+                          : 'The owner’s exact venue is shared after approval.')
                     else if (listing.fulfilmentMethods.isNotEmpty)
                       DropdownButtonFormField<String>(
                         initialValue: fulfilmentMethod,
@@ -1743,6 +1826,46 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                           () => fulfilmentMethod = value ?? fulfilmentMethod,
                         ),
                       ),
+                    if (!listing.isService &&
+                        fulfilmentMethod == 'owner_delivery') ...[
+                      if (context
+                              .read<LiveRentHubController>()
+                              .profile
+                              ?.addresses
+                              .isNotEmpty ==
+                          true)
+                        DropdownButtonFormField<UserAddress>(
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                                labelText: 'Use a saved address'),
+                            items: context
+                                .read<LiveRentHubController>()
+                                .profile!
+                                .addresses
+                                .map((address) => DropdownMenuItem(
+                                    value: address,
+                                    child: Text(address.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis)))
+                                .toList(),
+                            onChanged: (address) {
+                              if (address == null) return;
+                              setState(() {
+                                delivery.text = address.line1;
+                                deliveryLocation = address.mapLocation;
+                              });
+                            }),
+                      LiveLocationField(
+                          mapBuilder: widget.locationMapBuilder,
+                          api: ListingLocationApi(
+                              context.read<LiveRentHubController>().api),
+                          controller: delivery,
+                          value: deliveryLocation,
+                          label: 'Delivery address',
+                          enabled: !submitting,
+                          onChanged: (value) =>
+                              setState(() => deliveryLocation = value)),
+                    ],
                     if (!listing.isService && listing.damageWaiverAvailable)
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
@@ -1972,6 +2095,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                           ),
                           const SizedBox(height: 6),
                           Text(formatDateRange(booking.start, booking.end)),
+                          BookingLocationsButton(bookingId: booking.id),
                           Text(
                             '${formatMoney(booking.total)} · Payment ${booking.paymentStatus}',
                             style: const TextStyle(

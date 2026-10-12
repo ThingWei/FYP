@@ -60,6 +60,7 @@ bookingRouter.post(
   validate,
   bookingController.cancel,
 );
+bookingRouter.get('/:id/locations', authenticate, bookingIdValidation, validate, bookingController.locations);
 bookingRouter.get(
   '/:id',
   authenticate,

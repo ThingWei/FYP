@@ -1,3 +1,4 @@
+import { validateLocation, validateNearby } from '../../core/location.js';
 import { textInput } from '../../core/inputValidation.js';
 import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import { body, param, query } from 'express-validator';
@@ -32,6 +33,8 @@ const editableFields = new Set([
   'fulfilmentMethods',
   'serviceDetails',
   'location',
+  'coordinates',
+  'locationDetails',
   'state',
   'images',
 ]);
@@ -102,7 +105,18 @@ const listingFields = [
   body('serviceDetails.inclusions.*')
     .optional().custom(textInput).bail().trim()
     .isLength({ min: 1, max: 160 }),
+  body('locationDetails').optional().custom(validateLocation),
   body('location').optional().custom(textInput).bail().trim().isLength({ min: 2, max: 160 }),
+  body('coordinates').optional().custom((value) => {
+    if (value === null) return true;
+    if (!value || Array.isArray(value) || typeof value !== 'object' ||
+      Object.keys(value).length !== 2 || !Object.keys(value).every((key) => ['latitude', 'longitude'].includes(key)) ||
+      !Number.isFinite(value.latitude) || !Number.isFinite(value.longitude) ||
+      Math.abs(value.latitude) > 90 || Math.abs(value.longitude) > 180) {
+      throw new Error('Choose a valid map location');
+    }
+    return true;
+  }),
   body('state').optional().custom(textInput).bail().trim().isLength({ max: 80 }),
   body('images').optional().isArray({ max: 10 }),
   body('images.*')
@@ -145,6 +159,7 @@ export const updateListingValidation = [
 export const listingIdValidation = [listingId];
 
 export const listListingsValidation = [
+  query().custom(validateNearby),
   query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
   query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
   query('search').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
@@ -181,6 +196,7 @@ export const listMineValidation = [
 ];
 
 export const recommendationValidation = [
+  query().custom(validateNearby),
   query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 30 }).toInt(),
   query('search').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   query('category').optional().isIn(LISTING_CATEGORIES),

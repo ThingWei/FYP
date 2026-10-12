@@ -114,9 +114,11 @@ void main() {
       'filter errors are inline and invalid edits retain previous number',
       (tester) async {
     size(tester, 390);
-    await tester.pumpWidget(MaterialApp(
-        theme: AppTheme.light,
-        home: const LiveDiscoveryFilterPage(initial: DiscoveryFilters())));
+    final controller = _Controller(_Api());
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(app(
+        const LiveDiscoveryFilterPage(initial: DiscoveryFilters()),
+        controller));
     await enter(tester, 'Min RM', '20');
     await enter(tester, 'Max RM', '10');
     await press(tester, 'Apply Filters');
@@ -190,7 +192,7 @@ void main() {
     await press(tester, 'Saved addresses');
     await press(tester, 'Add Address');
     await enter(tester, 'Postcode', '0100');
-    await press(tester, 'Add');
+    await press(tester, 'Save');
     expect(find.text('Add Malaysian address'), findsOneWidget);
     expect(tester.state<FormFieldState<String>>(field('Postcode')).errorText,
         isNotNull);
@@ -198,9 +200,12 @@ void main() {
     await enter(tester, 'Address line', '12 Jalan Aman');
     await enter(tester, 'City', 'Alor Setar');
     await enter(tester, 'Postcode', '01000');
-    await press(tester, 'Add');
-    final addresses = (api.calls.single.$3 as Map)['addresses'] as List;
-    expect((addresses.single as Map)['postcode'], '01000');
+    await enter(tester, 'State', 'Kedah');
+    await press(tester, 'Save');
+    expect(api.calls, isEmpty); // New addresses still require a confirmed pin.
+    expect(tester.widget<TextFormField>(field('Postcode')).controller!.text,
+        '01000');
+    expect(find.text('Choose and confirm a map pin'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

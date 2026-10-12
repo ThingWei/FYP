@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { coordinatesSchema } from '../../core/location.js';
 import { ADMIN_ROLES, MARKETPLACE_ROLES } from './rolePolicy.js';
 
 export const USER_ROLES = ['renter', 'owner', 'admin'];
@@ -63,6 +64,7 @@ const verificationAttemptSchema = new mongoose.Schema(
 
 const addressSchema = new mongoose.Schema(
   {
+    coordinates: { type: coordinatesSchema, default: undefined },
     label: { type: String, required: true, trim: true, maxlength: 40 },
     line1: { type: String, required: true, trim: true, maxlength: 120 },
     line2: { type: String, trim: true, maxlength: 120, default: '' },

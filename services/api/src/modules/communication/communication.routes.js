@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { communicationController } from './communication.controller.js';
+import { pushDelivery } from '../../integrations/pushDelivery.js';
 import {
   bookingThreadValidation,
   deviceIdValidation,
@@ -20,6 +21,10 @@ import {
 export const communicationRouter = Router();
 
 communicationRouter.use(authenticate);
+communicationRouter.get('/push/status', (_req, res) => {
+  const status = pushDelivery.status();
+  res.json({ success: true, data: { ...status, enabled: status.provider === 'firebase' } });
+});
 
 communicationRouter.get(
   '/threads',

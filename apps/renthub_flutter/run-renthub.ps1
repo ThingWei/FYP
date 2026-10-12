@@ -43,7 +43,9 @@ function Test-RentHubApiReady {
         return $response.success -eq $true -and `
             $response.data.capabilities -contains 'product-catalog-v1' -and `
             $response.data.capabilities -contains 'mykad-capture-validation-v1' -and `
-            $response.data.capabilities -contains 'mandatory-identity-access-v1'
+            $response.data.capabilities -contains 'mandatory-identity-access-v1' -and `
+            $response.data.capabilities -contains 'listing-maps-push-status-v1' -and `
+            $response.data.capabilities -contains 'precise-locations-v1'
     }
     catch {
         return $false
@@ -147,6 +149,38 @@ function Get-RentHubEnvironmentValue {
         return $DefaultValue
     }
     return ($line -split '=', 2)[1].Trim().Trim('"').Trim("'")
+}
+
+# Pure helper: client settings only, never server credentials or private keys.
+function Get-RentHubFirebaseDefines {
+    param([string]$FcmMode, [string]$TargetDevice, [hashtable]$Settings, [object]$GoogleConfiguration)
+    if ($FcmMode -ne 'firebase' -or $TargetDevice -in @('windows', 'chrome', 'edge')) {
+        return @('--dart-define=FIREBASE_ENABLED=false')
+    }
+    $apiKey = $Settings['FIREBASE_ANDROID_API_KEY']
+    $appId = $Settings['FIREBASE_ANDROID_APP_ID']
+    $sender = $Settings['FIREBASE_MESSAGING_SENDER_ID']
+    $project = $Settings['FIREBASE_PROJECT_ID']
+    if ($null -ne $GoogleConfiguration) {
+        $androidClient = @($GoogleConfiguration.client | Where-Object {
+            $_.client_info.android_client_info.package_name -eq 'com.weith.renthub'
+        }) | Select-Object -First 1
+        if ($null -eq $androidClient) { throw 'google-services.json must include Android package com.weith.renthub.' }
+        if ([string]::IsNullOrWhiteSpace($apiKey)) { $apiKey = $androidClient.api_key[0].current_key }
+        if ([string]::IsNullOrWhiteSpace($appId)) { $appId = $androidClient.client_info.mobilesdk_app_id }
+        if ([string]::IsNullOrWhiteSpace($sender)) { $sender = $GoogleConfiguration.project_info.project_number }
+        if ([string]::IsNullOrWhiteSpace($project) -or $project -eq 'your-project-id') { $project = $GoogleConfiguration.project_info.project_id }
+        if ($project -ne $GoogleConfiguration.project_info.project_id -or $sender -ne $GoogleConfiguration.project_info.project_number) {
+            throw 'Firebase Android settings and FIREBASE_PROJECT_ID must refer to the same Firebase project.'
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($apiKey) -or [string]::IsNullOrWhiteSpace($appId) -or
+        [string]::IsNullOrWhiteSpace($sender) -or [string]::IsNullOrWhiteSpace($project) -or $project -eq 'your-project-id') {
+        throw 'For Android push, configure Firebase Android client settings or add android/app/google-services.json. Keep FCM_MODE=disabled until setup is ready.'
+    }
+    return @('--dart-define=FIREBASE_ENABLED=true', "--dart-define=FIREBASE_API_KEY=$apiKey",
+        "--dart-define=FIREBASE_APP_ID=$appId", "--dart-define=FIREBASE_MESSAGING_SENDER_ID=$sender",
+        "--dart-define=FIREBASE_PROJECT_ID=$project")
 }
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -449,6 +483,17 @@ try {
     }
 
     $arguments = @('run', '-d', $Device)
+    $firebaseSettings = @{}
+    foreach ($setting in @('FIREBASE_ANDROID_API_KEY', 'FIREBASE_ANDROID_APP_ID', 'FIREBASE_MESSAGING_SENDER_ID', 'FIREBASE_PROJECT_ID')) {
+        $firebaseSettings[$setting] = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name $setting
+    }
+    $googleConfiguration = $null
+    $googleConfigurationPath = Join-Path $PSScriptRoot 'android\app\google-services.json'
+    $fcmMode = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'FCM_MODE' -DefaultValue 'disabled'
+    if (-not $isDesktop -and $fcmMode -eq 'firebase' -and (Test-Path -LiteralPath $googleConfigurationPath)) {
+        $googleConfiguration = Get-Content -LiteralPath $googleConfigurationPath -Raw | ConvertFrom-Json
+    }
+    $arguments += @(Get-RentHubFirebaseDefines -FcmMode $fcmMode -TargetDevice $Device -Settings $firebaseSettings -GoogleConfiguration $googleConfiguration)
     if ($isBrowser) {
         $arguments += @('--web-port', $(if ($Admin) { '3001' } else { '8080' }))
     }

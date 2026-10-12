@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { coordinatesSchema, locationSchema, publicListing } from '../../core/location.js';
 import { LICENCE_CLASSES } from '../user/drivingEligibility.js';
 
 export const LISTING_CATEGORIES = [
@@ -121,6 +122,9 @@ const listingSchema = new mongoose.Schema(
     },
     serviceDetails: { type: serviceDetailsSchema },
     location: { type: String, required: true, trim: true, maxlength: 160 },
+    coordinates: { type: coordinatesSchema, default: undefined },
+    locationDetails: { type: locationSchema, default: undefined },
+    publicGeoPoint: { type: new mongoose.Schema({ type: { type: String, enum: ['Point'], default: 'Point' }, coordinates: { type: [Number], required: true } }, { _id: false }), default: undefined },
     state: { type: String, trim: true, maxlength: 80, default: '' },
     images: {
       type: [{ type: String, trim: true, maxlength: 500 }],
@@ -164,12 +168,13 @@ const listingSchema = new mongoose.Schema(
           : value.dailyPrice;
         delete value._id;
         delete value.__v;
-        return value;
+        return publicListing(value);
       },
     },
   },
 );
 
+listingSchema.index({ publicGeoPoint: '2dsphere' });
 listingSchema.index(
   { canonicalProductId: 1, status: 1, state: 1 },
   {

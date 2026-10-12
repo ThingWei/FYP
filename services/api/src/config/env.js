@@ -54,6 +54,7 @@ export const env = {
   webAppUrl: process.env.WEB_APP_URL,
   maxUploadBytes: integer(process.env.MAX_UPLOAD_BYTES, 10 * 1024 * 1024),
   mapsMode: process.env.MAPS_MODE ?? 'openstreetmap',
+  mapTileUrl: process.env.MAP_TILE_URL ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   openStreetMapNominatimUrl:
     process.env.OPENSTREETMAP_NOMINATIM_URL ??
     'https://nominatim.openstreetmap.org',

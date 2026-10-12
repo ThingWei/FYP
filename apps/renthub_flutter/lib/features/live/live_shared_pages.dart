@@ -8,11 +8,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/notifications/push_notification_service.dart';
 import '../../modules/user/controllers/auth_controller.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import 'live_renthub_controller.dart';
+import 'live_location_picker.dart';
+import 'live_location_field.dart';
 import 'live_photo_widgets.dart';
 import 'live_loyalty_page.dart';
 import 'live_kyc_scanner_page.dart';
@@ -740,12 +743,14 @@ class LiveProfilePage extends StatelessWidget {
     required this.canSwitch,
     required this.onSwitch,
     required this.onLogout,
+    this.locationMapBuilder,
   });
 
   final String role;
   final bool canSwitch;
   final VoidCallback onSwitch;
   final Future<void> Function() onLogout;
+  final LocationMapBuilder? locationMapBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -846,7 +851,8 @@ class LiveProfilePage extends StatelessWidget {
               onTap: () => Navigator.push<void>(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const _LiveAddressesPage(),
+                  builder: (_) => _LiveAddressesPage(
+                      locationMapBuilder: locationMapBuilder),
                 ),
               ),
             ),
@@ -997,7 +1003,8 @@ class _LiveEditProfilePageState extends State<_LiveEditProfilePage> {
 }
 
 class _LiveAddressesPage extends StatelessWidget {
-  const _LiveAddressesPage();
+  const _LiveAddressesPage({this.locationMapBuilder});
+  final LocationMapBuilder? locationMapBuilder;
 
   Future<void> _persist(
     BuildContext context,
@@ -1013,129 +1020,163 @@ class _LiveAddressesPage extends StatelessWidget {
     }
   }
 
-  Future<void> _add(BuildContext context) async {
+  Future<void> _add(BuildContext context,
+      {UserAddress? initial, int? index}) async {
+    final label = TextEditingController(text: initial?.label ?? 'Home');
+    final line1 = TextEditingController(text: initial?.line1 ?? '');
+    final city = TextEditingController(text: initial?.city ?? '');
+    final state = TextEditingController(text: initial?.state ?? '');
+    final postcode = TextEditingController(text: initial?.postcode ?? '');
+    ListingLocationSelection? selection = initial?.mapLocation;
     final formKey = GlobalKey<FormState>();
-    final label = TextEditingController(text: 'Home');
-    final line1 = TextEditingController();
-    final city = TextEditingController();
-    final state = TextEditingController(text: 'Selangor');
-    final postcode = TextEditingController();
-    final address = await InputValidation.showFormDialog<UserAddress>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add Malaysian address'),
-        content: SizedBox(
-          width: 440,
-          child: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final field in [
-                    (label, 'Label', TextInputType.text),
-                    (line1, 'Address line', TextInputType.streetAddress),
-                    (city, 'City', TextInputType.text),
-                    (state, 'State', TextInputType.text),
-                    (postcode, 'Postcode', TextInputType.number),
-                  ]) ...[
-                    TextFormField(
-                      controller: field.$1,
-                      decoration: (InputDecoration(labelText: field.$2))
-                          .copyWith(counterText: '', errorMaxLines: 3),
-                      keyboardType: field.$3,
-                      validator: InputValidation.compose(
-                          InputRule(field.$2,
-                                  kind: field.$2 == 'Postcode'
-                                      ? InputKind.digits
-                                      : InputKind.text,
-                                  exactLength:
-                                      field.$2 == 'Postcode' ? 5 : null,
-                                  maxLength: field.$2 == 'Postcode'
-                                      ? 5
-                                      : field.$2 == 'Label'
-                                          ? 40
-                                          : field.$2 == 'Address line'
-                                              ? 120
-                                              : 80)
-                              .validate, (value) {
-                        if (value?.trim().isEmpty ?? true) {
-                          return '${field.$2} is required';
-                        }
-                        if (field.$2 == 'Postcode' &&
-                            !RegExp(r'^\d{5}$').hasMatch(value!.trim())) {
-                          return 'Enter a 5-digit postcode';
-                        }
-                        return null;
-                      }),
-                      inputFormatters: InputValidation.formatters(
-                          InputRule(field.$2,
-                              kind: field.$2 == 'Postcode'
-                                  ? InputKind.digits
-                                  : InputKind.text,
-                              exactLength: field.$2 == 'Postcode' ? 5 : null,
-                              maxLength: field.$2 == 'Postcode'
-                                  ? 5
-                                  : field.$2 == 'Label'
-                                      ? 40
-                                      : field.$2 == 'Address line'
-                                          ? 120
-                                          : 80),
-                          field.$1),
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      maxLength: InputRule(field.$2,
-                              kind: field.$2 == 'Postcode'
-                                  ? InputKind.digits
-                                  : InputKind.text,
-                              exactLength: field.$2 == 'Postcode' ? 5 : null,
-                              maxLength: field.$2 == 'Postcode'
-                                  ? 5
-                                  : field.$2 == 'Label'
-                                      ? 40
-                                      : field.$2 == 'Address line'
-                                          ? 120
-                                          : 80)
-                          .maxLength,
-                      maxLengthEnforcement: InputValidation.lengthEnforcement,
-                    ),
-                    const SizedBox(height: 12),
+    var saving = false;
+    String? error;
+    final route = DialogRoute<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
+            builder: (dialogContext, refresh) => AlertDialog(
+                  title: Text(initial == null
+                      ? 'Add Malaysian address'
+                      : 'Edit Malaysian address'),
+                  content: SizedBox(
+                      width: 440,
+                      child: Form(
+                          key: formKey,
+                          child: SingleChildScrollView(
+                              child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                LiveLocationField(
+                                    mapBuilder: locationMapBuilder,
+                                    api: ListingLocationApi(context
+                                        .read<LiveRentHubController>()
+                                        .api),
+                                    controller: line1,
+                                    value: selection,
+                                    label: 'Address line',
+                                    maxLength: 120,
+                                    enabled: !saving,
+                                    onChanged: (value) => refresh(() {
+                                          selection = value;
+                                          if (value != null) {
+                                            city.text = value.city;
+                                            state.text = value.state;
+                                            postcode.text = value.postcode;
+                                          }
+                                        })),
+                                for (final field in [
+                                  (label, 'Label', 40),
+                                  (city, 'City', 80),
+                                  (state, 'State', 80),
+                                  (postcode, 'Postcode', 5)
+                                ]) ...[
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                      controller: field.$1,
+                                      enabled: !saving,
+                                      decoration: InputDecoration(
+                                          labelText: field.$2,
+                                          counterText: '',
+                                          errorMaxLines: 3),
+                                      maxLength: field.$3,
+                                      keyboardType: field.$2 == 'Postcode'
+                                          ? TextInputType.number
+                                          : TextInputType.text,
+                                      inputFormatters:
+                                          InputValidation.formatters(
+                                              InputRule(field.$2,
+                                                  maxLength: field.$3,
+                                                  kind: field.$2 == 'Postcode'
+                                                      ? InputKind.digits
+                                                      : InputKind.text),
+                                              field.$1),
+                                      onChanged: field.$2 == 'Label'
+                                          ? null
+                                          : (_) =>
+                                              refresh(() => selection = null),
+                                      validator: (value) => (value
+                                                  ?.trim()
+                                                  .isEmpty ??
+                                              true)
+                                          ? '${field.$2} is required'
+                                          : field.$2 == 'Postcode' &&
+                                                  !RegExp(r'^\d{5}$')
+                                                      .hasMatch(value!)
+                                              ? 'Enter a five-digit postcode'
+                                              : null),
+                                ],
+                                if (error != null)
+                                  Text(error!,
+                                      style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .error)),
+                              ])))),
+                  actions: [
+                    TextButton(
+                        onPressed:
+                            saving ? null : () => Navigator.pop(dialogContext),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                if (!formKey.currentState!.validate() ||
+                                    selection == null) {
+                                  return;
+                                }
+                                refresh(() {
+                                  saving = true;
+                                  error = null;
+                                });
+                                final controller =
+                                    context.read<LiveRentHubController>();
+                                final existing = [
+                                  ...controller.profile!.addresses
+                                ];
+                                final added = UserAddress(
+                                    id: initial?.id,
+                                    label: label.text.trim(),
+                                    line1: line1.text.trim(),
+                                    line2: initial?.line2 ?? '',
+                                    city: city.text.trim(),
+                                    state: state.text.trim(),
+                                    postcode: postcode.text,
+                                    latitude: selection!.point.latitude,
+                                    longitude: selection!.point.longitude,
+                                    isDefault:
+                                        initial?.isDefault ?? existing.isEmpty);
+                                if (index == null) {
+                                  existing.add(added);
+                                } else {
+                                  existing[index] = added;
+                                }
+                                try {
+                                  await controller.updateAddresses(existing);
+                                  if (dialogContext.mounted) {
+                                    Navigator.pop(dialogContext);
+                                  }
+                                } catch (exception) {
+                                  if (dialogContext.mounted) {
+                                    refresh(
+                                        () => error = friendlyError(exception));
+                                  }
+                                } finally {
+                                  if (dialogContext.mounted) {
+                                    refresh(() => saving = false);
+                                  }
+                                }
+                              },
+                        child: Text(saving ? 'Saving…' : 'Save')),
                   ],
-                ],
-              ),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (!(formKey.currentState?.validate() ?? false)) return;
-              InputValidation.popIfValid(
-                dialogContext,
-                UserAddress(
-                  label: label.text.trim(),
-                  line1: line1.text.trim(),
-                  city: city.text.trim(),
-                  state: state.text.trim(),
-                  postcode: postcode.text.trim(),
-                ),
-              );
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
+                )));
+    await Navigator.of(context).push<void>(route);
+    await route
+        .completed; // Text controllers must outlive the closing animation.
     for (final controller in [label, line1, city, state, postcode]) {
       controller.dispose();
     }
-    if (address == null || !context.mounted) return;
-    final existing = context.read<LiveRentHubController>().profile!.addresses;
-    final added = address.copyWith(isDefault: existing.isEmpty);
-    await _persist(context, [...existing, added]);
   }
 
   Future<void> _setDefault(BuildContext context, int index) async {
@@ -1204,10 +1245,15 @@ class _LiveAddressesPage extends StatelessWidget {
                       ),
                       isThreeLine: true,
                       trailing: PopupMenuButton<String>(
-                        onSelected: (action) => action == 'default'
-                            ? _setDefault(context, index)
-                            : _remove(context, index),
+                        onSelected: (action) => action == 'edit'
+                            ? _add(context, initial: address, index: index)
+                            : action == 'default'
+                                ? _setDefault(context, index)
+                                : _remove(context, index),
                         itemBuilder: (_) => [
+                          const PopupMenuItem(
+                              value: 'edit',
+                              child: Text('Edit and confirm pin')),
                           if (!address.isDefault)
                             const PopupMenuItem(
                               value: 'default',
@@ -1243,6 +1289,7 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
   late bool email = widget.user.emailNotifications;
   bool saving = false;
   bool deactivating = false;
+  String? pushWarning;
 
   Future<void> _save() async {
     setState(() => saving = true);
@@ -1252,7 +1299,18 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
             pushNotifications: push,
             emailNotifications: email,
           );
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        final service = context.read<LiveRentHubController>().pushNotifications;
+        if ((!push && service?.state == PushRegistrationState.failed) ||
+            (push &&
+                (service == null ||
+                    service.state != PushRegistrationState.registered))) {
+          setState(() => pushWarning = service?.statusMessage ??
+              'Phone push is not configured. In-app notifications remain available.');
+        } else {
+          Navigator.pop(context);
+        }
+      }
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1374,9 +1432,17 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
               SwitchListTile(
                 value: push,
                 title: const Text('Push notifications'),
-                subtitle: const Text('Booking, message and rental updates'),
+                subtitle: Text(context
+                        .read<LiveRentHubController>()
+                        .pushNotifications
+                        ?.statusMessage ??
+                    'Booking, message and rental updates. Phone push setup is not available on this device yet.'),
                 onChanged: (value) => setState(() => push = value),
               ),
+              if (pushWarning != null)
+                Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text('Settings saved. $pushWarning')),
               SwitchListTile(
                 value: email,
                 title: const Text('Email notifications'),

@@ -1,5 +1,9 @@
 import 'live_price_suggestion.dart';
 import 'live_catalog_picker.dart';
+import 'live_location_picker.dart';
+import 'live_location_field.dart';
+import 'live_booking_locations.dart';
+import 'package:latlong2/latlong.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -513,10 +517,12 @@ class LiveListingForm extends StatefulWidget {
     super.key,
     required this.isService,
     this.listing,
+    this.locationMapBuilder,
   });
 
   final bool isService;
   final Listing? listing;
+  final LocationMapBuilder? locationMapBuilder;
 
   @override
   State<LiveListingForm> createState() => _LiveListingFormState();
@@ -528,7 +534,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
   final modelFieldKey = GlobalKey<FormFieldState<String>>();
   final ageFieldKey = GlobalKey<FormFieldState<String>>();
   final daysFieldKey = GlobalKey<FormFieldState<String>>();
-  final locationFieldKey = GlobalKey<FormFieldState<String>>();
   late final title = TextEditingController(text: widget.listing?.title);
   late final description =
       TextEditingController(text: widget.listing?.description);
@@ -536,8 +541,21 @@ class _LiveListingFormState extends State<LiveListingForm> {
     text: widget.listing?.dailyPrice.toStringAsFixed(2),
   );
   late final location = TextEditingController(
-    text: widget.listing?.location ?? 'Kuala Lumpur',
+    text: widget.listing?.locationDetails?.label ??
+        widget.listing?.location ??
+        'Kuala Lumpur',
   );
+  late String venueMode = widget.listing?.venueMode ?? 'flexible';
+  late ListingLocationSelection? selectedLocation = widget
+          .listing?.locationDetails ??
+      (widget.listing?.latitude != null && widget.listing?.longitude != null
+          ? ListingLocationSelection(
+              label: location.text,
+              point:
+                  LatLng(widget.listing!.latitude!, widget.listing!.longitude!),
+              state: widget.listing!.state)
+          : null);
+
   late final deposit = TextEditingController(
     text: widget.listing?.securityDeposit.toStringAsFixed(2) ?? '0',
   );
@@ -771,6 +789,9 @@ class _LiveListingFormState extends State<LiveListingForm> {
   }
 
   String _listingState() {
+    if (selectedLocation?.state.isNotEmpty == true) {
+      return selectedLocation!.state;
+    }
     const states = [
       'Kuala Lumpur',
       'Selangor',
@@ -792,7 +813,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
     final entered = location.text.toLowerCase();
     return states.firstWhere(
       (state) => entered.contains(state.toLowerCase()),
-      orElse: () => 'Kuala Lumpur',
+      orElse: () => '',
     );
   }
 
@@ -804,7 +825,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
       modelFieldKey,
       ageFieldKey,
       daysFieldKey,
-      locationFieldKey
     ]) {
       final field = key.currentState;
       if (field != null && field.widget.enabled && !field.validate()) {
@@ -812,6 +832,11 @@ class _LiveListingFormState extends State<LiveListingForm> {
       }
     }
     validatingPricing = false;
+    if (location.text.trim().length < 2 || location.text.length > 240) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Enter a location name (2–240 characters).')));
+      valid = false;
+    }
     if (!valid) return;
     final age = double.tryParse(itemAge.text);
     final rentalDays = int.tryParse(expectedRentalDays.text);
@@ -974,14 +999,39 @@ class _LiveListingFormState extends State<LiveListingForm> {
       );
       return;
     }
+    final locationUnchanged = widget.listing != null &&
+        location.text ==
+            (widget.listing!.locationDetails?.label ??
+                widget.listing!.location);
+    if (!(widget.isService && venueMode == 'online') &&
+        selectedLocation == null &&
+        !locationUnchanged) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Choose and confirm a map pin for the location.')));
+      return;
+    }
     setState(() => saving = true);
+    final area = [selectedLocation?.city ?? '', selectedLocation?.state ?? '']
+        .where((text) => text.isNotEmpty)
+        .join(', ');
     final payload = <String, dynamic>{
       'title': title.text.trim(),
       'description': description.text.trim(),
       'category': category,
       'listingType': widget.isService ? 'service' : 'physical',
       'dailyPrice': double.parse(price.text),
-      'location': location.text.trim(),
+      'location': selectedLocation == null
+          ? location.text.trim()
+          : area.isEmpty
+              ? 'Pinned location'
+              : area.length <= 160
+                  ? area
+                  : selectedLocation!.city,
+      if (selectedLocation != null)
+        'coordinates': selectedLocation!.coordinates,
+      if (selectedLocation != null)
+        'locationDetails':
+            selectedLocation!.copyWith(label: location.text.trim()).toJson(),
       'state': _listingState(),
       if (images.isNotEmpty) 'images': images,
       if (widget.isService) ...{
@@ -989,7 +1039,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
         'serviceDetails': {
           'packageName': title.text.trim(),
           'durationMinutes': int.parse(duration.text),
-          'venueMode': 'flexible',
+          'venueMode': venueMode,
           'inclusions': ['Service package as described'],
         },
       } else ...{
@@ -1478,24 +1528,42 @@ class _LiveListingFormState extends State<LiveListingForm> {
                       ],
                       const ListingSectionHeading('Location and availability',
                           'Tell renters where your listing is offered. Manage dates after saving.'),
-                      TextFormField(
-                        controller: location,
-                        key: locationFieldKey,
-                        onChanged: (_) => _clearPriceRecommendation(),
-                        decoration:
-                            (const InputDecoration(labelText: 'Location'))
-                                .copyWith(counterText: '', errorMaxLines: 3),
-                        validator: InputValidation.compose(
-                            InputRules.location2.validate,
-                            (value) => (value?.trim().length ?? 0) >= 2
-                                ? null
-                                : 'Enter a location'),
-                        inputFormatters: InputValidation.formatters(
-                            InputRules.location2, location),
-                        autovalidateMode: AutovalidateMode.onUserInteraction,
-                        maxLength: InputRules.location2.maxLength,
-                        maxLengthEnforcement: InputValidation.lengthEnforcement,
-                      ),
+                      if (widget.isService)
+                        DropdownButtonFormField<String>(
+                            initialValue: venueMode,
+                            decoration: const InputDecoration(
+                                labelText: 'Service location type'),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'owner_location',
+                                  child: Text('At my location')),
+                              DropdownMenuItem(
+                                  value: 'renter_location',
+                                  child: Text('At the renter location')),
+                              DropdownMenuItem(
+                                  value: 'flexible',
+                                  child: Text('Chosen when booking')),
+                              DropdownMenuItem(
+                                  value: 'online', child: Text('Online'))
+                            ],
+                            onChanged: (value) =>
+                                setState(() => venueMode = value!)),
+                      if (!(widget.isService && venueMode == 'online'))
+                        LiveLocationField(
+                            mapBuilder: widget.locationMapBuilder,
+                            api: ListingLocationApi(
+                                context.read<LiveRentHubController>().api),
+                            controller: location,
+                            value: selectedLocation,
+                            enabled: !saving,
+                            requirePin: widget.listing == null ||
+                                location.text !=
+                                    (widget.listing!.locationDetails?.label ??
+                                        widget.listing!.location),
+                            onChanged: (value) {
+                              setState(() => selectedLocation = value);
+                              _clearPriceRecommendation();
+                            }),
                       const SizedBox(height: 12),
                       if (widget.isService)
                         TextFormField(
@@ -2252,6 +2320,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           Text('${booking.renterName} · ${booking.id}'),
+                          BookingLocationsButton(bookingId: booking.id),
                           Text(formatDateRange(booking.start, booking.end)),
                           Text(
                             '${formatMoney(booking.total)} · ${booking.paymentStatus}',

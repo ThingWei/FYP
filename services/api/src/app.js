@@ -18,17 +18,20 @@ import { loyaltyModule } from './modules/loyalty/index.js';
 import { adminModule } from './modules/admin/index.js';
 import { uploadModule } from './modules/upload/index.js';
 import { catalogModule } from './modules/catalog/index.js';
+import { mapsRouter } from './modules/maps/maps.routes.js';
 
+morgan.token('safe-path', (req) => req.path);
 export const app = express();
-const apiCapabilities = ['product-catalog-v1', 'mykad-capture-validation-v1', 'mandatory-identity-access-v1'];
+const apiCapabilities = ['product-catalog-v1', 'mykad-capture-validation-v1', 'mandatory-identity-access-v1', 'listing-maps-push-status-v1', 'precise-locations-v1'];
 app.use(
   helmet(),
   cors({ origin: env.corsOrigins }),
   express.json({ limit: '2mb' }),
-  morgan('dev'),
+  morgan(':method :safe-path :status :response-time ms'),
   audit,
 );
 const api = express.Router();
+api.use('/maps', mapsRouter);
 api.get('/health', (_req, res) =>
   res.json({
     success: true,

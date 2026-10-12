@@ -32,7 +32,8 @@ export const errorHandler = (error, _req, res, _next) => {
   }
 
   if (status >= 500) {
-    console.error(error);
+    // Errors may contain request bodies or database documents with private pins.
+    console.error({ type: 'server_error', name: error.name, status, code });
     if (!(error instanceof AppError)) message = 'Unexpected server error';
   }
 

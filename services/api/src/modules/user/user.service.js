@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { validCoordinates } from '../../core/location.js';
 import { createHash, createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../core/errors.js';
 import { adminModule } from '../admin/index.js';
@@ -508,6 +509,18 @@ export const userService = {
     const user = await requireCurrentUser(identity);
     if (input.avatarUrl?.startsWith('/api/v1/uploads/')) {
       await uploadService.assertOwnedReferences(identity, [input.avatarUrl], ['avatar']);
+    }
+    if (input.addresses) {
+      const existing = user.addresses.map((address) => address.toObject());
+      const usedIds = new Set();
+      for (const address of input.addresses) {
+        const previous = address._id ? existing.find((row) => String(row._id) === String(address._id)) : existing.find((row) => ['label', 'line1', 'line2', 'city', 'state', 'postcode'].every((key) => (row[key] || '') === (address[key] || '')));
+        if (address._id && !previous) throw new AppError('Address does not belong to this account', 422, 'INVALID_ADDRESS');
+        const changed = !previous || ['line1', 'line2', 'city', 'state', 'postcode'].some((key) => (previous[key] || '') !== (address[key] || ''));
+        if (changed && !validCoordinates(address.coordinates)) throw new AppError('Confirm a map pin for this address', 422, 'LOCATION_PIN_REQUIRED');
+        if (previous) { address._id = previous._id; if (!changed && address.coordinates === undefined) address.coordinates = previous.coordinates; }
+        if (address._id) { const key = String(address._id); if (usedIds.has(key)) throw new AppError('Duplicate address identifier', 422, 'INVALID_ADDRESS'); usedIds.add(key); }
+      }
     }
     const allowed = {
       ...(input.displayName !== undefined && { displayName: input.displayName }),
