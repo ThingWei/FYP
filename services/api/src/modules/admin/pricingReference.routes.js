@@ -4,9 +4,23 @@ import { AppError } from '../../core/errors.js';
 import { ok } from '../../core/respond.js';
 import { PricingReferenceModel } from '../listing/pricingReference.model.js';
 import { REFERENCE_TEMPLATE, previewPricingReferences, importPricingReferences } from '../listing/pricingReference.service.js';
+import { configurePriceSyncAudit, priceSourcesStatus, requestPriceSourceSync, setPriceSourceEnabled } from '../listing/priceSync.service.js';
 
 export function pricingReferenceRouter(writeAudit) {
   const router = Router();
+  configurePriceSyncAudit(writeAudit);
+  router.get('/sources', asyncHandler(async (_req, res) => ok(res, await priceSourcesStatus())));
+  router.post('/sources/:sourceId/sync', asyncHandler(async (req, res) => {
+    if (req.body?.confirmed !== true || Object.keys(req.body).some((key) => key !== 'confirmed')) throw new AppError('Confirm source refresh', 400, 'VALIDATION_ERROR');
+    const result = await requestPriceSourceSync(req.params.sourceId, req.user);
+    return res.status(202).json({ success: true, data: result });
+  }));
+  router.patch('/sources/:sourceId', asyncHandler(async (req, res) => {
+    if (typeof req.body?.enabled !== 'boolean' || req.body?.confirmed !== true || Object.keys(req.body).some((key) => !['enabled', 'confirmed'].includes(key))) {
+      throw new AppError('Confirm whether this source should be enabled', 400, 'VALIDATION_ERROR');
+    }
+    return ok(res, await setPriceSourceEnabled(req.params.sourceId, req.body.enabled, req.user));
+  }));
   router.get('/template', (_req, res) => ok(res, {
     fileName: 'renthub-rental-price-references.csv', content: REFERENCE_TEMPLATE,
   }));

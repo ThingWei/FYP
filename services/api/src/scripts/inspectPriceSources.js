@@ -1,0 +1,18 @@
+import { PRICE_SOURCES } from '../modules/listing/priceSources.registry.js';
+import { collectSourceQuotes } from '../modules/listing/priceSync.service.js';
+
+// Read-only onboarding diagnostic: no MongoDB connection, no insertion or enabling.
+const id = process.argv[2];
+if (id && !PRICE_SOURCES.some((source) => source.id === id)) throw new Error('Unknown source ID');
+for (const source of PRICE_SOURCES.filter((entry) => entry.adapter && (!id || entry.id === id))) {
+  try {
+    const result = await collectSourceQuotes(source);
+    console.log(JSON.stringify({ sourceId: source.id, accepted: result.rows.length,
+      domains: [...new Set(result.rows.map((row) => row.subcategory))],
+      skipped: result.skipped.length, skipReasons: [...new Set(result.skipped)], pages: result.pages,
+      enabled: false, databaseWrites: 0, reusePermissionEstablished: false }));
+  } catch (error) {
+    console.log(JSON.stringify({ sourceId: source.id, available: false,
+      error: error.message, enabled: false, databaseWrites: 0 }));
+  }
+}

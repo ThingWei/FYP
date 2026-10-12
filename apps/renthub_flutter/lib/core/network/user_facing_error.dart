@@ -17,6 +17,14 @@ class UserFacingError {
     }
     if (error is ApiException) {
       final known = <String, String>{
+        'PRICE_SOURCE_REVIEW_REQUIRED':
+            'This source needs a one-time access review by a maintainer before it can be enabled.',
+        'PRICE_SOURCE_PARSER_UNAVAILABLE':
+            'No supported rental quotes were found. Keep this source disabled until its format is checked.',
+        'PRICE_SOURCE_BUSY_OR_DISABLED':
+            'This source is already updating or is disabled. Refresh its status before trying again.',
+        'PRICE_SOURCE_UNAVAILABLE':
+            'This source could not be checked. Existing references have been kept.',
         'KYC_REQUIRED':
             'Verify your MyKad before renting or publishing a listing.',
         'MYKAD_REQUIRED':

@@ -126,11 +126,14 @@ class LivePriceSuggestion extends StatelessWidget {
                     : 'Uses comparable prices and a trained price model. Product search identifies the model, not its rental value.'),
                 const SizedBox(height: 8),
                 Text(view.evidence.containsKey('external_asking_price_count')
-                    ? '${view.count('marketplace_active_listing_count')} RentHub listings, ${view.count('external_asking_price_count')} reviewed advertised prices and ${view.count('historical_rental_count')} completed rentals were used.'
+                    ? '${view.count('marketplace_active_listing_count')} RentHub listings, ${view.count('external_asking_price_count')} advertised rental prices and ${view.count('historical_rental_count')} completed rentals were used.'
                     : '${view.count('comparable_active_count')} listings and ${view.count('historical_rental_count')} completed rentals were used.'),
                 if (view.count('external_asking_price_count') > 0)
                   const Text(
                       'Advertised prices are asking prices, not proof of completed rentals. Rates may vary with rental length and included accessories.'),
+                if (view.evidence.containsKey('automated_asking_price_count'))
+                  Text(
+                      '${view.count('automated_asking_price_count')} automatically collected prices and ${view.count('reviewed_asking_price_count')} administrator-reviewed prices. Automatic multi-day quotes are compared only with compatible rental lengths.'),
                 Text(view.completedProvenance),
                 if (view.unseenModel)
                   const Text(

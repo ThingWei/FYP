@@ -1,5 +1,86 @@
 # RentHub AI pricing and product catalog result
 
+## 12 October 2026: Automatic asking-price sync
+
+Implemented a centralized 22-domain source registry, eleven source-specific parsers,
+bounded allowlisted collection, 24-hour successful refresh scheduling, per-source
+MongoDB leases, capped exponential backoff and administrator source health/controls.
+The Rental Guy is the primary Event equipment adapter; PC Rent's parser is implemented
+and a follow-up missing-robots handling fix verifies three specification-only daily
+projector quotes, without database writes. Robots 404/410 does not grant permission;
+maintainer approval is still required. Denials and operational failures still block
+collection. AVM stays optional/disabled.
+All sources default to disabled until a maintainer reviews access/reuse and explicitly
+approves their IDs. The API does not treat public visibility as collection permission.
+
+Automatic observations remain `external_asking_price`, with separate collection,
+validation and source provenance. They do not receive invented administrator review
+or catalogue IDs. Duration bands/packages and product types gate comparability;
+unbranded/specification quotes never count as exact-product or same-brand matches.
+Refresh keys preserve individual deactivation, and disabling a source excludes its
+automatic prices without changing manual CSV references. Failed collections retain
+previous values/dates rather than falsely refreshing them. The existing 365-day
+window and evidence hierarchy remain.
+
+Existing inference receives separate `automated_asking_price_count`,
+`reviewed_asking_price_count`, `marketplace_active_listing_count` and
+`external_asking_price_count` metadata. An integration test confirms an automatic
+camera asking price reaches `market_evidence`, while completed-rental count/history
+remain unchanged; disabled/stale references disappear from asking evidence only.
+Owner-facing expandable details explain advertised prices separately from completed
+rentals. No fitted features, weights, retraining or fixed brand-price rule changed.
+
+The administrator workflow now starts with source status, enable/disable and explicit
+background refresh. Existing CSV tools and their preparation guide remain under
+Advanced / manual import, with the existing off-screen confirmation test repaired.
+Toys & Entertainment is documented only; it was not added to forms or model taxonomy.
+
+For actual page availability, complete category matrix, observed parser counts,
+permissions/onboarding, endpoints and verification results, see
+[RENTAL_PRICE_SOURCE_COVERAGE_RESULT.md](RENTAL_PRICE_SOURCE_COVERAGE_RESULT.md).
+There are still no verified external book rental sources; RentSmart, iRent and 12RENT
+remain pending adapter validation. Asking-price expansion cannot establish real-world
+product-specific model accuracy or substitute for real completed-rental evaluation.
+
+## 12 October 2026: Windows CSV download/preview recovery
+
+The administrator guide now distinguishes **Choose CSV** (the primary import
+action) from **Get blank CSV** (a secondary link for preparing new observations).
+An expandable preparation guide explains all ten required columns with a complete
+example including source URL/date, all five optional columns, UTF-8, valid numeric
+and date formats, weekly quote normalization and excluded retail/minimum/service
+prices. It clarifies that preview does not save data. The example is illustrative
+and asks administrators to verify the source and replace values with their own
+observation. No CSV format, server validation, prices or live data was changed.
+
+The Windows CSV flow now uses single-file selection (rather than a multi-select
+picker followed by `.single`), with owned open/save dialogs attached to the app
+window. Template saving uses `text/csv` and explicitly reports saved/cancelled
+outcomes. Preparing/checking/saving feedback appears while work is in progress.
+Local UTF-8 reading, selected filename/contents, the 1 MB bound and API-only
+validation remain. Preview failure preserves the selected CSV for explicit retry.
+
+Read-only list, preview and template requests now time out after 15 seconds,
+returning controls to an actionable state. Invalid CSV/encoding, unavailable file,
+save failure and missing API routes have safe, useful messages. A missing route
+asks for an API restart; no raw server paths appear. Import/deactivation writes
+are not automatically replayed and their existing authorization is unchanged.
+
+The diagnostic request to `http://localhost:3000/api/v1/health` was unreachable
+at the time of this check. This does not prove the exact cause of the earlier
+user session, but a running API is necessary for preview/template requests.
+Close the Windows app completely and restart the API/app with current code; hot
+reload alone is not sufficient to refresh desktop plugin registration.
+
+Verification: 18 focused Flutter tests passed, including file-picker/save contract
+tests, byte/MIME preservation, UTF-8/BOM handling, unreadable/oversized files,
+timeout recovery, save cancellation/errors and retained preview retries.
+Targeted analyzer is clean; Windows debug build passed. Full Flutter suite:
+209 passed, three skipped. Backend CSV regressions: seven passed, using a
+temporary MongoDB database, never the live data. Native dialog positioning
+and preview against the user's running server still need the user's final check;
+no live import or automatic service restart was performed.
+
 ## 10 October 2026: searchable products and reviewed rental-price references
 
 ### Selection and administrator workflow

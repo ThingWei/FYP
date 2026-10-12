@@ -12,12 +12,12 @@ function same(value, expected) {
 }
 
 function canonicalSame(item, profile) {
-  return Boolean(profile.canonicalProductId) &&
+  return item.identityLevel !== 'specification_only' && Boolean(profile.canonicalProductId) &&
     item.canonicalProductId === profile.canonicalProductId;
 }
 
 function sameProductText(item, profile) {
-  return same(item.subcategory, profile.subcategory) &&
+  return item.identityLevel !== 'specification_only' && same(item.subcategory, profile.subcategory) &&
     same(item.brand, profile.brand) &&
     same(item.productModel, profile.product_model);
 }

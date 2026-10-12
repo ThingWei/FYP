@@ -17,6 +17,7 @@ import { listingRepository } from './listing.repository.js';
 import { uploadService } from '../upload/upload.service.js';
 import { resolveProductIdentity } from '../catalog/catalog.service.js';
 import { PricingReferenceModel } from './pricingReference.model.js';
+import { compatiblePriceReferences, enabledPriceSourceIds } from './priceSync.service.js';
 import {
   buildRecommendationInteractions,
   modelInteraction,
@@ -407,12 +408,15 @@ export const listingService = {
       PricingReferenceModel.find({ active: true, sourceType: 'external_asking_price',
         country: 'MY', currency: 'MYR', category: profile.category, subcategory: profile.subcategory,
         observedAt: { $gte: evidenceStart, $lte: new Date() }, dailyPrice: { $gt: 0 },
-        reviewedAt: { $exists: true },
+        $or: [
+          { collectionMethod: { $ne: 'automatic' }, reviewedAt: { $exists: true, $ne: null } },
+          { collectionMethod: 'automatic', validationStatus: 'accepted', validatedAt: { $exists: true, $ne: null } },
+        ],
       }).sort({ observedAt: -1 }).limit(PRICING_EVIDENCE_QUERY_LIMIT).lean(),
     ]);
     const activeCandidates = [
       ...platformCandidates.map((item) => ({ ...item, sourceType: 'marketplace_listing' })),
-      ...externalReferences.map((item) => ({ ...item,
+      ...compatiblePriceReferences(externalReferences, profile, await enabledPriceSourceIds()).map((item) => ({ ...item,
         itemAgeYears: item.itemAgeYears ?? undefined, updatedAt: item.observedAt })),
     ];
     const completedListingIds = [
@@ -472,6 +476,8 @@ export const listingService = {
       comparable_active_iqr: activeStats.iqr,
       marketplace_active_listing_count: activeTier.items.filter((item) => item.sourceType === 'marketplace_listing').length,
       external_asking_price_count: activeTier.items.filter((item) => item.sourceType === 'external_asking_price').length,
+      automated_asking_price_count: activeTier.items.filter((item) => item.collectionMethod === 'automatic').length,
+      reviewed_asking_price_count: activeTier.items.filter((item) => item.sourceType === 'external_asking_price' && item.collectionMethod !== 'automatic').length,
       historical_rental_count: historicalStats.count,
       historical_rental_median: historicalStats.median,
       historical_rental_mean: historicalStats.mean,

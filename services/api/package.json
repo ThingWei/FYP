@@ -12,6 +12,7 @@
     "export:pricing-data": "node src/scripts/exportPricingData.js",
     "export:recommendation-data": "node src/scripts/exportRecommendationData.js",
     "preflight": "node src/scripts/preflight.js",
+    "inspect:price-sources": "node src/scripts/inspectPriceSources.js",
     "preflight:production": "node src/scripts/preflight.js --require-production --write-probe"
   },
   "dependencies": {

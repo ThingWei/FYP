@@ -81,6 +81,8 @@ export const env = {
     process.env.PRICING_INCLUDE_DEMO_SEED,
     false,
   ),
+  priceSyncJobsEnabled: boolean(process.env.PRICE_SYNC_JOBS_ENABLED, true),
+  priceSyncApprovedSources: (process.env.PRICE_SYNC_APPROVED_SOURCES ?? '').split(',').map((id) => id.trim()).filter(Boolean),
   recommendationIncludeDemoSeed: boolean(
     process.env.RECOMMENDATION_INCLUDE_DEMO_SEED,
     false,
