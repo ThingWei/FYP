@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { query } from 'express-validator';
 import { authenticate, authorize } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { bookingController } from './booking.controller.js';
@@ -11,6 +12,8 @@ import {
 } from './booking.validation.js';
 
 export const bookingRouter = Router();
+bookingRouter.get('/agreement-terms', authenticate, query('listingType').isIn(['physical', 'service']), validate, bookingController.terms);
+bookingRouter.get('/:id/agreement', authenticate, bookingIdValidation, validate, bookingController.agreement);
 
 bookingRouter.post(
   '/',

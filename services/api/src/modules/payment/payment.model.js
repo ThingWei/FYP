@@ -29,6 +29,8 @@ const paymentSchema = new mongoose.Schema(
     status: { type: String, enum: PAYMENT_STATUSES, required: true, index: true },
     gatewayReference: { type: String, required: true, trim: true },
     idempotencyKey: { type: String, required: true, unique: true, trim: true },
+    // New successful authorizations have one durable slot per booking.
+    authorizationSlot: { type: String, unique: true, sparse: true, select: false },
     parentTransactionId: { type: String, trim: true, default: '' },
     reason: { type: String, trim: true, maxlength: 500, default: '' },
     simulated: { type: Boolean, default: true, immutable: true },
@@ -42,6 +44,7 @@ const paymentSchema = new mongoose.Schema(
         value.id = value.publicId;
         delete value._id;
         delete value.__v;
+        delete value.authorizationSlot;
         return value;
       },
     },

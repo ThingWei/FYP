@@ -54,6 +54,9 @@ const bookingSchema = new mongoose.Schema(
     idempotencyFingerprint: { type: String, trim: true, select: false },
     renterName: { type: String, required: true, trim: true },
     ownerId: { type: String, required: true, index: true },
+    ownerName: { type: String, trim: true, maxlength: 160, default: '' },
+    paymentLeaseToken: { type: String, select: false },
+    paymentLeaseUntil: { type: Date, select: false },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
     fulfilmentMethod: { type: String, enum: ['pickup', 'owner_delivery'] },
@@ -105,6 +108,8 @@ const bookingSchema = new mongoose.Schema(
         value.start = value.startDate;
         value.end = value.endDate;
         value.total = value.pricing?.total;
+        delete value.paymentLeaseToken;
+        delete value.paymentLeaseUntil;
         delete value._id;
         delete value.__v;
         delete value.idempotencyKey;

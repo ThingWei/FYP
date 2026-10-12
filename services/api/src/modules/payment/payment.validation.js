@@ -4,6 +4,7 @@ import { body, param, query } from 'express-validator';
 import { PAYMENT_STATUSES, PAYMENT_TYPES } from './payment.model.js';
 
 export const authorizationValidation = [
+  body('simulationOutcome').optional().isIn(['success', 'declined']),
   body('bookingId')
     .matches(/^RH-(?:BKG|SVC)-\d{4}-[A-Z0-9]+$/i)
     .withMessage('Invalid booking identifier'),

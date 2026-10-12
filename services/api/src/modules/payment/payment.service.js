@@ -160,70 +160,91 @@ export async function recordServiceSettlement(booking) {
   booking.paymentStatus = 'settled';
 }
 
+function assertAttemptMatches(existing, input, identity, outcome) {
+  if (existing && (existing.type !== 'authorization' || existing.bookingId !== input.bookingId ||
+      existing.payerId !== identity.authId || existing.method !== input.method ||
+      (existing.metadata?.get('simulationOutcome') ?? 'success') !== outcome)) {
+    throw new AppError('Idempotency key is already in use', 409, 'IDEMPOTENCY_CONFLICT');
+  }
+}
+
 export const paymentService = {
   async authorize(input, identity) {
     await requireActiveUser(identity, 'renter');
-    const existing = await paymentRepository.findByIdempotencyKey(
-      input.idempotencyKey,
-    );
-    if (existing) {
-      if (existing.bookingId !== input.bookingId || existing.payerId !== identity.authId) {
-        throw new AppError(
-          'Idempotency key is already in use',
-          409,
-          'IDEMPOTENCY_CONFLICT',
-        );
-      }
-      return existing;
-    }
-    const booking = await BookingModel.findOne({
-      publicId: input.bookingId,
-      renterId: identity.authId,
-    });
+    const outcome = input.simulationOutcome ?? 'success';
+    const booking = await BookingModel.findOne({ publicId: input.bookingId, renterId: identity.authId });
     if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
-    if (booking.status !== 'pending') {
-      throw new AppError(
-        'Only pending bookings can be authorized',
-        409,
-        'INVALID_BOOKING_STATE',
-      );
+    const existing = await paymentRepository.findByIdempotencyKey(input.idempotencyKey);
+    assertAttemptMatches(existing, input, identity, outcome);
+    const eligible = { publicId: booking.publicId, renterId: identity.authId, status: 'pending',
+      $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: { $exists: false } }] };
+    // Recover a durable authorization whose booking update was interrupted.
+    const authorization = existing?.status === 'authorized' ? existing
+      : await paymentRepository.findAuthorization(booking.publicId);
+    if (authorization?.status === 'authorized') {
+      const restored = await BookingModel.findOneAndUpdate({ ...eligible, paymentStatus: 'unpaid' },
+        { $set: { paymentStatus: 'authorized', paymentAuthorizationId: authorization.publicId } });
+      if (restored || booking.paymentStatus !== 'unpaid') return existing ?? authorization;
+      await paymentAdapter.voidAuthorization({ amount: authorization.amount });
+      await paymentRepository.updateStatus(authorization._id, 'voided');
+      throw new AppError('This request is no longer payable', 409, 'INVALID_BOOKING_STATE');
     }
-    if (booking.paymentStatus !== 'unpaid') {
-      const authorization = await paymentRepository.findAuthorization(
-        booking.publicId,
-      );
-      if (authorization) return authorization;
+    if (existing) return existing;
+    if (booking.status !== 'pending' || booking.expiresAt && booking.expiresAt <= new Date() || booking.paymentStatus !== 'unpaid') {
+      throw new AppError('Only current unpaid requests can be paid', 409, 'INVALID_BOOKING_STATE');
     }
-    const gateway = await paymentAdapter.authorize({
-      amount: booking.pricing.total,
-      method: input.method,
-    });
-    const payment = await paymentRepository.create({
-      publicId: transactionId('authorization'),
-      bookingId: booking.publicId,
-      payerId: booking.renterId,
-      payeeId: booking.ownerId,
-      type: 'authorization',
-      amount: booking.pricing.total,
-      method: input.method,
-      status: gateway.status,
-      gatewayReference: gateway.id,
-      idempotencyKey: input.idempotencyKey,
-      simulated: true,
-    });
-    booking.paymentStatus = 'authorized';
-    booking.paymentAuthorizationId = payment.publicId;
-    await booking.save();
-    await notifyUser({
-      userId: booking.ownerId,
-      category: 'payment',
-      type: 'payment_authorized',
-      title: 'Payment authorized',
-      body: `RM ${booking.pricing.total.toFixed(2)} is authorized for ${booking.listingTitle}.`,
-      entityType: 'payment',
-      entityId: payment.publicId,
-    });
-    return payment;
+    const token = new mongoose.Types.ObjectId().toString();
+    const claim = await BookingModel.findOneAndUpdate({ ...eligible, paymentStatus: 'unpaid',
+      $and: [{ $or: [{ paymentLeaseUntil: { $exists: false } }, { paymentLeaseUntil: { $lte: new Date() } }] }] },
+      { $set: { paymentLeaseToken: token, paymentLeaseUntil: new Date(Date.now() + 60_000) } });
+    if (!claim) throw new AppError('Check payment status before trying again', 409, 'PAYMENT_IN_PROGRESS');
+    try {
+      // A recovered/crashed attempt may have persisted while the lease was expiring.
+      const recorded = await paymentRepository.findByIdempotencyKey(input.idempotencyKey);
+      if (recorded) {
+        assertAttemptMatches(recorded, input, identity, outcome);
+        return recorded;
+      }
+      const gateway = await paymentAdapter.authorize({ amount: booking.pricing.total, method: input.method, simulationOutcome: outcome });
+      if (!await BookingModel.exists({ ...eligible, paymentLeaseToken: token, paymentLeaseUntil: { $gt: new Date() } })) {
+        throw new AppError('The request changed during checkout. Check its status.', 409, 'INVALID_BOOKING_STATE');
+      }
+      let payment;
+      try {
+        payment = await paymentRepository.create({
+          publicId: transactionId('authorization'), bookingId: booking.publicId, payerId: booking.renterId,
+          payeeId: booking.ownerId, type: 'authorization', amount: booking.pricing.total, method: input.method,
+          status: gateway.status, gatewayReference: gateway.id, idempotencyKey: input.idempotencyKey,
+          ...(gateway.status === 'authorized' && { authorizationSlot: booking.publicId }),
+          metadata: { simulationOutcome: outcome }, simulated: true,
+        });
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+        const byKey = await paymentRepository.findByIdempotencyKey(input.idempotencyKey);
+        assertAttemptMatches(byKey, input, identity, outcome);
+        payment = byKey ?? await paymentRepository.findAuthorization(booking.publicId);
+        if (!payment) throw error;
+      }
+      if (payment.status === 'authorized') {
+        const updated = await BookingModel.findOneAndUpdate({ ...eligible, paymentLeaseToken: token, paymentStatus: 'unpaid' },
+          { $set: { paymentStatus: 'authorized', paymentAuthorizationId: payment.publicId } });
+        if (!updated) {
+          const latest = await BookingModel.findOne({ publicId: booking.publicId });
+          if (latest?.paymentAuthorizationId !== payment.publicId || latest.status !== 'pending') {
+            await paymentAdapter.voidAuthorization({ amount: payment.amount });
+            await paymentRepository.updateStatus(payment._id, 'voided');
+            throw new AppError('The request is no longer payable', 409, 'INVALID_BOOKING_STATE');
+          }
+        }
+        await notifyUser({ userId: booking.ownerId, category: 'payment', type: 'payment_authorized',
+          title: 'Demo payment ready', body: 'The simulated payment for ' + booking.listingTitle + ' is ready. Owner approval is still required.',
+          entityType: 'payment', entityId: payment.publicId });
+      }
+      return payment;
+    } finally {
+      await BookingModel.updateOne({ publicId: booking.publicId, paymentLeaseToken: token },
+        { $unset: { paymentLeaseToken: 1, paymentLeaseUntil: 1 } });
+    }
   },
 
   async listMine(identity, query) {

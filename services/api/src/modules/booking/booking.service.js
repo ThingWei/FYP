@@ -22,6 +22,8 @@ import {
 } from '../user/kycRequirements.js';
 import { BOOKING_STATUSES } from './booking.model.js';
 import { bookingRepository } from './booking.repository.js';
+import { agreementTerms } from './agreementTerms.js';
+import { presentBooking } from '../../core/location.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -97,7 +99,7 @@ async function requireActiveUser(identity, role) {
   if (user.accountStatus !== 'active') {
     throw new AppError(`Account is ${user.accountStatus}`, 403, 'ACCOUNT_RESTRICTED');
   }
-  if (!user.roles.includes(role)) {
+  if (role && !user.roles.includes(role)) {
     throw new AppError(`${role} role is required`, 403, 'FORBIDDEN');
   }
   return user;
@@ -228,6 +230,10 @@ export const bookingService = {
       status: 'active',
     });
     if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
+    const acceptedTerms = agreementTerms(input.agreementVersion);
+    if (!acceptedTerms || acceptedTerms.listingType !== 'legacy' && acceptedTerms.listingType !== listing.listingType) {
+      throw new AppError('Review the agreement for this booking type', 422, 'AGREEMENT_VERSION_INVALID');
+    }
     if (listing.ownerId === renter.authId) {
       throw new AppError('You cannot book your own listing', 400, 'OWN_LISTING');
     }
@@ -263,7 +269,10 @@ export const bookingService = {
       input.idempotencyKey,
       fingerprint,
     );
-    if (replay) return replay;
+    if (replay) {
+      if (replay.agreement?.version !== input.agreementVersion) throw new AppError('Agreement changed for this request', 409, 'IDEMPOTENCY_CONFLICT');
+      return replay;
+    }
     await assertAvailable(listing, startDate, endDate);
     if (
       listing.listingType === 'physical' &&
@@ -303,6 +312,7 @@ export const bookingService = {
         renterId: renter.authId,
         renterName: renter.displayName,
         ownerId: listing.ownerId,
+        ownerName: (await UserModel.findOne({ authId: listing.ownerId }).select('displayName'))?.displayName ?? '',
         idempotencyKey: input.idempotencyKey,
         idempotencyFingerprint: fingerprint,
         startDate,
@@ -316,8 +326,8 @@ export const bookingService = {
         damageWaiverSelected: waiverSelected,
         renterNote: input.renterNote ?? '',
         agreement: {
-          version: bookingAgreementVersion,
-          termsHash: bookingAgreementTermsHash,
+          version: acceptedTerms.version,
+          termsHash: acceptedTerms.termsHash,
           acceptedAt: new Date(),
         },
         pricing: pricing(listing, startDate, endDate, waiverSelected),
@@ -333,7 +343,12 @@ export const bookingService = {
         input.idempotencyKey,
         fingerprint,
       );
-      if (concurrentReplay) return concurrentReplay;
+      if (concurrentReplay) {
+        if (concurrentReplay.agreement?.version !== input.agreementVersion) {
+          throw new AppError('Idempotency key is already in use', 409, 'IDEMPOTENCY_CONFLICT');
+        }
+        return concurrentReplay;
+      }
       throw error;
     }
     await ensureBookingThread(booking);
@@ -353,6 +368,24 @@ export const bookingService = {
     const booking = await bookingRepository.findParticipantBooking(id, identity);
     if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
     return bookingLocations(booking, identity);
+  },
+
+  async agreement(id, identity) {
+    await requireActiveUser(identity);
+    const booking = await bookingService.get(id, identity);
+    const saved = agreementTerms(booking.agreement?.version);
+    const valid = saved && saved.termsHash === booking.agreement?.termsHash;
+    const rental = await RentalModel.findOne({ bookingId: booking.publicId });
+    const blockchain = rental?.blockchain;
+    const recordStatus = booking.listingType === 'service' ? 'booking_record'
+      : !rental ? (booking.status === 'pending' ? 'awaiting_approval' : 'not_created')
+      : blockchain?.status === 'confirmed' ? 'saved' : 'unavailable';
+    return { booking: presentBooking(booking, identity),
+      terms: valid ? { ...saved, title: booking.listingType === 'service' ? 'Service booking agreement' : 'Rental agreement' } : null,
+      history: { renterAcceptedAt: booking.agreement?.acceptedAt ?? null,
+        ownerApprovedAt: rental ? booking.decidedAt ?? null : null },
+      record: { status: recordStatus, demonstrationNetwork: blockchain?.localPrototype === true,
+        explanation: booking.listingType === 'physical' ? 'RentHub records rental amounts and status changes to support later review.' : 'RentHub keeps this service booking and its recorded acceptance for review.' } };
   },
 
   async get(id, identity) {
@@ -417,6 +450,9 @@ export const bookingService = {
       throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
     }
     if (input.status === 'approved') {
+      if (booking.expiresAt && booking.expiresAt <= new Date()) {
+        throw new AppError('This request has expired', 409, 'INVALID_BOOKING_STATE');
+      }
       if (booking.paymentStatus !== 'authorized') {
         throw new AppError(
           'Payment authorization is required before approval',
@@ -466,6 +502,7 @@ export const bookingService = {
       });
     } else {
       booking.status = 'rejected';
+      await voidBookingPayment(booking);
     }
     booking.ownerDecisionReason = input.reason?.trim() ?? '';
     booking.decidedAt = new Date();

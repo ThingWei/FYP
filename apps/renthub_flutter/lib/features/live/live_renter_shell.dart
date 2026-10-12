@@ -18,6 +18,7 @@ import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
 import 'live_photo_widgets.dart';
 import 'live_agreement.dart';
+import 'live_checkout_page.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_shared_pages.dart';
@@ -1006,6 +1007,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   String fulfilmentMethod = 'pickup';
   bool waiver = false;
   bool agreementAccepted = false;
+  String? reviewedAgreementVersion;
   final venue = TextEditingController(text: '');
   final delivery = TextEditingController();
   ListingLocationSelection? serviceLocation, deliveryLocation;
@@ -1262,7 +1264,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       );
       return;
     }
-    if (!agreementAccepted) {
+    if (!agreementAccepted || reviewedAgreementVersion == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Review and accept the agreement first.')),
       );
@@ -1299,15 +1301,15 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     } catch (exception) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not recheck availability: $exception')),
+        SnackBar(content: Text(friendlyError(exception))),
       );
       return;
     }
     final accepted = await confirmAction(
       context,
-      title: 'Create and authorize booking?',
+      title: 'Continue to checkout?',
       message:
-          'RentHub will create the pending request first, then authorize the server-calculated total. No real payment is made.',
+          'Your pending request will be saved. Review the final charges and complete a demo payment on the next page. The Owner must still approve your booking.',
       action: 'Continue',
     );
     if (!accepted || !mounted) return;
@@ -1329,46 +1331,36 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               serviceTime.minute,
             )
           : start;
-      final booking =
-          await context.read<LiveRentHubController>().createAndAuthorizeBooking(
-                listing: widget.listing,
-                start: bookingStart,
-                end: end,
-                paymentMethod: paymentMethod,
-                fulfilmentMethod: fulfilmentMethod,
-                serviceVenue: widget.listing.venueMode == 'online'
-                    ? 'Online'
-                    : venue.text.trim(),
-                serviceLocation: serviceLocation
-                    ?.copyWith(label: venue.text.trim())
-                    .toJson(),
-                deliveryLocation: fulfilmentMethod == 'owner_delivery'
-                    ? deliveryLocation
-                        ?.copyWith(label: delivery.text.trim())
-                        .toJson()
-                    : null,
-                damageWaiverSelected: waiver,
-                renterNote: note.text,
-                agreementAccepted: agreementAccepted,
-                idempotencyKey: checkoutIdempotencyKey,
-              );
+      final booking = await context.read<LiveRentHubController>().createBooking(
+            listing: widget.listing,
+            start: bookingStart,
+            end: end,
+            agreementVersion: reviewedAgreementVersion!,
+            fulfilmentMethod: fulfilmentMethod,
+            serviceVenue: widget.listing.venueMode == 'online'
+                ? 'Online'
+                : venue.text.trim(),
+            serviceLocation:
+                serviceLocation?.copyWith(label: venue.text.trim()).toJson(),
+            deliveryLocation: fulfilmentMethod == 'owner_delivery'
+                ? deliveryLocation
+                    ?.copyWith(label: delivery.text.trim())
+                    .toJson()
+                : null,
+            damageWaiverSelected: waiver,
+            renterNote: note.text,
+            agreementAccepted: agreementAccepted,
+            idempotencyKey: checkoutIdempotencyKey,
+          );
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          icon: const Icon(Icons.check_circle, color: AppColors.success),
-          title: const Text('Request submitted'),
-          content: Text(
-            '${booking.id}\nServer total: ${formatMoney(booking.total)}\nPayment: ${booking.paymentStatus}',
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('View Bookings'),
-            ),
-          ],
-        ),
-      );
+      final days = end.difference(start).inDays + 1;
+      final estimate = widget.listing.isService
+          ? widget.listing.displayPrice * 1.05
+          : widget.listing.displayPrice * days +
+              widget.listing.securityDeposit +
+              (waiver ? widget.listing.damageWaiverFee : 0);
+      await showLiveCheckout(context, booking.id,
+          estimatedTotal: estimate, initialMethod: paymentMethod);
       if (!mounted) return;
       Navigator.pop(context);
       widget.onSubmitted();
@@ -1464,7 +1456,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
         minimum: const EdgeInsets.all(16),
         child: RentHubActionButton(
           label: agreementAccepted
-              ? 'Request & Authorize'
+              ? 'Continue to checkout'
               : 'Accept Agreement to Continue',
           loading: submitting || checkingIdentity,
           onPressed: submitting ||
@@ -1902,26 +1894,12 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     Text('Payment',
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue: paymentMethod,
-                      decoration: const InputDecoration(labelText: 'Method'),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'card', child: Text('Demo Card')),
-                        DropdownMenuItem(value: 'fpx', child: Text('Mock FPX')),
-                        DropdownMenuItem(
-                            value: 'wallet', child: Text('Demo Wallet')),
-                      ],
-                      onChanged: (value) => setState(
-                          () => paymentMethod = value ?? paymentMethod),
-                    ),
-                    const SizedBox(height: 12),
                     Text(
                       'Estimated total: ${formatMoney(estimate)}',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     const Text(
-                      'The authoritative amount is calculated by the backend after the request is created.',
+                      'Review the final charges on the next page. No real money will be taken.',
                       style: TextStyle(color: AppColors.secondaryText),
                     ),
                   ],
@@ -1939,12 +1917,20 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                       'Review the terms before sending this request.',
                     ),
                     trailing: TextButton(
-                      onPressed: () => showAgreementTerms(
-                        context,
-                        listingTitle: listing.title,
-                        dateRange: formatDateRange(start, end),
-                        total: 'Estimated total: ${formatMoney(estimate)}',
-                      ),
+                      onPressed: () async {
+                        final terms = await showAgreementTerms(context,
+                            listingType:
+                                listing.isService ? 'service' : 'physical',
+                            listingTitle: listing.title,
+                            dateRange: formatDateRange(start, end),
+                            total: 'Estimated total: ${formatMoney(estimate)}');
+                        if (mounted && terms != null) {
+                          setState(() {
+                            reviewedAgreementVersion = terms.version;
+                            agreementAccepted = false;
+                          });
+                        }
+                      },
                       child: const Text('Review'),
                     ),
                   ),
@@ -1955,8 +1941,10 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     title: const Text(
                       'I have reviewed and accept the RentHub booking agreement.',
                     ),
-                    subtitle: const Text('Version: RentHub Booking v1'),
-                    onChanged: submitting
+                    subtitle: Text(reviewedAgreementVersion == null
+                        ? 'Review the agreement first to enable acceptance.'
+                        : 'The reviewed terms will be saved with your request.'),
+                    onChanged: submitting || reviewedAgreementVersion == null
                         ? null
                         : (value) => setState(
                               () => agreementAccepted = value ?? false,
@@ -2096,6 +2084,21 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                           const SizedBox(height: 6),
                           Text(formatDateRange(booking.start, booking.end)),
                           BookingLocationsButton(bookingId: booking.id),
+                          Wrap(spacing: 8, children: [
+                            TextButton.icon(
+                                onPressed: () =>
+                                    showBookingAgreement(context, booking.id),
+                                icon: const Icon(Icons.description_outlined),
+                                label: const Text('View agreement')),
+                            if (booking.status == 'pending' &&
+                                booking.paymentStatus == 'unpaid' &&
+                                (booking.expiresAt == null ||
+                                    booking.expiresAt!.isAfter(DateTime.now())))
+                              FilledButton.tonal(
+                                  onPressed: () =>
+                                      showLiveCheckout(context, booking.id),
+                                  child: const Text('Continue payment')),
+                          ]),
                           Text(
                             '${formatMoney(booking.total)} · Payment ${booking.paymentStatus}',
                             style: const TextStyle(
@@ -2106,29 +2109,6 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                           if (rental != null) ...[
                             const Divider(height: 22),
                             Text('Rental/order status: ${rental.status}'),
-                            if (rental.listingType == 'physical')
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Rental agreement: ${agreementStatusLabel(rental)}',
-                                      style: const TextStyle(
-                                        color: AppColors.secondaryText,
-                                      ),
-                                    ),
-                                  ),
-                                  TextButton.icon(
-                                    onPressed: () => showBlockchainAgreement(
-                                      context,
-                                      rental,
-                                      booking: booking,
-                                    ),
-                                    icon:
-                                        const Icon(Icons.receipt_long_outlined),
-                                    label: const Text('View agreement'),
-                                  ),
-                                ],
-                              ),
                             const SizedBox(height: 8),
                             _RenterRentalActions(rental: rental),
                           ],

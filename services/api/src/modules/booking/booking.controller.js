@@ -3,8 +3,11 @@ import { matchedData } from 'express-validator';
 import { asyncHandler } from '../../core/asyncHandler.js';
 import { created, ok } from '../../core/respond.js';
 import { bookingService } from './booking.service.js';
+import { currentAgreementTerms } from './agreementTerms.js';
 
 export const bookingController = {
+  terms: asyncHandler(async (req, res) => ok(res, currentAgreementTerms(req.query.listingType))),
+  agreement: asyncHandler(async (req, res) => ok(res, await bookingService.agreement(req.params.id, req.user))),
   locations: asyncHandler(async (req, res) => ok(res, await bookingService.locations(req.params.id, req.user))),
   create: asyncHandler(async (req, res) =>
     created(

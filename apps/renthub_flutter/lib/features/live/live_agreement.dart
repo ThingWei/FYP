@@ -1,356 +1,314 @@
 import 'package:flutter/material.dart';
-
-import '../../core/theme/app_theme.dart';
+import 'package:provider/provider.dart';
+import '../../core/booking/checkout_models.dart';
+import '../../core/network/user_facing_error.dart';
 import '../../shared/models/domain_models.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange;
+import 'live_authenticated_page.dart';
+import 'live_booking_charges.dart';
+import 'live_renthub_controller.dart';
 
-const liveAgreementTerms = <({IconData icon, String title, String detail})>[
-  (
-    icon: Icons.event_available_outlined,
-    title: 'Booking details',
-    detail:
-        'The item, rental dates, collection method, and charges shown are correct.',
-  ),
-  (
-    icon: Icons.inventory_2_outlined,
-    title: 'Care and return',
-    detail:
-        'The renter will take reasonable care of the item, record its condition, and return it on time.',
-  ),
-  (
-    icon: Icons.payments_outlined,
-    title: 'Approval and payment',
-    detail:
-        'The Owner may approve or reject the request. Payment follows RentHub cancellation and dispute rules.',
-  ),
-  (
-    icon: Icons.verified_user_outlined,
-    title: 'RentHub protection',
-    detail:
-        'After approval, RentHub creates a protected record that supports the rental and any future dispute review.',
-  ),
-];
-
-String agreementStatusLabel(Rental rental) => switch (rental.blockchainStatus) {
-      'confirmed' => 'Confirmed',
-      'failed' => 'Needs attention',
-      _ => 'Pending',
-    };
-
-Future<void> showAgreementTerms(
+String agreementStatusLabel(Rental rental) =>
+    rental.blockchainStatus == 'confirmed'
+        ? 'Rental record saved'
+        : 'Supporting record unavailable';
+Future<AgreementTerms?> showAgreementTerms(
   BuildContext context, {
   required String listingTitle,
   required String dateRange,
   required String total,
+  String listingType = 'physical',
 }) =>
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.description_outlined, color: AppColors.primary),
-        title: const Text('Review your rental agreement'),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  listingTitle,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 4),
-                Text('$dateRange · $total'),
-                const Divider(height: 28),
-                for (final term in liveAgreementTerms)
-                  _FriendlyTerm(term: term),
-                const Text(
-                  'RentHub Booking Agreement · Version 1',
-                  style: TextStyle(
-                    color: AppColors.secondaryText,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Done'),
-          ),
-        ],
-      ),
-    );
-
-Future<void> showBlockchainAgreement(
-  BuildContext context,
-  Rental rental, {
-  Booking? booking,
-}) =>
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) {
-        final confirmed = rental.blockchainStatus == 'confirmed';
-        final failed = rental.blockchainStatus == 'failed';
-        final statusColor = confirmed
-            ? AppColors.success
-            : failed
-                ? AppColors.error
-                : AppColors.warning;
-        final dateRange = rental.start == null || rental.end == null
-            ? 'Dates not available'
-            : formatDateRange(rental.start!, rental.end!);
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Rental agreement',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.08),
-                    border: Border.all(
-                      color: statusColor.withValues(alpha: 0.35),
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        confirmed
-                            ? Icons.verified_user_outlined
-                            : failed
-                                ? Icons.error_outline
-                                : Icons.schedule_outlined,
-                        color: statusColor,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              confirmed
-                                  ? 'Agreement confirmed'
-                                  : failed
-                                      ? 'Agreement needs attention'
-                                      : 'Agreement is being prepared',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              confirmed
-                                  ? 'The renter accepted the terms and the Owner approved this rental.'
-                                  : failed
-                                      ? 'RentHub could not finish the protected record. The rental details are still available below.'
-                                      : 'The protected record will be confirmed after approval.',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          booking?.listingTitle.isNotEmpty == true
-                              ? booking!.listingTitle
-                              : 'Physical-item rental',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(dateRange),
-                        if (booking != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'Total: RM ${booking.total.toStringAsFixed(2)}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'What this agreement covers',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 12),
-                        for (final term in liveAgreementTerms)
-                          _FriendlyTerm(term: term),
-                        if (booking?.agreementAcceptedAt != null)
-                          Text(
-                            'Accepted on ${_friendlyDateTime(booking!.agreementAcceptedAt!)}',
-                            style: const TextStyle(
-                              color: AppColors.secondaryText,
-                              fontSize: 12,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: ExpansionTile(
-                    leading: const Icon(Icons.lock_outline),
-                    title: const Text('Blockchain verification'),
-                    subtitle: const Text(
-                      'Optional technical proof of this agreement',
-                    ),
-                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'RentHub stores a tamper-resistant reference after approval. You normally do not need these details unless support asks for them.',
-                      ),
-                      const Divider(height: 28),
-                      _AgreementRow(
-                        'Verification status',
-                        agreementStatusLabel(rental),
-                      ),
-                      _AgreementRow('Record status', rental.blockchainState),
-                      _AgreementRow('Network', rental.blockchainNetwork),
-                      _AgreementRow('Rental reference', rental.id),
-                      _AgreementRow('Booking reference', rental.bookingId),
-                      _AgreementRow(
-                        'Contract address',
-                        rental.contractAddress,
-                        selectable: true,
-                      ),
-                      _AgreementRow(
-                        'Creation transaction',
-                        rental.blockchainDeploymentHash,
-                        selectable: true,
-                      ),
-                      for (var index = 0;
-                          index < rental.blockchainSignatureHashes.length;
-                          index++)
-                        _AgreementRow(
-                          'Confirmation transaction ${index + 1}',
-                          rental.blockchainSignatureHashes[index],
-                          selectable: true,
-                        ),
-                      if (rental.blockchainError.isNotEmpty)
-                        _AgreementRow(
-                          'Verification issue',
-                          rental.blockchainError,
-                        ),
-                      const Text(
-                        'Development note: Ganache is a local test network and does not transfer real currency.',
-                        style: TextStyle(
-                          color: AppColors.secondaryText,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close'),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-String _friendlyDateTime(DateTime value) {
-  final local = value.toLocal();
-  final day = local.day.toString().padLeft(2, '0');
-  final month = local.month.toString().padLeft(2, '0');
-  final hour = local.hour.toString().padLeft(2, '0');
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '$day/$month/${local.year} at $hour:$minute';
+    Navigator.push<AgreementTerms>(
+        context,
+        MaterialPageRoute(
+            builder: (_) => LiveAuthenticatedPage(
+                child: LiveAgreementPage(
+                    listingType: listingType,
+                    previewTitle: listingTitle,
+                    previewDates: dateRange,
+                    previewTotal: total))));
+Future<void> showBookingAgreement(
+    BuildContext context, String bookingId) async {
+  await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+          builder: (_) => LiveAuthenticatedPage(
+              child: LiveAgreementPage(bookingId: bookingId))));
 }
 
-class _FriendlyTerm extends StatelessWidget {
-  const _FriendlyTerm({required this.term});
+Future<void> showBlockchainAgreement(BuildContext context, Rental rental,
+        {Booking? booking}) =>
+    showBookingAgreement(context, rental.bookingId);
 
-  final ({IconData icon, String title, String detail}) term;
+class BookingAgreementDocument {
+  const BookingAgreementDocument(
+      this.booking,
+      this.terms,
+      this.renterAcceptedAt,
+      this.ownerApprovedAt,
+      this.recordStatus,
+      this.demonstrationNetwork);
+  final Booking booking;
+  final AgreementTerms? terms;
+  final DateTime? renterAcceptedAt, ownerApprovedAt;
+  final String recordStatus;
+  final bool demonstrationNetwork;
+  factory BookingAgreementDocument.fromJson(Map<String, dynamic> row) {
+    if (row['booking'] is! Map ||
+        row['history'] is! Map ||
+        row['record'] is! Map) {
+      throw const FormatException('Invalid agreement');
+    }
+    final history = row['history'] as Map, record = row['record'] as Map;
+    DateTime? date(dynamic value) =>
+        value == null ? null : DateTime.parse(value as String);
+    return BookingAgreementDocument(
+        Booking.fromJson(Map<String, dynamic>.from(row['booking'])),
+        row['terms'] == null
+            ? null
+            : AgreementTerms.fromJson(Map<String, dynamic>.from(row['terms'])),
+        date(history['renterAcceptedAt']),
+        date(history['ownerApprovedAt']),
+        record['status'] as String? ?? 'unavailable',
+        record['demonstrationNetwork'] == true);
+  }
+}
 
+class LiveAgreementPage extends StatefulWidget {
+  const LiveAgreementPage(
+      {super.key,
+      this.bookingId,
+      this.listingType = 'physical',
+      this.previewTitle = '',
+      this.previewDates = '',
+      this.previewTotal = ''});
+  final String? bookingId;
+  final String listingType, previewTitle, previewDates, previewTotal;
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(term.icon, size: 20, color: AppColors.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    term.title,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(term.detail),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
+  State<LiveAgreementPage> createState() => _LiveAgreementPageState();
 }
 
-class _AgreementRow extends StatelessWidget {
-  const _AgreementRow(this.label, this.value, {this.selectable = false});
+class _LiveAgreementPageState extends State<LiveAgreementPage> {
+  AgreementTerms? terms;
+  BookingAgreementDocument? document;
+  bool loading = true;
+  String? error;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
-  final String label;
-  final String value;
-  final bool selectable;
+  Future<void> _load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final api = context.read<LiveRentHubController>().api;
+      if (widget.bookingId == null) {
+        final value = AgreementTerms.fromJson(Map<String,
+            dynamic>.from(await api.request('GET',
+                '/bookings/agreement-terms?listingType=${widget.listingType}')
+            as Map));
+        if (mounted) setState(() => terms = value);
+      } else {
+        final value = BookingAgreementDocument.fromJson(
+            Map<String, dynamic>.from(await api.request(
+                'GET', '/bookings/${widget.bookingId}/agreement') as Map));
+        if (mounted) {
+          setState(() {
+            document = value;
+            terms = value.terms;
+          });
+        }
+      }
+    } catch (exception) {
+      if (mounted) setState(() => error = friendlyError(exception));
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
 
+  String date(DateTime? value, String missing) {
+    if (value == null) return missing;
+    final local = value.toLocal();
+    return '${local.day}/${local.month}/${local.year} at ${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  }
+
+  Widget section(String title, List<Widget> children) => Card(
+      child: Padding(
+          padding: const EdgeInsets.all(20),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            ...children
+          ])));
   @override
   Widget build(BuildContext context) {
-    final shown = value.isEmpty ? 'Not available' : value;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.secondaryText,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 2),
-          if (selectable) SelectableText(shown) else Text(shown),
-        ],
-      ),
-    );
+    final booking = document?.booking;
+    final service = (booking?.listingType ?? widget.listingType) == 'service';
+    final status = document?.recordStatus;
+    final recordLabel = switch (status) {
+      'saved' => 'Rental record saved',
+      'awaiting_approval' => 'Record available after Owner approval',
+      'booking_record' => 'Service booking record',
+      'not_created' => 'No supporting rental record was created',
+      _ => 'Supporting record unavailable',
+    };
+    return Scaffold(
+        appBar: AppBar(
+            title: Text(service ? 'Service agreement' : 'Rental agreement')),
+        body: SafeArea(
+            child: Center(
+                child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : error != null
+                            ? Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(error!),
+                                      const SizedBox(height: 16),
+                                      OutlinedButton(
+                                          onPressed: _load,
+                                          child: const Text('Retry'))
+                                    ]))
+                            : ListView(
+                                padding: const EdgeInsets.all(16),
+                                children: [
+                                    section('RentHub', [
+                                      Text(
+                                          service
+                                              ? 'Service booking agreement'
+                                              : 'Rental agreement',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .headlineSmall),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                          'Your booking details, responsibilities and recorded acceptance, together in one place.'),
+                                      if (booking != null) ...[
+                                        const SizedBox(height: 12),
+                                        Text('Booking ${booking.id}'),
+                                        Text('Status: ${booking.status}')
+                                      ],
+                                      if (booking == null)
+                                        const Text(
+                                            'Review before submitting. Final charges are shown at checkout; Owner approval is still required.'),
+                                    ]),
+                                    section('Booking details', [
+                                      Text(
+                                          booking?.listingTitle ??
+                                              widget.previewTitle,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleLarge),
+                                      const SizedBox(height: 8),
+                                      Text(booking == null
+                                          ? widget.previewDates
+                                          : formatDateRange(
+                                              booking.start, booking.end)),
+                                      if (service && booking != null)
+                                        Text(
+                                            'Scheduled: ${date(booking.start, '')} to ${date(booking.end, '')}'),
+                                      if (booking == null)
+                                        Text(widget.previewTotal),
+                                      if (booking != null) ...[
+                                        const SizedBox(height: 12),
+                                        Text(
+                                            'Renter: ${booking.renterName.isEmpty ? 'Historical name unavailable' : booking.renterName}'),
+                                        Text(
+                                            'Owner: ${booking.ownerName.isEmpty ? 'Historical name unavailable' : booking.ownerName}'),
+                                        Text(service
+                                            ? 'Venue: ${booking.serviceVenue ?? 'Available when permitted by booking status'}'
+                                            : 'Arrangement: ${booking.fulfilmentMethod == 'owner_delivery' ? 'Owner delivery' : 'Pickup'}'),
+                                        if (!service)
+                                          Text(booking.pickupLocation == null
+                                              ? 'Exact pickup details are available when permitted by booking status.'
+                                              : 'Pickup: ${booking.pickupLocation!.label}'),
+                                        if (booking.deliveryLocation != null)
+                                          Text(
+                                              'Delivery: ${booking.deliveryLocation!.label}'),
+                                        const SizedBox(height: 16),
+                                        LiveBookingCharges(booking: booking),
+                                      ],
+                                    ]),
+                                    section('Terms and responsibilities', [
+                                      if (terms == null)
+                                        const Text(
+                                            'The accepted wording is unavailable for this historical record. We will not substitute newer terms.'),
+                                      for (final term in terms?.sections ??
+                                          <AgreementSection>[]) ...[
+                                        Text(term.title,
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w700)),
+                                        const SizedBox(height: 4),
+                                        Text(term.detail),
+                                        const SizedBox(height: 20),
+                                      ],
+                                    ]),
+                                    if (document != null)
+                                      section('Acceptance history', [
+                                        Text(
+                                            'Renter accepted: ${date(document!.renterAcceptedAt, 'No acceptance time recorded')}'),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                            'Owner approved: ${date(document!.ownerApprovedAt, 'Not recorded')}'),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                            'These are recorded RentHub actions, not handwritten signatures.'),
+                                      ]),
+                                    if (document != null)
+                                      section('Agreement record', [
+                                        Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Icon(status == 'saved' ||
+                                                      status == 'booking_record'
+                                                  ? Icons.receipt_long_outlined
+                                                  : Icons.info_outline),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                  child: Text(recordLabel,
+                                                      style: const TextStyle(
+                                                          fontWeight: FontWeight
+                                                              .w700))),
+                                            ]),
+                                        const SizedBox(height: 12),
+                                        Text(service
+                                            ? 'RentHub keeps this service booking and its recorded acceptance for review.'
+                                            : 'RentHub records rental amounts and status changes to support later review. This does not store or verify the full agreement text.'),
+                                        if (document!.demonstrationNetwork) ...[
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                              'RentHub’s local demonstration network uses test funds, not real money.')
+                                        ],
+                                        if (status == 'unavailable') ...[
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                              'The booking status shown above is separate from this supporting record. Contact support if you need help.')
+                                        ],
+                                      ]),
+                                    if (widget.bookingId == null)
+                                      FilledButton(
+                                          onPressed: terms == null
+                                              ? null
+                                              : () =>
+                                                  Navigator.pop(context, terms),
+                                          child: const Text(
+                                              'I have reviewed these terms')),
+                                    if (widget.bookingId != null)
+                                      OutlinedButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context),
+                                          child: const Text('Close agreement')),
+                                  ])))));
   }
 }

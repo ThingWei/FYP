@@ -1,5 +1,6 @@
 import '../../core/utils/calendar_date.dart';
 import '../../core/location/confirmed_location.dart';
+import '../../core/booking/checkout_models.dart';
 import 'package:latlong2/latlong.dart';
 
 enum UserRole { renter, owner, admin }
@@ -506,6 +507,10 @@ class Booking {
     this.listingType = 'physical',
     this.renterName = '',
     this.ownerId = '',
+    this.ownerName = '',
+    this.renterId = '',
+    this.charges,
+    this.expiresAt,
     this.paymentStatus = 'unpaid',
     this.total = 0,
     this.fulfilmentMethod,
@@ -518,6 +523,9 @@ class Booking {
   });
   final String id, listingId, status;
   final String listingTitle, listingType, renterName, ownerId, paymentStatus;
+  final String ownerName, renterId;
+  final BookingCharges? charges;
+  final DateTime? expiresAt;
   final String? fulfilmentMethod, serviceVenue;
   final ListingLocationSelection? pickupLocation,
       serviceLocation,
@@ -545,6 +553,15 @@ class Booking {
       listingType: listingType,
       renterName: json['renterName'] as String? ?? '',
       ownerId: json['ownerId'] as String? ?? '',
+      ownerName: json['ownerName'] as String? ?? '',
+      renterId: json['renterId'] as String? ?? '',
+      charges: json['pricing'] is Map &&
+              (json['pricing'] as Map).containsKey('baseAmount')
+          ? BookingCharges.fromJson(Map<String, dynamic>.from(json['pricing']))
+          : null,
+      expiresAt: json['expiresAt'] is String
+          ? DateTime.parse(json['expiresAt'])
+          : null,
       pickupLocation: json['pickupLocationSnapshot'] is Map
           ? ListingLocationSelection.fromJson(
               Map<String, dynamic>.from(json['pickupLocationSnapshot']))
@@ -587,6 +604,10 @@ class Booking {
         listingType: listingType,
         renterName: renterName,
         ownerId: ownerId,
+        ownerName: ownerName,
+        renterId: renterId,
+        charges: charges,
+        expiresAt: expiresAt,
         paymentStatus: paymentStatus,
         total: total,
         fulfilmentMethod: fulfilmentMethod,

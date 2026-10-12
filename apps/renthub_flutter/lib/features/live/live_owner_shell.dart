@@ -2321,6 +2321,15 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                           const SizedBox(height: 6),
                           Text('${booking.renterName} · ${booking.id}'),
                           BookingLocationsButton(bookingId: booking.id),
+                          TextButton.icon(
+                              onPressed: () =>
+                                  showBookingAgreement(context, booking.id),
+                              icon: const Icon(Icons.description_outlined),
+                              label: const Text('View agreement')),
+                          if (booking.status == 'pending' &&
+                              booking.paymentStatus != 'authorized')
+                            const Text(
+                                'Waiting for the renter to complete demo payment.'),
                           Text(formatDateRange(booking.start, booking.end)),
                           Text(
                             '${formatMoney(booking.total)} · ${booking.paymentStatus}',

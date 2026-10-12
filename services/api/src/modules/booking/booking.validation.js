@@ -3,6 +3,7 @@ import { textInput } from '../../core/inputValidation.js';
 import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import { body, param, query } from 'express-validator';
 import { BOOKING_STATUSES } from './booking.model.js';
+import { agreementVersions } from './agreementTerms.js';
 
 const bookingId = param('id').custom(textInput).bail().trim()
   .matches(/^(?:[a-f\d]{24}|RH-(?:BKG|SVC)-\d{4}-[A-Z0-9]+)$/i)
@@ -46,7 +47,7 @@ export const createBookingValidation = [
     .custom((value) => value === true)
     .withMessage('The rental agreement must be accepted'),
   body('agreementVersion')
-    .equals('renthub-booking-v1')
+    .isIn(agreementVersions)
     .withMessage('The rental agreement version is no longer supported'),
   body().custom((value) => {
     if (new Date(value.endDate) < new Date(value.startDate)) {

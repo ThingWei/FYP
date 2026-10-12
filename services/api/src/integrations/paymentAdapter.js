@@ -10,8 +10,8 @@ function result(operation, amount, status) {
 }
 
 export const paymentAdapter = {
-  async authorize({ amount }) {
-    return result('auth', amount, 'authorized');
+  async authorize({ amount, simulationOutcome = 'success' }) {
+    return result('auth', amount, simulationOutcome === 'declined' ? 'failed' : 'authorized');
   },
   async capture({ amount }) {
     return result('capture', amount, 'succeeded');

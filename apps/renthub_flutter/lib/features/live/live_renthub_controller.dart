@@ -1,4 +1,5 @@
 import '../../core/network/user_facing_error.dart';
+import '../../core/booking/checkout_models.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -900,11 +901,11 @@ class LiveRentHubController extends ChangeNotifier {
         Review.fromJson,
       );
 
-  Future<Booking> createAndAuthorizeBooking({
+  Future<Booking> createBooking({
     required Listing listing,
     required DateTime start,
     required DateTime end,
-    required String paymentMethod,
+    String agreementVersion = 'renthub-booking-v1',
     String fulfilmentMethod = 'pickup',
     String serviceVenue = 'To be confirmed',
     Map<String, dynamic>? serviceLocation,
@@ -936,27 +937,77 @@ class LiveRentHubController extends ChangeNotifier {
               'damageWaiverSelected': damageWaiverSelected,
             if (renterNote.trim().isNotEmpty) 'renterNote': renterNote.trim(),
             'agreementAccepted': agreementAccepted,
-            'agreementVersion': 'renthub-booking-v1',
+            'agreementVersion': agreementVersion,
           },
         ) as Map<String, dynamic>;
-        var booking = Booking.fromJson(bookingData);
-        await api.request(
-          'POST',
-          '/payments/authorizations',
-          body: {
-            'bookingId': booking.id,
-            'method': paymentMethod,
-            'idempotencyKey': checkoutKey,
-          },
-        );
-        booking = Booking.fromJson(
-          await api.request('GET', '/bookings/${booking.id}')
-              as Map<String, dynamic>,
-        );
-        bookings.insert(0, booking);
-        notifyListeners();
+        final booking = Booking.fromJson(bookingData);
+        _replaceBooking(booking);
         return booking;
       });
+
+  Future<Booking> getBooking(String id) async {
+    final booking = Booking.fromJson(Map<String, dynamic>.from(
+        await api.request('GET', '/bookings/$id') as Map));
+    _replaceBooking(booking);
+    return booking;
+  }
+
+  Future<PaymentAttempt> authorizeBookingPayment(
+          {required String bookingId,
+          required String method,
+          required String idempotencyKey,
+          String simulationOutcome = 'success'}) async =>
+      PaymentAttempt.fromJson(Map<String, dynamic>.from(
+          await api.request('POST', '/payments/authorizations', body: {
+        'bookingId': bookingId,
+        'method': method,
+        'idempotencyKey': idempotencyKey,
+        'simulationOutcome': simulationOutcome,
+      }) as Map));
+
+  Future<List<PaymentAttempt>> bookingPaymentAttempts(String bookingId) async {
+    final rows = await api.request('GET', '/payments/booking/$bookingId');
+    if (rows is! List) throw const FormatException('Invalid payment history');
+    return rows
+        .where((row) => row is Map && row['type'] == 'authorization')
+        .map((row) => PaymentAttempt.fromJson(Map<String, dynamic>.from(row)))
+        .toList();
+  }
+
+  // Compatibility for existing integration harnesses; live UI uses separate steps.
+  Future<Booking> createAndAuthorizeBooking(
+      {required Listing listing,
+      required DateTime start,
+      required DateTime end,
+      required String paymentMethod,
+      String fulfilmentMethod = 'pickup',
+      String serviceVenue = 'To be confirmed',
+      Map<String, dynamic>? serviceLocation,
+      Map<String, dynamic>? deliveryLocation,
+      bool damageWaiverSelected = false,
+      String renterNote = '',
+      required bool agreementAccepted,
+      String? idempotencyKey}) async {
+    final key = idempotencyKey ?? newCheckoutIdempotencyKey();
+    final booking = await createBooking(
+        listing: listing,
+        start: start,
+        end: end,
+        fulfilmentMethod: fulfilmentMethod,
+        serviceVenue: serviceVenue,
+        serviceLocation: serviceLocation,
+        deliveryLocation: deliveryLocation,
+        damageWaiverSelected: damageWaiverSelected,
+        renterNote: renterNote,
+        agreementAccepted: agreementAccepted,
+        idempotencyKey: key);
+    await api.request('POST', '/payments/authorizations', body: {
+      'bookingId': booking.id,
+      'method': paymentMethod,
+      'idempotencyKey': key
+    });
+    return getBooking(booking.id);
+  }
 
   Future<void> cancelBooking(String id, String reason) => _perform(() async {
         final updated = Booking.fromJson(
