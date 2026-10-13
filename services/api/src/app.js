@@ -22,7 +22,7 @@ import { mapsRouter } from './modules/maps/maps.routes.js';
 
 morgan.token('safe-path', (req) => req.path);
 export const app = express();
-const apiCapabilities = ['product-catalog-v1', 'mykad-capture-validation-v1', 'mykad-readability-pair-v1', 'mandatory-identity-access-v1', 'listing-maps-push-status-v1', 'precise-locations-v1'];
+const apiCapabilities = ['product-catalog-v1', 'mykad-capture-validation-v1', 'mykad-readability-pair-v1', 'mykad-screen-account-binding-v1', 'mykad-current-draft-pair-v1', 'mykad-bidirectional-capture-pair-v1', 'mandatory-identity-access-v1', 'listing-maps-push-status-v1', 'precise-locations-v1'];
 app.use(
   helmet(),
   cors({ origin: env.corsOrigins }),

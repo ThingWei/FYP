@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { connectDatabase, disconnectDatabase } from './database.js';
 import { env, validateEnv } from './env.js';
 import { storageAdapter } from '../integrations/storageAdapter.js';
+import { assertBindingReady } from '../modules/user/identityBinding.js';
 
 function normalizedIssuer(value) {
   return value.endsWith('/') ? value : `${value}/`;
@@ -93,6 +94,9 @@ export async function runPreflight({
     }),
   );
   checks.push(await result('authentication', () => checkAuth0(config)));
+  if (checks.find(check => check.name === 'database')?.status === 'pass') {
+    checks.push(await result('mykad_identity_binding', () => assertBindingReady(config)));
+  }
   checks.push(
     await result('storage', () => storageAdapter.verify({ writeProbe })),
   );

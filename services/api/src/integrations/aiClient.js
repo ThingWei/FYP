@@ -66,7 +66,7 @@ export const aiClient = {
     documentType === 'mykad' ? { timeout: Math.max(env.aiTimeoutMs, 90000) } : {});
   },
 
-  inspectDocumentFrame({ contentBase64, contentType, documentType, expectedSide, validateCapture = false, referenceFront }) {
+  inspectDocumentFrame({ contentBase64, contentType, documentType, expectedSide, validateCapture = false, referenceFront, referenceBack }) {
     return request('/verify/document-frame', {
       content_base64: contentBase64,
       content_type: contentType,
@@ -74,6 +74,7 @@ export const aiClient = {
       expected_side: expectedSide,
       validate_capture: validateCapture,
       ...(referenceFront && { reference_front: referenceFront }),
+      ...(referenceBack && { reference_back: referenceBack }),
     }, {
       available: false,
       detected: false,

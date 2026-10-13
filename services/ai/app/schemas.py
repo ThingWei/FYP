@@ -46,6 +46,7 @@ class DocumentFrameRequest(BaseModel):
     expected_side: Literal['front', 'back'] | None = None
     validate_capture: bool = False
     reference_front: EncodedImage | None = None
+    reference_back: EncodedImage | None = None
 
 
 class DocumentFrameResponse(BaseModel):

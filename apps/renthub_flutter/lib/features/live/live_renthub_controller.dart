@@ -140,6 +140,7 @@ class LiveRentHubController extends ChangeNotifier {
     String? expectedSide,
     bool validateCapture = false,
     String? frontDocumentRef,
+    String? backDocumentRef,
   }) async =>
       Map<String, dynamic>.from(
         await api.request(
@@ -152,6 +153,7 @@ class LiveRentHubController extends ChangeNotifier {
             if (expectedSide != null) 'expectedSide': expectedSide,
             'validateCapture': validateCapture,
             if (frontDocumentRef != null) 'frontDocumentRef': frontDocumentRef,
+            if (backDocumentRef != null) 'backDocumentRef': backDocumentRef,
           },
         ) as Map,
       );
@@ -173,6 +175,12 @@ class LiveRentHubController extends ChangeNotifier {
       ) as Map,
     );
   }
+
+  Future<Map<String, dynamic>> checkMykadPair(
+          String front, String back) async =>
+      Map<String, dynamic>.from(await api.request(
+          'POST', '/users/me/verification/check-pair',
+          body: {'frontDocumentRef': front, 'backDocumentRef': back}) as Map);
 
   Future<User> refreshIdentityProfile() async {
     final refreshed = User.fromJson(

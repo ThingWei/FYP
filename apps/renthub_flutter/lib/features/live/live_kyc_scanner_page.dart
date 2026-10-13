@@ -10,12 +10,13 @@ import '../../core/theme/app_theme.dart';
 
 bool kycFrameRequiresServiceRestart(Map<String, dynamic> result) =>
     result['available'] == true &&
-    result['adapter'] != 'opencv-document-yolo-v4';
+    result['adapter'] != 'opencv-document-yolo-v6';
 
-bool kycCaptureCanUse(Map<String, dynamic>? result, String? expectedSide) {
+bool kycCaptureCanUse(Map<String, dynamic>? result, String? expectedSide,
+    {bool requirePairMatch = false}) {
   final validation = result?['capture_validation'];
   return expectedSide != null &&
-      result?['adapter'] == 'opencv-document-yolo-v4' &&
+      result?['adapter'] == 'opencv-document-yolo-v6' &&
       result?['available'] == true &&
       result?['ready'] == true &&
       validation is Map &&
@@ -23,7 +24,7 @@ bool kycCaptureCanUse(Map<String, dynamic>? result, String? expectedSide) {
       validation['accepted'] == true &&
       validation['expectedSide'] == expectedSide &&
       validation['detectedSide'] == expectedSide &&
-      validation['method'] == 'mykad-required-fields-v1' &&
+      validation['method'] == 'mykad-required-fields-v2' &&
       validation['requiredFields'] is Map &&
       (expectedSide == 'front'
               ? ['front_identity_number', 'front_name', 'front_address']
@@ -34,10 +35,36 @@ bool kycCaptureCanUse(Map<String, dynamic>? result, String? expectedSide) {
               validation['requiredFields'][field]['readable'] == true) &&
       validation['screenCopy'] is Map &&
       validation['screenCopy']['status'] == 'not_detected' &&
-      (expectedSide != 'back' ||
+      validation['screenCopy']['phoneScreen'] is Map &&
+      validation['screenCopy']['phoneScreen']['status'] == 'not_detected' &&
+      validation['screenCopy']['phoneScreen']['method'] ==
+          'enclosing-phone-v1' &&
+      (!(expectedSide == 'back' || requirePairMatch) ||
           validation['pairMatch'] is Map &&
               validation['pairMatch']['status'] == 'matched' &&
               validation['pairMatch']['accepted'] == true);
+}
+
+/// A back scan also rechecks its stored front: don't ask users to rescan the
+/// back repeatedly when it is the front photo that needs attention.
+bool kycCaptureNeedsFrontReview(
+    Map<String, dynamic>? result, String? expectedSide) {
+  final validation = result?['capture_validation'];
+  return expectedSide == 'back' &&
+      validation is Map &&
+      validation['accepted'] != true &&
+      validation['failedSide'] == 'front';
+}
+
+bool kycCaptureNeedsBackReview(
+    Map<String, dynamic>? result, String? expectedSide) {
+  final validation = result?['capture_validation'];
+  return expectedSide == 'front' &&
+      validation is Map &&
+      validation['accepted'] != true &&
+      (validation['failedSide'] == 'back' ||
+          validation['pairMatch'] is Map &&
+              validation['pairMatch']['status'] == 'mismatched');
 }
 
 class KycCaptureActions extends StatelessWidget {
@@ -48,6 +75,8 @@ class KycCaptureActions extends StatelessWidget {
     required this.onRescan,
     required this.onUse,
     required this.onRetry,
+    this.onReviewFront,
+    this.onReviewBack,
   });
 
   final bool canUse;
@@ -55,6 +84,8 @@ class KycCaptureActions extends StatelessWidget {
   final VoidCallback onRescan;
   final VoidCallback onUse;
   final VoidCallback onRetry;
+  final VoidCallback? onReviewFront;
+  final VoidCallback? onReviewBack;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -77,6 +108,18 @@ class KycCaptureActions extends StatelessWidget {
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
               label: const Text('Retry Image Check'),
+            ),
+          if (!canUse && !checking && onReviewFront != null)
+            TextButton.icon(
+              onPressed: onReviewFront,
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('Review front photo'),
+            ),
+          if (!canUse && !checking && onReviewBack != null)
+            TextButton.icon(
+              onPressed: onReviewBack,
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('Review back photo'),
             ),
         ],
       );
@@ -218,6 +261,7 @@ class LiveKycScannerPage extends StatefulWidget {
     required this.analyzeFrame,
     this.expectedSide,
     this.validateCapture,
+    this.requirePairMatch = false,
   });
 
   final String documentType;
@@ -225,6 +269,7 @@ class LiveKycScannerPage extends StatefulWidget {
   final KycFrameAnalyzer analyzeFrame;
   final String? expectedSide;
   final KycFrameAnalyzer? validateCapture;
+  final bool requirePairMatch;
 
   @override
   State<LiveKycScannerPage> createState() => _LiveKycScannerPageState();
@@ -251,7 +296,8 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
       captured != null &&
       !checkingCapture &&
       (widget.documentType != 'mykad' ||
-          kycCaptureCanUse(captureCheck, widget.expectedSide));
+          kycCaptureCanUse(captureCheck, widget.expectedSide,
+              requirePairMatch: widget.requirePairMatch));
 
   bool get cameraPlatformSupported =>
       kIsWeb ||
@@ -538,6 +584,14 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
                     checking: checkingCapture,
                     onRescan: _rescan,
                     onRetry: () => unawaited(_checkCaptured()),
+                    onReviewFront: kycCaptureNeedsFrontReview(
+                            captureCheck, widget.expectedSide)
+                        ? () => Navigator.pop(context)
+                        : null,
+                    onReviewBack: kycCaptureNeedsBackReview(
+                            captureCheck, widget.expectedSide)
+                        ? () => Navigator.pop(context)
+                        : null,
                     onUse: () {
                       if (canUseCapture) Navigator.pop(context, captured);
                     },

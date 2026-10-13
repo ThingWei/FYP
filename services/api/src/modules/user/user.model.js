@@ -3,6 +3,7 @@ import { coordinatesSchema } from '../../core/location.js';
 import { ADMIN_ROLES, MARKETPLACE_ROLES } from './rolePolicy.js';
 
 export const USER_ROLES = ['renter', 'owner', 'admin'];
+export const IDENTITY_BINDING_INDEX = 'verified_mykad_identity_unique';
 export const ACCOUNT_STATUSES = [
   'active',
   'deactivated',
@@ -48,6 +49,7 @@ const verificationAttemptSchema = new mongoose.Schema(
       },
     },
     aiEvidence: { type: mongoose.Schema.Types.Mixed, default: {} },
+    identityFingerprint: { type: String, select: false },
     status: {
       type: String,
       enum: VERIFICATION_STATUSES.filter((status) => status !== 'unverified'),
@@ -182,6 +184,7 @@ const userSchema = new mongoose.Schema(
     },
     // Keyed comparison only; never return this fingerprint or persist raw OCR IDs.
     identityMatchFingerprint: { type: String, select: false },
+    verifiedIdentityFingerprint: { type: String, select: false },
     drivingEligibility: {
       status: { type: String, enum: VERIFICATION_STATUSES, default: 'unverified' },
       latestAttemptId: { type: String, default: '' },
@@ -235,6 +238,8 @@ const userSchema = new mongoose.Schema(
       transform: (_document, value) => {
         delete value.passwordHash;
         delete value.identityMatchFingerprint;
+        delete value.verifiedIdentityFingerprint;
+        for (const attempt of value.verification?.history ?? []) delete attempt.identityFingerprint;
         return value;
       },
     },
@@ -252,6 +257,8 @@ userSchema.pre('validate', function validateActiveRole() {
 });
 
 userSchema.index({ displayName: 'text', email: 'text' });
+userSchema.index({ verifiedIdentityFingerprint: 1 }, { name: IDENTITY_BINDING_INDEX, unique: true,
+  partialFilterExpression: { verifiedIdentityFingerprint: { $type: 'string' } } });
 
 export const UserModel =
   mongoose.models.User ?? mongoose.model('User', userSchema);

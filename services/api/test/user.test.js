@@ -71,6 +71,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  env.kycIdentityMatchSecret = 'synthetic-binding-key-not-a-production-secret-123456';
   await Promise.all([
     UserModel.deleteMany({}),
     PasswordResetModel.deleteMany({}),

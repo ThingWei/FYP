@@ -30,6 +30,7 @@ import {
   resolveKycRequirement,
 } from './kycRequirements.js';
 import { drivingEligibilityCheck, hasApprovedMykad, LICENCE_CLASSES, reviewedLicenceExpiry } from './drivingEligibility.js';
+import { fingerprintForNumber, assertBindingReady, assertIdentityNotLinked, approveMykadAtomically } from './identityBinding.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -106,13 +107,14 @@ function requiresVerificationResubmission(analysis, expectedType) {
   const fields = analysis?.extracted_fields ?? analysis?.extractedFields ?? {};
   if (expectedType === 'mykad') {
     const mandatory = fields.mandatoryMykadValidation;
-    if (fields.mykadSidesConsistent !== true || mandatory?.method !== 'mykad-required-fields-v1' ||
+    if (fields.mykadSidesConsistent !== true || mandatory?.method !== 'mykad-required-fields-v2' ||
         mandatory.status !== 'matched' || mandatory.accepted !== true || !Array.isArray(mandatory.sides) || mandatory.sides.length !== 2 ||
         mandatory.sides.some((side, index) => {
           const expected = index === 0 ? 'front' : 'back';
           const required = index === 0 ? ['front_identity_number', 'front_name', 'front_address'] : ['back_identity_number'];
-          return !side || side.method !== 'mykad-required-fields-v1' || side.accepted !== true || side.status !== 'validated' ||
+          return !side || side.method !== 'mykad-required-fields-v2' || side.accepted !== true || side.status !== 'validated' ||
             side.expectedSide !== expected || side.detectedSide !== expected || side.screenCopy?.status !== 'not_detected' ||
+            side.screenCopy?.phoneScreen?.status !== 'not_detected' || side.screenCopy.phoneScreen.method !== 'enclosing-phone-v1' ||
             required.some(field => side.requiredFields?.[field]?.detected !== true || side.requiredFields[field].readable !== true);
         })) return true;
   }
@@ -123,11 +125,7 @@ function requiresVerificationResubmission(analysis, expectedType) {
 
 function identityFingerprint(analysis) {
   const fields = analysis.extracted_fields ?? analysis.extractedFields ?? {};
-  const digits = String(fields.identityNumber ?? '').replace(/\D/g, '');
-  const secret = env.kycIdentityMatchSecret;
-  if (!secret || secret.length < 32 || digits.length !== 12 || fields.identityNumberFormatValid !== true) return null;
-  const keyId = createHash('sha256').update(secret).digest('hex').slice(0, 12);
-  return `${keyId}:${createHmac('sha256', secret).update(`renthub-mykad:${digits}`).digest('hex')}`;
+  return fingerprintForNumber(fields.identityNumber, fields.identityNumberFormatValid);
 }
 
 const passwordResetResponse = () => ({
@@ -627,6 +625,10 @@ export const userService = {
       analysis, input.documentType,
     );
     const fingerprint = requiresRescan ? null : identityFingerprint(analysis);
+    if (!driving && input.documentType === 'mykad' && !requiresRescan) {
+      await assertBindingReady();
+      await assertIdentityNotLinked(fingerprint, user._id);
+    }
     if (!driving && input.documentType === 'mykad') {
       user.identityMatchFingerprint = fingerprint ?? undefined;
     }
@@ -661,6 +663,7 @@ export const userService = {
       documentType: input.documentType,
       documentRefs: input.documentRefs,
       aiEvidence: evidence,
+      ...(!driving && input.documentType === 'mykad' && fingerprint && { identityFingerprint: fingerprint }),
       status,
       submittedAt,
       reviewReason: reason,
@@ -695,10 +698,16 @@ export const userService = {
   async inspectVerificationFrame(identity, input) {
     await requireCurrentUser(identity);
     let referenceFront;
+    let referenceBack;
     if (input.frontDocumentRef) {
       const images = await uploadService.readOwnedReferences(identity, [input.frontDocumentRef], ['verification_document']);
       referenceFront = images[0];
       if (!referenceFront) throw new AppError('Front image is unavailable', 400, 'INVALID_UPLOAD_REFERENCE');
+    }
+    if (input.backDocumentRef) {
+      const images = await uploadService.readOwnedReferences(identity, [input.backDocumentRef], ['verification_document']);
+      referenceBack = images[0];
+      if (!referenceBack) throw new AppError('Back image is unavailable', 400, 'INVALID_UPLOAD_REFERENCE');
     }
     return privateSafeAiEvidence(await aiClient.inspectDocumentFrame({
       contentBase64: input.contentBase64,
@@ -707,7 +716,29 @@ export const userService = {
       expectedSide: input.expectedSide,
       validateCapture: input.validateCapture ?? false,
       referenceFront,
+      referenceBack,
     }));
+  },
+
+  async checkVerificationPair(identity, input) {
+    const user = await requireCurrentUser(identity);
+    const documentRefs = [input.frontDocumentRef, input.backDocumentRef];
+    const images = await uploadService.readOwnedReferences(identity, documentRefs, ['verification_document']);
+    const platform = await adminModule.PlatformSettingModel.findOne({ key: 'platform' });
+    const analysis = await aiClient.verifyDocument({ images, documentType: 'mykad',
+      profileName: user.displayName, reviewThreshold: platform?.verificationManualReviewThreshold ?? .8,
+      minimumAge: platform?.minimumVerificationAge ?? 18 });
+    const fields = analysis.extracted_fields ?? analysis.extractedFields ?? {};
+    const pair = fields.mandatoryMykadValidation;
+    const accepted = analysis.outcome !== 'unavailable' && !requiresVerificationResubmission(analysis, 'mykad');
+    const status = accepted ? 'matched' : pair?.status === 'mismatched' ? 'mismatched' :
+      analysis.outcome === 'unavailable' || pair?.status === 'unavailable' || !pair ? 'unavailable' : 'rescan_required';
+    // Read-only draft check: no history, approvals, fingerprint or raw OCR output.
+    return { method: 'mykad-current-draft-pair-v1', documentRefs, accepted, status,
+      guidance: accepted ? 'Front and back numbers match. Administrator review is still required.' :
+        status === 'mismatched' ? 'The front and back IC numbers do not match. Replace the incorrect photo with the same MyKad.' :
+        status === 'unavailable' ? 'The two photos could not be checked. Retry before submitting.' :
+        'These photos need another scan. Keep both sides of the same physical MyKad fully visible and readable.' };
   },
 
   async verificationRequirements(identity, query) {
@@ -733,7 +764,7 @@ export const userService = {
   },
 
   async reviewVerification(id, input, identity) {
-    const user = await userRepository.findById(id);
+    let user = await userRepository.findById(id).select('+verification.history.identityFingerprint +verifiedIdentityFingerprint');
     if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
     let attempt = input.attemptId
       ? user.verification.history?.find((item) => item.attemptId === input.attemptId)
@@ -762,6 +793,7 @@ export const userService = {
       );
     }
     const driving = attempt.documentType === 'driving_licence';
+    const mykadApproval = attempt.documentType === 'mykad' && input.status === 'approved';
     if (input.status === 'approved' && requiresVerificationResubmission(
       attempt.aiEvidence, attempt.documentType,
     )) {
@@ -858,7 +890,8 @@ export const userService = {
         reviewedAt: new Date(),
       },
     };
-    await user.save();
+    if (mykadApproval) user = await approveMykadAtomically(user, attempt);
+    else await user.save();
     if (user.roles.includes('owner')) {
       await ListingModel.updateMany(
         { ownerId: user.authId },

@@ -110,6 +110,18 @@ export const verificationSubmissionValidation = [
     .withMessage('Each document must reference an uploaded image'),
 ];
 
+export const verificationPairValidation = [
+  body().custom(value => {
+    if (Object.keys(value).some(key => !['frontDocumentRef', 'backDocumentRef'].includes(key))) {
+      throw new Error('Only front and back upload references are accepted');
+    }
+    if (value.frontDocumentRef === value.backDocumentRef) throw new Error('Use distinct front and back images');
+    return true;
+  }),
+  ...['frontDocumentRef', 'backDocumentRef'].map(field => body(field).custom(textInput).bail().isLength({ max: 100 })
+    .matches(/^upload:\/\/UPL-[A-Z0-9]+$/)),
+];
+
 export const targetUserValidation = [
   param('userId').custom(textInput).bail().trim()
     .matches(/^(?:[a-f\d]{24}|u-[a-z\d-]+)$/i)
@@ -188,7 +200,7 @@ export const verificationDecisionValidation = [
 
 export const verificationFrameValidation = [
   body().custom((value) => {
-    const allowed = new Set(['contentBase64', 'contentType', 'documentType', 'expectedSide', 'validateCapture', 'frontDocumentRef']);
+    const allowed = new Set(['contentBase64', 'contentType', 'documentType', 'expectedSide', 'validateCapture', 'frontDocumentRef', 'backDocumentRef']);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
@@ -199,12 +211,16 @@ export const verificationFrameValidation = [
   body('expectedSide').optional().isIn(['front', 'back']),
   body('validateCapture').optional().custom((value) => typeof value === 'boolean'),
   body('frontDocumentRef').optional().isString().matches(/^upload:\/\/UPL-[A-Z0-9]+$/),
+  body('backDocumentRef').optional().isString().isLength({ max: 100 }).matches(/^upload:\/\/UPL-[A-Z0-9]+$/),
   body().custom((value) => {
     if (value.documentType === 'mykad' && value.validateCapture && !value.expectedSide) {
       throw new Error('MyKad capture validation requires the expected front/back side');
     }
     if (value.frontDocumentRef && (value.documentType !== 'mykad' || value.expectedSide !== 'back' || value.validateCapture !== true)) {
       throw new Error('Front image reference is only used for the final MyKad back check');
+    }
+    if (value.backDocumentRef && (value.documentType !== 'mykad' || value.expectedSide !== 'front' || value.validateCapture !== true)) {
+      throw new Error('Back image reference is only used for the final MyKad front replacement check');
     }
     return true;
   }),

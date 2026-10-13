@@ -80,6 +80,9 @@ export const userController = {
     ),
   ),
 
+  checkVerificationPair: asyncHandler(async (req, res) =>
+    ok(res, await userService.checkVerificationPair(req.user, matchedData(req)))),
+
   verificationRequirements: asyncHandler(async (req, res) =>
     ok(
       res,

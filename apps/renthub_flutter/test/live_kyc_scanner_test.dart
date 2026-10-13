@@ -21,7 +21,7 @@ void main() {
     expect(
         kycFrameRequiresServiceRestart({
           'available': true,
-          'adapter': 'opencv-document-yolo-v4',
+          'adapter': 'opencv-document-yolo-v6',
         }),
         isFalse);
     expect(
@@ -41,7 +41,7 @@ void main() {
   test('use image requires a current, positive check for the expected side',
       () {
     final accepted = <String, dynamic>{
-      'adapter': 'opencv-document-yolo-v4',
+      'adapter': 'opencv-document-yolo-v6',
       'available': true,
       'ready': true,
       'capture_validation': {
@@ -49,8 +49,14 @@ void main() {
         'accepted': true,
         'expectedSide': 'front',
         'detectedSide': 'front',
-        'method': 'mykad-required-fields-v1',
-        'screenCopy': {'status': 'not_detected'},
+        'method': 'mykad-required-fields-v2',
+        'screenCopy': {
+          'status': 'not_detected',
+          'phoneScreen': {
+            'status': 'not_detected',
+            'method': 'enclosing-phone-v1'
+          }
+        },
         'requiredFields': {
           for (final field in [
             'front_identity_number',

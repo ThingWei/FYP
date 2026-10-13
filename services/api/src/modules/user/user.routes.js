@@ -20,6 +20,7 @@ import {
   targetUserValidation,
   verificationDecisionValidation,
   verificationFrameValidation,
+  verificationPairValidation,
   verificationRequirementsValidation,
   verificationSubmissionValidation,
 } from './user.validation.js';
@@ -117,6 +118,8 @@ userRouter.post(
   validate,
   userController.inspectVerificationFrame,
 );
+userRouter.post('/me/verification/check-pair', authenticate,
+  verificationPairValidation, validate, userController.checkVerificationPair);
 userRouter.get(
   '/me/verification/requirements',
   authenticate,

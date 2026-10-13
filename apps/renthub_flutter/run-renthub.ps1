@@ -44,6 +44,9 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'product-catalog-v1' -and `
             $response.data.capabilities -contains 'mykad-capture-validation-v1' -and `
             $response.data.capabilities -contains 'mykad-readability-pair-v1' -and `
+            $response.data.capabilities -contains 'mykad-screen-account-binding-v1' -and `
+            $response.data.capabilities -contains 'mykad-current-draft-pair-v1' -and `
+            $response.data.capabilities -contains 'mykad-bidirectional-capture-pair-v1' -and `
             $response.data.capabilities -contains 'mandatory-identity-access-v1' -and `
             $response.data.capabilities -contains 'listing-maps-push-status-v1' -and `
             $response.data.capabilities -contains 'precise-locations-v1'
@@ -68,7 +71,7 @@ function Test-RentHubAiCompatible {
     param([object]$Health)
 
     return $null -ne $Health -and $Health.status -eq 'ok' -and `
-        $Health.document_frame_contract -eq 'opencv-document-yolo-v4'
+        $Health.document_frame_contract -eq 'opencv-document-yolo-v6'
 }
 
 function Get-RentHubAiArguments {
@@ -356,7 +359,7 @@ try {
         else {
             if (Test-RentHubTcpPort -HostName '127.0.0.1' -Port 8001) {
                 if ($null -ne $aiHealth -and $aiHealth.status -eq 'ok') {
-                    throw "The AI service on port 8001 has an incompatible scanner contract (opencv-document-yolo-v4 is required; reported '$($aiHealth.document_frame_contract)'). Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. Re-running without stopping that process would reuse old code. No existing service was stopped."
+                    throw "The AI service on port 8001 has an incompatible scanner contract (opencv-document-yolo-v6 is required; reported '$($aiHealth.document_frame_contract)'). Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. Re-running without stopping that process would reuse old code. No existing service was stopped."
                 }
                 throw 'Port 8001 is occupied by an unhealthy or different service. Stop the identified owning process before rerunning this launcher. Do not start a second AI server on that port.'
             }
@@ -400,7 +403,7 @@ try {
                     'No AI error log was produced.'
                 }
                 $readinessDetails = if ($null -ne $aiHealth) {
-                    "Health status: '$($aiHealth.status)'; scanner contract: '$($aiHealth.document_frame_contract)'; required: 'opencv-document-yolo-v4'."
+                    "Health status: '$($aiHealth.status)'; scanner contract: '$($aiHealth.document_frame_contract)'; required: 'opencv-document-yolo-v6'."
                 }
                 else {
                     'No health response was received from http://127.0.0.1:8001/health.'

@@ -1501,6 +1501,41 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
       );
 }
 
+class MykadPairStatus extends StatelessWidget {
+  const MykadPairStatus(
+      {super.key,
+      required this.checking,
+      required this.matched,
+      required this.message,
+      required this.onRetry});
+  final bool checking, matched;
+  final String message;
+  final VoidCallback onRetry;
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+              checking
+                  ? 'Checking the current front and back photos...'
+                  : matched
+                      ? 'Front and back numbers match. Administrator review is still required.'
+                      : message.isEmpty
+                          ? 'Check that the current front and back photos belong to the same MyKad.'
+                          : message,
+              style: TextStyle(
+                  color:
+                      matched ? AppColors.success : AppColors.secondaryText)),
+          if (!matched)
+            TextButton.icon(
+              onPressed: checking ? null : onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Check these two photos'),
+            ),
+        ],
+      );
+}
+
 class LiveVerificationPage extends StatefulWidget {
   const LiveVerificationPage({super.key, this.driving = false});
   final bool driving;
@@ -1527,6 +1562,72 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
   String? pendingSide, pendingType;
   int pendingGeneration = 0, pendingSlotGeneration = 0;
   bool captureUploading = false;
+  bool checkingPair = false;
+  int pairRequestGeneration = 0;
+  String pairGuidance = '';
+
+  void _invalidatePairRequest() {
+    pairRequestGeneration++;
+    checkingPair = false;
+    pairGuidance = '';
+  }
+
+  Future<void> _checkCurrentPair() async {
+    if (documentType != 'mykad' ||
+        mykadDraft.references.length != 2 ||
+        mykadDraft.pairChecked ||
+        checkingPair) {
+      return;
+    }
+    final slotGeneration = mykadDraft.generation;
+    final references = mykadDraft.references;
+    final requestGeneration = ++pairRequestGeneration;
+    setState(() {
+      checkingPair = true;
+      pairGuidance = 'Checking the current front and back photos...';
+    });
+    try {
+      final result = await context
+          .read<LiveRentHubController>()
+          .checkMykadPair(references[0], references[1])
+          .timeout(const Duration(seconds: 100));
+      if (!mounted ||
+          documentType != 'mykad' ||
+          requestGeneration != pairRequestGeneration ||
+          slotGeneration != mykadDraft.generation) {
+        return;
+      }
+      final responseRefs = result['documentRefs'];
+      if (result['method'] != 'mykad-current-draft-pair-v1' ||
+          responseRefs is! List ||
+          responseRefs.any((ref) => ref is! String)) {
+        throw const FormatException('Pair check unavailable');
+      }
+      final matched =
+          result['accepted'] == true && result['status'] == 'matched';
+      if (!mykadDraft.confirmPair(
+          slotGeneration, List<String>.from(responseRefs),
+          matched: matched)) {
+        throw const FormatException('Pair check does not match current photos');
+      }
+      setState(() => pairGuidance = matched
+          ? 'Front and back numbers match. Administrator review is still required.'
+          : result['status'] == 'mismatched'
+              ? 'The front and back IC numbers do not match. Replace the incorrect photo with the same MyKad.'
+              : 'The current photos could not be matched. Retry or replace the unclear photo.');
+    } catch (_) {
+      if (mounted &&
+          requestGeneration == pairRequestGeneration &&
+          slotGeneration == mykadDraft.generation) {
+        setState(() => pairGuidance =
+            'The two photos could not be checked. Retry before submitting.');
+      }
+    } finally {
+      if (mounted && requestGeneration == pairRequestGeneration) {
+        setState(() => checkingPair = false);
+      }
+    }
+  }
 
   int get requiredDocuments => documentType == 'mykad' ? 2 : 1;
 
@@ -1542,6 +1643,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     final controller = context.read<LiveRentHubController>();
     final requestedSide = mykadDraft.nextSide;
     final frontReference = mykadDraft.front;
+    final backReference = mykadDraft.back;
     final generation = draftGeneration;
     final slotGeneration = mykadDraft.generation;
     final typeAtStart = documentType;
@@ -1555,11 +1657,15 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
           documentType: documentType,
           sideLabel: side,
           expectedSide: documentType == 'mykad' ? requestedSide : null,
+          requirePairMatch: documentType == 'mykad' &&
+              requestedSide == 'front' &&
+              backReference != null,
           validateCapture: (bytes, type) => controller.inspectVerificationFrame(
             bytes,
             type,
             expectedSide: requestedSide,
             frontDocumentRef: requestedSide == 'back' ? frontReference : null,
+            backDocumentRef: requestedSide == 'front' ? backReference : null,
             validateCapture: true,
           ),
           analyzeFrame: documentType == 'driving_licence'
@@ -1616,6 +1722,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
           typeAtStart == documentType) {
         setState(() {
           if (documentType == 'mykad') {
+            _invalidatePairRequest();
             mykadDraft.store(requestedSide!, reference, slotGeneration,
                 matched: requestedSide == 'back');
           } else {
@@ -1633,6 +1740,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     } finally {
       if (mounted) setState(() => captureUploading = false);
     }
+    if (mounted) await _checkCurrentPair();
   }
 
   Future<void> _pickDocument() async {
@@ -1650,6 +1758,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
           typeAtStart == documentType) {
         setState(() {
           if (documentType == 'mykad') {
+            _invalidatePairRequest();
             mykadDraft.store(requestedSide!, reference, slotGeneration);
           } else {
             otherDocumentRefs.add(reference);
@@ -1664,6 +1773,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
             .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     }
+    if (mounted) await _checkCurrentPair();
   }
 
   Future<void> _removeDocument(int index) async {
@@ -1676,6 +1786,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
       if (mounted && generation == draftGeneration) {
         setState(() {
           if (documentType == 'mykad') {
+            _invalidatePairRequest();
             mykadDraft.remove(reference);
           } else {
             otherDocumentRefs.remove(reference);
@@ -1693,6 +1804,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
   }
 
   Future<void> _submit() async {
+    if (submitting || captureUploading || checkingPair) return;
     if (documentRefs.length != requiredDocuments) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1700,6 +1812,10 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                 'Upload $requiredDocuments document image${requiredDocuments == 1 ? '' : 's'} first.')),
       );
       return;
+    }
+    if (documentType == 'mykad' && !mykadDraft.pairChecked) {
+      await _checkCurrentPair();
+      return; // Require an explicit submission after the new pair passes.
     }
     if (documentType == 'driving_licence' &&
         context
@@ -1820,6 +1936,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                   ? null
                   : (value) => setState(() {
                         documentType = value ?? 'mykad';
+                        _invalidatePairRequest();
                         mykadDraft.clear();
                         otherDocumentRefs.clear();
                         draftGeneration++;
@@ -1905,10 +2022,21 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                       : () => _removeDocument(index),
                 ),
               const SizedBox(height: 16),
+              if (documentType == 'mykad' && documentRefs.length == 2) ...[
+                MykadPairStatus(
+                  checking: checkingPair,
+                  matched: mykadDraft.pairChecked,
+                  message: pairGuidance,
+                  onRetry: _checkCurrentPair,
+                ),
+                const SizedBox(height: 16),
+              ],
               FilledButton.icon(
                 onPressed: submitting ||
                         captureUploading ||
-                        documentRefs.length != requiredDocuments
+                        checkingPair ||
+                        documentRefs.length != requiredDocuments ||
+                        (documentType == 'mykad' && !mykadDraft.pairChecked)
                     ? null
                     : _submit,
                 icon: const Icon(Icons.upload_file_outlined),

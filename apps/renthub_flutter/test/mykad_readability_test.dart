@@ -2,22 +2,29 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
+import 'package:renthub_flutter/core/network/user_facing_error.dart';
 import 'package:renthub_flutter/core/verification/mykad_draft.dart';
 import 'package:renthub_flutter/features/live/live_kyc_scanner_page.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 
 Map<String, dynamic> checked(String side) => {
-      'adapter': 'opencv-document-yolo-v4',
+      'adapter': 'opencv-document-yolo-v6',
       'available': true,
       'ready': true,
       'confidence': .99,
       'capture_validation': {
-        'method': 'mykad-required-fields-v1',
+        'method': 'mykad-required-fields-v2',
         'status': 'validated',
         'accepted': true,
         'expectedSide': side,
         'detectedSide': side,
-        'screenCopy': {'status': 'not_detected'},
+        'screenCopy': {
+          'status': 'not_detected',
+          'phoneScreen': {
+            'status': 'not_detected',
+            'method': 'enclosing-phone-v1'
+          }
+        },
         'requiredFields': {
           for (final field in side == 'front'
               ? ['front_identity_number', 'front_name', 'front_address']
@@ -48,6 +55,137 @@ class ProtectedHistoryApi extends ApiClient {
 }
 
 void main() {
+  test(
+      'replacement front requires a pair match, not just readable front details',
+      () {
+    final readable = checked('front');
+    expect(kycCaptureCanUse(readable, 'front'), isTrue);
+    expect(
+        kycCaptureCanUse(readable, 'front', requirePairMatch: true), isFalse);
+    final validation = readable['capture_validation'] as Map;
+    for (final status in ['mismatched', 'unconfirmed', 'unavailable']) {
+      validation['pairMatch'] = {'accepted': false, 'status': status};
+      expect(
+          kycCaptureCanUse(readable, 'front', requirePairMatch: true), isFalse);
+    }
+    validation['pairMatch'] = {'accepted': true, 'status': 'matched'};
+    expect(kycCaptureCanUse(readable, 'front', requirePairMatch: true), isTrue);
+    readable['adapter'] = 'opencv-document-yolo-v5';
+    expect(
+        kycCaptureCanUse(readable, 'front', requirePairMatch: true), isFalse);
+  });
+  test(
+      'replacement front can return to review a mismatched or unreadable saved back',
+      () {
+    final result = checked('front');
+    result['capture_validation']['accepted'] = false;
+    result['capture_validation']['failedSide'] = 'back';
+    expect(kycCaptureNeedsBackReview(result, 'front'), isTrue);
+    expect(kycCaptureNeedsBackReview(result, 'back'), isFalse);
+    result['capture_validation'].remove('failedSide');
+    result['capture_validation']
+        ['pairMatch'] = {'accepted': false, 'status': 'mismatched'};
+    expect(kycCaptureNeedsBackReview(result, 'front'), isTrue);
+  });
+  test(
+      'front capture forwards a saved back reference, never a client IC number',
+      () async {
+    final api = FrameApi();
+    final controller = LiveRentHubController(api);
+    addTearDown(controller.dispose);
+    await controller.inspectVerificationFrame(
+        Uint8List.fromList([1, 2, 3]), 'mykad',
+        expectedSide: 'front',
+        validateCapture: true,
+        backDocumentRef: 'upload://UPL-BACK');
+    expect(api.payload!['backDocumentRef'], 'upload://UPL-BACK');
+    expect(api.payload!.containsKey('frontDocumentRef'), isFalse);
+    expect(api.payload!.containsKey('backIdentityNumber'), isFalse);
+  });
+  for (final width in [360.0, 390.0]) {
+    testWidgets(
+        'replacement-front mismatch disables Use Image and offers back recovery at $width',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final mismatch = checked('front');
+      mismatch['capture_validation']
+          ['pairMatch'] = {'status': 'mismatched', 'accepted': false};
+      var uses = 0, backReviews = 0;
+      await tester.pumpWidget(MaterialApp(
+          home: MediaQuery(
+              data: MediaQueryData(
+                  size: Size(width, 844),
+                  textScaler: const TextScaler.linear(1.3)),
+              child: Scaffold(
+                  body: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            const Text(
+                                'The front and back IC numbers do not match. Go back and replace the saved back photo if you are changing the MyKad.'),
+                            KycCaptureActions(
+                                canUse: kycCaptureCanUse(mismatch, 'front',
+                                    requirePairMatch: true),
+                                checking: false,
+                                onRescan: () {},
+                                onRetry: () {},
+                                onUse: () => uses++,
+                                onReviewBack: () => backReviews++)
+                          ]))))));
+      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+          isNull);
+      await tester.tap(find.text('Review back photo'));
+      expect(uses, 0);
+      expect(backReviews, 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  test('front review recovery only applies to a failed saved-front back check',
+      () {
+    final result = checked('back');
+    result['capture_validation']['accepted'] = false;
+    result['capture_validation']['failedSide'] = 'front';
+    expect(kycCaptureNeedsFrontReview(result, 'back'), isTrue);
+    expect(kycCaptureCanUse(result, 'back'), isFalse);
+    expect(kycCaptureNeedsFrontReview(result, 'front'), isFalse);
+    result['capture_validation']['failedSide'] = 'back';
+    expect(kycCaptureNeedsFrontReview(result, 'back'), isFalse);
+    expect(kycCaptureNeedsFrontReview(null, 'back'), isFalse);
+  });
+  test('enclosing-phone checks must be current and successful', () {
+    for (final side in ['front', 'back']) {
+      for (final status in ['detected', 'unavailable', null]) {
+        final result = checked(side);
+        final screen = result['capture_validation']['screenCopy'] as Map;
+        if (status == null) {
+          screen.remove('phoneScreen');
+        } else {
+          screen['phoneScreen'] = {
+            'method': 'enclosing-phone-v1',
+            'status': status
+          };
+        }
+        expect(kycCaptureCanUse(result, side), isFalse);
+      }
+      final legacy = checked(side)..['adapter'] = 'opencv-document-yolo-v4';
+      expect(kycCaptureCanUse(legacy, side), isFalse);
+    }
+  });
+  test('identity conflict and setup errors have private, friendly guidance',
+      () {
+    final duplicate = friendlyError(
+        ApiException(409, 'private diagnostic', code: 'MYKAD_ALREADY_LINKED'));
+    expect(duplicate, contains('existing account'));
+    expect(duplicate, isNot(contains('private diagnostic')));
+    expect(
+        friendlyError(ApiException(503, 'private index name',
+            code: 'IDENTITY_BINDING_INDEX_MISSING')),
+        contains('contact support'));
+  });
   test(
       'KYC draft can detach protected history without deleting it or ignoring other failures',
       () async {
@@ -165,42 +303,55 @@ void main() {
     expect(api.payload!.containsKey('frontIdentityNumber'), isFalse);
   });
   for (final width in [360.0, 390.0]) {
-    testWidgets(
-        'rescan guidance, disabled use and explicit retry fit width $width',
-        (tester) async {
-      tester.view.physicalSize = Size(width, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      var retry = 0, rescan = 0, used = 0;
-      await tester.pumpWidget(MaterialApp(
-          home: MediaQuery(
-              data: MediaQueryData(
-                  size: Size(width, 844),
-                  textScaler: const TextScaler.linear(1.3)),
-              child: Scaffold(
-                  body: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            const Text(
-                                'The front and back IC numbers do not match. Rescan both sides of the same MyKad.'),
-                            KycCaptureActions(
-                                canUse: false,
-                                checking: false,
-                                onUse: () => used++,
-                                onRescan: () => rescan++,
-                                onRetry: () => retry++)
-                          ]))))));
-      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-          isNull);
-      await tester.tap(find.text('Retry Image Check'));
-      await tester.tap(find.text('Rescan'));
-      expect(retry, 1);
-      expect(rescan, 1);
-      expect(used, 0);
-      expect(tester.takeException(), isNull);
-    });
+    for (final guidance in [
+      'The front and back IC numbers do not match. Rescan both sides of the same MyKad.',
+      'Scan your physical MyKad, not an image on another screen.',
+      'The saved front photo needs attention. Go back and replace the front photo. Please rescan with your name, IC number and address fully visible.'
+    ]) {
+      testWidgets('$guidance disabled use and explicit retry fit width $width',
+          (tester) async {
+        tester.view.physicalSize = Size(width, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        var retry = 0, rescan = 0, used = 0, frontReviews = 0;
+        final frontFailed = guidance.contains('saved front');
+        await tester.pumpWidget(MaterialApp(
+            home: MediaQuery(
+                data: MediaQueryData(
+                    size: Size(width, 844),
+                    textScaler: const TextScaler.linear(1.3)),
+                child: Scaffold(
+                    body: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Text(guidance),
+                              KycCaptureActions(
+                                  canUse: false,
+                                  checking: false,
+                                  onReviewFront:
+                                      frontFailed ? () => frontReviews++ : null,
+                                  onUse: () => used++,
+                                  onRescan: () => rescan++,
+                                  onRetry: () => retry++)
+                            ]))))));
+        expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+            isNull);
+        await tester.tap(find.text('Retry Image Check'));
+        await tester.tap(find.text('Rescan'));
+        if (frontFailed) {
+          await tester.tap(find.text('Review front photo'));
+          expect(frontReviews, 1);
+        } else {
+          expect(find.text('Review front photo'), findsNothing);
+        }
+        expect(retry, 1);
+        expect(rescan, 1);
+        expect(used, 0);
+        expect(tester.takeException(), isNull);
+      });
+    }
   }
 }

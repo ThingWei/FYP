@@ -7,7 +7,7 @@ from typing import Any
 
 from .mykad_field_risk import analyse_fields
 from .mykad_document_type import assess_mykad_capture, assess_mykad_sides
-from .mykad_readability import check_side, check_pair, whole_card_lock, CONTRACT as MYKAD_REQUIRED_CONTRACT
+from .mykad_readability import check_side, check_pair, pixel_region, whole_card_lock, CONTRACT as MYKAD_REQUIRED_CONTRACT
 
 from ..schemas import (
     DocumentFrameRequest,
@@ -17,7 +17,7 @@ from ..schemas import (
     VerificationResponse,
 )
 
-DOCUMENT_FRAME_CONTRACT = 'opencv-document-yolo-v4'
+DOCUMENT_FRAME_CONTRACT = 'opencv-document-yolo-v6'
 
 
 def _decode_images(request: VerificationRequest):
@@ -549,28 +549,42 @@ class ImageIntelligenceService:
                     capture_validation['status'] = 'unavailable'
                     guidance = 'MyKad text check is unavailable. Restart the AI service and retry; this image cannot be used yet.'
                 else:
-                    bounds = (max(0, int(x1)), max(0, int(y1)), min(width, int(x2)), min(height, int(y2)))
+                    # Identical rounding for initial capture and later saved-front
+                    # rechecks prevents a one-pixel crop change in required OCR.
+                    bounds = pixel_region((x1, y1, x2, y2), (width, height))
                     capture_validation, private = check_side(
                         image, request.expected_side, reader, _ocr_region_preprocess,
                         _extract_document_fields, _document_yolo_model, bounds, detected_side,
                     )
-                    if request.expected_side == 'back' and capture_validation['accepted']:
-                        if request.reference_front is None:
+                    compare_back = request.expected_side == 'front' and request.reference_back is not None
+                    if capture_validation['accepted'] and (request.expected_side == 'back' or compare_back):
+                        saved_side = 'back' if compare_back else 'front'
+                        saved_image = request.reference_back if compare_back else request.reference_front
+                        if saved_image is None:
                             capture_validation.update(status='front_required', accepted=False,
+                                failedSide='front',
                                 guidance='Scan and upload the front first so both IC numbers can be compared.')
                         else:
-                            reference, _errors = _decode_images(VerificationRequest(images=[request.reference_front]))
+                            reference, _errors = _decode_images(VerificationRequest(images=[saved_image]))
                             if len(reference) != 1:
                                 capture_validation.update(status='unavailable', accepted=False,
-                                    guidance='The saved front image could not be checked. Retry or rescan the front.')
+                                    failedSide=saved_side,
+                                    guidance=f'The saved {saved_side} image could not be checked. Retry or rescan that side.')
                             else:
-                                front_check = check_side(reference[0][1], 'front', reader, _ocr_region_preprocess,
+                                saved_check = check_side(reference[0][1], saved_side, reader, _ocr_region_preprocess,
                                                          _extract_document_fields, _document_yolo_model)
-                                pair, _fields = check_pair(front_check, (capture_validation.copy(), private))
+                                current_check = (capture_validation.copy(), private)
+                                pair, _fields = check_pair(current_check, saved_check) if compare_back else check_pair(saved_check, current_check)
                                 capture_validation['pairMatch'] = pair
                                 capture_validation.update(accepted=pair['accepted'],
                                     status='validated' if pair['accepted'] else pair['status'],
                                     guidance=pair['guidance'])
+                                if not pair['accepted'] and pair.get('failedSide'):
+                                    capture_validation['failedSide'] = pair['failedSide']
+                                    if compare_back and pair['failedSide'] == 'back':
+                                        capture_validation['guidance'] = 'The saved back photo needs attention. Go back and replace the back photo. ' + pair['guidance']
+                                if compare_back and pair['status'] == 'mismatched':
+                                    capture_validation['guidance'] += ' Go back and replace the saved back photo if you are changing the MyKad.'
                     guidance = capture_validation['guidance']
             elif request.expected_side and detected_side and request.expected_side != detected_side:
                 capture_validation['status'] = 'wrong_side'

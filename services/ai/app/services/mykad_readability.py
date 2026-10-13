@@ -11,13 +11,14 @@ from threading import Lock
 from .mykad_field_risk import configured_paths, _threshold, _detector_lock
 from .document_risk_preprocessing import parse_region
 from .mykad_document_type import assess_mykad_capture
+from .mykad_screen import phone_screen_evidence
 
-CONTRACT = 'mykad-required-fields-v1'
+CONTRACT = 'mykad-required-fields-v2'
 OCR_THRESHOLD = 0.60
 REQUIRED = {'front': ('front_identity_number', 'front_name', 'front_address'),
             'back': ('back_identity_number',)}
 READABILITY_MESSAGE = 'Please rescan with your name, IC number and address fully visible.'
-SCREEN_MESSAGE = 'Scan your physical MyKad, not a screenshot or an image displayed on another screen.'
+SCREEN_MESSAGE = 'Scan your physical MyKad, not an image on another screen.'
 PAIR_MESSAGE = 'The front and back IC numbers do not match. Rescan both sides of the same MyKad.'
 whole_card_lock = Lock()
 
@@ -40,6 +41,8 @@ def confident_lines(results):
 
 def screen_evidence(lines):
     text = '\n'.join(lines).upper()
+    # Recover whitespace/line fragments of known UI phrases, never fuzzy arbitrary text.
+    compact = re.sub(r'\s+', '', text)
     patterns = {
         'visual_search': r'\b(?:SEARCH INSIDE IMAGE|SEARCH BY IMAGE|GOOGLE LENS|VISUAL MATCHES)\b',
         'browser_context': r'(?:HTTPS?://|WWW\.)|\b(?:CHROME|OPEN IN BROWSER|GOOGLE IMAGES)\b',
@@ -48,6 +51,12 @@ def screen_evidence(lines):
         'save_action': r'^\s*SAVE\s*$',
     }
     cues = [key for key, pattern in patterns.items() if re.search(pattern, text, re.M)]
+    fragments = {'visual_search': ['SEARCHINSIDEIMAGE', 'SEARCHBYIMAGE', 'GOOGLELENS', 'VISUALMATCHES'],
+                 'browser_context': ['OPENINBROWSER', 'GOOGLEIMAGES'],
+                 'image_results': ['RELATEDIMAGES', 'MOREIMAGES', 'VIEWIMAGE', 'VISITSITE', 'VISITWEBSITE']}
+    for cue, phrases in fragments.items():
+        if cue not in cues and any(phrase in compact for phrase in phrases):
+            cues.append(cue)
     strong = {'visual_search', 'browser_context', 'image_results'}
     detected = len(cues) >= 2 and bool(set(cues) & strong)
     return {'status': 'detected' if detected else 'not_detected', 'cues': cues,
@@ -77,21 +86,76 @@ def meaningful_lines(lines):
             result.append(line)
     return result
 
+
+def field_readable(label, lines):
+    # Never rescue an obstructing UI overlay by selecting a different OCR pass.
+    if any(screen_evidence([line])['cues'] for line in lines):
+        return False
+    if label.endswith('identity_number'):
+        return len(identity_candidates(lines)) == 1
+    meaningful = meaningful_lines(lines)
+    if label.endswith('name'):
+        return bool(meaningful) and sum(c.isalpha() for c in ' '.join(meaningful)) >= 3
+    return bool(meaningful) and len(re.findall(r'\w+', ' '.join(meaningful), re.UNICODE)) >= 3
+
+
+def field_retry_image(crop):
+    """Gentle bounded alternative, same field pixels; no invented details."""
+    import cv2
+    grey = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+    height, width = grey.shape
+    scale = min(3., max(1., 96. / height), max(1., 1600. / max(width, height)))
+    if scale > 1:
+        grey = cv2.resize(grey, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    return cv2.copyMakeBorder(grey, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=255)
+
+
+def read_required_field(crop, label, reader, preprocess):
+    lines = confident_lines(reader.readtext(preprocess(crop), detail=1, paragraph=False))
+    # Ambiguous numbers and observed browser overlays still require a rescan.
+    if field_readable(label, lines) or len(identity_candidates(lines)) > 1 or any(
+            screen_evidence([line])['cues'] for line in lines):
+        return lines, False
+    retry = confident_lines(reader.readtext(field_retry_image(crop),
+        detail=1, paragraph=False, mag_ratio=1.0))
+    # Retain all confident number candidates/cues, never pick a preferred number.
+    # Text fields need a coherent readable pass, not words assembled from two
+    # inadequate readings (for example two different state-name fragments).
+    if label.endswith('identity_number') or any(screen_evidence([line])['cues'] for line in retry):
+        return list(dict.fromkeys(lines + retry)), True
+    return retry if field_readable(label, retry) else lines, True
+
+
+def unreadable_guidance(side, required):
+    failed = [label for label, result in required.items() if not result['readable']]
+    if side == 'back':
+        return 'Please rescan the back with its IC number fully visible and readable.'
+    labels = {'front_identity_number': 'IC number', 'front_name': 'name', 'front_address': 'address'}
+    details = [labels[label] for label in failed]
+    named = details[0] if len(details) == 1 else ', '.join(details[:-1]) + ' and ' + details[-1]
+    return f"I could not read your {named} clearly. Rescan the front with those details fully visible and in focus."
+
 def _required_regions(card, side):
     model = _field_detector(str(configured_paths()[0]))
     threshold = _threshold()
     height, width = card.shape[:2]
-    with _detector_lock:
-        prediction = model.predict(card, verbose=False, conf=threshold, max_det=30)[0]
     regions = {name: [] for name in REQUIRED[side]}
-    for box in prediction.boxes:
-        label = str(prediction.names[int(box.cls.item())])
-        confidence = float(box.conf.item())
-        if label not in regions or not math.isfinite(confidence) or confidence < threshold:
-            continue
-        region = pixel_region(box.xyxy[0].tolist(), (width, height))
-        if region[2] - region[0] >= 8 and region[3] - region[1] >= 6:
-            regions[label].append((confidence, region))
+    def collect(prediction, missing):
+        for box in [] if prediction.boxes is None else prediction.boxes:
+            label = str(prediction.names[int(box.cls.item())])
+            confidence = float(box.conf.item())
+            if label not in missing or not math.isfinite(confidence) or confidence < threshold:
+                continue
+            region = pixel_region(box.xyxy[0].tolist(), (width, height))
+            if region[2] - region[0] >= 8 and region[3] - region[1] >= 6:
+                regions[label].append((confidence, region))
+    with _detector_lock:
+        collect(model.predict(card, verbose=False, conf=threshold, max_det=30, imgsz=640)[0], set(regions))
+        missing = {label for label, boxes in regions.items() if not boxes}
+        if missing:
+            # One higher-resolution attempt for small fields, unchanged confidence
+            # floor and original-image coordinates; no guesses/fixed-layout crops.
+            collect(model.predict(card, verbose=False, conf=threshold, max_det=30, imgsz=960)[0], missing)
     return regions
 
 def pixel_region(value, image_size):
@@ -143,6 +207,15 @@ def check_side(image, side, reader, preprocess, extract, whole_detector,
             evidence.update(status='wrong_side' if detected_side else 'unconfirmed',
                             guidance=f'Scan the MyKad {side} with the entire card visible.')
             return evidence, private
+        evidence['screenCopy']['phoneScreen'] = phone_screen_evidence(image, card_bounds)
+        phone_status = evidence['screenCopy']['phoneScreen']['status']
+        if phone_status == 'unavailable':
+            evidence.update(status='unavailable', guidance='MyKad screen check is unavailable. Retry after the AI service is ready.')
+            return evidence, private
+        if phone_status == 'detected':
+            evidence['screenCopy']['status'] = 'detected'
+            evidence.update(status='screen_copy', guidance=SCREEN_MESSAGE)
+            return evidence, private
         x1, y1, x2, y2 = card_bounds
         card = image[y1:y2, x1:x2]
         card_results = reader.readtext(preprocess(card), detail=1, paragraph=False)
@@ -156,31 +229,26 @@ def check_side(image, side, reader, preprocess, extract, whole_detector,
         regions = _required_regions(card, side)
         field_lines = {}
         for label, detections in regions.items():
-            lines, best_confidence = [], 0
+            lines, best_confidence, retried = [], 0, False
             # All number regions contribute candidates; do not silently select one holder.
             chosen = detections if label.endswith('identity_number') else sorted(detections, reverse=True)[:1]
             for confidence, (left, top, right, bottom) in chosen:
                 crop = card[top:bottom, left:right]
-                lines.extend(confident_lines(reader.readtext(preprocess(crop), detail=1, paragraph=False)))
+                crop_lines, used_retry = read_required_field(crop, label, reader, preprocess)
+                lines.extend(crop_lines)
+                retried = retried or used_retry
                 best_confidence = max(best_confidence, confidence)
             field_lines[label] = lines
-            meaningful = meaningful_lines(lines)
-            readable = bool(identity_candidates(lines)) if label.endswith('identity_number') else bool(meaningful)
-            if label.endswith('name'):
-                readable = bool(meaningful) and sum(c.isalpha() for c in ' '.join(meaningful)) >= 3
-            if label.endswith('address'):
-                # More than a standalone state/overlay: require multiple readable address words.
-                readable = bool(meaningful) and len(re.findall(r'\w+', ' '.join(meaningful), re.UNICODE)) >= 3
-            # Visible browser text inside a required field is an obstructing overlay.
-            if any(screen_evidence([line])['cues'] for line in lines):
-                readable = False
+            readable = field_readable(label, lines)
             evidence['requiredFields'][label] = {'detected': bool(detections), 'readable': readable,
-                                                 'detectionConfidence': round(best_confidence, 4)}
+                                                 'detectionConfidence': round(best_confidence, 4),
+                                                 'ocrRetryUsed': retried}
         numbers = identity_candidates(field_lines[f'{side}_identity_number'])
         evidence['identityNumberStatus'] = 'readable' if len(numbers) == 1 else 'ambiguous' if numbers else 'unreadable'
         if len(numbers) != 1 or not all(field['readable'] for field in evidence['requiredFields'].values()):
-            evidence.update(status='unreadable_fields', guidance=READABILITY_MESSAGE if side == 'front'
-                            else 'Please rescan the back with its IC number fully visible and readable.')
+            evidence.update(status='unreadable_fields',
+                failedFields=[label for label, result in evidence['requiredFields'].items() if not result['readable']],
+                guidance=unreadable_guidance(side, evidence['requiredFields']))
             return evidence, private
         number = next(iter(numbers))
         parsed = extract(number, 'mykad')
@@ -207,11 +275,30 @@ def check_pair(front_result, back_result):
                 'authenticityVerified': False, 'sides': [front, back]}
     if not front.get('accepted') or not back.get('accepted'):
         unavailable = any(side.get('status') == 'unavailable' for side in (front, back))
+        failed_side = 'front' if not front.get('accepted') else 'back'
+        failed = front if failed_side == 'front' else back
+        guidance = failed.get('guidance') or (
+            READABILITY_MESSAGE if failed_side == 'front' else
+            'Please rescan the back with its IC number fully visible and readable.')
+        if failed_side == 'front':
+            guidance = ('The saved front photo could not be checked. Retry the check or go back and replace the front photo.'
+                        if failed.get('status') == 'unavailable' else
+                        'The saved front photo needs attention. Go back and replace the front photo. ' + guidance)
         evidence.update(status='unavailable' if unavailable else 'unconfirmed',
-                        guidance=next((side.get('guidance') for side in (front, back) if not side.get('accepted')),
-                                      READABILITY_MESSAGE))
+                        failedSide=failed_side, guidance=guidance)
         return evidence, {}
-    if front_fields.get('identityNumber') != back_fields.get('identityNumber'):
+    # Equality of missing values (None == None) must never establish a match.
+    for side, fields in (('front', front_fields), ('back', back_fields)):
+        number = fields.get('identityNumber')
+        if not isinstance(number, str) or re.fullmatch(r'[0-9]{12}', number) is None:
+            evidence.update(status='unconfirmed', failedSide=side,
+                guidance=f'Please rescan the {side} with its IC number fully visible and readable.')
+            return evidence, {}
+    if front_fields.get('identityNumberFormatValid') is not True:
+        evidence.update(status='unconfirmed', failedSide='front',
+            guidance='Please rescan the front IC number clearly.')
+        return evidence, {}
+    if front_fields['identityNumber'] != back_fields['identityNumber']:
         evidence.update(status='mismatched', guidance=PAIR_MESSAGE)
         return evidence, {}
     evidence.update(status='matched', accepted=True,

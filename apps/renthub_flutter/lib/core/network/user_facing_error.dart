@@ -35,6 +35,20 @@ class UserFacingError {
             'Verify your MyKad before renting or publishing a listing.',
         'IDENTITY_VERIFICATION_REQUIRED':
             'Verify your identity before continuing.',
+        'MYKAD_ALREADY_LINKED':
+            'This MyKad is already linked to another account. Use your existing account or contact support.',
+        'IDENTITY_BINDING_NOT_CONFIGURED':
+            'MyKad account linking is not ready. Please contact support and try again later.',
+        'IDENTITY_BINDING_INDEX_MISSING':
+            'MyKad account linking is not ready. Please contact support and try again later.',
+        'IDENTITY_BINDING_KEY_MISMATCH':
+            'MyKad account linking needs maintenance. Please contact support.',
+        'IDENTITY_BINDING_ATTEMPT_INVALID':
+            'Please resubmit both sides of your MyKad before review.',
+        'IDENTITY_BINDING_CHANGE_FORBIDDEN':
+            'This account already has a linked identity. Contact support for help.',
+        'STALE_VERIFICATION_ATTEMPT':
+            'This submission has changed. Refresh and review the latest attempt.',
         'ITEM_IMAGES_REQUIRED':
             'Add at least three clear photos of the item before submitting.',
         'ITEM_VERIFICATION_REQUIRED':
