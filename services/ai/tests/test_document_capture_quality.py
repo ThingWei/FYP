@@ -98,7 +98,7 @@ def test_good_aligned_portrait_reaches_ocr_not_resolution_rescan(monkeypatch):
     install_detector(monkeypatch, sharp_image())
     frame, final = inspect(), submit()
     assert frame.ready is True
-    assert frame.adapter == 'opencv-document-yolo-v3'
+    assert frame.adapter == 'opencv-document-yolo-v4'
     assert frame.guidance == 'Ready to capture'
     assert frame.quality['issues'] == []
     assert final.outcome == 'unavailable'  # Our deliberately missing OCR, not quality.
@@ -125,7 +125,7 @@ def test_missing_detector_remains_explicit(monkeypatch):
     monkeypatch.setattr(intelligence, '_document_yolo_model', lambda: (None, None))
     result = inspect()
     assert result.available is False and result.ready is False
-    assert result.adapter == 'opencv-document-yolo-v3'
+    assert result.adapter == 'opencv-document-yolo-v4'
     assert result.guide_box is not None
 
 
@@ -172,14 +172,16 @@ def test_high_yolo_confidence_never_accepts_wrong_or_unknown_capture(monkeypatch
     ('back', 'MALAYSIA\nKETUA PENGARAH PENDAFTARAN NEGARA'),
     ('back', 'MYKAD\nKETUA PENGARAH PENDAFTARAN NEGARA'),
 ])
-def test_positive_matching_capture_can_be_used_but_not_identity_approved(monkeypatch, side, text):
+def test_heading_only_capture_is_insufficient_without_required_fields_and_pair(monkeypatch, side, text):
+    from app.services import mykad_readability as gate
+    monkeypatch.setattr(gate, '_required_regions', lambda card, selected: {field: [] for field in gate.REQUIRED[selected]})
     install_detector(monkeypatch, sharp_image(), side=side)
     install_ocr(monkeypatch, text)
     result = inspect(side, validate_capture=True)
-    assert result.ready is True
+    assert result.ready is False
     assert result.detected_side == side
-    assert result.capture_validation['status'] == 'validated'
-    assert result.capture_validation['accepted'] is True
+    assert result.capture_validation['status'] == 'unreadable_fields'
+    assert result.capture_validation['accepted'] is False
     assert result.capture_validation['authenticityVerified'] is False
 
 

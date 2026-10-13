@@ -51,11 +51,21 @@ Assert-Launcher (-not (Test-RentHubAiCompatible @{
     status = 'ok'; document_frame_contract = 'opencv-document-yolo-v1'
 })) 'Old contract must fail'
 Assert-Launcher (-not (Test-RentHubAiCompatible @{
-    status = 'error'; document_frame_contract = 'opencv-document-yolo-v3'
+    status = 'error'; document_frame_contract = 'opencv-document-yolo-v4'
 })) 'Unhealthy service must fail'
 Assert-Launcher (Test-RentHubAiCompatible @{
-    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v3'
+    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v4'
 }) 'Current contract must pass'
+
+Assert-Launcher (-not (Test-RentHubAiCompatible @{
+    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v3'
+})) 'Old heading-only scanner contract must fail'
+
+# Verify compatibility against the actual service constant, without importing models.
+$contractSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot '..\..\..\services\ai\app\services\image_intelligence.py')
+$serviceContract = [regex]::Match($contractSource, "DOCUMENT_FRAME_CONTRACT = '([^']+)'").Groups[1].Value
+Assert-Launcher (-not [string]::IsNullOrWhiteSpace($serviceContract)) 'Service scanner contract must be discoverable'
+Assert-Launcher (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract }) 'Launcher must accept the current Python service contract, not a stale hardcoded version'
 
 Assert-Launcher (-not (Test-RentHubAiCompatible @{
     status = 'ok'; document_frame_contract = 'opencv-document-yolo-v2'
@@ -71,6 +81,8 @@ $script:apiHealthFixture.data.capabilities += 'mandatory-identity-access-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without listing maps and push status must fail'
 $script:apiHealthFixture.data.capabilities += 'listing-maps-push-status-v1'
 $script:apiHealthFixture.data.capabilities += 'precise-locations-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without mandatory MyKad readability/pair checks must fail'
+$script:apiHealthFixture.data.capabilities += 'mykad-readability-pair-v1'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'

@@ -156,6 +156,8 @@ def test_loader_rejects_artifacts_without_field_provenance(tmp_path):
 
 @pytest.mark.parametrize('logits', [(-2.0, 2.0), (2.0, -2.0)])
 def test_low_and_high_synthetic_signals_never_approve_mykad(monkeypatch, images, logits):
+    from test_mykad_readability import accepted_check
+    monkeypatch.setattr(intelligence, 'check_side', lambda image, side, *args: accepted_check(side))
     stub_bundle(monkeypatch, [[box(0)], [box(2)]], logits)
     monkeypatch.setattr(intelligence, '_decode_images', lambda request: ([(None, im) for im in images], []))
     monkeypatch.setattr(intelligence, '_quality', lambda image: {

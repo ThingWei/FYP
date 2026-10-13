@@ -36,6 +36,7 @@ import { emailClient } from '../src/integrations/emailClient.js';
 import { aiClient } from '../src/integrations/aiClient.js';
 import { env } from '../src/config/env.js';
 import { identityFromPayload } from '../src/middleware/auth.js';
+import { validMykadFields } from './helpers/mykad.js';
 
 let mongodb;
 const runFile = promisify(execFile);
@@ -602,7 +603,11 @@ test('validates profile updates and role switching', async () => {
   assert.equal(refreshed.body.data.displayName, 'Alex T.');
 });
 
-test('submits and reviews identity verification with audit and notification', async () => {
+test('submits and reviews identity verification with audit and notification', async (t) => {
+  t.mock.method(aiClient, 'verifyDocument', async ({ documentType }) => ({
+    accepted: false, outcome: 'manual_review', confidence: 0.95,
+    extracted_fields: documentType === 'mykad' ? validMykadFields() : { documentType },
+  }));
   const owner = identity({
     id: 'u-verification-owner',
     email: 'verification-owner@renthub.my',
@@ -867,7 +872,7 @@ async function syntheticMykadAccount(t) {
   let licenceIdentity = '900101-07-1234';
   t.mock.method(aiClient, 'verifyDocument', async ({ documentType }) => ({
     accepted: false, outcome: 'manual_review', confidence: 0,
-    extracted_fields: { documentType, identityNumber: documentType === 'mykad' ? '900101-07-1234' : licenceIdentity,
+    extracted_fields: { ...(documentType === 'mykad' ? validMykadFields() : {}), documentType, identityNumber: documentType === 'mykad' ? '900101-07-1234' : licenceIdentity,
       identityNumberFormatValid: true, licenceClass: 'D', expiryDateText: '01/01/2035' },
     ocr_text: 'Synthetic OCR fixture only',
   }));
@@ -898,7 +903,7 @@ test('synthetic field-risk evidence stays pending and is persisted without raw O
   t.mock.method(aiClient, 'verifyDocument', async () => ({
     accepted: false, outcome: 'manual_review', confidence: 0.95,
     ocr_text: 'Synthetic private OCR fixture',
-    extracted_fields: { documentType: 'mykad', identityNumber: '900101-07-1234', identityNumberFormatValid: true,
+    extracted_fields: { ...validMykadFields(), documentType: 'mykad', identityNumber: '900101-07-1234', identityNumberFormatValid: true,
       documentTypeValidation: { status: 'plausible_mykad', authenticityVerified: false },
       documentFieldRisk: advisory, requiresAdminReview: true },
     reasons: ['Synthetic research only; administrator review required'],

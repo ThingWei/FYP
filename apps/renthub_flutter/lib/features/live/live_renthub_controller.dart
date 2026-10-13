@@ -139,6 +139,7 @@ class LiveRentHubController extends ChangeNotifier {
     String documentType, {
     String? expectedSide,
     bool validateCapture = false,
+    String? frontDocumentRef,
   }) async =>
       Map<String, dynamic>.from(
         await api.request(
@@ -150,6 +151,7 @@ class LiveRentHubController extends ChangeNotifier {
             'documentType': documentType,
             if (expectedSide != null) 'expectedSide': expectedSide,
             'validateCapture': validateCapture,
+            if (frontDocumentRef != null) 'frontDocumentRef': frontDocumentRef,
           },
         ) as Map,
       );
@@ -180,11 +182,21 @@ class LiveRentHubController extends ChangeNotifier {
     return refreshed;
   }
 
-  Future<void> deleteUpload(String reference) async {
+  Future<void> deleteUpload(String reference,
+      {bool preserveInUse = false}) async {
     final match =
         RegExp(r'UPL-[A-Z0-9]+', caseSensitive: false).firstMatch(reference);
     if (match == null) return;
-    await api.request('DELETE', '/uploads/${match.group(0)}');
+    try {
+      await api.request('DELETE', '/uploads/${match.group(0)}');
+    } on ApiException catch (exception) {
+      // Detach a KYC draft without deleting protected verification-history evidence.
+      if (!preserveInUse ||
+          exception.status != 409 ||
+          exception.code != 'UPLOAD_IN_USE') {
+        rethrow;
+      }
+    }
   }
 
   Future<Uint8List> downloadProtectedUpload(String reference) {

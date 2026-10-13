@@ -62,16 +62,18 @@ export const aiClient = {
       profile_name: profileName,
       review_threshold: reviewThreshold,
       minimum_age: minimumAge,
-    }, unavailableVerification('AI service could not analyse the identity document'));
+    }, unavailableVerification('AI service could not analyse the identity document'),
+    documentType === 'mykad' ? { timeout: Math.max(env.aiTimeoutMs, 90000) } : {});
   },
 
-  inspectDocumentFrame({ contentBase64, contentType, documentType, expectedSide, validateCapture = false }) {
+  inspectDocumentFrame({ contentBase64, contentType, documentType, expectedSide, validateCapture = false, referenceFront }) {
     return request('/verify/document-frame', {
       content_base64: contentBase64,
       content_type: contentType,
       expected_type: documentType,
       expected_side: expectedSide,
       validate_capture: validateCapture,
+      ...(referenceFront && { reference_front: referenceFront }),
     }, {
       available: false,
       detected: false,
@@ -82,7 +84,7 @@ export const aiClient = {
       bounding_box: null,
       adapter: 'document-detector-unavailable',
       capture_validation: { status: 'unavailable', accepted: false },
-    }, validateCapture ? { timeout: Math.max(env.aiTimeoutMs, 45000) } : {});
+    }, validateCapture ? { timeout: Math.max(env.aiTimeoutMs, 75000) } : {});
   },
 
   async verifyItem({ images, category, subcategory, condition, listingType }) {

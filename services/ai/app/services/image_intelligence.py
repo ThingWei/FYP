@@ -7,6 +7,7 @@ from typing import Any
 
 from .mykad_field_risk import analyse_fields
 from .mykad_document_type import assess_mykad_capture, assess_mykad_sides
+from .mykad_readability import check_side, check_pair, whole_card_lock, CONTRACT as MYKAD_REQUIRED_CONTRACT
 
 from ..schemas import (
     DocumentFrameRequest,
@@ -16,7 +17,7 @@ from ..schemas import (
     VerificationResponse,
 )
 
-DOCUMENT_FRAME_CONTRACT = 'opencv-document-yolo-v3'
+DOCUMENT_FRAME_CONTRACT = 'opencv-document-yolo-v4'
 
 
 def _decode_images(request: VerificationRequest):
@@ -127,10 +128,14 @@ def _document_crop(image):
 
 
 def _ocr_preprocess(image):
+    return _ocr_region_preprocess(_document_crop(image))
+
+
+def _ocr_region_preprocess(image):
+    """Keep the full scene/selected field: auto-cropping would hide browser cues."""
     import cv2
 
-    cropped = _document_crop(image)
-    grey = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     contrasted = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(grey)
     return cv2.addWeighted(contrasted, 1.5, cv2.GaussianBlur(contrasted, (0, 0), 2), -0.5, 0)
 
@@ -488,7 +493,8 @@ class ImageIntelligenceService:
                 guidance='Document detector unavailable. Use manual capture.',
                 quality=quality, guide_box=guide, adapter=DOCUMENT_FRAME_CONTRACT,
             )
-        prediction = detector.predict(image, verbose=False)[0]
+        with whole_card_lock:
+            prediction = detector.predict(image, verbose=False)[0]
         if not prediction.boxes or len(prediction.boxes) == 0:
             return DocumentFrameResponse(
                 available=True, detected=False, ready=False, confidence=0,
@@ -543,19 +549,29 @@ class ImageIntelligenceService:
                     capture_validation['status'] = 'unavailable'
                     guidance = 'MyKad text check is unavailable. Restart the AI service and retry; this image cannot be used yet.'
                 else:
-                    try:
-                        crop = image[max(0, int(y1)):min(height, int(y2)),
-                                     max(0, int(x1)):min(width, int(x2))]
-                        results = reader.readtext(_ocr_preprocess(crop), detail=1, paragraph=False)
-                        text = '\n'.join(str(item[1]) for item in results)
-                        certain = '\n'.join(str(item[1]) for item in results if float(item[2]) >= 0.6)
-                        capture_validation, guidance = assess_mykad_capture(
-                            text, certain, _extract_document_fields(text, 'mykad'),
-                            _extract_document_fields(certain, 'mykad'), request.expected_side, detected_side,
-                        )
-                    except Exception:
-                        capture_validation['status'] = 'unavailable'
-                        guidance = 'MyKad text check failed. Retry the check or rescan with clearer text.'
+                    bounds = (max(0, int(x1)), max(0, int(y1)), min(width, int(x2)), min(height, int(y2)))
+                    capture_validation, private = check_side(
+                        image, request.expected_side, reader, _ocr_region_preprocess,
+                        _extract_document_fields, _document_yolo_model, bounds, detected_side,
+                    )
+                    if request.expected_side == 'back' and capture_validation['accepted']:
+                        if request.reference_front is None:
+                            capture_validation.update(status='front_required', accepted=False,
+                                guidance='Scan and upload the front first so both IC numbers can be compared.')
+                        else:
+                            reference, _errors = _decode_images(VerificationRequest(images=[request.reference_front]))
+                            if len(reference) != 1:
+                                capture_validation.update(status='unavailable', accepted=False,
+                                    guidance='The saved front image could not be checked. Retry or rescan the front.')
+                            else:
+                                front_check = check_side(reference[0][1], 'front', reader, _ocr_region_preprocess,
+                                                         _extract_document_fields, _document_yolo_model)
+                                pair, _fields = check_pair(front_check, (capture_validation.copy(), private))
+                                capture_validation['pairMatch'] = pair
+                                capture_validation.update(accepted=pair['accepted'],
+                                    status='validated' if pair['accepted'] else pair['status'],
+                                    guidance=pair['guidance'])
+                    guidance = capture_validation['guidance']
             elif request.expected_side and detected_side and request.expected_side != detected_side:
                 capture_validation['status'] = 'wrong_side'
             ready = capture_validation['accepted'] is True
@@ -659,17 +675,25 @@ class ImageIntelligenceService:
                     extracted_fields=safe_fields,
                     model_versions={'ocr': 'easyocr-1.7', 'documentType': 'ocr-type-evidence-v1'},
                 )
-            side_holder_ids = [{
-                re.sub(r'\D', '', value)
-                for value in re.findall(r'\b\d{6}[- \t]?\d{2}[- \t]?\d{4}\b', image_text)
-                if _valid_mykad_birth_date(value) is not None
-            } for image_text in texts]
-            holder_ids = set().union(*side_holder_ids)
-            fields['mykadSidesConsistent'] = (
-                len(holder_ids) == 1 if all(side_holder_ids) else None
-            )
-            if len(holder_ids) > 1:
-                reasons.append('MyKad sides contain inconsistent holder identity numbers')
+            if len(decoded) != 2:
+                return VerificationResponse(accepted=False, outcome='rescan_required', confidence=0,
+                    reasons=['Scan distinct MyKad front and back images.'], adapter=MYKAD_REQUIRED_CONTRACT,
+                    extracted_fields={'mandatoryMykadValidation': {'method': MYKAD_REQUIRED_CONTRACT,
+                                      'status': 'unconfirmed', 'accepted': False}})
+            checks = [check_side(image, side, reader, _ocr_region_preprocess, _extract_document_fields,
+                                 _document_yolo_model)
+                      for side, (_encoded, image) in zip(('front', 'back'), decoded)]
+            mandatory, mandatory_fields = check_pair(*checks)
+            if not mandatory['accepted']:
+                return VerificationResponse(
+                    accepted=False, outcome='unavailable' if mandatory['status'] == 'unavailable' else 'rescan_required',
+                    confidence=0, reasons=[mandatory['guidance']], adapter=MYKAD_REQUIRED_CONTRACT,
+                    quality={'images': qualities},
+                    extracted_fields={'mandatoryMykadValidation': mandatory,
+                        'mykadSidesConsistent': False if mandatory['status'] == 'mismatched' else None})
+            fields.update(mandatory_fields)
+            fields['mandatoryMykadValidation'] = mandatory
+            fields['mykadSidesConsistent'] = True
         if not fields.get('identityNumber'):
             reasons.append('A supported identity number was not detected')
         detected_type = fields.get('documentType')

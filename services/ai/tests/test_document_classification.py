@@ -182,23 +182,22 @@ def test_invalid_ic_birth_segment_and_expired_licence_stay_manual(analyse_ocr):
     assert result['outcome'] == 'manual_review'
 
 
-def test_mykad_front_back_both_contribute_evidence_and_missing_model_stays_manual(analyse_ocr):
+def test_mykad_missing_mandatory_model_cannot_enter_manual_approval(analyse_ocr):
     result = analyse_ocr([MYKAD, 'MALAYSIA\nALAMAT SYNTHETIC ADDRESS'], 'mykad')
-    assert result['extracted_fields']['documentType'] == 'mykad'
     assert result['extracted_fields']['mykadSidesConsistent'] is None
-    assert result['extracted_fields']['documentTypeValidation']['status'] == 'plausible_mykad'
-    assert [image['side'] for image in result['quality']['ocr']] == ['front', 'back']
-    assert all(image['hasTextEvidence'] for image in result['quality']['ocr'])
-    assert result['extracted_fields']['documentRiskModel'] == 'unavailable'
-    assert result['outcome'] == 'manual_review'
+    assert result['extracted_fields']['mandatoryMykadValidation']['status'] == 'unavailable'
+    assert result['outcome'] == 'unavailable'
     assert result['accepted'] is False
 
 
 @pytest.mark.parametrize('back,reason,outcome', [
     ('', 'no readable OCR', 'rescan_required'),
-    ('MYKAD\n910101-07-1234', 'inconsistent holder', 'manual_review'),
+    ('MYKAD\n910101-07-1234', 'do not match', 'rescan_required'),
 ])
-def test_mykad_unreadable_or_inconsistent_second_side_is_flagged(analyse_ocr, back, reason, outcome):
+def test_mykad_unreadable_or_inconsistent_second_side_is_flagged(analyse_ocr, back, reason, outcome, monkeypatch):
+    from test_mykad_readability import accepted_check
+    monkeypatch.setattr(intelligence, 'check_side', lambda image, side, *args:
+                        accepted_check(side, '910101071234' if side == 'back' else '900101071234'))
     result = analyse_ocr([MYKAD, back], 'mykad')
     assert any(reason in message for message in result['reasons'])
     assert result['outcome'] == outcome
@@ -255,11 +254,13 @@ def test_low_confidence_payment_cues_do_not_make_a_wrong_document_verdict(analys
 
 def test_payment_logo_alone_does_not_reject_plausible_mykad(analyse_ocr):
     result = analyse_ocr([MYKAD, 'MALAYSIA\nVISA'], 'mykad')
-    assert result['outcome'] == 'manual_review'
+    assert result['outcome'] == 'unavailable'  # Mandatory field models are missing in this fixture.
     assert result['accepted'] is False
 
 
-def test_spaced_identity_number_and_both_sides_match_are_preserved(analyse_ocr):
+def test_spaced_identity_number_and_both_sides_match_are_preserved(analyse_ocr, monkeypatch):
+    from test_mykad_readability import accepted_check
+    monkeypatch.setattr(intelligence, 'check_side', lambda image, side, *args: accepted_check(side))
     result = analyse_ocr([MYKAD.replace('900101-07-1234', '900101 07 1234'),
                           'MALAYSIA\n900101-07-1234'], 'mykad')
     assert result['outcome'] == 'manual_review'

@@ -45,6 +45,7 @@ class DocumentFrameRequest(BaseModel):
     expected_type: Literal['mykad', 'passport', 'driving_licence']
     expected_side: Literal['front', 'back'] | None = None
     validate_capture: bool = False
+    reference_front: EncodedImage | None = None
 
 
 class DocumentFrameResponse(BaseModel):

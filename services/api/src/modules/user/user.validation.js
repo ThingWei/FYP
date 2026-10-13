@@ -188,7 +188,7 @@ export const verificationDecisionValidation = [
 
 export const verificationFrameValidation = [
   body().custom((value) => {
-    const allowed = new Set(['contentBase64', 'contentType', 'documentType', 'expectedSide', 'validateCapture']);
+    const allowed = new Set(['contentBase64', 'contentType', 'documentType', 'expectedSide', 'validateCapture', 'frontDocumentRef']);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
@@ -198,9 +198,13 @@ export const verificationFrameValidation = [
   body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
   body('expectedSide').optional().isIn(['front', 'back']),
   body('validateCapture').optional().custom((value) => typeof value === 'boolean'),
+  body('frontDocumentRef').optional().isString().matches(/^upload:\/\/UPL-[A-Z0-9]+$/),
   body().custom((value) => {
     if (value.documentType === 'mykad' && value.validateCapture && !value.expectedSide) {
       throw new Error('MyKad capture validation requires the expected front/back side');
+    }
+    if (value.frontDocumentRef && (value.documentType !== 'mykad' || value.expectedSide !== 'back' || value.validateCapture !== true)) {
+      throw new Error('Front image reference is only used for the final MyKad back check');
     }
     return true;
   }),

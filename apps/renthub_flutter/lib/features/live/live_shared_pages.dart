@@ -1,3 +1,4 @@
+import '../../core/verification/mykad_draft.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -1517,7 +1518,15 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
   }
 
   bool submitting = false;
-  final List<String> documentRefs = [];
+  final MykadDraft mykadDraft = MykadDraft();
+  final List<String> otherDocumentRefs = [];
+  List<String> get documentRefs =>
+      documentType == 'mykad' ? mykadDraft.references : otherDocumentRefs;
+  int draftGeneration = 0;
+  KycCapturedDocument? pendingCapture;
+  String? pendingSide, pendingType;
+  int pendingGeneration = 0, pendingSlotGeneration = 0;
+  bool captureUploading = false;
 
   int get requiredDocuments => documentType == 'mykad' ? 2 : 1;
 
@@ -1529,10 +1538,15 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
       };
 
   Future<void> _scanDocument() async {
-    if (documentRefs.length >= requiredDocuments) return;
+    if (captureUploading || documentRefs.length >= requiredDocuments) return;
     final controller = context.read<LiveRentHubController>();
+    final requestedSide = mykadDraft.nextSide;
+    final frontReference = mykadDraft.front;
+    final generation = draftGeneration;
+    final slotGeneration = mykadDraft.generation;
+    final typeAtStart = documentType;
     final side = documentType == 'mykad'
-        ? (documentRefs.isEmpty ? 'MyKad Front' : 'MyKad Back')
+        ? (requestedSide == 'front' ? 'MyKad Front' : 'MyKad Back')
         : documentLabel;
     final captured = await Navigator.push<KycCapturedDocument>(
       context,
@@ -1540,13 +1554,12 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
         builder: (_) => LiveKycScannerPage(
           documentType: documentType,
           sideLabel: side,
-          expectedSide: documentType == 'mykad'
-              ? (documentRefs.isEmpty ? 'front' : 'back')
-              : null,
+          expectedSide: documentType == 'mykad' ? requestedSide : null,
           validateCapture: (bytes, type) => controller.inspectVerificationFrame(
             bytes,
             type,
-            expectedSide: documentRefs.isEmpty ? 'front' : 'back',
+            expectedSide: requestedSide,
+            frontDocumentRef: requestedSide == 'back' ? frontReference : null,
             validateCapture: true,
           ),
           analyzeFrame: documentType == 'driving_licence'
@@ -1559,35 +1572,91 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
               : (bytes, type) => controller.inspectVerificationFrame(
                     bytes,
                     type,
-                    expectedSide: type == 'mykad'
-                        ? (documentRefs.isEmpty ? 'front' : 'back')
-                        : null,
+                    expectedSide: type == 'mykad' ? requestedSide : null,
                   ),
         ),
       ),
     );
-    if (captured == null || !mounted) return;
+    if (captured == null ||
+        !mounted ||
+        generation != draftGeneration ||
+        typeAtStart != documentType) {
+      return;
+    }
+    setState(() {
+      pendingCapture = captured;
+      pendingSide = requestedSide;
+      pendingType = typeAtStart;
+      pendingGeneration = generation;
+      pendingSlotGeneration = slotGeneration;
+    });
+    await _uploadPendingCapture();
+  }
+
+  Future<void> _uploadPendingCapture() async {
+    final captured = pendingCapture;
+    if (captured == null ||
+        captureUploading ||
+        pendingGeneration != draftGeneration ||
+        pendingType != documentType) {
+      return;
+    }
+    final generation = pendingGeneration;
+    final typeAtStart = pendingType;
+    final requestedSide = pendingSide;
+    final slotGeneration = pendingSlotGeneration;
+    setState(() => captureUploading = true);
     try {
-      final reference = await controller.uploadVerificationCapture(
-        captured.bytes,
-        filename: captured.filename,
-      );
-      if (mounted) setState(() => documentRefs.add(reference));
+      final reference = await context
+          .read<LiveRentHubController>()
+          .uploadVerificationCapture(captured.bytes,
+              filename: captured.filename);
+      if (mounted &&
+          generation == draftGeneration &&
+          typeAtStart == documentType) {
+        setState(() {
+          if (documentType == 'mykad') {
+            mykadDraft.store(requestedSide!, reference, slotGeneration,
+                matched: requestedSide == 'back');
+          } else {
+            otherDocumentRefs.add(reference);
+          }
+          draftGeneration++;
+          pendingCapture = null;
+        });
+      }
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
+    } finally {
+      if (mounted) setState(() => captureUploading = false);
     }
   }
 
   Future<void> _pickDocument() async {
-    if (documentRefs.length >= requiredDocuments) return;
+    if (captureUploading || documentRefs.length >= requiredDocuments) return;
+    final generation = draftGeneration;
+    final slotGeneration = mykadDraft.generation;
+    final requestedSide = mykadDraft.nextSide;
+    final typeAtStart = documentType;
     try {
       final reference =
           await pickAndPreviewUpload(context, purpose: 'verification_document');
-      if (reference != null && mounted) {
-        setState(() => documentRefs.add(reference));
+      if (reference != null &&
+          mounted &&
+          generation == draftGeneration &&
+          typeAtStart == documentType) {
+        setState(() {
+          if (documentType == 'mykad') {
+            mykadDraft.store(requestedSide!, reference, slotGeneration);
+          } else {
+            otherDocumentRefs.add(reference);
+          }
+          draftGeneration++;
+          pendingCapture = null;
+        });
       }
     } catch (exception) {
       if (mounted) {
@@ -1599,9 +1668,22 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
 
   Future<void> _removeDocument(int index) async {
     final reference = documentRefs[index];
+    final generation = draftGeneration;
     try {
-      await context.read<LiveRentHubController>().deleteUpload(reference);
-      if (mounted) setState(() => documentRefs.remove(reference));
+      await context
+          .read<LiveRentHubController>()
+          .deleteUpload(reference, preserveInUse: true);
+      if (mounted && generation == draftGeneration) {
+        setState(() {
+          if (documentType == 'mykad') {
+            mykadDraft.remove(reference);
+          } else {
+            otherDocumentRefs.remove(reference);
+          }
+          draftGeneration++;
+          pendingCapture = null;
+        });
+      }
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1734,11 +1816,14 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                 ),
               ],
-              onChanged: submitting
+              onChanged: submitting || captureUploading
                   ? null
                   : (value) => setState(() {
                         documentType = value ?? 'mykad';
-                        documentRefs.clear();
+                        mykadDraft.clear();
+                        otherDocumentRefs.clear();
+                        draftGeneration++;
+                        pendingCapture = null;
                       }),
             ),
             const SizedBox(height: 16),
@@ -1759,12 +1844,13 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                       Text(
                         documentType == 'driving_licence'
                             ? 'Provide your own licence or MyJPJ e-LMM screenshot. RentHub administrators review holder identity, class and validity. No JPJ API or QR validation.'
-                            : 'Upload distinct MyKad front and back images. Both sides are analysed; final identity approval is by an administrator, not government authentication.',
+                            : 'Scan your physical MyKad. Keep your name, IC number and address visible. Front and back numbers must match. Administrator review is still required.',
                         style: TextStyle(color: AppColors.secondaryText),
                       ),
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         onPressed: submitting ||
+                                captureUploading ||
                                 documentRefs.length >= requiredDocuments
                             ? null
                             : _scanDocument,
@@ -1779,6 +1865,13 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                   ),
                 ),
               ),
+              if (pendingCapture != null) ...[
+                const SizedBox(height: 12),
+                KycCaptureUploadRetry(
+                    bytes: pendingCapture!.bytes,
+                    uploading: captureUploading,
+                    onRetry: _uploadPendingCapture),
+              ],
               const SizedBox(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -1792,7 +1885,9 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                 trailing: documentRefs.length < requiredDocuments
                     ? IconButton(
                         tooltip: 'Upload document image',
-                        onPressed: submitting ? null : _pickDocument,
+                        onPressed: submitting || captureUploading
+                            ? null
+                            : _pickDocument,
                         icon: const Icon(Icons.add_photo_alternate_outlined),
                       )
                     : const Icon(Icons.check_circle, color: AppColors.success),
@@ -1801,16 +1896,21 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                 PhotoAttachmentTile(
                   reference: documentRefs[index],
                   label: documentType == 'mykad'
-                      ? (index == 0 ? 'MyKad front' : 'MyKad back')
+                      ? (mykadDraft.sideOf(documentRefs[index]) == 'front'
+                          ? 'MyKad front'
+                          : 'MyKad back')
                       : 'Driving licence / MyJPJ evidence',
-                  onRemove: submitting ? null : () => _removeDocument(index),
+                  onRemove: submitting || captureUploading
+                      ? null
+                      : () => _removeDocument(index),
                 ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed:
-                    submitting || documentRefs.length != requiredDocuments
-                        ? null
-                        : _submit,
+                onPressed: submitting ||
+                        captureUploading ||
+                        documentRefs.length != requiredDocuments
+                    ? null
+                    : _submit,
                 icon: const Icon(Icons.upload_file_outlined),
                 label: Text(
                   submitting ? 'Submitting…' : 'Submit for Review',

@@ -10,19 +10,34 @@ import '../../core/theme/app_theme.dart';
 
 bool kycFrameRequiresServiceRestart(Map<String, dynamic> result) =>
     result['available'] == true &&
-    result['adapter'] != 'opencv-document-yolo-v3';
+    result['adapter'] != 'opencv-document-yolo-v4';
 
 bool kycCaptureCanUse(Map<String, dynamic>? result, String? expectedSide) {
   final validation = result?['capture_validation'];
   return expectedSide != null &&
-      result?['adapter'] == 'opencv-document-yolo-v3' &&
+      result?['adapter'] == 'opencv-document-yolo-v4' &&
       result?['available'] == true &&
       result?['ready'] == true &&
       validation is Map &&
       validation['status'] == 'validated' &&
       validation['accepted'] == true &&
       validation['expectedSide'] == expectedSide &&
-      validation['detectedSide'] == expectedSide;
+      validation['detectedSide'] == expectedSide &&
+      validation['method'] == 'mykad-required-fields-v1' &&
+      validation['requiredFields'] is Map &&
+      (expectedSide == 'front'
+              ? ['front_identity_number', 'front_name', 'front_address']
+              : ['back_identity_number'])
+          .every((field) =>
+              validation['requiredFields'][field] is Map &&
+              validation['requiredFields'][field]['detected'] == true &&
+              validation['requiredFields'][field]['readable'] == true) &&
+      validation['screenCopy'] is Map &&
+      validation['screenCopy']['status'] == 'not_detected' &&
+      (expectedSide != 'back' ||
+          validation['pairMatch'] is Map &&
+              validation['pairMatch']['status'] == 'matched' &&
+              validation['pairMatch']['accepted'] == true);
 }
 
 class KycCaptureActions extends StatelessWidget {
@@ -135,6 +150,42 @@ typedef KycFrameAnalyzer = Future<Map<String, dynamic>> Function(
   Uint8List bytes,
   String documentType,
 );
+
+class KycCaptureUploadRetry extends StatelessWidget {
+  const KycCaptureUploadRetry(
+      {super.key,
+      required this.bytes,
+      required this.uploading,
+      required this.onRetry});
+  final Uint8List bytes;
+  final bool uploading;
+  final VoidCallback onRetry;
+  @override
+  Widget build(BuildContext context) => Card(
+      child: Padding(
+          padding: const EdgeInsets.all(16),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Text('Your checked photo is kept until its upload succeeds.'),
+            const SizedBox(height: 8),
+            SizedBox(
+                height: 160,
+                child: Image.memory(bytes,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.image_outlined))),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+                onPressed: uploading ? null : onRetry,
+                icon: uploading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.cloud_upload_outlined),
+                label: Text(uploading ? 'Uploading...' : 'Retry photo upload')),
+          ])));
+}
 
 class KycCapturedDocument {
   const KycCapturedDocument(this.bytes, this.filename);
@@ -376,7 +427,7 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
     try {
       if (validator == null) throw StateError('Capture validator unavailable');
       final result = await validator(image.bytes, widget.documentType)
-          .timeout(const Duration(seconds: 50));
+          .timeout(const Duration(seconds: 80));
       if (!mounted || generation != captureGeneration) return;
       setState(() {
         captureCheck = result;

@@ -66,6 +66,7 @@ function privateSafeAiEvidence(analysis) {
   const evidence = JSON.parse(JSON.stringify(analysis ?? {}));
   delete evidence.ocr_text;
   delete evidence.ocrText;
+  delete evidence.error;
   const fields = evidence.extracted_fields ?? evidence.extractedFields;
   if (fields) {
     for (const key of [
@@ -103,6 +104,18 @@ function aggregateVerificationStatus(verification) {
 
 function requiresVerificationResubmission(analysis, expectedType) {
   const fields = analysis?.extracted_fields ?? analysis?.extractedFields ?? {};
+  if (expectedType === 'mykad') {
+    const mandatory = fields.mandatoryMykadValidation;
+    if (fields.mykadSidesConsistent !== true || mandatory?.method !== 'mykad-required-fields-v1' ||
+        mandatory.status !== 'matched' || mandatory.accepted !== true || !Array.isArray(mandatory.sides) || mandatory.sides.length !== 2 ||
+        mandatory.sides.some((side, index) => {
+          const expected = index === 0 ? 'front' : 'back';
+          const required = index === 0 ? ['front_identity_number', 'front_name', 'front_address'] : ['back_identity_number'];
+          return !side || side.method !== 'mykad-required-fields-v1' || side.accepted !== true || side.status !== 'validated' ||
+            side.expectedSide !== expected || side.detectedSide !== expected || side.screenCopy?.status !== 'not_detected' ||
+            required.some(field => side.requiredFields?.[field]?.detected !== true || side.requiredFields[field].readable !== true);
+        })) return true;
+  }
   return ['rescan_required', 'wrong_document', 'rejected'].includes(analysis?.outcome) ||
     ['wrong_document', 'unconfirmed'].includes(fields.documentTypeValidation?.status) ||
     (expectedType === 'mykad' && fields.documentType && fields.documentType !== 'mykad');
@@ -681,13 +694,20 @@ export const userService = {
 
   async inspectVerificationFrame(identity, input) {
     await requireCurrentUser(identity);
-    return aiClient.inspectDocumentFrame({
+    let referenceFront;
+    if (input.frontDocumentRef) {
+      const images = await uploadService.readOwnedReferences(identity, [input.frontDocumentRef], ['verification_document']);
+      referenceFront = images[0];
+      if (!referenceFront) throw new AppError('Front image is unavailable', 400, 'INVALID_UPLOAD_REFERENCE');
+    }
+    return privateSafeAiEvidence(await aiClient.inspectDocumentFrame({
       contentBase64: input.contentBase64,
       contentType: input.contentType ?? 'image/jpeg',
       documentType: input.documentType,
       expectedSide: input.expectedSide,
       validateCapture: input.validateCapture ?? false,
-    });
+      referenceFront,
+    }));
   },
 
   async verificationRequirements(identity, query) {
