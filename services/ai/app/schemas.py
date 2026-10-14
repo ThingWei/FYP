@@ -20,6 +20,7 @@ class VerificationRequest(BaseModel):
     profile_name: str | None = None
     review_threshold: float = Field(default=0.8, ge=0, le=1)
     minimum_age: int = Field(default=18, ge=18, le=100)
+    licence_source: Literal['physical', 'myjpj'] = 'physical'
 
 
 class VerificationResponse(BaseModel):

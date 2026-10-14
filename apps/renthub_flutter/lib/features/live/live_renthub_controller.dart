@@ -141,6 +141,7 @@ class LiveRentHubController extends ChangeNotifier {
     bool validateCapture = false,
     String? frontDocumentRef,
     String? backDocumentRef,
+    String? licenceSource,
   }) async =>
       Map<String, dynamic>.from(
         await api.request(
@@ -154,6 +155,7 @@ class LiveRentHubController extends ChangeNotifier {
             'validateCapture': validateCapture,
             if (frontDocumentRef != null) 'frontDocumentRef': frontDocumentRef,
             if (backDocumentRef != null) 'backDocumentRef': backDocumentRef,
+            if (licenceSource != null) 'licenceSource': licenceSource,
           },
         ) as Map,
       );
@@ -181,6 +183,14 @@ class LiveRentHubController extends ChangeNotifier {
       Map<String, dynamic>.from(await api.request(
           'POST', '/users/me/verification/check-pair',
           body: {'frontDocumentRef': front, 'backDocumentRef': back}) as Map);
+
+  Future<Map<String, dynamic>> checkDrivingEvidence(
+          String reference, String source) async =>
+      Map<String, dynamic>.from(await api
+          .request('POST', '/users/me/driving-eligibility/check', body: {
+        'documentRef': reference,
+        'licenceSource': source,
+      }) as Map);
 
   Future<User> refreshIdentityProfile() async {
     final refreshed = User.fromJson(
@@ -651,8 +661,9 @@ class LiveRentHubController extends ChangeNotifier {
 
   Future<void> submitIdentityVerification(
     String documentType,
-    List<String> documentRefs,
-  ) =>
+    List<String> documentRefs, {
+    String? licenceSource,
+  }) =>
       _perform(() async {
         profile = User.fromJson(
           await api.request(
@@ -663,6 +674,7 @@ class LiveRentHubController extends ChangeNotifier {
             body: {
               'documentType': documentType,
               'documentRefs': documentRefs,
+              if (licenceSource != null) 'licenceSource': licenceSource,
             },
           ) as Map<String, dynamic>,
         );

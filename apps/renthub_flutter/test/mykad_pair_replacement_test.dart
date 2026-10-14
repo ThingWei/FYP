@@ -47,7 +47,8 @@ class DraftController extends LiveRentHubController {
       {String? expectedSide,
       bool validateCapture = false,
       String? frontDocumentRef,
-      String? backDocumentRef}) async {
+      String? backDocumentRef,
+      String? licenceSource}) async {
     lastFrame = {
       'side': expectedSide,
       'final': validateCapture,
@@ -79,8 +80,8 @@ class DraftController extends LiveRentHubController {
   }
 
   @override
-  Future<void> submitIdentityVerification(
-      String type, List<String> refs) async {
+  Future<void> submitIdentityVerification(String type, List<String> refs,
+      {String? licenceSource}) async {
     submissions++;
   }
 }

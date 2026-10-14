@@ -47,6 +47,7 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'mykad-screen-account-binding-v1' -and `
             $response.data.capabilities -contains 'mykad-current-draft-pair-v1' -and `
             $response.data.capabilities -contains 'mykad-bidirectional-capture-pair-v1' -and `
+            $response.data.capabilities -contains 'driving-licence-ocr-review-v1' -and `
             $response.data.capabilities -contains 'mandatory-identity-access-v1' -and `
             $response.data.capabilities -contains 'listing-maps-push-status-v1' -and `
             $response.data.capabilities -contains 'precise-locations-v1'
@@ -71,7 +72,8 @@ function Test-RentHubAiCompatible {
     param([object]$Health)
 
     return $null -ne $Health -and $Health.status -eq 'ok' -and `
-        $Health.document_frame_contract -eq 'opencv-document-yolo-v6'
+        $Health.document_frame_contract -eq 'opencv-document-yolo-v6' -and `
+        $Health.driving_licence_contract -eq 'malaysian-driving-ocr-v1'
 }
 
 function Get-RentHubAiArguments {

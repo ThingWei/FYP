@@ -2,6 +2,10 @@
 
 Updated: 6 October 2026
 
+14 October continuation: see [Driving-licence OCR review result](DRIVING_LICENCE_OCR_REVIEW_RESULT.md)
+for physical/MyJPJ selection, mandatory capture/upload checks, holder comparison,
+uncertainty handling, verification results and device handoff.
+
 ## Outcome and previous architecture
 
 Previously MyKad, passport and driving licence used one document-submission UI,

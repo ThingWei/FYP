@@ -20,6 +20,7 @@ import 'live_location_field.dart';
 import 'live_photo_widgets.dart';
 import 'live_loyalty_page.dart';
 import 'live_kyc_scanner_page.dart';
+import 'driving_evidence_review.dart';
 import 'live_identity_policy.dart';
 
 /// Refresh approval before protected actions; the Express API is authoritative.
@@ -1565,6 +1566,51 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
   bool checkingPair = false;
   int pairRequestGeneration = 0;
   String pairGuidance = '';
+  final DrivingEvidenceDraft licenceDraft = DrivingEvidenceDraft();
+  bool checkingLicence = false;
+
+  void _invalidateLicence() {
+    licenceDraft.replace(
+        documentType == 'driving_licence' && otherDocumentRefs.isNotEmpty
+            ? otherDocumentRefs.first
+            : null,
+        licenceDraft.source);
+    checkingLicence = false;
+  }
+
+  Future<void> _checkCurrentLicence() async {
+    if (documentType != 'driving_licence' ||
+        otherDocumentRefs.isEmpty ||
+        checkingLicence) {
+      return;
+    }
+    final generation = licenceDraft.generation;
+    final reference = licenceDraft.reference!;
+    final source = licenceDraft.source;
+    setState(() => checkingLicence = true);
+    try {
+      final result = await context
+          .read<LiveRentHubController>()
+          .checkDrivingEvidence(reference, source)
+          .timeout(const Duration(seconds: 100));
+      if (!mounted || generation != licenceDraft.generation) return;
+      if (!licenceDraft.accept(generation, result)) {
+        throw const FormatException('Licence check unavailable');
+      }
+      setState(() {});
+    } catch (_) {
+      if (mounted && generation == licenceDraft.generation) {
+        setState(() => licenceDraft.result = {
+              'guidance':
+                  'Licence check unavailable. Your photo is saved. Retry before submitting.'
+            });
+      }
+    } finally {
+      if (mounted && generation == licenceDraft.generation) {
+        setState(() => checkingLicence = false);
+      }
+    }
+  }
 
   void _invalidatePairRequest() {
     pairRequestGeneration++;
@@ -1663,9 +1709,15 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
           validateCapture: (bytes, type) => controller.inspectVerificationFrame(
             bytes,
             type,
-            expectedSide: requestedSide,
-            frontDocumentRef: requestedSide == 'back' ? frontReference : null,
-            backDocumentRef: requestedSide == 'front' ? backReference : null,
+            expectedSide: type == 'mykad' ? requestedSide : null,
+            frontDocumentRef: type == 'mykad' && requestedSide == 'back'
+                ? frontReference
+                : null,
+            backDocumentRef: type == 'mykad' && requestedSide == 'front'
+                ? backReference
+                : null,
+            licenceSource:
+                type == 'driving_licence' ? licenceDraft.source : null,
             validateCapture: true,
           ),
           analyzeFrame: documentType == 'driving_licence'
@@ -1727,6 +1779,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                 matched: requestedSide == 'back');
           } else {
             otherDocumentRefs.add(reference);
+            _invalidateLicence();
           }
           draftGeneration++;
           pendingCapture = null;
@@ -1741,6 +1794,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
       if (mounted) setState(() => captureUploading = false);
     }
     if (mounted) await _checkCurrentPair();
+    if (mounted) await _checkCurrentLicence();
   }
 
   Future<void> _pickDocument() async {
@@ -1762,6 +1816,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
             mykadDraft.store(requestedSide!, reference, slotGeneration);
           } else {
             otherDocumentRefs.add(reference);
+            _invalidateLicence();
           }
           draftGeneration++;
           pendingCapture = null;
@@ -1774,6 +1829,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
       }
     }
     if (mounted) await _checkCurrentPair();
+    if (mounted) await _checkCurrentLicence();
   }
 
   Future<void> _removeDocument(int index) async {
@@ -1790,6 +1846,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
             mykadDraft.remove(reference);
           } else {
             otherDocumentRefs.remove(reference);
+            _invalidateLicence();
           }
           draftGeneration++;
           pendingCapture = null;
@@ -1804,7 +1861,9 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
   }
 
   Future<void> _submit() async {
-    if (submitting || captureUploading || checkingPair) return;
+    if (submitting || captureUploading || checkingPair || checkingLicence) {
+      return;
+    }
     if (documentRefs.length != requiredDocuments) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1816,6 +1875,10 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     if (documentType == 'mykad' && !mykadDraft.pairChecked) {
       await _checkCurrentPair();
       return; // Require an explicit submission after the new pair passes.
+    }
+    if (documentType == 'driving_licence' && !licenceDraft.canSubmit) {
+      await _checkCurrentLicence();
+      return;
     }
     if (documentType == 'driving_licence' &&
         context
@@ -1844,9 +1907,10 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     }
     setState(() => submitting = true);
     try {
-      await context
-          .read<LiveRentHubController>()
-          .submitIdentityVerification(documentType, documentRefs);
+      await context.read<LiveRentHubController>().submitIdentityVerification(
+          documentType, documentRefs,
+          licenceSource:
+              documentType == 'driving_licence' ? licenceDraft.source : null);
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1939,12 +2003,38 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                         _invalidatePairRequest();
                         mykadDraft.clear();
                         otherDocumentRefs.clear();
+                        _invalidateLicence();
                         draftGeneration++;
                         pendingCapture = null;
                       }),
             ),
             const SizedBox(height: 16),
             if (canSubmit) ...[
+              if (documentType == 'driving_licence') ...[
+                DropdownButtonFormField<String>(
+                  initialValue: licenceDraft.source,
+                  isExpanded: true,
+                  decoration:
+                      const InputDecoration(labelText: 'Licence format'),
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'physical', child: Text('Physical licence')),
+                    DropdownMenuItem(
+                        value: 'myjpj', child: Text('MyJPJ digital licence')),
+                  ],
+                  onChanged: submitting || captureUploading
+                      ? null
+                      : (value) {
+                          setState(() {
+                            licenceDraft.source = value ?? 'physical';
+                            _invalidateLicence();
+                            draftGeneration++;
+                          });
+                          unawaited(_checkCurrentLicence());
+                        },
+                ),
+                const SizedBox(height: 16),
+              ],
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1960,24 +2050,28 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                       const SizedBox(height: 6),
                       Text(
                         documentType == 'driving_licence'
-                            ? 'Provide your own licence or MyJPJ e-LMM screenshot. RentHub administrators review holder identity, class and validity. No JPJ API or QR validation.'
+                            ? 'Provide your own full licence with its holder details, class and validity dates visible. MyJPJ licence screenshots are accepted. An administrator makes the final decision.'
                             : 'Scan your physical MyKad. Keep your name, IC number and address visible. Front and back numbers must match. Administrator review is still required.',
                         style: TextStyle(color: AppColors.secondaryText),
                       ),
                       const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: submitting ||
-                                captureUploading ||
-                                documentRefs.length >= requiredDocuments
-                            ? null
-                            : _scanDocument,
-                        icon: const Icon(Icons.document_scanner_outlined),
-                        label: Text(
-                          documentRefs.isEmpty
-                              ? 'Start Live Scan'
-                              : 'Scan Next Side',
+                      if (documentType != 'driving_licence' ||
+                          licenceDraft.source == 'physical')
+                        FilledButton.icon(
+                          onPressed: submitting ||
+                                  captureUploading ||
+                                  documentRefs.length >= requiredDocuments
+                              ? null
+                              : _scanDocument,
+                          icon: const Icon(Icons.document_scanner_outlined),
+                          label: Text(
+                            documentType == 'driving_licence'
+                                ? 'Scan licence'
+                                : documentRefs.isEmpty
+                                    ? 'Start Live Scan'
+                                    : 'Scan Next Side',
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -1996,8 +2090,10 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                 title: Text(
                   '${documentRefs.length} of $requiredDocuments document images uploaded',
                 ),
-                subtitle: const Text(
-                  'Manual file upload is available as a development fallback. Files remain protected.',
+                subtitle: Text(
+                  documentType == 'driving_licence'
+                      ? 'Upload a clear licence image. MyJPJ: show the full digital licence, not only a QR code. Files remain protected.'
+                      : 'Manual file upload is available as a development fallback. Files remain protected.',
                 ),
                 trailing: documentRefs.length < requiredDocuments
                     ? IconButton(
@@ -2022,6 +2118,14 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                       : () => _removeDocument(index),
                 ),
               const SizedBox(height: 16),
+              if (documentType == 'driving_licence' &&
+                  documentRefs.isNotEmpty) ...[
+                DrivingEvidenceReview(
+                    result: licenceDraft.result,
+                    checking: checkingLicence,
+                    onRetry: _checkCurrentLicence),
+                const SizedBox(height: 16),
+              ],
               if (documentType == 'mykad' && documentRefs.length == 2) ...[
                 MykadPairStatus(
                   checking: checkingPair,
@@ -2035,8 +2139,11 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                 onPressed: submitting ||
                         captureUploading ||
                         checkingPair ||
+                        checkingLicence ||
                         documentRefs.length != requiredDocuments ||
-                        (documentType == 'mykad' && !mykadDraft.pairChecked)
+                        (documentType == 'mykad' && !mykadDraft.pairChecked) ||
+                        (documentType == 'driving_licence' &&
+                            !licenceDraft.canSubmit)
                     ? null
                     : _submit,
                 icon: const Icon(Icons.upload_file_outlined),

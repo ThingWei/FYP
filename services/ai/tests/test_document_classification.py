@@ -149,22 +149,23 @@ def test_licence_endpoint_has_no_false_mismatch_and_needs_no_trained_risk_model(
     assert result['model_versions']['risk'] == 'not_applicable'
     assert result['outcome'] == 'manual_review'
     assert result['accepted'] is False
-    assert result['confidence'] == 0.95  # Stubbed OCR confidence, not risk confidence.
+    assert result['confidence'] == pytest.approx(0.95)  # Stubbed OCR confidence, not authenticity.
 
 
 def test_actual_mykad_submitted_as_licence_retains_mismatch(analyse_ocr):
     result = analyse_ocr(MYKAD, 'driving_licence')
     assert result['extracted_fields']['documentType'] == 'mykad'
-    assert MISMATCH in result['reasons']
-    assert result['outcome'] == 'manual_review'
+    assert any('not a driving licence' in reason for reason in result['reasons'])
+    assert result['outcome'] == 'wrong_document'
+    assert not result['extracted_fields']['licenceValidation']['acceptedForReview']
 
 
-def test_inconclusive_ocr_routes_to_manual_without_false_mykad(analyse_ocr):
+def test_inconclusive_licence_heading_requires_rescan_without_false_mykad(analyse_ocr):
     result = analyse_ocr('900101-07-1234\nNAME TEST USER', 'driving_licence')
     assert 'documentType' not in result['extracted_fields']
     assert result['labels'] == ['unclassified_document']
-    assert any('insufficient or ambiguous' in reason for reason in result['reasons'])
-    assert result['outcome'] == 'manual_review'
+    assert any('heading could not be read' in reason for reason in result['reasons'])
+    assert result['outcome'] == 'rescan_required'
 
 
 def test_passport_endpoint_preserves_mrz_line_breaks(analyse_ocr):
@@ -173,13 +174,13 @@ def test_passport_endpoint_preserves_mrz_line_breaks(analyse_ocr):
     assert MISMATCH not in result['reasons']
 
 
-def test_invalid_ic_birth_segment_and_expired_licence_stay_manual(analyse_ocr):
+def test_invalid_ic_is_not_guessed_and_expired_licence_requires_new_evidence(analyse_ocr):
     result = analyse_ocr(LICENCE.replace('900101', '991332').replace('2030', '2000'), 'driving_licence')
     assert result['extracted_fields']['identityNumberFormatValid'] is False
     assert result['extracted_fields']['documentExpired'] is True
-    assert any('birth-date segment' in reason for reason in result['reasons'])
-    assert any('expiry date is in the past' in reason for reason in result['reasons'])
-    assert result['outcome'] == 'manual_review'
+    assert result['extracted_fields']['licenceValidation']['fieldStates']['ic_number'] == 'unavailable'
+    assert any('expired' in reason for reason in result['reasons'])
+    assert result['outcome'] == 'rescan_required'
 
 
 def test_mykad_missing_mandatory_model_cannot_enter_manual_approval(analyse_ocr):

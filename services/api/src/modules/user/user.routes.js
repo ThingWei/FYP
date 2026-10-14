@@ -21,6 +21,7 @@ import {
   verificationDecisionValidation,
   verificationFrameValidation,
   verificationPairValidation,
+  drivingEvidenceValidation,
   verificationRequirementsValidation,
   verificationSubmissionValidation,
 } from './user.validation.js';
@@ -120,6 +121,8 @@ userRouter.post(
 );
 userRouter.post('/me/verification/check-pair', authenticate,
   verificationPairValidation, validate, userController.checkVerificationPair);
+userRouter.post('/me/driving-eligibility/check', authenticate,
+  drivingEvidenceValidation, validate, userController.checkDrivingEvidence);
 userRouter.get(
   '/me/verification/requirements',
   authenticate,

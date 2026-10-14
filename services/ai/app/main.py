@@ -8,6 +8,7 @@ from .routers.verification import router as verification_router
 from .services.pricing import _artifact as pricing_artifact
 from .services.mykad_field_risk import availability as mykad_field_availability
 from .services.image_intelligence import DOCUMENT_FRAME_CONTRACT
+from .services.driving_licence import CONTRACT as DRIVING_CONTRACT
 from .services.item_verification import CONTRACT as ITEM_CONTRACT, models_status
 
 app = FastAPI(title='RentHub AI Service', version='2.0.0')
@@ -39,6 +40,7 @@ def health():
         'mykad_field_risk_model': field_status['classifierPresent'],
     }
     return {
+        'driving_licence_contract': DRIVING_CONTRACT,
         'status': 'ok',
         'document_frame_contract': DOCUMENT_FRAME_CONTRACT,
         'item_verification_contract': ITEM_CONTRACT,

@@ -54,7 +54,7 @@ Assert-Launcher (-not (Test-RentHubAiCompatible @{
     status = 'error'; document_frame_contract = 'opencv-document-yolo-v6'
 })) 'Unhealthy service must fail'
 Assert-Launcher (Test-RentHubAiCompatible @{
-    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v6'
+    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v6'; driving_licence_contract = 'malaysian-driving-ocr-v1'
 }) 'Current contract must pass'
 
 Assert-Launcher (-not (Test-RentHubAiCompatible @{
@@ -71,7 +71,11 @@ Assert-Launcher (-not (Test-RentHubAiCompatible @{
 $contractSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot '..\..\..\services\ai\app\services\image_intelligence.py')
 $serviceContract = [regex]::Match($contractSource, "DOCUMENT_FRAME_CONTRACT = '([^']+)'").Groups[1].Value
 Assert-Launcher (-not [string]::IsNullOrWhiteSpace($serviceContract)) 'Service scanner contract must be discoverable'
-Assert-Launcher (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract }) 'Launcher must accept the current Python service contract, not a stale hardcoded version'
+$licenceSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot '..\..\..\services\ai\app\services\driving_licence.py')
+$licenceContract = [regex]::Match($licenceSource, "CONTRACT = '([^']+)'").Groups[1].Value
+Assert-Launcher (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract }) 'Launcher must accept current Python scanner and licence contracts'
+Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract })) 'Missing licence contract must fail'
+Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = 'old' })) 'Old licence contract must fail'
 
 Assert-Launcher (-not (Test-RentHubAiCompatible @{
     status = 'ok'; document_frame_contract = 'opencv-document-yolo-v2'
@@ -95,6 +99,8 @@ Assert-Launcher (-not (Test-RentHubApiReady)) 'API without current uploaded-pair
 $script:apiHealthFixture.data.capabilities += 'mykad-current-draft-pair-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'API without replacement-front scanner comparison must fail'
 $script:apiHealthFixture.data.capabilities += 'mykad-bidirectional-capture-pair-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without licence OCR review must fail'
+$script:apiHealthFixture.data.capabilities += 'driving-licence-ocr-review-v1'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'

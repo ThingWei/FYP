@@ -8,9 +8,25 @@ import 'package:flutter/services.dart';
 
 import '../../core/theme/app_theme.dart';
 
-bool kycFrameRequiresServiceRestart(Map<String, dynamic> result) =>
+bool kycFrameRequiresServiceRestart(Map<String, dynamic> result,
+        {String documentType = 'mykad'}) =>
     result['available'] == true &&
-    result['adapter'] != 'opencv-document-yolo-v6';
+    result['adapter'] !=
+        (documentType == 'driving_licence'
+            ? 'malaysian-driving-ocr-v1'
+            : 'opencv-document-yolo-v6');
+
+bool licenceCaptureCanUse(Map<String, dynamic>? result) {
+  final check = result?['capture_validation'];
+  return result?['adapter'] == 'malaysian-driving-ocr-v1' &&
+      result?['available'] == true &&
+      result?['ready'] == true &&
+      check is Map &&
+      check['method'] == 'malaysian-driving-ocr-v1' &&
+      check['canReview'] == true &&
+      const ['ready_for_review', 'needs_review'].contains(check['status']) &&
+      check['identityMatch'] != 'mismatch';
+}
 
 bool kycCaptureCanUse(Map<String, dynamic>? result, String? expectedSide,
     {bool requirePairMatch = false}) {
@@ -295,9 +311,11 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
   bool get canUseCapture =>
       captured != null &&
       !checkingCapture &&
-      (widget.documentType != 'mykad' ||
-          kycCaptureCanUse(captureCheck, widget.expectedSide,
-              requirePairMatch: widget.requirePairMatch));
+      (widget.documentType == 'driving_licence'
+          ? licenceCaptureCanUse(captureCheck)
+          : widget.documentType != 'mykad' ||
+              kycCaptureCanUse(captureCheck, widget.expectedSide,
+                  requirePairMatch: widget.requirePairMatch));
 
   bool get cameraPlatformSupported =>
       kIsWeb ||
@@ -462,7 +480,9 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
   Future<void> _checkCaptured() async {
     final image = captured;
     if (image == null || checkingCapture) return;
-    if (widget.documentType != 'mykad') return;
+    if (!const ['mykad', 'driving_licence'].contains(widget.documentType)) {
+      return;
+    }
     final generation = ++captureGeneration;
     final validator = widget.validateCapture;
     setState(() {
@@ -477,15 +497,16 @@ class _LiveKycScannerPageState extends State<LiveKycScannerPage>
       if (!mounted || generation != captureGeneration) return;
       setState(() {
         captureCheck = result;
-        guidance = kycFrameRequiresServiceRestart(result)
+        guidance = kycFrameRequiresServiceRestart(result,
+                documentType: widget.documentType)
             ? 'Scanner service is outdated. Restart the API and AI services, then retry.'
             : result['guidance'] as String? ??
-                'MyKad could not be checked. Retry or rescan.';
+                'Document could not be checked. Retry or rescan.';
       });
     } catch (_) {
       if (mounted && generation == captureGeneration) {
         setState(() => guidance =
-            'MyKad check unavailable. Retry the check; this image cannot be used yet.');
+            'Document check unavailable. Retry the check; this image cannot be used yet.');
       }
     } finally {
       if (mounted && generation == captureGeneration) {

@@ -52,6 +52,7 @@ export const aiClient = {
     profileName,
     reviewThreshold,
     minimumAge,
+    licenceSource,
   }) {
     if (!images?.length) {
       return unavailableVerification('No stored document bytes were available for analysis');
@@ -62,8 +63,9 @@ export const aiClient = {
       profile_name: profileName,
       review_threshold: reviewThreshold,
       minimum_age: minimumAge,
+      ...(licenceSource && { licence_source: licenceSource }),
     }, unavailableVerification('AI service could not analyse the identity document'),
-    documentType === 'mykad' ? { timeout: Math.max(env.aiTimeoutMs, 90000) } : {});
+    ['mykad', 'driving_licence'].includes(documentType) ? { timeout: Math.max(env.aiTimeoutMs, 90000) } : {});
   },
 
   inspectDocumentFrame({ contentBase64, contentType, documentType, expectedSide, validateCapture = false, referenceFront, referenceBack }) {

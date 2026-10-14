@@ -37,6 +37,7 @@ import { aiClient } from '../src/integrations/aiClient.js';
 import { env } from '../src/config/env.js';
 import { identityFromPayload } from '../src/middleware/auth.js';
 import { validMykadFields } from './helpers/mykad.js';
+import { validDrivingFields } from './helpers/driving.js';
 
 let mongodb;
 const runFile = promisify(execFile);
@@ -607,7 +608,7 @@ test('validates profile updates and role switching', async () => {
 test('submits and reviews identity verification with audit and notification', async (t) => {
   t.mock.method(aiClient, 'verifyDocument', async ({ documentType }) => ({
     accepted: false, outcome: 'manual_review', confidence: 0.95,
-    extracted_fields: documentType === 'mykad' ? validMykadFields() : { documentType },
+    extracted_fields: documentType === 'mykad' ? validMykadFields() : validDrivingFields(),
   }));
   const owner = identity({
     id: 'u-verification-owner',
@@ -759,6 +760,7 @@ test('licence evidence without MyKad cannot be approved and AI identifiers remai
     outcome: 'manual_review',
     ocr_text: 'SYNTHETIC OCR 900101-07-1234',
     extracted_fields: {
+      ...validDrivingFields(),
       documentType: 'driving_licence',
       identityNumber: '900101-07-1234',
       licenceClass: 'D',
@@ -873,7 +875,7 @@ async function syntheticMykadAccount(t) {
   let licenceIdentity = '900101-07-1234';
   t.mock.method(aiClient, 'verifyDocument', async ({ documentType }) => ({
     accepted: false, outcome: 'manual_review', confidence: 0,
-    extracted_fields: { ...(documentType === 'mykad' ? validMykadFields() : {}), documentType, identityNumber: documentType === 'mykad' ? '900101-07-1234' : licenceIdentity,
+    extracted_fields: { ...(documentType === 'mykad' ? validMykadFields() : validDrivingFields()), documentType, identityNumber: documentType === 'mykad' ? '900101-07-1234' : licenceIdentity,
       identityNumberFormatValid: true, licenceClass: 'D', expiryDateText: '01/01/2035' },
     ocr_text: 'Synthetic OCR fixture only',
   }));
@@ -1062,7 +1064,7 @@ test('dedicated driving eligibility requires complete admin review and stores cl
   assert.equal(renewal.body.data.verification.history[1].drivingReview.status, 'approved');
 });
 
-test('holder mismatch cannot be approved; driving rejection/resubmission preserve MyKad and all attempts', async (t) => {
+test('holder mismatch requires new evidence and preserves MyKad and all attempts', async (t) => {
   const fixture = await syntheticMykadAccount(t);
   fixture.mismatch();
   const submit = () => request(app).post('/api/v1/users/me/driving-eligibility').set(fixture.renter)
@@ -1073,24 +1075,25 @@ test('holder mismatch cannot be approved; driving rejection/resubmission preserv
   const mismatched = await request(app).patch(`/api/v1/users/${fixture.id}/driving-eligibility`).set(fixture.admin)
     .send({ ...drivingApproval, attemptId });
   assert.equal(mismatched.status, 409);
-  assert.equal(mismatched.body.error.code, 'DRIVING_IDENTITY_MISMATCH');
+  assert.equal(mismatched.body.error.code, 'INVALID_VERIFICATION_STATE');
+  assert.equal(submitted.body.data.drivingEligibility.status, 'resubmission_required');
   const rejected = await request(app).patch(`/api/v1/users/${fixture.id}/driving-eligibility`).set(fixture.admin)
     .send({ status: 'rejected', reason: 'Synthetic holder mismatch', attemptId });
-  assert.equal(rejected.status, 200);
-  assert.equal(rejected.body.data.drivingEligibility.status, 'rejected');
-  assert.equal(rejected.body.data.verification.status, 'approved');
+  assert.equal(rejected.status, 409);
+  assert.equal(submitted.body.data.verification.status, 'approved');
   const resubmitted = await submit();
   assert.equal(resubmitted.status, 200);
   assert.equal(resubmitted.body.data.verification.history.length, 3);
   const rescan = await request(app).patch(`/api/v1/users/${fixture.id}/driving-eligibility`).set(fixture.admin)
     .send({ status: 'resubmission_required', reason: 'Please supply readable licence evidence',
       attemptId: resubmitted.body.data.drivingEligibility.latestAttemptId });
-  assert.equal(rescan.status, 200);
-  assert.equal(rescan.body.data.drivingEligibility.status, 'resubmission_required');
-  assert.equal(rescan.body.data.verification.documents.find((doc) => doc.documentType === 'mykad').status, 'approved');
+  assert.equal(rescan.status, 409);
+  assert.equal(resubmitted.body.data.drivingEligibility.status, 'resubmission_required');
+  assert.equal(resubmitted.body.data.verification.documents.find((doc) => doc.documentType === 'mykad').status, 'approved');
 });
 
-test('legacy passport and incomplete licence history remain readable but cannot silently grant driving eligibility', async () => {
+test('legacy passport and incomplete licence history remain readable but cannot silently grant driving eligibility', async (t) => {
+  t.mock.method(aiClient, 'verifyDocument', async () => ({outcome: 'manual_review', extracted_fields: validDrivingFields()}));
   await request(app).post('/api/v1/users/session').set(identity());
   await UserModel.updateOne({ authId: 'u-renter' }, { $set: {
     'verification.status': 'approved', 'verification.documentType': 'passport',
@@ -1128,6 +1131,105 @@ test('MyKad requires distinct front/back uploads and driving submission respects
     .send({ documentRefs: [uploaded.body.data.reference] });
   assert.equal(stolen.status, 400);
   assert.equal(stolen.body.error.code, 'INVALID_UPLOAD_REFERENCE');
+});
+
+test('licence preflight is private, owned, purpose-bound and read-only', async (t) => {
+  const { renter, id } = await syntheticMykadAccount(t);
+  const calls = [];
+  t.mock.method(aiClient, 'verifyDocument', async input => {
+    calls.push(input);
+    return { outcome: 'manual_review', extracted_fields: validDrivingFields(), ocr_text: 'PRIVATE TEST TEXT' };
+  });
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+  async function upload(purpose) {
+    const response = await request(app).post('/api/v1/uploads').set(renter)
+      .field('purpose', purpose).attach('file', png, {filename:'synthetic.png', contentType:'image/png'});
+    assert.equal(response.status, 201);
+    t.after(async () => { await request(app).delete(`/api/v1/uploads/${response.body.data.id}`).set(renter); });
+    return response.body.data.reference;
+  }
+  const documentRef = await upload('verification_document');
+  const imageRef = await upload('listing_image');
+  const before = await UserModel.findById(id).lean();
+  const payload = { documentRef, licenceSource: 'myjpj' };
+  const checked = await request(app).post('/api/v1/users/me/driving-eligibility/check').set(renter).send(payload);
+  assert.equal(checked.status, 200, JSON.stringify(checked.body));
+  assert.equal(checked.body.data.canReview, true);
+  assert.equal(checked.body.data.identityMatch, 'matched');
+  assert.equal(checked.body.data.documentRef, documentRef);
+  assert.equal(calls[0].licenceSource, 'myjpj');
+  assert.ok(calls[0].images[0].content_base64);
+  assert.ok(!JSON.stringify(checked.body).includes('900101'));
+  assert.ok(!JSON.stringify(checked.body).includes('PRIVATE TEST TEXT'));
+  assert.ok(!JSON.stringify(checked.body).includes('Fingerprint'));
+  const after = await UserModel.findById(id).lean();
+  assert.deepEqual(after.verification, before.verification);
+  const outsider = identity({ id:'u-outsider', email:'outsider@example.test' });
+  await request(app).post('/api/v1/users/session').set(outsider);
+  assert.equal((await request(app).post('/api/v1/users/me/driving-eligibility/check').set(outsider).send(payload)).status, 400);
+  assert.equal((await request(app).post('/api/v1/users/me/driving-eligibility/check').set(renter).send({...payload, documentRef:imageRef})).status, 400);
+  const previousAuth = env.authMode;
+  env.authMode = 'auth0';
+  try {
+    assert.equal((await request(app).post('/api/v1/users/me/driving-eligibility/check').send(payload)).status, 401);
+  } finally { env.authMode = previousAuth; }
+  for (const invalid of [{ ...payload, licenceSource: 'qr_verified' }, {...payload, identityNumber:'900101071234'}, {...payload, documentRef:'https://example.test/image'}]) {
+    assert.equal((await request(app).post('/api/v1/users/me/driving-eligibility/check').set(renter).send(invalid)).status, 422);
+  }
+  assert.equal(calls.length, 1);
+});
+
+test('licence final capture checks current OCR and holder, without MyKad frame detector', async (t) => {
+  const { renter } = await syntheticMykadAccount(t);
+  let fields = validDrivingFields();
+  t.mock.method(aiClient, 'inspectDocumentFrame', async () => { assert.fail('Licence capture must use OCR'); });
+  const calls = [];
+  t.mock.method(aiClient, 'verifyDocument', async input => { calls.push(input); return {outcome:'manual_review', extracted_fields:fields}; });
+  const payload = { contentBase64:Buffer.from('synthetic-frame'.repeat(10)).toString('base64'),
+    documentType:'driving_licence', validateCapture:true, licenceSource:'physical' };
+  const capture = () => request(app).post('/api/v1/users/me/verification/scan-frame').set(renter).send(payload);
+  assert.equal((await capture()).body.data.ready, true);
+  assert.equal(calls[0].licenceSource, 'physical');
+  fields = validDrivingFields({identityNumber:'910101-07-1234'});
+  const mismatch = await capture();
+  assert.equal(mismatch.body.data.ready, false);
+  assert.equal(mismatch.body.data.capture_validation.status, 'holder_mismatch');
+  fields = {};
+  assert.equal((await capture()).body.data.available, false);
+});
+
+for (const state of ['expired', 'unavailable', 'wrong_document']) {
+  test(`licence ${state} bypass submission cannot become approvable`, async (t) => {
+    const { renter, admin, id } = await syntheticMykadAccount(t);
+    t.mock.method(aiClient, 'verifyDocument', async () => ({outcome:state === 'expired' ? 'rescan_required' : state,
+      extracted_fields: validDrivingFields({licenceValidation:{method:'malaysian-driving-ocr-v1',status:state,acceptedForReview:false}})}));
+    const submitted = await request(app).post('/api/v1/users/me/driving-eligibility').set(renter)
+      .send({documentRefs:['local://verification/invalid.jpg'], licenceSource:'myjpj'});
+    assert.equal(submitted.status, 200);
+    assert.equal(submitted.body.data.drivingEligibility.status, 'resubmission_required');
+    const attempt = submitted.body.data.verification.history.at(-1);
+    // Even a legacy/stale pending flag cannot override saved mandatory failure.
+    await UserModel.updateOne({_id:id}, {$set:{'verification.history.1.status':'pending'}});
+    const approval = await request(app).patch(`/api/v1/users/${id}/driving-eligibility`).set(admin)
+      .send({...drivingApproval, attemptId:attempt.attemptId});
+    assert.equal(approval.status, 409);
+    assert.ok(['DOCUMENT_TYPE_VALIDATION_FAILED','DRIVING_EVIDENCE_FAILED'].includes(approval.body.error.code));
+  });
+}
+
+test('uncertain licence fields go to manual review; final submit reruns OCR', async (t) => {
+  const { renter } = await syntheticMykadAccount(t);
+  const fields = validDrivingFields({identityNumber:undefined,identityNumberFormatValid:false,
+    licenceClasses:[], validUntil:undefined,
+    licenceValidation:{method:'malaysian-driving-ocr-v1',status:'needs_review',acceptedForReview:true,
+      fieldStates:{ic_number:'unavailable',licence_class:'unavailable',valid_until:'unavailable'}}});
+  let calls = 0;
+  t.mock.method(aiClient, 'verifyDocument', async () => { calls++; return {outcome:'manual_review',extracted_fields:fields}; });
+  const submitted = await request(app).post('/api/v1/users/me/driving-eligibility').set(renter)
+    .send({documentRefs:['local://verification/uncertain.jpg']});
+  assert.equal(submitted.body.data.drivingEligibility.status, 'pending');
+  assert.equal(submitted.body.data.drivingEligibility.identityMatch, 'unavailable');
+  assert.equal(calls, 1);
 });
 
 test('rejects more than one default address', async () => {

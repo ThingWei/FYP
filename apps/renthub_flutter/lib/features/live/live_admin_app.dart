@@ -499,9 +499,14 @@ class _AdminVerificationState extends State<_AdminVerification> {
     final extracted =
         ((attempt['aiEvidence'] as Map?)?['extracted_fields'] as Map?) ??
             const {};
-    final classes =
-        TextEditingController(text: '${extracted['licenceClass'] ?? ''}');
-    final expiry = TextEditingController();
+    final assistance =
+        (attempt['aiEvidence'] as Map?)?['drivingAssistance'] as Map?;
+    final classes = TextEditingController(
+        text: assistance?['licenceClasses'] is List
+            ? (assistance!['licenceClasses'] as List).join(', ')
+            : '${extracted['licenceClass'] ?? ''}');
+    final expiry =
+        TextEditingController(text: '${assistance?['validUntil'] ?? ''}');
     bool identityMatchConfirmed = false;
     bool classReviewConfirmed = false;
     final accepted = await InputValidation.showFormDialog<bool>(
@@ -534,7 +539,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
                   Text(
                       'Holder match assistance: ${(attempt['aiEvidence'] as Map?)?['identityMatch'] ?? 'unavailable'}'),
                   Text(
-                      'OCR expiry (confirm from protected evidence): ${extracted['expiryDateText'] ?? 'not extracted'}'),
+                      'Read validity date (confirm from protected evidence): ${assistance?['validUntil'] ?? extracted['expiryDateText'] ?? 'not extracted'}'),
                   const Text(
                       'No JPJ API / official QR or government authentication. Review licence / MyJPJ evidence against approved MyKad.'),
                 ],

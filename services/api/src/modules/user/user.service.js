@@ -31,6 +31,7 @@ import {
 } from './kycRequirements.js';
 import { drivingEligibilityCheck, hasApprovedMykad, LICENCE_CLASSES, reviewedLicenceExpiry } from './drivingEligibility.js';
 import { fingerprintForNumber, assertBindingReady, assertIdentityNotLinked, approveMykadAtomically } from './identityBinding.js';
+import { drivingAssessment, DRIVING_CONTRACT } from './drivingAssistance.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -617,11 +618,12 @@ export const userService = {
       profileName: user.displayName,
       reviewThreshold: platform.verificationManualReviewThreshold,
       minimumAge: platform.minimumVerificationAge,
+      licenceSource: driving ? input.licenceSource ?? 'physical' : undefined,
     });
     const submittedAt = new Date();
     const attemptId = verificationAttemptId();
     const evidence = privateSafeAiEvidence(analysis);
-    const requiresRescan = requiresVerificationResubmission(
+    let requiresRescan = requiresVerificationResubmission(
       analysis, input.documentType,
     );
     const fingerprint = requiresRescan ? null : identityFingerprint(analysis);
@@ -633,18 +635,16 @@ export const userService = {
       user.identityMatchFingerprint = fingerprint ?? undefined;
     }
     if (driving) {
-      const stored = await UserModel.findById(user._id).select('+identityMatchFingerprint');
-      const previous = stored?.identityMatchFingerprint;
-      const comparable = hasApprovedMykad(user) && fingerprint && previous &&
-        fingerprint.split(':')[0] === previous.split(':')[0];
-      evidence.identityMatch = comparable ? (fingerprint === previous ? 'matched' : 'mismatch') : 'unavailable';
+      evidence.drivingAssistance = await drivingAssessment(user, analysis);
+      requiresRescan = requiresRescan || !evidence.drivingAssistance.canReview;
+      evidence.identityMatch = evidence.drivingAssistance.identityMatch;
       evidence.reviewScope = 'driving_eligibility';
     }
     const status = requiresRescan ? 'resubmission_required' : 'pending';
     const reason = requiresRescan
-      ? (analysis.reasons?.length
+      ? (driving ? evidence.drivingAssistance.guidance : (analysis.reasons?.length
         ? analysis.reasons
-        : ['Document evidence requires a new scan.']).join(' ').slice(0, 500)
+        : ['Document evidence requires a new scan.']).join(' ').slice(0, 500))
       : '';
     const document = currentDocument ?? {
       documentType: input.documentType,
@@ -696,7 +696,17 @@ export const userService = {
   },
 
   async inspectVerificationFrame(identity, input) {
-    await requireCurrentUser(identity);
+    const user = await requireCurrentUser(identity);
+    if (input.documentType === 'driving_licence' && input.validateCapture === true) {
+      const analysis = await aiClient.verifyDocument({
+        images: [{ content_base64: input.contentBase64, content_type: input.contentType ?? 'image/jpeg', filename: 'licence-capture.jpg' }],
+        documentType: 'driving_licence', profileName: user.displayName,
+        licenceSource: input.licenceSource ?? 'physical',
+      });
+      const checked = await drivingAssessment(user, analysis);
+      return { adapter: DRIVING_CONTRACT, available: checked.available,
+        ready: checked.canReview, guidance: checked.guidance, capture_validation: checked };
+    }
     let referenceFront;
     let referenceBack;
     if (input.frontDocumentRef) {
@@ -739,6 +749,14 @@ export const userService = {
         status === 'mismatched' ? 'The front and back IC numbers do not match. Replace the incorrect photo with the same MyKad.' :
         status === 'unavailable' ? 'The two photos could not be checked. Retry before submitting.' :
         'These photos need another scan. Keep both sides of the same physical MyKad fully visible and readable.' };
+  },
+
+  async checkDrivingEvidence(identity, input) {
+    const user = await requireCurrentUser(identity);
+    const images = await uploadService.readOwnedReferences(identity, [input.documentRef], ['verification_document']);
+    const analysis = await aiClient.verifyDocument({ images, documentType: 'driving_licence',
+      profileName: user.displayName, licenceSource: input.licenceSource ?? 'physical' });
+    return { ...await drivingAssessment(user, analysis), documentRef: input.documentRef };
   },
 
   async verificationRequirements(identity, query) {
@@ -805,6 +823,9 @@ export const userService = {
     }
     if (input.drivingOnly && !driving) throw new AppError('Select a driving eligibility attempt', 400, 'INVALID_DRIVING_ATTEMPT');
     if (driving && input.status === 'approved') {
+      if (attempt.aiEvidence?.drivingAssistance?.canReview === false) {
+        throw new AppError('This licence needs new evidence before approval.', 409, 'DRIVING_EVIDENCE_FAILED');
+      }
       if (!hasApprovedMykad(user)) throw new AppError('Approve MyKad identity first', 409, 'MYKAD_REQUIRED');
       if (attempt.aiEvidence?.identityMatch === 'mismatch') throw new AppError('Licence holder identity does not match the verified MyKad', 409, 'DRIVING_IDENTITY_MISMATCH');
       if (input.identityMatchConfirmed !== true || input.classReviewConfirmed !== true) {

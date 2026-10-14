@@ -98,12 +98,14 @@ export const roleValidation = [body('role').isIn(USER_ROLES)];
 
 export const verificationSubmissionValidation = [
   body().custom((value) => {
-    const allowed = new Set(['documentType', 'documentRefs']);
+    const allowed = new Set(['documentType', 'documentRefs', 'licenceSource']);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
+    if (value.licenceSource && value.documentType !== 'driving_licence') throw new Error('Licence source is only used for driving evidence');
     return true;
   }),
   body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
+  body('licenceSource').optional().isIn(['physical', 'myjpj']),
   body('documentRefs').isArray({ min: 1, max: 2 }),
   body('documentRefs.*').custom(textInput).bail().trim()
     .custom((value) => isUploadReference(value))
@@ -120,6 +122,15 @@ export const verificationPairValidation = [
   }),
   ...['frontDocumentRef', 'backDocumentRef'].map(field => body(field).custom(textInput).bail().isLength({ max: 100 })
     .matches(/^upload:\/\/UPL-[A-Z0-9]+$/)),
+];
+
+export const drivingEvidenceValidation = [
+  body().custom(value => {
+    if (Object.keys(value).some(key => !['documentRef', 'licenceSource'].includes(key))) throw new Error('Only licence upload reference and source are accepted');
+    return true;
+  }),
+  body('documentRef').isString().isLength({ max: 100 }).matches(/^upload:\/\/UPL-[A-Z0-9]+$/),
+  body('licenceSource').optional().isIn(['physical', 'myjpj']),
 ];
 
 export const targetUserValidation = [
@@ -200,7 +211,7 @@ export const verificationDecisionValidation = [
 
 export const verificationFrameValidation = [
   body().custom((value) => {
-    const allowed = new Set(['contentBase64', 'contentType', 'documentType', 'expectedSide', 'validateCapture', 'frontDocumentRef', 'backDocumentRef']);
+    const allowed = new Set(['contentBase64', 'contentType', 'documentType', 'expectedSide', 'validateCapture', 'frontDocumentRef', 'backDocumentRef', 'licenceSource']);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
@@ -208,11 +219,13 @@ export const verificationFrameValidation = [
   body('contentBase64').isString().isLength({ min: 100, max: 1_900_000 }),
   body('contentType').optional().isIn(['image/jpeg', 'image/png']),
   body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
+  body('licenceSource').optional().isIn(['physical', 'myjpj']),
   body('expectedSide').optional().isIn(['front', 'back']),
   body('validateCapture').optional().custom((value) => typeof value === 'boolean'),
   body('frontDocumentRef').optional().isString().matches(/^upload:\/\/UPL-[A-Z0-9]+$/),
   body('backDocumentRef').optional().isString().isLength({ max: 100 }).matches(/^upload:\/\/UPL-[A-Z0-9]+$/),
   body().custom((value) => {
+    if (value.licenceSource && value.documentType !== 'driving_licence') throw new Error('Licence source is only used for driving evidence');
     if (value.documentType === 'mykad' && value.validateCapture && !value.expectedSide) {
       throw new Error('MyKad capture validation requires the expected front/back side');
     }

@@ -55,6 +55,10 @@ class UserFacingError {
             'Your item photos need review before this listing can be published.',
         'DRIVING_ELIGIBILITY_REQUIRED':
             'Submit your driving licence for review before renting a vehicle.',
+        'DRIVING_EVIDENCE_FAILED':
+            'This licence needs a clearer image or renewed evidence before approval.',
+        'DRIVING_IDENTITY_MISMATCH':
+            'The licence holder does not match your verified MyKad. Upload your own licence.',
         'DRIVING_ELIGIBILITY_EXPIRED':
             'Update your driving licence verification before renting this vehicle.',
         'DRIVING_ELIGIBILITY_REVIEW_REQUIRED':

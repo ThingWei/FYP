@@ -8,6 +8,7 @@ from typing import Any
 from .mykad_field_risk import analyse_fields
 from .mykad_document_type import assess_mykad_capture, assess_mykad_sides
 from .mykad_readability import check_side, check_pair, pixel_region, whole_card_lock, CONTRACT as MYKAD_REQUIRED_CONTRACT
+from .driving_licence import analyse_licence, CONTRACT as DRIVING_CONTRACT
 
 from ..schemas import (
     DocumentFrameRequest,
@@ -623,10 +624,22 @@ class ImageIntelligenceService:
             return VerificationResponse(
                 accepted=False, outcome='rescan_required', confidence=0,
                 reasons=quality_reasons,
-                adapter='opencv-easyocr-spacy-risk-v2',
+                adapter=DRIVING_CONTRACT if request.expected_type == 'driving_licence' else 'opencv-easyocr-spacy-risk-v2',
+                extracted_fields={'licenceValidation': {'method': DRIVING_CONTRACT,
+                    'status': 'unreadable_image', 'acceptedForReview': False}}
+                    if request.expected_type == 'driving_licence' else {},
                 quality={'images': qualities},
             )
         reader = _ocr_reader()
+        if request.expected_type == 'driving_licence':
+            fields, outcome, guidance = analyse_licence(decoded, reader, _ocr_region_preprocess,
+                _extract_document_fields, request.licence_source)
+            return VerificationResponse(accepted=False, outcome=outcome,
+                confidence=fields.get('licenceValidation', {}).get('ocrConfidence', 0),
+                labels=[fields.get('documentType', 'unclassified_document')],
+                reasons=[guidance], adapter=DRIVING_CONTRACT,
+                extracted_fields=fields, quality={'images': qualities},
+                model_versions={'ocr': 'easyocr-1.7', 'licence': DRIVING_CONTRACT, 'risk': 'not_applicable'})
         if reader is None:
             return VerificationResponse(
                 accepted=False, outcome='unavailable', confidence=0,
