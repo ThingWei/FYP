@@ -140,7 +140,7 @@ export async function recordPhysicalSettlement(booking, deduction) {
   await systemTransaction({
     booking,
     type: 'owner_settlement',
-    amount: booking.pricing.baseAmount + booking.pricing.damageWaiverFee + deduction,
+    amount: booking.pricing.baseAmount + booking.pricing.damageWaiverFee + (booking.pricing.deliveryFee ?? 0) + deduction,
     parentTransactionId: capture.publicId,
   });
   booking.paymentStatus = 'settled';

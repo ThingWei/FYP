@@ -165,6 +165,9 @@ void main() {
           '05000');
       await press(tester, 'Find address for this pin', scroll: -200);
       await press(tester, 'Keep private / enter manually');
+      await tester.scrollUntilVisible(
+          find.textContaining('3.141592, 101.712345'), -100,
+          scrollable: find.byType(Scrollable).first);
       expect(find.textContaining('3.141592, 101.712345'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });

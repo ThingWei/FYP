@@ -1,6 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkAuth0, inspectDatabase } from '../src/config/preflight.js';
+import { checkAuth0, inspectDatabase, checkPush } from '../src/config/preflight.js';
+
+test('push preflight distinguishes disabled, Android client config, wrong project and server credentials', async () => {
+  assert.equal((await checkPush({ fcmMode: 'disabled' })).skipped, true);
+  const config = { fcmMode: 'firebase', firebaseProjectId: 'test-project' };
+  const fixture = { type: 'service_account', project_id: 'test-project', client_email: 'test@example.invalid', private_key: 'not-a-real-key' };
+  const options = (row) => ({ credentialPath: 'fixture.json', read: async () => JSON.stringify(row),
+    credential: () => ({ getAccessToken: async () => ({ access_token: 'NEVER-PRINT' }) }) });
+  await assert.rejects(checkPush(config, options({ project_info: {} })), /not Android/);
+  await assert.rejects(checkPush(config, options({ ...fixture, project_id: 'other' })), /same project/);
+  const result = await checkPush(config, options(fixture));
+  assert.deepEqual(result, { provider: 'firebase', credentialAuthenticated: true, deliveryTested: false });
+  assert.ok(!JSON.stringify(result).includes('NEVER-PRINT'));
+  await assert.rejects(checkPush(config, { ...options(fixture), credential: () => { throw new Error('PRIVATE-DATA'); } }),
+    (error) => !error.message.includes('PRIVATE-DATA') && error.message.includes('authentication failed'));
+});
 
 const authConfig = {
   authMode: 'auth0',

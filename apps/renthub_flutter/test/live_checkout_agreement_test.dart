@@ -161,6 +161,30 @@ Future<void> tapVisible(WidgetTester tester, String text) async {
 }
 
 void main() {
+  test(
+      'saved delivery charges support legacy zero fees and reject inconsistent totals',
+      () {
+    final old = Map<String, dynamic>.from(bookingRow()['pricing']);
+    expect(BookingCharges.fromJson(old).delivery, 0);
+    expect(
+        BookingCharges.fromJson({...old, 'deliveryFee': 12.5, 'total': 142.5})
+            .delivery,
+        12.5);
+    expect(() => BookingCharges.fromJson({...old, 'deliveryFee': 12.5}),
+        throwsFormatException);
+  });
+  testWidgets('checkout shows saved delivery fee in itemized total',
+      (tester) async {
+    final api = CheckoutApi();
+    api.saved['fulfilmentMethod'] = 'owner_delivery';
+    api.saved['pricing']['deliveryFee'] = 12.5;
+    api.saved['pricing']['total'] = 142.5;
+    await mount(tester, api);
+    expect(find.text('Delivery fee'), findsOneWidget);
+    expect(find.text('RM 12.50'), findsOneWidget);
+    expect(find.text('RM 142.50'), findsWidgets);
+    expect(api.writes, isEmpty);
+  });
   test('booking creation alone does not invoke the payment endpoint', () async {
     final api = CheckoutApi();
     final controller = LiveRentHubController(api);

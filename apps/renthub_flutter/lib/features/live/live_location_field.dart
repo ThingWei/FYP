@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import '../../core/location/current_location.dart';
 import '../../core/validation/input_validation.dart';
 import 'live_location_picker.dart';
 
@@ -14,6 +16,8 @@ class LiveLocationField extends StatelessWidget {
       this.enabled = true,
       this.allowEmpty = false,
       this.maxLength = 240,
+      this.positionClient,
+      this.searchAreaOnly = false,
       this.mapBuilder});
   final ListingLocationApi api;
   final TextEditingController controller;
@@ -23,6 +27,27 @@ class LiveLocationField extends StatelessWidget {
   final bool requirePin, enabled, allowEmpty;
   final int maxLength;
   final LocationMapBuilder? mapBuilder;
+  final CurrentLocationClient? positionClient;
+  final bool searchAreaOnly;
+
+  Future<void> _open(BuildContext context, {bool gps = false}) async {
+    final selected = await Navigator.push<ListingLocationSelection>(
+        context,
+        MaterialPageRoute(
+            builder: (_) => LiveLocationPicker(
+                api: api,
+                initialLabel: controller.text,
+                initialSelection: value,
+                mapBuilder: mapBuilder,
+                positionClient: positionClient,
+                startWithCurrentLocation: gps,
+                searchAreaOnly: searchAreaOnly,
+                title: 'Choose $label')));
+    if (!context.mounted || selected == null) return;
+    controller.text = selected.label;
+    onChanged(selected);
+  }
+
   @override
   Widget build(BuildContext context) =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -50,25 +75,15 @@ class LiveLocationField extends StatelessWidget {
               return null;
             }),
         OutlinedButton.icon(
-            onPressed: !enabled
-                ? null
-                : () async {
-                    final selected =
-                        await Navigator.push<ListingLocationSelection>(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => LiveLocationPicker(
-                                    api: api,
-                                    initialLabel: controller.text,
-                                    initialSelection: value,
-                                    mapBuilder: mapBuilder,
-                                    title: 'Choose $label')));
-                    if (!context.mounted || selected == null) return;
-                    controller.text = selected.label;
-                    onChanged(selected);
-                  },
+            onPressed: !enabled ? null : () => _open(context),
             icon: const Icon(Icons.map_outlined),
-            label: const Text('Choose on map / Search location')),
+            label: const Text('Choose on map')),
+        if (positionClient != null ||
+            (!kIsWeb && defaultTargetPlatform == TargetPlatform.android))
+          TextButton.icon(
+              onPressed: enabled ? () => _open(context, gps: true) : null,
+              icon: const Icon(Icons.my_location),
+              label: const Text('Use current location')),
         Text(value == null
             ? 'Confirm the entrance or pickup point on the map.'
             : 'Pin confirmed. Address edits require confirmation again.'),

@@ -12,6 +12,7 @@
 **/.data/
 **/*.pyc
 **/firebase-adminsdk-*.json
+**/*firebase-adminsdk*.json
 **/service-account*.json
 **/google-services.json
 **/GoogleService-Info.plist

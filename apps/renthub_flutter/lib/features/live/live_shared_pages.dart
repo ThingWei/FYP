@@ -22,6 +22,7 @@ import 'live_loyalty_page.dart';
 import 'live_kyc_scanner_page.dart';
 import 'driving_evidence_review.dart';
 import 'live_identity_policy.dart';
+import 'live_notification_navigation.dart';
 
 /// Refresh approval before protected actions; the Express API is authoritative.
 Future<bool> ensureMarketplaceIdentity(BuildContext context,
@@ -724,7 +725,7 @@ class _LiveNotificationsPageState extends State<LiveNotificationsPage> {
                                           color: AppColors.primary,
                                         ),
                                   onTap: () =>
-                                      controller.markNotificationRead(item.id),
+                                      openRentHubNotification(context, item),
                                 ),
                               ),
                             );
@@ -861,9 +862,8 @@ class LiveProfilePage extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.settings_outlined),
               title: const Text('Application settings'),
-              subtitle: Text(
-                '${profile?.language == 'ms' ? 'Bahasa Melayu' : 'English'} | Notification preferences',
-              ),
+              subtitle:
+                  const Text('Notification preferences and account settings'),
               trailing: const Icon(Icons.chevron_right),
               onTap: profile == null
                   ? null
@@ -1418,19 +1418,6 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              DropdownButtonFormField<String>(
-                initialValue: language,
-                decoration: const InputDecoration(labelText: 'Language'),
-                items: const [
-                  DropdownMenuItem(value: 'en', child: Text('English')),
-                  DropdownMenuItem(
-                    value: 'ms',
-                    child: Text('Bahasa Melayu'),
-                  ),
-                ],
-                onChanged: (value) => setState(() => language = value ?? 'en'),
-              ),
-              const SizedBox(height: 12),
               SwitchListTile(
                 value: push,
                 title: const Text('Push notifications'),

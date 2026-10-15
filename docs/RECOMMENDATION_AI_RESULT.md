@@ -321,3 +321,7 @@ A practical FYP retraining cycle is:
 4. compare RMSE, MAE, Precision@5, Recall@5, and HitRate@5 with the current run;
 5. deploy the reviewed artifact only after reload/smoke validation; and
 6. keep synthetic and real results separate in the final report.
+
+## Home refresh reliability follow-up — 15 October 2026
+
+See [Home/cards/notification results](HOME_CARDS_NOTIFICATIONS_RESULT.md) for per-section successful freshness, coalesced requests, post-write activity refreshes, retained results on transient failure and eligible AI-ID fallback checks. Ranking weights and fitted artifacts are unchanged; this work fixes refresh/presentation reliability rather than claiming better learned accuracy or fabricating history.

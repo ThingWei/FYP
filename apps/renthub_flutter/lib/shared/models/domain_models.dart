@@ -233,6 +233,7 @@ class Listing {
     this.ownerId = '',
     this.priceUnit = 'day',
     this.securityDeposit = 0,
+    this.deliveryFee = 0,
     this.damageWaiverAvailable = false,
     this.damageWaiverFee = 0,
     this.fulfilmentMethods = const [],
@@ -275,6 +276,7 @@ class Listing {
   final String description, status, ownerId, priceUnit;
   final double dailyPrice, rating, ownerTrustScore;
   final double securityDeposit, damageWaiverFee;
+  final double deliveryFee;
   final bool verified, isService;
   final bool damageWaiverAvailable;
   final List<String> fulfilmentMethods;
@@ -350,6 +352,7 @@ class Listing {
       ownerId: j['ownerId'] as String? ?? '',
       priceUnit: j['priceUnit'] as String? ?? 'day',
       securityDeposit: (j['securityDeposit'] as num?)?.toDouble() ?? 0,
+      deliveryFee: (j['deliveryFee'] as num?)?.toDouble() ?? 0,
       damageWaiverAvailable: j['damageWaiverAvailable'] as bool? ?? false,
       damageWaiverFee: (j['damageWaiverFee'] as num?)?.toDouble() ?? 0,
       fulfilmentMethods: ((j['fulfilmentMethods'] as List?) ?? const [])
@@ -820,9 +823,11 @@ class RentHubNotification {
     required this.entityId,
     required this.read,
     this.createdAt,
+    this.entityType = '',
+    this.type = '',
   });
 
-  final String id, category, title, body, entityId;
+  final String id, category, title, body, entityId, entityType, type;
   final bool read;
   final DateTime? createdAt;
 
@@ -833,6 +838,8 @@ class RentHubNotification {
         title: json['title'] as String,
         body: json['body'] as String,
         entityId: json['entityId'] as String,
+        entityType: json['entityType'] as String? ?? '',
+        type: json['type'] as String? ?? '',
         read: json['read'] as bool? ?? json['readAt'] != null,
         createdAt: json['createdAt'] == null
             ? null

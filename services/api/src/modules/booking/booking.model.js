@@ -18,6 +18,7 @@ const pricingSchema = new mongoose.Schema(
     securityDeposit: { type: Number, required: true, min: 0, default: 0 },
     damageWaiverFee: { type: Number, required: true, min: 0, default: 0 },
     platformFee: { type: Number, required: true, min: 0, default: 0 },
+    deliveryFee: { type: Number, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0 },
     currency: { type: String, enum: ['MYR'], default: 'MYR' },
   },

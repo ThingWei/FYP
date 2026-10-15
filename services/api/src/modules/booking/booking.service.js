@@ -169,7 +169,7 @@ function effectiveDailyPrice(listing) {
   return listing.dailyPrice;
 }
 
-function pricing(listing, startDate, endDate, waiverSelected) {
+function pricing(listing, startDate, endDate, waiverSelected, fulfilmentMethod) {
   const dailyPrice = effectiveDailyPrice(listing);
   if (listing.listingType === 'service') {
     const baseAmount = money(dailyPrice);
@@ -185,6 +185,7 @@ function pricing(listing, startDate, endDate, waiverSelected) {
   }
   const rentalDays = Math.floor((endDate - startDate) / dayMs) + 1;
   const baseAmount = money(dailyPrice * rentalDays);
+  const deliveryFee = fulfilmentMethod === 'owner_delivery' ? money(listing.deliveryFee ?? 0) : 0;
   const damageWaiverFee =
     waiverSelected && listing.damageWaiverAvailable
       ? money(listing.damageWaiverFee)
@@ -194,7 +195,8 @@ function pricing(listing, startDate, endDate, waiverSelected) {
     securityDeposit: money(listing.securityDeposit),
     damageWaiverFee,
     platformFee: 0,
-    total: money(baseAmount + listing.securityDeposit + damageWaiverFee),
+    deliveryFee,
+    total: money(baseAmount + listing.securityDeposit + damageWaiverFee + deliveryFee),
     currency: 'MYR',
   };
 }
@@ -330,7 +332,7 @@ export const bookingService = {
           termsHash: acceptedTerms.termsHash,
           acceptedAt: new Date(),
         },
-        pricing: pricing(listing, startDate, endDate, waiverSelected),
+        pricing: pricing(listing, startDate, endDate, waiverSelected, input.fulfilmentMethod),
         status: 'pending',
         expiresAt: new Date(
           Date.now() + env.pendingBookingExpiryMinutes * 60 * 1000,

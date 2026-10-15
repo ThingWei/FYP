@@ -4,8 +4,10 @@ class BookingCharges {
       required this.deposit,
       required this.waiver,
       required this.platform,
+      this.delivery = 0,
       required this.total});
   final double base, deposit, waiver, platform, total;
+  final double delivery;
   factory BookingCharges.fromJson(Map<String, dynamic> row) {
     double amount(String key) {
       final value = row[key];
@@ -20,12 +22,14 @@ class BookingCharges {
         deposit: amount('securityDeposit'),
         waiver: amount('damageWaiverFee'),
         platform: amount('platformFee'),
+        delivery: row['deliveryFee'] == null ? 0 : amount('deliveryFee'),
         total: amount('total'));
     if (row['currency'] != 'MYR' ||
         (result.base +
                     result.deposit +
                     result.waiver +
-                    result.platform -
+                    result.platform +
+                    result.delivery -
                     result.total)
                 .abs() >
             .011) {

@@ -1,6 +1,7 @@
 import 'live_location_picker.dart';
 import 'live_location_field.dart';
 import 'live_booking_locations.dart';
+import 'live_booking_charges.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -22,6 +23,7 @@ import 'live_checkout_page.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_recommendations.dart';
+import 'live_listing_collection.dart';
 import 'live_comparison.dart';
 import 'live_shared_pages.dart';
 
@@ -142,10 +144,29 @@ class LiveMarketplacePage extends StatefulWidget {
 
 class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
   final queryController = TextEditingController();
-  String category = 'All';
   DiscoveryFilters filters = const DiscoveryFilters();
   List<Listing>? results;
   bool searching = false;
+  int searchGeneration = 0;
+  String? resultQuery;
+  String? _marketplaceAccount;
+  late ListingViewMode viewMode =
+      widget.featuredOnly ? ListingViewMode.carousel : ListingViewMode.grid;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final account = context.watch<LiveRentHubController>().profile?.id;
+    if (_marketplaceAccount != account) {
+      _marketplaceAccount = account;
+      results = null;
+      resultQuery = null;
+      filters = const DiscoveryFilters();
+      queryController.clear();
+      searchGeneration++;
+      searching = false;
+    }
+  }
 
   @override
   void dispose() {
@@ -153,9 +174,10 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
     super.dispose();
   }
 
-  Future<void> _applyFilters({String? quickCategory}) async {
+  Future<void> _applyFilters() async {
     if (!InputValidation.validate(context)) return;
-    final nextCategory = quickCategory ?? category;
+    final nextCategory = filters.category;
+    final request = ++searchGeneration;
     final useRecommendations =
         widget.featuredOnly && filters.sort == 'recommended';
     setState(() => searching = true);
@@ -181,6 +203,14 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
             filters.dates!.end.add(const Duration(days: 1)),
           ),
       };
+      final queryKey =
+          Uri(queryParameters: {...parameters, 'sort': filters.sort}).query;
+      if (queryKey != resultQuery) {
+        setState(() {
+          results = [];
+          resultQuery = queryKey;
+        });
+      }
       final controller = context.read<LiveRentHubController>();
       if (widget.featuredOnly) {
         controller.recommendationFilters = {
@@ -189,9 +219,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                 !['latitude', 'longitude', 'radiusKm'].contains(entry.key))
               entry.key: entry.value
         };
-        controller.setRecommendationArea(
-            filters.centre ?? controller.recommendationCentre,
-            filters.radiusKm);
+        controller.setRecommendationArea(filters.centre, filters.radiusKm);
       }
       final found = useRecommendations
           ? await controller.recommendListings({
@@ -203,19 +231,20 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               'sort': filters.sort,
               'limit': '100',
             });
-      if (mounted) {
+      if (mounted && request == searchGeneration) {
         setState(() {
-          category = nextCategory;
           results = found;
         });
       }
     } catch (exception) {
-      if (mounted) {
+      if (mounted && request == searchGeneration) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
-      if (mounted) setState(() => searching = false);
+      if (mounted && request == searchGeneration) {
+        setState(() => searching = false);
+      }
     }
   }
 
@@ -236,7 +265,12 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
     if (mounted && widget.featuredOnly) {
       await context.read<LiveRentHubController>().refreshRecommendationFeed();
     }
-    if (mounted) setState(() => results = null);
+    if (!mounted) return;
+    if (filters.activeCount > 0 || queryController.text.isNotEmpty) {
+      await _applyFilters();
+    } else {
+      setState(() => results = null);
+    }
   }
 
   Future<void> _openListing(Listing listing) => Navigator.push<void>(
@@ -247,7 +281,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
 
   Widget _recommendationActions(Listing listing) {
     final controller = context.read<LiveRentHubController>();
-    return Column(children: [
+    return Row(mainAxisSize: MainAxisSize.min, children: [
       IconButton(
           tooltip: controller.isSaved(listing.id)
               ? 'Remove from wishlist'
@@ -262,6 +296,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               }
             }
           },
+          color: controller.isSaved(listing.id) ? AppColors.error : null,
           icon: Icon(controller.isSaved(listing.id)
               ? Icons.favorite
               : Icons.favorite_outline)),
@@ -282,15 +317,17 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
     final controller = context.watch<LiveRentHubController>();
     final showingAiRecommendations =
         widget.featuredOnly && filters.sort == 'recommended';
-    var listings = (results ??
+    var listings = ((widget.featuredOnly &&
+                    results != null &&
+                    filters.sort == 'recommended'
+                ? controller.recommendationSections['recommended']?.items
+                : null) ??
+            results ??
             (widget.featuredOnly && controller.recommendedListings.isNotEmpty
                 ? controller.recommendedListings
                 : controller.listings))
         .where((listing) => listing.status == 'active')
         .toList();
-    if (widget.featuredOnly && listings.length > 6) {
-      listings = listings.take(6).toList();
-    }
     return Scaffold(
       appBar: AppBar(
         title: widget.featuredOnly ? const RentHubLogo() : Text(widget.title),
@@ -333,14 +370,26 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               controller: queryController,
               textInputAction: TextInputAction.search,
               onFieldSubmitted: (_) => _applyFilters(),
+              onChanged: (_) => setState(() {}),
               decoration: (InputDecoration(
                 prefixIcon: Icon(Icons.search),
                 hintText: 'Search rentals and services',
-                suffixIcon: IconButton(
-                  tooltip: 'Search',
-                  onPressed: searching ? null : _applyFilters,
-                  icon: const Icon(Icons.arrow_forward),
-                ),
+                suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (queryController.text.isNotEmpty)
+                    IconButton(
+                      tooltip: 'Clear search',
+                      onPressed: () {
+                        queryController.clear();
+                        _applyFilters();
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+                  IconButton(
+                    tooltip: 'Search',
+                    onPressed: searching ? null : _applyFilters,
+                    icon: const Icon(Icons.arrow_forward),
+                  )
+                ]),
               )).copyWith(counterText: '', errorMaxLines: 3),
               validator: InputRules.searchRentalsAndServices.validate,
               inputFormatters: InputValidation.formatters(
@@ -350,63 +399,37 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               maxLengthEnforcement: InputValidation.lengthEnforcement,
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: searching ? null : _openFilters,
-                    icon: const Icon(Icons.tune),
-                    label: Text(
-                      filters.activeCount == 0
-                          ? 'Filters & sorting'
-                          : '${filters.activeCount} filters active',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
+            Row(children: [
+              IconButton.outlined(
+                  tooltip: 'Filters and sorting',
+                  onPressed: searching ? null : _openFilters,
+                  icon: Badge(
+                      isLabelVisible: filters.activeCount > 0,
+                      label: Text('${filters.activeCount}'),
+                      child: const Icon(Icons.tune))),
+              const SizedBox(width: 8),
+              IconButton(
+                  tooltip: 'Compare (${controller.comparisonListings.length})',
                   onPressed: () => Navigator.push<void>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const LiveComparisonPage(),
-                    ),
-                  ),
-                  icon: const Icon(Icons.compare_arrows),
-                  label:
-                      Text('Compare (${controller.comparisonListings.length})'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 42,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  for (final value in const [
-                    'All',
-                    'Devices',
-                    'Vehicles',
-                    'Equipment',
-                    'Clothing',
-                    'Books',
-                    'Services',
-                  ])
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        label: Text(value),
-                        selected: category == value,
-                        onSelected: (_) => _applyFilters(quickCategory: value),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const LiveComparisonPage())),
+                  icon: Badge(
+                      isLabelVisible: controller.comparisonListings.isNotEmpty,
+                      label: Text('${controller.comparisonListings.length}'),
+                      child: const Icon(Icons.compare_arrows))),
+              const Spacer(),
+              ListingViewSwitcher(
+                  value: viewMode,
+                  carousel: widget.featuredOnly,
+                  onChanged: (value) => setState(() => viewMode = value)),
+            ]),
             const SizedBox(height: 16),
             if (widget.featuredOnly && results == null)
               LiveRecommendationHomeContent(
-                  onOpen: _openListing, actions: _recommendationActions)
+                  onOpen: _openListing,
+                  actions: _recommendationActions,
+                  viewMode: viewMode)
             else ...[
               if (widget.featuredOnly)
                 TextButton(
@@ -429,7 +452,11 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                 style: const TextStyle(color: AppColors.secondaryText),
               ),
               const SizedBox(height: 8),
-              if (listings.isEmpty)
+              if (searching && listings.isEmpty)
+                const SizedBox(
+                    height: 200,
+                    child: Center(child: CircularProgressIndicator()))
+              else if (listings.isEmpty)
                 const SizedBox(
                   height: 360,
                   child: RentHubFeedbackState(
@@ -439,196 +466,13 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                   ),
                 )
               else
-                for (final listing in listings)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Card(
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => Navigator.push<void>(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LiveBookingPage(
-                              listing: listing,
-                              onSubmitted: widget.onOpenBookings,
-                            ),
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 76,
-                                height: 76,
-                                clipBehavior: Clip.antiAlias,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primaryLight,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: listing.images.isEmpty
-                                    ? Icon(
-                                        listing.isService
-                                            ? Icons.design_services_outlined
-                                            : Icons.inventory_2_outlined,
-                                        color: AppColors.primaryDark,
-                                      )
-                                    : Image.network(
-                                        controller.api
-                                            .absoluteUrl(listing.images.first),
-                                        fit: BoxFit.cover,
-                                        semanticLabel: '${listing.title} image',
-                                        errorBuilder: (_, __, ___) => Icon(
-                                          listing.isService
-                                              ? Icons.design_services_outlined
-                                              : Icons.inventory_2_outlined,
-                                          color: AppColors.primaryDark,
-                                        ),
-                                      ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      listing.title,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium,
-                                    ),
-                                    Text(
-                                      '${listing.ownerName} · ${listing.location}',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: AppColors.secondaryText,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    if (showingAiRecommendations &&
-                                        listing.recommendationReason.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Icon(
-                                              Icons.auto_awesome_outlined,
-                                              size: 14,
-                                              color: AppColors.info,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: Text(
-                                                listing.recommendationReason,
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color:
-                                                      AppColors.secondaryText,
-                                                  fontSize: 11,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    const SizedBox(height: 7),
-                                    Wrap(
-                                      spacing: 8,
-                                      crossAxisAlignment:
-                                          WrapCrossAlignment.center,
-                                      children: [
-                                        if (listing.promotionActive)
-                                          Text(
-                                            formatMoney(listing.dailyPrice),
-                                            style: const TextStyle(
-                                              color: AppColors.secondaryText,
-                                              decoration:
-                                                  TextDecoration.lineThrough,
-                                            ),
-                                          ),
-                                        Text(
-                                          '${formatMoney(listing.displayPrice)} / ${listing.priceUnit}',
-                                          style: const TextStyle(
-                                            color: AppColors.primaryDark,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                        if (listing.promotionActive)
-                                          StatusBadge(
-                                            '${listing.promotionDiscountPercent.toStringAsFixed(0)}% off',
-                                          ),
-                                        if (listing.verified)
-                                          const Chip(
-                                            avatar: Icon(
-                                              Icons.verified,
-                                              size: 16,
-                                              color: AppColors.success,
-                                            ),
-                                            label: Text('Verified'),
-                                          ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Column(
-                                children: [
-                                  IconButton(
-                                    tooltip: controller.isSaved(listing.id)
-                                        ? 'Remove from wishlist'
-                                        : 'Save to wishlist',
-                                    onPressed: () =>
-                                        controller.toggleSavedListing(listing),
-                                    icon: Icon(
-                                      controller.isSaved(listing.id)
-                                          ? Icons.favorite
-                                          : Icons.favorite_outline,
-                                      color: controller.isSaved(listing.id)
-                                          ? AppColors.error
-                                          : AppColors.secondaryText,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    tooltip: controller.isCompared(listing.id)
-                                        ? 'Remove from comparison'
-                                        : 'Add to comparison',
-                                    onPressed: () async {
-                                      try {
-                                        await toggleLiveComparison(
-                                            context, listing);
-                                      } catch (exception) {
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                  friendlyError(exception)),
-                                            ),
-                                          );
-                                        }
-                                      }
-                                    },
-                                    icon: Icon(
-                                      controller.isCompared(listing.id)
-                                          ? Icons.compare_arrows
-                                          : Icons.compare_arrows_outlined,
-                                      color: controller.isCompared(listing.id)
-                                          ? AppColors.primary
-                                          : AppColors.secondaryText,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                ListingCollection(
+                    items: listings,
+                    mode: viewMode == ListingViewMode.carousel
+                        ? ListingViewMode.grid
+                        : viewMode,
+                    onOpen: _openListing,
+                    actions: _recommendationActions),
             ],
           ],
         ),
@@ -639,6 +483,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
 
 class DiscoveryFilters {
   const DiscoveryFilters({
+    this.category = 'All',
     this.type = 'all',
     this.location = '',
     this.centre,
@@ -651,13 +496,14 @@ class DiscoveryFilters {
     this.dates,
   });
 
-  final String type, location, minimumPrice, maximumPrice, sort;
+  final String category, type, location, minimumPrice, maximumPrice, sort;
   final ListingLocationSelection? centre;
   final int radiusKm;
   final bool verifiedOnly, promotionsOnly;
   final DateTimeRange? dates;
 
   int get activeCount =>
+      (category == 'All' ? 0 : 1) +
       (type == 'all' ? 0 : 1) +
       (location.isEmpty && centre == null ? 0 : 1) +
       (minimumPrice.isEmpty && maximumPrice.isEmpty ? 0 : 1) +
@@ -680,6 +526,7 @@ class LiveDiscoveryFilterPage extends StatefulWidget {
 }
 
 class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
+  late String category = widget.initial.category;
   late ListingLocationSelection? centre = widget.initial.centre;
   late int radiusKm = widget.initial.radiusKm;
   late String type = widget.initial.type;
@@ -724,6 +571,7 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
     InputValidation.popIfValid(
       context,
       DiscoveryFilters(
+        category: category,
         type: type,
         location: centre == null ? location.text.trim() : '',
         centre: centre,
@@ -763,7 +611,27 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              Text('Categories',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 4, children: [
+                for (final value in const [
+                  'All',
+                  'Devices',
+                  'Vehicles',
+                  'Equipment',
+                  'Clothing',
+                  'Books',
+                  'Services'
+                ])
+                  FilterChip(
+                      label: Text(value),
+                      selected: category == value,
+                      onSelected: (_) => setState(() => category = value)),
+              ]),
+              const SizedBox(height: 16),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: type,
                 decoration: const InputDecoration(labelText: 'Listing type'),
                 items: const [
@@ -782,12 +650,14 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
                       context.read<LiveRentHubController>().api),
                   controller: location,
                   value: centre,
+                  searchAreaOnly: true,
                   requirePin: false,
                   allowEmpty: true,
                   maxLength: 100,
                   onChanged: (value) => setState(() => centre = value)),
               if (centre != null) ...[
                 DropdownButtonFormField<int>(
+                    isExpanded: true,
                     initialValue: radiusKm,
                     decoration:
                         const InputDecoration(labelText: 'Search radius'),
@@ -877,6 +747,7 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: sort,
                 decoration: const InputDecoration(labelText: 'Sort by'),
                 items: const [
@@ -1391,6 +1262,9 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
           ? widget.listing.displayPrice * 1.05
           : widget.listing.displayPrice * days +
               widget.listing.securityDeposit +
+              (fulfilmentMethod == 'owner_delivery'
+                  ? widget.listing.deliveryFee
+                  : 0) +
               (waiver ? widget.listing.damageWaiverFee : 0);
       await showLiveCheckout(context, booking.id,
           estimatedTotal: estimate, initialMethod: paymentMethod);
@@ -1448,6 +1322,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
         ? listing.displayPrice * 1.05
         : listing.displayPrice * days +
             listing.securityDeposit +
+            (fulfilmentMethod == 'owner_delivery' ? listing.deliveryFee : 0) +
             (waiver ? listing.damageWaiverFee : 0);
     return Scaffold(
       appBar: AppBar(
@@ -1459,6 +1334,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                   ? 'Remove from wishlist'
                   : 'Save to wishlist',
               onPressed: () => controller.toggleSavedListing(listing),
+              color: controller.isSaved(listing.id) ? AppColors.error : null,
               icon: Icon(
                 controller.isSaved(listing.id)
                     ? Icons.favorite
@@ -1622,8 +1498,12 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
             else if (availability != null)
               Builder(
                 builder: (context) {
-                  final today = DateTime.now();
+                  final today = malaysiaCalendarToday();
                   final current = availability!.rangeContaining(today);
+                  final upcoming = availability!.unavailableRanges
+                      .where((range) => !range.displayEndDay.isBefore(today))
+                      .toList()
+                    ..sort((a, b) => a.startDay.compareTo(b.startDay));
                   return Card(
                     color: current == null
                         ? AppColors.success.withValues(alpha: 0.06)
@@ -1664,16 +1544,15 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                               'Next available: ${_dateLabel(availability!.nextAvailableDate!)}',
                             ),
                           ],
-                          if (availability!.unavailableRanges.isNotEmpty) ...[
+                          if (upcoming.isNotEmpty) ...[
                             const SizedBox(height: 10),
                             const Text(
                               'Unavailable dates',
                               style: TextStyle(fontWeight: FontWeight.w700),
                             ),
-                            for (final range
-                                in availability!.unavailableRanges.take(3))
+                            for (final range in upcoming.take(3))
                               Text(
-                                '${_dateLabel(range.startDay)} - ${_dateLabel(range.displayEndDay)}'
+                                '${_dateLabel(range.startDay.isBefore(today) ? today : range.startDay)} - ${_dateLabel(range.displayEndDay)}'
                                 '${range.source == 'booking' ? ' · Reserved' : ' · Owner blocked'}',
                                 style: const TextStyle(
                                   color: AppColors.secondaryText,
@@ -1861,6 +1740,13 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                       ),
                     if (!listing.isService &&
                         fulfilmentMethod == 'owner_delivery') ...[
+                      Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                              listing.deliveryFee == 0
+                                  ? 'Delivery: Free'
+                                  : 'Delivery fee: ${formatMoney(listing.deliveryFee)}',
+                              style: Theme.of(context).textTheme.titleSmall)),
                       if (context
                               .read<LiveRentHubController>()
                               .profile
@@ -2002,7 +1888,10 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
 }
 
 class LiveRenterBookingsPage extends StatefulWidget {
-  const LiveRenterBookingsPage({super.key});
+  const LiveRenterBookingsPage(
+      {super.key, this.focusBookingId, this.focusRentalId, this.payment});
+  final String? focusBookingId, focusRentalId;
+  final Transaction? payment;
 
   @override
   State<LiveRenterBookingsPage> createState() => _LiveRenterBookingsPageState();
@@ -2011,6 +1900,11 @@ class LiveRenterBookingsPage extends StatefulWidget {
 class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
   Future<void> _refresh() async {
     try {
+      if (widget.focusBookingId != null) {
+        await context.read<LiveRentHubController>().refreshFocusedBooking(
+            widget.focusBookingId!, widget.focusRentalId);
+        return;
+      }
       await context.read<LiveRentHubController>().loadRenter();
     } catch (_) {}
   }
@@ -2062,9 +1956,15 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
+    final visibleBookings = controller.bookings
+        .where((booking) =>
+            widget.focusBookingId == null ||
+            booking.id == widget.focusBookingId)
+        .toList();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Bookings'),
+        title: Text(
+            widget.focusBookingId == null ? 'My Bookings' : 'Booking details'),
         actions: [
           IconButton(
             tooltip: 'Notifications',
@@ -2080,7 +1980,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,
-        child: controller.bookings.isEmpty
+        child: visibleBookings.isEmpty
             ? ListView(
                 children: const [
                   SizedBox(
@@ -2095,10 +1995,10 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
               )
             : ListView.separated(
                 padding: const EdgeInsets.all(16),
-                itemCount: controller.bookings.length,
+                itemCount: visibleBookings.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (context, index) {
-                  final booking = controller.bookings[index];
+                  final booking = visibleBookings[index];
                   final matchingRentals = controller.rentals
                       .where((item) => item.bookingId == booking.id)
                       .toList();
@@ -2124,6 +2024,8 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                           ),
                           const SizedBox(height: 6),
                           Text(formatDateRange(booking.start, booking.end)),
+                          if (widget.payment != null)
+                            LivePaymentSummary(payment: widget.payment!),
                           BookingLocationsButton(bookingId: booking.id),
                           Wrap(spacing: 8, children: [
                             TextButton.icon(

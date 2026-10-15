@@ -6,9 +6,13 @@ import '../../shared/models/domain_models.dart';
 /// A pushed route must stop exposing its child when the underlying session changes.
 class LiveAuthenticatedPage extends StatefulWidget {
   const LiveAuthenticatedPage(
-      {super.key, required this.child, this.renterOnly = false});
+      {super.key,
+      required this.child,
+      this.renterOnly = false,
+      this.sessionMessage});
   final Widget child;
   final bool renterOnly;
+  final String? sessionMessage;
   @override
   State<LiveAuthenticatedPage> createState() => _LiveAuthenticatedPageState();
 }
@@ -43,9 +47,10 @@ class _LiveAuthenticatedPageState extends State<LiveAuthenticatedPage> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   const Icon(Icons.lock_outline, size: 48),
                   const SizedBox(height: 16),
-                  Text(widget.renterOnly
-                      ? 'Sign in with the booking\u2019s renter account to continue. This page is not available to other accounts.'
-                      : 'Your session changed. Return to the app and sign in with an account that can access this agreement.'),
+                  Text(widget.sessionMessage ??
+                      (widget.renterOnly
+                          ? 'Sign in with the booking\u2019s renter account to continue. This page is not available to other accounts.'
+                          : 'Your session changed. Return to the app and sign in with an account that can access this agreement.')),
                   TextButton(
                       onPressed: () =>
                           Navigator.popUntil(context, (route) => route.isFirst),

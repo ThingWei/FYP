@@ -3,6 +3,7 @@ import 'live_catalog_picker.dart';
 import 'live_location_picker.dart';
 import 'live_location_field.dart';
 import 'live_booking_locations.dart';
+import 'live_booking_charges.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
@@ -101,8 +102,10 @@ class _LiveOwnerShellState extends State<LiveOwnerShell> {
         onDestinationSelected: (value) => setState(() => index = value),
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            label: 'Dashboard',
+            icon: Icon(Icons.dashboard_outlined,
+                semanticLabel: 'Owner dashboard'),
+            label: 'Home',
+            tooltip: 'Owner dashboard',
           ),
           NavigationDestination(
             icon: Icon(Icons.inventory_2_outlined),
@@ -222,7 +225,7 @@ class LiveOwnerDashboard extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
-              childAspectRatio: 1.35,
+              mainAxisExtent: 64 + MediaQuery.textScalerOf(context).scale(80),
               children: [
                 _LiveMetric(
                   'My listings',
@@ -559,6 +562,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
   late final deposit = TextEditingController(
     text: widget.listing?.securityDeposit.toStringAsFixed(2) ?? '0',
   );
+  late final deliveryFee = TextEditingController(
+      text: widget.listing?.deliveryFee.toStringAsFixed(2) ?? '0');
   late final duration = TextEditingController(
     text: widget.listing?.serviceDurationMinutes?.toString() ?? '60',
   );
@@ -972,6 +977,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
     price.dispose();
     location.dispose();
     deposit.dispose();
+    deliveryFee.dispose();
     duration.dispose();
     brand.dispose();
     productModel.dispose();
@@ -1056,6 +1062,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
         'priceUnit': 'day',
         'condition': condition,
         'securityDeposit': double.parse(deposit.text),
+        'deliveryFee': double.parse(deliveryFee.text),
         'damageWaiverAvailable': false,
         'damageWaiverFee': 0,
         'fulfilmentMethods': ['pickup', 'owner_delivery'],
@@ -1524,6 +1531,27 @@ class _LiveListingFormState extends State<LiveListingForm> {
                           maxLength: InputRules.securityDepositRm.maxLength,
                           maxLengthEnforcement:
                               InputValidation.lengthEnforcement,
+                        ),
+                      ],
+                      if (!widget.isService) ...[
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: deliveryFee,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: const InputDecoration(
+                              labelText: 'Delivery fee (RM)',
+                              helperText:
+                                  'One fixed charge per booking. Enter 0 for free delivery.',
+                              helperMaxLines: 3),
+                          validator: const InputRule('Delivery fee',
+                                  kind: InputKind.money, max: 100000)
+                              .validate,
+                          inputFormatters: InputValidation.formatters(
+                              const InputRule('Delivery fee',
+                                  kind: InputKind.money, max: 100000),
+                              deliveryFee),
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
                         ),
                       ],
                       const ListingSectionHeading('Location and availability',
@@ -2207,7 +2235,10 @@ class _LiveBundlePageState extends State<LiveBundlePage> {
 }
 
 class LiveOwnerRequestsPage extends StatelessWidget {
-  const LiveOwnerRequestsPage({super.key});
+  const LiveOwnerRequestsPage(
+      {super.key, this.focusBookingId, this.focusRentalId, this.payment});
+  final String? focusBookingId, focusRentalId;
+  final Transaction? payment;
 
   Future<void> _decide(
     BuildContext context,
@@ -2278,11 +2309,20 @@ class LiveOwnerRequestsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
+    final visibleBookings = controller.bookings
+        .where(
+            (booking) => focusBookingId == null || booking.id == focusBookingId)
+        .toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('Booking Requests')),
+      appBar: AppBar(
+          title: Text(
+              focusBookingId == null ? 'Booking Requests' : 'Booking details')),
       body: RefreshIndicator(
-        onRefresh: controller.loadOwner,
-        child: controller.bookings.isEmpty
+        onRefresh: focusBookingId == null
+            ? controller.loadOwner
+            : () => controller.refreshFocusedBooking(
+                focusBookingId!, focusRentalId),
+        child: visibleBookings.isEmpty
             ? ListView(
                 children: const [
                   SizedBox(
@@ -2297,10 +2337,10 @@ class LiveOwnerRequestsPage extends StatelessWidget {
               )
             : ListView.separated(
                 padding: const EdgeInsets.all(16),
-                itemCount: controller.bookings.length,
+                itemCount: visibleBookings.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
-                  final booking = controller.bookings[index];
+                  final booking = visibleBookings[index];
                   return Card(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
@@ -2320,7 +2360,13 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           Text('${booking.renterName} · ${booking.id}'),
+                          if (payment != null)
+                            LivePaymentSummary(payment: payment!),
                           BookingLocationsButton(bookingId: booking.id),
+                          if (focusBookingId != null)
+                            for (final rental in controller.rentals.where(
+                                (rental) => rental.bookingId == booking.id))
+                              _OwnerRentalCard(rental: rental),
                           TextButton.icon(
                               onPressed: () =>
                                   showBookingAgreement(context, booking.id),

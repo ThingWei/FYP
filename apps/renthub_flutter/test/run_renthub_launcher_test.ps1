@@ -35,6 +35,8 @@ $googleFixture = [pscustomobject]@{
 $firebaseArguments = @(Get-RentHubFirebaseDefines -FcmMode firebase -TargetDevice phone -Settings @{} -GoogleConfiguration $googleFixture)
 Assert-Launcher ($firebaseArguments -contains '--dart-define=FIREBASE_ENABLED=true') 'Android FCM should be enabled with complete public settings'
 Assert-Launcher ($firebaseArguments -contains '--dart-define=FIREBASE_PROJECT_ID=demo-renthub') 'Android config project'
+$placeholderArguments = @(Get-RentHubFirebaseDefines -FcmMode firebase -TargetDevice phone -Settings @{ FIREBASE_ANDROID_API_KEY = 'YOUR_API_KEY'; FIREBASE_ANDROID_APP_ID = 'YOUR_APP_ID'; FIREBASE_MESSAGING_SENDER_ID = 'YOUR_SENDER_ID'; FIREBASE_PROJECT_ID = 'your-project-id' } -GoogleConfiguration $googleFixture)
+Assert-Launcher ($placeholderArguments -contains '--dart-define=FIREBASE_APP_ID=1:123456:android:test') 'Android JSON replaces example client placeholders'
 Assert-Launcher (-not (($firebaseArguments -join ' ') -match 'private_key|GOOGLE_APPLICATION_CREDENTIALS')) 'No server credentials in Flutter flags'
 Assert-Launcher (@(Get-RentHubFirebaseDefines -FcmMode firebase -TargetDevice windows -Settings @{}).Count -eq 1) 'Windows FCM disabled'
 Assert-Launcher (@(Get-RentHubFirebaseDefines -FcmMode disabled -TargetDevice phone -Settings @{})[0] -eq '--dart-define=FIREBASE_ENABLED=false') 'Explicit disabled FCM remains disabled'
@@ -106,6 +108,10 @@ Assert-Launcher (-not (Test-RentHubApiReady)) 'API without licence OCR review mu
 $script:apiHealthFixture.data.capabilities += 'driving-licence-ocr-review-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'API without recommendation feed must fail'
 $script:apiHealthFixture.data.capabilities += 'recommendation-feed-v2'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without saved listing delivery fees must fail'
+$script:apiHealthFixture.data.capabilities += 'listing-delivery-fees-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without authorized notification targets must fail'
+$script:apiHealthFixture.data.capabilities += 'notification-targets-v1'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'

@@ -115,6 +115,7 @@ function listingInput(input) {
     ...(input.securityDeposit !== undefined && {
       securityDeposit: input.securityDeposit,
     }),
+    ...(input.deliveryFee !== undefined && { deliveryFee: input.deliveryFee }),
     ...(input.damageWaiverAvailable !== undefined && {
       damageWaiverAvailable: input.damageWaiverAvailable,
     }),
@@ -317,7 +318,14 @@ export const listingService = {
       context: {},
     });
     const availability = await availabilityContext(query);
-    if (!Array.isArray(recommendations) || !recommendations.length) {
+    const byId = new Map(candidates.map((item) => [item.publicId, item]));
+    const seen = new Set();
+    const validRecommendations = (Array.isArray(recommendations) ? recommendations : []).filter(row => {
+      if (!row || !byId.has(row.item_id) || seen.has(row.item_id)) return false;
+      seen.add(row.item_id);
+      return true;
+    });
+    if (!validRecommendations.length) {
       return rerankRecommendations(candidates.map((item) => ({
         ...item.toJSON(),
         recommendation: {
@@ -328,8 +336,7 @@ export const listingService = {
         },
       })), query, availability).slice(0, limit);
     }
-    const byId = new Map(candidates.map((item) => [item.publicId, item]));
-    return rerankRecommendations(recommendations.flatMap((recommendation) => {
+    return rerankRecommendations(validRecommendations.flatMap((recommendation) => {
       const item = byId.get(recommendation.item_id);
       return item ? [{ ...item.toJSON(), recommendation }] : [];
     }), query, availability).slice(0, limit);

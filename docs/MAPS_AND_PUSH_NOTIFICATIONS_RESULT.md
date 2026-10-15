@@ -126,7 +126,9 @@ npm.cmd run backfill:public-locations -- --apply --limit=500
 
 Repeat the bounded apply deliberately for larger datasets. Rows with no valid private coordinates cannot be backfilled. The index is declared in the model; deployments with auto-indexing disabled must create the `publicGeoPoint` 2dsphere index through their normal deployment procedure. See [MongoDB geospatial query guidance](https://www.mongodb.com/docs/manual/reference/operator/query/geowithin/).
 
-## Android push: free setup still required
+## Android push: setup and activation
+
+15 October update: the supplied Android configuration and matching Admin service account have now been configured locally. The private Admin file was moved to ignored server `.data/firebase/service-account.json`; Admin authentication and launcher public-client flags passed verification. See [catalogue/delivery/push handoff](CATALOGUE_DELIVERY_AND_PUSH_RESULT.md) for restart instructions, tests and remaining real-device delivery checks. The setup instructions below remain applicable to other machines; local credentials are not committed.
 
 [Firebase's current pricing page](https://firebase.google.com/pricing) lists Cloud Messaging (FCM) as no-cost and Spark as requiring no payment method. This is separate from Cloud Storage billing. RentHub can retain `STORAGE_MODE=supabase` and use Firebase only for Android messaging; there is no requirement to create a Firebase Storage bucket or enable paid Cloud Functions for this implementation.
 
@@ -171,7 +173,7 @@ The RentHub API must still run and be reachable to generate booking/message noti
 
 ## Remaining checks
 
-- [ ] Configure Android Firebase client and server credentials on Spark; do not enable paid Storage/Functions for messaging.
+- [x] Configure the local Android Firebase client and server credentials; Admin authentication verified. Device permission/token/delivery checks remain below.
 - [ ] Set a real OpenStreetMap application contact and verify search/tile access on the connected Android device.
 - [ ] Verify physical/service listings, saved-address add/edit, service venue modes, owner delivery and Explore centre/radius on the connected Android device.
 - [ ] Test GPS “while using app” and approximate permission, deny/deny permanently, disabled GPS and poor reception; check accuracy warning and manual entrance adjustment.

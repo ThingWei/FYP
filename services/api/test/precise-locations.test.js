@@ -10,6 +10,8 @@ import { env } from '../src/config/env.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
 import { BookingModel } from '../src/modules/booking/booking.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
+import { PaymentModel } from '../src/modules/payment/payment.model.js';
+import { recordPhysicalSettlement, captureBookingPayment } from '../src/modules/payment/payment.service.js';
 import { approximatePoint, bookingLocations, validateLocation, validateNearby } from '../src/core/location.js';
 
 const headers = (id, role = 'renter') => ({ 'x-user-id': id, 'x-user-name': id, 'x-user-email': `${id}@example.test`, 'x-user-roles': role });
@@ -31,6 +33,31 @@ async function seedListing(overrides = {}) {
   return ListingModel.create({ ...listingInput, publicId: `l-map-${++sequence}`, ownerId: 'u-map-owner', ownerName: 'Map Owner', status: 'active', publicGeoPoint: approximatePoint(point), ...overrides });
 }
 const bookingInput = (listing, overrides = {}) => ({ listingId: listing.publicId, idempotencyKey: `location-test:${++sequence}`, startDate: '2026-11-10', endDate: '2026-11-11', fulfilmentMethod: 'pickup', agreementAccepted: true, agreementVersion: 'renthub-booking-v1', ...overrides });
+
+test('Owner-set delivery fee is snapshotted, server-controlled, charged once and included in settlement', async () => {
+  const listing = await seedListing({ deliveryFee: 23.45 });
+  const pickup = await request(app).post('/api/v1/bookings').set(renter).send(bookingInput(listing)).expect(201);
+  assert.equal(pickup.body.data.pricing.deliveryFee, 0);
+  assert.equal(pickup.body.data.pricing.total, 120);
+  const input = bookingInput(listing, { fulfilmentMethod: 'owner_delivery', deliveryLocation: place('Delivery entrance') });
+  const delivered = await request(app).post('/api/v1/bookings').set(renter).send(input).expect(201);
+  const id = delivered.body.data.publicId;
+  assert.equal(delivered.body.data.pricing.deliveryFee, 23.45);
+  assert.equal(delivered.body.data.pricing.total, 143.45);
+  await ListingModel.updateOne({ _id: listing._id }, { $set: { deliveryFee: 90 } });
+  const replay = await request(app).post('/api/v1/bookings').set(renter).send(input).expect(201);
+  assert.equal(replay.body.data.pricing.total, 143.45);
+  await request(app).post('/api/v1/payments/authorizations').set(renter)
+    .send({ bookingId: id, method: 'card', amount: 1, idempotencyKey: `delivery-payment:${sequence}` }).expect(201);
+  await request(app).patch(`/api/v1/bookings/${id}/decision`).set(owner).send({ status: 'approved' }).expect(200);
+  const agreement = await request(app).get(`/api/v1/bookings/${id}/agreement`).set(renter).expect(200);
+  assert.equal(agreement.body.data.booking.pricing.deliveryFee, 23.45);
+  const saved = await BookingModel.findOne({ publicId: id });
+  await captureBookingPayment(saved);
+  await recordPhysicalSettlement(saved, 0);
+  const settlement = await PaymentModel.findOne({ bookingId: id, type: 'owner_settlement' });
+  assert.equal(settlement.amount, 143.45);
+});
 
 test('strict location and nearby validation rejects malformed inputs and retains leading-zero postcodes', () => {
   assert.equal(validateLocation(place()), true);

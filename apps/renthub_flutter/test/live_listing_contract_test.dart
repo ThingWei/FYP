@@ -74,6 +74,25 @@ void _mobileSize(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+Future<void> _chooseCategory(WidgetTester tester, String category) async {
+  await tester.tap(find.byTooltip('Filters and sorting'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.widgetWithText(FilterChip, category));
+  await tester.tap(find.text('Apply Filters'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _why(WidgetTester tester, String reason) async {
+  final button = find.text('Why this item?').first;
+  await tester.ensureVisible(button);
+  await tester.pumpAndSettle();
+  await tester.tap(button);
+  await tester.pumpAndSettle();
+  expect(find.textContaining(reason), findsOneWidget);
+  await tester.tap(find.text('Close'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   test('parses the strict listing API contract with its stable public ID', () {
     final listing = Listing.fromJson({
@@ -212,11 +231,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('Recommended For You'), findsOneWidget);
-    expect(
-      find.text(
-          'Similar to listings you saved, booked, completed, or reviewed'),
-      findsOneWidget,
-    );
+    await _why(tester,
+        'Similar to listings you saved, booked, completed, or reviewed');
   });
 
   testWidgets('Home category chips keep the recommendation endpoint and reason',
@@ -246,23 +262,21 @@ void main() {
       ),
     );
 
-    await tester.tap(find.widgetWithText(FilterChip, 'Devices'));
-    await tester.pumpAndSettle();
+    await _chooseCategory(tester, 'Devices');
 
     expect(api.paths.single, contains('/listings/recommended?'));
     expect(api.paths.single, contains('category=Devices'));
     expect(find.text('Recommended for you'), findsOneWidget);
-    expect(find.text('Filtered personalized recommendation'), findsOneWidget);
+    await _why(tester, 'Filtered personalized recommendation');
 
-    await tester.tap(find.widgetWithText(FilterChip, 'Vehicles'));
-    await tester.pumpAndSettle();
+    await _chooseCategory(tester, 'Vehicles');
     expect(api.paths, hasLength(2));
     expect(
       api.paths.every((path) => path.startsWith('/listings/recommended?')),
       isTrue,
     );
     expect(api.paths.last, contains('category=Vehicles'));
-    expect(find.text('Filtered personalized recommendation'), findsOneWidget);
+    await _why(tester, 'Filtered personalized recommendation');
   });
 
   testWidgets('Explore category chips use ordinary discovery', (tester) async {
@@ -281,8 +295,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.widgetWithText(FilterChip, 'Vehicles'));
-    await tester.pumpAndSettle();
+    await _chooseCategory(tester, 'Vehicles');
 
     expect(api.paths.single, startsWith('/listings?'));
     expect(api.paths.single, isNot(contains('/recommended')));
@@ -315,8 +328,10 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Filters & sorting'));
+    await tester.tap(find.byTooltip('Filters and sorting'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Recommended'), 250,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('Recommended').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Price: low to high').last);

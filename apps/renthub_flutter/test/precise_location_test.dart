@@ -102,7 +102,12 @@ Widget app(Widget page, LiveRentHubController controller) =>
         child: MaterialApp(theme: AppTheme.light, home: page));
 Future<void> confirm(WidgetTester tester) async {
   await tap(tester, 'Place test pin');
-  await enter(tester, 'Exact address or pickup point', 'Entrance 12');
+  await enter(
+      tester,
+      find.widgetWithText(TextField, 'Search area name').evaluate().isNotEmpty
+          ? 'Search area name'
+          : 'Exact address or pickup point',
+      'Entrance 12');
   await enter(tester, 'City / town', 'Alor Setar');
   await enter(tester, 'State', 'Kedah');
   await enter(tester, 'Postcode (if known)', '05000');
@@ -110,6 +115,37 @@ Future<void> confirm(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets(
+      'current-location shortcut starts GPS on opening, requires confirmation and never reverse-geocodes',
+      (tester) async {
+    final api = LocationApi();
+    final text = TextEditingController(text: 'Keep my draft');
+    addTearDown(text.dispose);
+    final gps = Gps();
+    ListingLocationSelection? selection;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: LiveLocationField(
+                api: ListingLocationApi(api),
+                controller: text,
+                value: null,
+                onChanged: (value) => selection = value,
+                positionClient: gps,
+                mapBuilder: canvas,
+                searchAreaOnly: true))));
+    expect(gps.calls, 0);
+    await tap(tester, 'Use current location');
+    expect(gps.calls, 1);
+    expect(selection, isNull);
+    expect(text.text, 'Keep my draft');
+    // Confirmation is always visible without scrolling through address fields.
+    expect(find.text('Use this location').hitTestable(), findsOneWidget);
+    await tap(tester, 'Use this location');
+    expect(selection!.point.latitude, 3.14);
+    expect(text.text, 'Current area');
+    expect(api.writes, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   test('address serialization preserves IDs, private pin and leading zeros',
       () {
     final address = UserAddress.fromJson({
@@ -225,7 +261,7 @@ void main() {
                           mapBuilder: canvas,
                           onChanged: (value) => refresh(() => selected = value))
                     ]))))));
-    await tap(tester, 'Choose on map / Search location');
+    await tap(tester, 'Choose on map');
     await tap(tester, 'Cancel and keep existing location');
     expect(text.text, 'Existing entrance');
     expect(selected, isNotNull);
@@ -245,7 +281,15 @@ void main() {
           LiveListingForm(isService: service, locationMapBuilder: canvas),
           controller));
       await tester.pumpAndSettle();
-      await tap(tester, 'Choose on map / Search location');
+      if (!service) {
+        final fee = field('Delivery fee (RM)');
+        await tester.scrollUntilVisible(fee, 250,
+            scrollable: find.byType(Scrollable).first);
+        await tester.enterText(fee, '12.50');
+        await tester.enterText(fee, 'abc123');
+        expect(tester.widget<TextFormField>(fee).controller!.text, '12.50');
+      }
+      await tap(tester, 'Choose on map');
       await confirm(tester);
       expect(tester.widget<TextFormField>(field('Location')).controller!.text,
           'Entrance 12');
@@ -270,7 +314,7 @@ void main() {
         controller));
     await tap(tester, 'Saved addresses');
     await tap(tester, 'Add Address');
-    await tap(tester, 'Choose on map / Search location');
+    await tap(tester, 'Choose on map');
     await confirm(tester);
     expect(tester.widget<TextFormField>(field('Postcode')).controller!.text,
         '05000');
@@ -294,7 +338,7 @@ void main() {
             locationMapBuilder: canvas),
         controller));
     await tester.pumpAndSettle();
-    await tap(tester, 'Choose on map / Search location');
+    await tap(tester, 'Choose on map');
     await confirm(tester);
     expect(find.text('10 km'), findsOneWidget);
     expect(find.textContaining('approximate public locations'), findsOneWidget);
@@ -334,7 +378,7 @@ void main() {
           controller));
       await tester.pumpAndSettle();
       if (['renter_location', 'flexible', 'delivery'].contains(mode)) {
-        await tap(tester, 'Choose on map / Search location');
+        await tap(tester, 'Choose on map');
         await confirm(tester);
         expect(
             tester

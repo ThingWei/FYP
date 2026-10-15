@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { notificationTarget } from './notificationTarget.js';
 import { AppError } from '../../core/errors.js';
 import { emitNewMessage, emitReadReceipt } from '../../socket/eventBus.js';
 import { BookingModel } from '../booking/booking.model.js';
@@ -42,6 +43,10 @@ async function participantThread(threadId, identity) {
 }
 
 export const communicationService = {
+  async notificationTarget(id, identity) {
+    await requireActiveUser(identity);
+    return notificationTarget(id, identity);
+  },
   async listPushDevices(identity) {
     await requireActiveUser(identity);
     return DeviceRegistrationModel.find({ userId: identity.authId }).sort({

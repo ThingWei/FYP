@@ -9,6 +9,7 @@ import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/renthub_components.dart';
 import 'live_location_picker.dart';
 import 'live_renthub_controller.dart';
+import 'live_listing_collection.dart';
 
 class RecommendationListingTile extends StatelessWidget {
   const RecommendationListingTile(
@@ -34,6 +35,9 @@ class RecommendationListingTile extends StatelessWidget {
                       Text(listing.title,
                           style: Theme.of(context).textTheme.titleSmall),
                       Text('${listing.category} · ${listing.subcategory}'),
+                      if (listing.promotionActive) const Text('Promoted'),
+                      if (listing.verified)
+                        Text(listing.isService ? 'Verified' : 'Verified item'),
                       Text(
                           'RM ${listing.displayPrice.toStringAsFixed(2)} / ${listing.priceUnit}',
                           style: const TextStyle(
@@ -87,7 +91,11 @@ class RecommendationSectionView extends StatelessWidget {
       required this.onRetry,
       this.loading = false,
       this.onClear,
-      this.actions});
+      this.refreshFailed = false,
+      this.actions,
+      this.mode = ListingViewMode.carousel});
+  final ListingViewMode mode;
+  final bool refreshFailed;
   final String title;
   final RecommendationSection section;
   final ValueChanged<Listing> onOpen;
@@ -109,17 +117,11 @@ class RecommendationSectionView extends StatelessWidget {
                     onPressed: () => Navigator.push<void>(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => Scaffold(
-                                appBar: AppBar(title: Text(title)),
-                                body: ListView(
-                                    padding: const EdgeInsets.all(16),
-                                    children: [
-                                      for (final item in section.items)
-                                        RecommendationListingTile(
-                                            listing: item,
-                                            onOpen: () => onOpen(item),
-                                            trailing: actions?.call(item)),
-                                    ])))),
+                            builder: (_) => ListingCollectionPage(
+                                title: title,
+                                items: section.items,
+                                onOpen: onOpen,
+                                actions: actions))),
                     child: const Text('See all')),
               if (onClear != null)
                 TextButton(
@@ -140,24 +142,45 @@ class RecommendationSectionView extends StatelessWidget {
                               : title == 'You Might Also Need'
                                   ? 'No suitable complementary items are available yet.'
                                   : 'No suggestions yet. Explore more listings.')),
-        if (!loading && section.status == 'unavailable')
+        if (!loading && (section.status == 'unavailable' || refreshFailed))
           Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
                   onPressed: onRetry,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'))),
-        for (final item in section.items.take(6))
-          RecommendationListingTile(
-              listing: item,
-              onOpen: () => onOpen(item),
-              trailing: actions?.call(item)),
+                  label: Text(section.items.isEmpty
+                      ? 'Retry'
+                      : 'Could not update. Retry'))),
+        if (!loading &&
+            section.status == 'empty' &&
+            title != 'You Might Also Need')
+          Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                  onPressed: () =>
+                      context.read<LiveRentHubController>().selectRenterTab(1),
+                  child: const Text('Explore rentals'))),
+        if (section.items.isNotEmpty)
+          ListingCollection(
+              items: section.items
+                  .take(mode == ListingViewMode.grid ? 16 : 6)
+                  .toList(),
+              onOpen: onOpen,
+              actions: actions,
+              mode: mode),
       ]);
 }
 
 class LiveRecommendationHomeContent extends StatefulWidget {
   const LiveRecommendationHomeContent(
-      {super.key, required this.onOpen, this.actions, this.positionClient});
+      {super.key,
+      required this.onOpen,
+      this.actions,
+      this.positionClient,
+      this.viewMode = ListingViewMode.carousel,
+      this.showAreaControls = false});
+  final ListingViewMode viewMode;
+  final bool showAreaControls;
   final Future<void> Function(Listing) onOpen;
   final Widget Function(Listing)? actions;
   final CurrentLocationClient? positionClient;
@@ -196,7 +219,7 @@ class _LiveRecommendationHomeContentState
       locating = false;
       locationMessage = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(controller.refreshRecommendationFeed());
+        if (mounted) unawaited(controller.ensureRecommendationFeed());
       });
     }
   }
@@ -205,12 +228,8 @@ class _LiveRecommendationHomeContentState
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
     final c = context.read<LiveRentHubController>();
-    if (c.renterTabIndex == 0 &&
-        (c.recommendationDirty ||
-            c.recommendationUpdatedAt == null ||
-            DateTime.now().difference(c.recommendationUpdatedAt!).inSeconds >
-                60)) {
-      unawaited(c.refreshRecommendationFeed());
+    if (c.renterTabIndex == 0) {
+      unawaited(c.ensureRecommendationFeed());
     }
   }
 
@@ -280,58 +299,60 @@ class _LiveRecommendationHomeContentState
   Widget build(BuildContext context) {
     final c = context.watch<LiveRentHubController>();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Card(
-          child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                        c.recommendationCentre?.label ??
-                            'Discover rentals around you',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    Wrap(spacing: 8, children: [
-                      TextButton.icon(
-                          onPressed: locating ? null : _gps,
-                          icon: const Icon(Icons.my_location),
-                          label: Text(locating
-                              ? 'Finding location…'
-                              : 'Use current location')),
-                      TextButton.icon(
-                          onPressed: _choose,
-                          icon: const Icon(Icons.map_outlined),
-                          label: const Text('Choose area')),
+      if (widget.showAreaControls)
+        Card(
+            child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                          c.recommendationCentre?.label ??
+                              'Discover rentals around you',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      Wrap(spacing: 8, children: [
+                        TextButton.icon(
+                            onPressed: locating ? null : _gps,
+                            icon: const Icon(Icons.my_location),
+                            label: Text(locating
+                                ? 'Finding location…'
+                                : 'Use current location')),
+                        TextButton.icon(
+                            onPressed: _choose,
+                            icon: const Icon(Icons.map_outlined),
+                            label: const Text('Choose area')),
+                        if (c.recommendationCentre != null)
+                          TextButton(
+                              onPressed: () {
+                                locationGeneration++;
+                                setState(() {
+                                  locating = false;
+                                  locationMessage = null;
+                                });
+                                c.setRecommendationArea(null, 10);
+                              },
+                              child: const Text('Clear area')),
+                      ]),
                       if (c.recommendationCentre != null)
-                        TextButton(
-                            onPressed: () {
-                              locationGeneration++;
-                              setState(() {
-                                locating = false;
-                                locationMessage = null;
-                              });
-                              c.setRecommendationArea(null, 10);
-                            },
-                            child: const Text('Clear area')),
-                    ]),
-                    if (c.recommendationCentre != null)
-                      DropdownButtonFormField<int>(
-                          initialValue: c.recommendationRadius,
-                          decoration:
-                              const InputDecoration(labelText: 'Nearby radius'),
-                          items: [
-                            for (final km in [5, 10, 25, 50])
-                              DropdownMenuItem(value: km, child: Text('$km km'))
-                          ],
-                          onChanged: (v) {
-                            if (v != null) {
-                              c.setRecommendationArea(
-                                  c.recommendationCentre, v);
-                            }
-                          }),
-                    if (locationMessage != null) Text(locationMessage!),
-                    const Text(
-                        'Nearby uses approximate listing areas. Listings without a usable map pin are not included.'),
-                  ]))),
+                        DropdownButtonFormField<int>(
+                            initialValue: c.recommendationRadius,
+                            decoration: const InputDecoration(
+                                labelText: 'Nearby radius'),
+                            items: [
+                              for (final km in [5, 10, 25, 50])
+                                DropdownMenuItem(
+                                    value: km, child: Text('$km km'))
+                            ],
+                            onChanged: (v) {
+                              if (v != null) {
+                                c.setRecommendationArea(
+                                    c.recommendationCentre, v);
+                              }
+                            }),
+                      if (locationMessage != null) Text(locationMessage!),
+                      const Text(
+                          'Nearby uses approximate listing areas. Listings without a usable map pin are not included.'),
+                    ]))),
       for (final entry in const {
         'recommended': 'Recommended For You',
         'trending': 'Trending Near You',
@@ -339,14 +360,16 @@ class _LiveRecommendationHomeContentState
       }.entries)
         RecommendationSectionView(
             title: entry.value,
+            mode: widget.viewMode,
             section: c.recommendationSections[entry.key] ??
                 const RecommendationSection('empty'),
             loading: c.recommendationLoadingSections.contains(entry.key),
+            refreshFailed: c.recommendationFailures.contains(entry.key),
             onRetry: () => c.refreshRecommendationFeed(section: entry.key),
             actions: widget.actions,
             onOpen: (item) async {
               await widget.onOpen(item);
-              if (mounted) await c.refreshRecommendationFeed();
+              if (mounted) await c.ensureRecommendationFeed();
             },
             onClear: entry.key != 'recentlyViewed'
                 ? null

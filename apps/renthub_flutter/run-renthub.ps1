@@ -49,6 +49,8 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'mykad-bidirectional-capture-pair-v1' -and `
             $response.data.capabilities -contains 'driving-licence-ocr-review-v1' -and `
             $response.data.capabilities -contains 'recommendation-feed-v2' -and `
+            $response.data.capabilities -contains 'listing-delivery-fees-v1' -and `
+            $response.data.capabilities -contains 'notification-targets-v1' -and `
             $response.data.capabilities -contains 'mandatory-identity-access-v1' -and `
             $response.data.capabilities -contains 'listing-maps-push-status-v1' -and `
             $response.data.capabilities -contains 'precise-locations-v1'
@@ -169,6 +171,9 @@ function Get-RentHubFirebaseDefines {
     $appId = $Settings['FIREBASE_ANDROID_APP_ID']
     $sender = $Settings['FIREBASE_MESSAGING_SENDER_ID']
     $project = $Settings['FIREBASE_PROJECT_ID']
+    if ($apiKey -match '^(YOUR_|your-|REPLACE|<)') { $apiKey = '' }
+    if ($appId -match '^(YOUR_|your-|REPLACE|<)') { $appId = '' }
+    if ($sender -match '^(YOUR_|your-|REPLACE|<)') { $sender = '' }
     if ($null -ne $GoogleConfiguration) {
         $androidClient = @($GoogleConfiguration.client | Where-Object {
             $_.client_info.android_client_info.package_name -eq 'com.weith.renthub'
@@ -426,7 +431,7 @@ try {
     }
 
     if (Test-RentHubApiReady) {
-        Write-Host 'RentHub API is already ready on port 3000.' -ForegroundColor Green
+        Write-Host 'RentHub API is already ready on port 3000. If you changed .env, restart its original terminal/launcher to load those settings.' -ForegroundColor Green
     }
     else {
         if (Test-RentHubTcpPort -HostName 'localhost' -Port 3000) {
@@ -504,6 +509,9 @@ try {
     $googleConfiguration = $null
     $googleConfigurationPath = Join-Path $PSScriptRoot 'android\app\google-services.json'
     $fcmMode = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'FCM_MODE' -DefaultValue 'disabled'
+    if (-not $isDesktop -and $fcmMode -ne 'firebase') {
+        Write-Warning 'Android phone push is disabled. Configure Firebase Admin credentials and FCM_MODE=firebase in services/api/.env, then restart this launcher. In-app notifications still work.'
+    }
     if (-not $isDesktop -and $fcmMode -eq 'firebase' -and (Test-Path -LiteralPath $googleConfigurationPath)) {
         $googleConfiguration = Get-Content -LiteralPath $googleConfigurationPath -Raw | ConvertFrom-Json
     }

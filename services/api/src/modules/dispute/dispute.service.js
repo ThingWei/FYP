@@ -11,6 +11,7 @@ import { awardRentalCompletion } from '../loyalty/loyalty.service.js';
 import { UserModel } from '../user/user.model.js';
 import { uploadService } from '../upload/upload.service.js';
 import { disputeRepository } from './dispute.repository.js';
+import { ClaimModel } from './claim.model.js';
 
 function publicId(prefix) {
   return `${prefix}-${new mongoose.Types.ObjectId().toString().slice(-10).toUpperCase()}`;
@@ -165,7 +166,8 @@ export const disputeService = {
         },
       };
     }
-    return dispute;
+    const claim = await ClaimModel.findOne({ disputeId: dispute.publicId });
+    return { ...dispute.toJSON(), ...(claim && { claim: claim.toJSON() }) };
   },
 
   async listMine(identity, query) {

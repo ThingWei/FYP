@@ -48,6 +48,12 @@ class LiveRentHubController extends ChangeNotifier {
   int recommendationRadius = 10;
   Map<String, String> recommendationFilters = {};
   DateTime? recommendationUpdatedAt;
+  DateTime? recommendationAttemptedAt;
+  final Map<String, DateTime> recommendationSuccessAt = {};
+  final Set<String> recommendationFailures = {};
+  final Map<String, Future<void>> _recommendationFlights = {};
+  String? _recommendationContext;
+  bool _disposed = false;
   bool recommendationDirty = true;
   final Set<String> recommendationLoadingSections = {};
   final Map<String, int> _recommendationRequests = {};
@@ -74,6 +80,10 @@ class LiveRentHubController extends ChangeNotifier {
     recommendationCentre = null;
     recommendationFilters = {};
     recommendationUpdatedAt = null;
+    recommendedListings = [];
+    recommendationSuccessAt.clear();
+    recommendationFailures.clear();
+    _recommendationContext = null;
     recommendationDirty = true;
     recommendationLoadingSections.clear();
     _recommendationRequests.clear();
@@ -81,20 +91,74 @@ class LiveRentHubController extends ChangeNotifier {
 
   void prepareRecommendationAccount() => _syncRecommendationUser();
 
+  void _recommendationsChanged() {
+    _recommendationRevision++;
+    recommendationDirty = true;
+    if (renterTabIndex == 0 &&
+        profile?.roles.contains(UserRole.renter) == true &&
+        profile?.activeRole != UserRole.owner) {
+      unawaited(ensureRecommendationFeed());
+    }
+  }
+
+  bool get recommendationNeedsRefresh =>
+      recommendationDirty ||
+      recommendationFailures.isNotEmpty ||
+      const ['recommended', 'trending', 'recentlyViewed'].any((key) =>
+          !recommendationSuccessAt.containsKey(key) ||
+          DateTime.now().difference(recommendationSuccessAt[key]!).inSeconds >=
+              60);
+
+  Future<void> ensureRecommendationFeed() =>
+      recommendationNeedsRefresh ? refreshRecommendationFeed() : Future.value();
+
   void setRecommendationArea(ListingLocationSelection? value, int radius) {
     _syncRecommendationUser();
     recommendationCentre = value;
     recommendationRadius = radius;
-    _recommendationGeneration++;
-    recommendationLoadingSections.clear();
-    recommendationSections = {};
-    recommendationDirty = true;
     unawaited(refreshRecommendationFeed());
   }
 
-  Future<void> refreshRecommendationFeed({String? section}) async {
-    if (profile == null) return;
+  Future<void> refreshRecommendationFeed({String? section}) {
+    if (profile == null || _disposed) return Future.value();
     _syncRecommendationUser();
+    final entries = recommendationQuery.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final contextKey = jsonEncode([
+      profile!.id,
+      {for (final e in entries) e.key: e.value}
+    ]);
+    if (_recommendationContext != contextKey) {
+      _recommendationContext = contextKey;
+      _recommendationGeneration++;
+      recommendationSections = {};
+      recommendedListings = [];
+      recommendationSuccessAt.clear();
+      recommendationFailures.clear();
+      recommendationLoadingSections.clear();
+      recommendationUpdatedAt = null;
+      recommendationDirty = true;
+    }
+    final flightKey =
+        '$_recommendationGeneration/$contextKey/${section ?? 'all'}';
+    if (section != null) {
+      final all =
+          _recommendationFlights['$_recommendationGeneration/$contextKey/all'];
+      if (all != null) return all;
+    }
+    final pending = _recommendationFlights[flightKey];
+    if (pending != null) return pending;
+    // Register the flight before notifying listeners or starting another refresh.
+    final complete = Completer<void>();
+    _recommendationFlights[flightKey] = complete.future;
+    unawaited(_fetchRecommendationFeed(section).whenComplete(() {
+      _recommendationFlights.remove(flightKey);
+      complete.complete();
+    }));
+    return complete.future;
+  }
+
+  Future<void> _fetchRecommendationFeed(String? section) async {
     final userId = profile!.id,
         generation = _recommendationGeneration,
         revision = _recommendationRevision;
@@ -106,58 +170,82 @@ class LiveRentHubController extends ChangeNotifier {
     };
     _recommendationRequests.addAll(requests);
     recommendationLoadingSections.addAll(keys);
+    recommendationAttemptedAt = DateTime.now();
     notifyListeners();
     bool current(String key) =>
-        requests.containsKey(key) &&
+        !_disposed &&
         generation == _recommendationGeneration &&
         profile?.id == userId &&
         _recommendationRequests[key] == requests[key];
+    void failed(String key) {
+      recommendationFailures.add(key);
+      // Keep only results from this same account/query context.
+      recommendationSections.putIfAbsent(
+          key, () => const RecommendationSection('unavailable'));
+    }
+
     try {
       final query = Uri(queryParameters: {
         ...recommendationQuery,
         if (section != null) 'section': section
       }).query;
-      final response =
-          await api.request('GET', '/listings/recommendation-feed?$query');
+      final response = await api
+          .request('GET', '/listings/recommendation-feed?$query')
+          .timeout(const Duration(seconds: 25));
       if (response is! Map) throw const FormatException('Invalid feed');
       for (final key in keys) {
-        if (current(key)) {
-          recommendationSections[key] =
-              RecommendationSection.fromJson(response[key]);
+        if (!current(key)) continue;
+        final result = RecommendationSection.fromJson(response[key]);
+        if (result.status == 'unavailable') {
+          failed(key);
+          continue;
         }
+        recommendationSections[key] = result;
+        recommendationFailures.remove(key);
+        recommendationSuccessAt[key] = DateTime.now();
+        if (key == 'recommended') recommendedListings = result.items;
       }
-      if (current('recommended')) {
-        recommendedListings = recommendationSections['recommended']!.items;
-      }
-      if (section == null &&
-          revision == _recommendationRevision &&
-          keys.every(current)) {
-        recommendationDirty = false;
+      if (generation == _recommendationGeneration && profile?.id == userId) {
+        recommendationDirty = revision != _recommendationRevision ||
+            recommendationFailures.isNotEmpty ||
+            const ['recommended', 'trending', 'recentlyViewed']
+                .any((key) => !recommendationSuccessAt.containsKey(key));
+        if (!recommendationDirty) recommendationUpdatedAt = DateTime.now();
       }
     } catch (_) {
       for (final key in keys) {
-        if (current(key)) {
-          recommendationSections[key] =
-              const RecommendationSection('unavailable');
-        }
+        if (current(key)) failed(key);
+      }
+      if (generation == _recommendationGeneration && profile?.id == userId) {
+        recommendationDirty = true;
       }
     } finally {
       if (keys.any(current)) {
         for (final key in keys) {
           if (current(key)) recommendationLoadingSections.remove(key);
         }
-        recommendationUpdatedAt = DateTime.now();
         notifyListeners();
+        if (revision != _recommendationRevision) {
+          // Follow up once after this flight is released; further events coalesce.
+          Timer.run(() {
+            if (!_disposed &&
+                generation == _recommendationGeneration &&
+                profile?.id == userId) {
+              unawaited(ensureRecommendationFeed());
+            }
+          });
+        }
       }
     }
   }
 
   Future<void> recordListingView(String id) async {
     if (profile == null) return;
+    final userId = profile!.id;
     try {
       await api.request('POST', '/listings/$id/views');
-      _recommendationRevision++;
-      recommendationDirty = true;
+      if (_disposed || profile?.id != userId) return;
+      _recommendationsChanged();
     } catch (_) {}
   }
 
@@ -173,6 +261,9 @@ class LiveRentHubController extends ChangeNotifier {
 
   Future<void> clearBrowsingHistory() async {
     await api.request('DELETE', '/users/me/browsing-history');
+    _recommendationRevision++;
+    recommendationSections['recentlyViewed'] =
+        const RecommendationSection('empty');
     recommendationDirty = true;
     await refreshRecommendationFeed();
   }
@@ -210,8 +301,8 @@ class LiveRentHubController extends ChangeNotifier {
   void selectRenterTab(int index) {
     if (index < 0 || index > 4 || renterTabIndex == index) return;
     renterTabIndex = index;
-    if (index == 0 && recommendationDirty) {
-      unawaited(refreshRecommendationFeed());
+    if (index == 0) {
+      unawaited(ensureRecommendationFeed());
     }
     notifyListeners();
   }
@@ -422,9 +513,6 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/rewards/summary'),
           api.request('GET', '/users/me/saved-listings'),
           api.request('GET', '/users/me/comparison'),
-          api
-              .request('GET', '/listings/recommended?limit=10')
-              .catchError((_) => <dynamic>[]),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
         _syncRecommendationUser();
@@ -439,7 +527,6 @@ class LiveRentHubController extends ChangeNotifier {
         loyalty = Reward.fromJson(results[8] as Map<String, dynamic>);
         savedListings = _models(results[9], Listing.fromJson);
         comparisonListings = _models(results[10], Listing.fromJson);
-        recommendedListings = _models(results[11], Listing.fromJson);
       });
 
   Future<void> loadOwner() => _perform(() async {
@@ -629,18 +716,20 @@ class LiveRentHubController extends ChangeNotifier {
       comparisonListings.any((listing) => listing.id == listingId);
 
   Future<void> toggleSavedListing(Listing listing) => _perform(() async {
-        _recommendationRevision++;
-        recommendationDirty = true;
+        final userId = profile?.id;
         if (isSaved(listing.id)) {
           await api.request('DELETE', '/users/me/saved-listings/${listing.id}');
+          if (_disposed || profile?.id != userId) return;
           savedListings.removeWhere((item) => item.id == listing.id);
         } else {
           final saved = Listing.fromJson(
             await api.request('PUT', '/users/me/saved-listings/${listing.id}')
                 as Map<String, dynamic>,
           );
+          if (_disposed || profile?.id != userId) return;
           savedListings.insert(0, saved);
         }
+        _recommendationsChanged();
       });
 
   Future<void> toggleComparisonListing(Listing listing) => _perform(() async {
@@ -1146,7 +1235,7 @@ class LiveRentHubController extends ChangeNotifier {
   Future<Booking> getBooking(String id) async {
     final booking = Booking.fromJson(Map<String, dynamic>.from(
         await api.request('GET', '/bookings/$id') as Map));
-    _replaceBooking(booking);
+    _replaceBooking(booking, activity: false);
     return booking;
   }
 
@@ -1342,9 +1431,8 @@ class LiveRentHubController extends ChangeNotifier {
         if (status == 'approved') await _reloadOwnerBookingState();
       });
 
-  void _replaceBooking(Booking booking) {
-    _recommendationRevision++;
-    recommendationDirty = true;
+  void _replaceBooking(Booking booking, {bool activity = true}) {
+    if (activity) _recommendationsChanged();
     final index = bookings.indexWhere((item) => item.id == booking.id);
     if (index < 0) {
       bookings.insert(0, booking);
@@ -1507,10 +1595,46 @@ class LiveRentHubController extends ChangeNotifier {
         loginSessions.removeWhere((item) => item['current'] != true);
       });
 
-  Future<void> markNotificationRead(String id) => _perform(() async {
-        await api.request('POST', '/messages/notifications/$id/read');
-        await loadNotifications();
-      });
+  Future<void> markNotificationRead(String id) async {
+    await api.request('POST', '/messages/notifications/$id/read');
+    notifications = [
+      for (final note in notifications)
+        note.id != id
+            ? note
+            : RentHubNotification(
+                id: note.id,
+                category: note.category,
+                title: note.title,
+                body: note.body,
+                entityId: note.entityId,
+                entityType: note.entityType,
+                type: note.type,
+                read: true,
+                createdAt: note.createdAt)
+    ];
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> refreshFocusedBooking(String id, String? rentalId) async {
+    final user = profile?.id;
+    final row = await api
+        .request('GET', '/bookings/$id')
+        .timeout(const Duration(seconds: 15));
+    final rentalRow = rentalId == null
+        ? null
+        : await api
+            .request('GET', '/rentals/$rentalId')
+            .timeout(const Duration(seconds: 15));
+    if (_disposed || user != profile?.id) return;
+    final booking = Booking.fromJson(Map<String, dynamic>.from(row as Map));
+    bookings = [...bookings.where((item) => item.id != id), booking];
+    if (rentalRow != null) {
+      final rental =
+          Rental.fromJson(Map<String, dynamic>.from(rentalRow as Map));
+      rentals = [...rentals.where((item) => item.id != rental.id), rental];
+    }
+    notifyListeners();
+  }
 
   Future<void> markAllNotificationsRead() => _perform(() async {
         await api.request('POST', '/messages/notifications/read-all');
@@ -1813,6 +1937,7 @@ class LiveRentHubController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _recommendationGeneration++;
     _socketSubscription?.cancel();
     _socket?.dispose();

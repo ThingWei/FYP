@@ -8,11 +8,9 @@ import '../core/config/backend_mode.dart';
 import '../core/notifications/push_notification_service.dart';
 import '../core/persistence/onboarding_preferences.dart';
 import '../features/live/live_renthub_controller.dart';
-import '../features/live/live_shared_pages.dart';
 import '../features/live/live_owner_shell.dart';
 import '../features/live/live_renter_shell.dart';
-import '../features/live/live_dispute_page.dart';
-import '../features/live/live_loyalty_page.dart';
+import '../features/live/live_notification_navigation.dart';
 import '../features/owner/owner_app.dart';
 import '../features/onboarding/onboarding_flow.dart';
 import '../features/renter/renter_app.dart';
@@ -68,16 +66,21 @@ class _RentHubAppState extends State<RentHubApp> {
     if (auth.authenticated && !BackendMode.useMocks) {
       unawaited(_refreshNotifications());
       if (event.openedFromNotification) {
-        final controller = context.read<LiveRentHubController>();
-        navigatorKey.currentState?.push<void>(
-          MaterialPageRoute(
-            builder: (_) => _pushDestination(
-              event,
-              auth.selectedRole,
-              controller,
-            ),
-          ),
-        );
+        final nav = navigatorKey.currentState;
+        if (nav != null) {
+          unawaited(openRentHubNotification(
+              context,
+              RentHubNotification(
+                  id: event.data['notificationId']?.toString() ?? '',
+                  category: event.data['category']?.toString() ?? '',
+                  title: event.title,
+                  body: event.body,
+                  entityId: event.data['entityId']?.toString() ?? '',
+                  entityType: event.data['entityType']?.toString() ?? '',
+                  type: event.data['type']?.toString() ?? '',
+                  read: false),
+              navigator: nav));
+        }
       }
     }
     messengerKey.currentState?.showSnackBar(
@@ -85,44 +88,6 @@ class _RentHubAppState extends State<RentHubApp> {
         content: Text('${event.title}: ${event.body}'),
       ),
     );
-  }
-
-  Widget _pushDestination(
-    PushNotificationEvent event,
-    UserRole role,
-    LiveRentHubController controller,
-  ) {
-    final type = event.data['entityType']?.toString() ?? '';
-    final id = event.data['entityId']?.toString() ?? '';
-    if (type == 'thread') {
-      final matches = controller.conversations.where((item) => item.id == id);
-      return matches.isEmpty
-          ? const LiveMessagesPage()
-          : LiveChatPage(conversation: matches.first);
-    }
-    if (type == 'booking' || type == 'rental' || type == 'payment') {
-      return role == UserRole.owner
-          ? const LiveOwnerRequestsPage()
-          : const LiveRenterBookingsPage();
-    }
-    if (type == 'dispute') {
-      final disputes = controller.disputes.where((item) => item.id == id);
-      if (disputes.isNotEmpty) {
-        final rentals = controller.rentals.where(
-          (item) => item.id == disputes.first.rentalId,
-        );
-        if (rentals.isNotEmpty) {
-          return LiveDisputePage(
-            rental: rentals.first,
-            owner: role == UserRole.owner,
-          );
-        }
-      }
-    }
-    if (type == 'reward' || type == 'referral') {
-      return const LiveLoyaltyPage();
-    }
-    return const LiveNotificationsPage();
   }
 
   Future<void> _refreshNotifications() async {

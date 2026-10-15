@@ -43,6 +43,23 @@ const makeBooking = (listingId, overrides={}) => BookingModel.create({publicId:`
   fulfilmentMethod:'pickup',pricing:{baseAmount:50,securityDeposit:0,total:50},...overrides});
 const rank = payload => payload.candidates.map(item => ({item_id:item.item_id,score:.5,adapter:'test-hybrid',reason:'Based on marketplace activity'}));
 
+for (const response of [[], [{ item_id:'l-unknown', score:.9 }], [null, { item_id:'l-own',score:.9 }]]) {
+  test(`invalid/empty AI IDs use eligible marketplace fallback: ${JSON.stringify(response)}`,async t=>{
+    await makeListing('l-valid'); await makeListing('l-own',{ownerId:'u-renter'});
+    t.mock.method(aiClient,'recommendItems',async()=>response);
+    const result=await request(app).get('/api/v1/listings/recommendation-feed').set(renter).expect(200);
+    const items=result.body.data.recommended.items;
+    assert.deepEqual(items.map(item=>item.publicId),['l-valid']);
+    assert.equal(items[0].recommendation.adapter,'marketplace-ordering-fallback-v1');
+  });
+}
+test('mixed valid and duplicate AI IDs are deduplicated without promoting unknown items',async t=>{
+  await makeListing('l-valid');
+  t.mock.method(aiClient,'recommendItems',async()=>[{item_id:'l-unknown',score:.99},{item_id:'l-valid',score:.7},{item_id:'l-valid',score:.6}]);
+  const result=await request(app).get('/api/v1/listings/recommendation-feed').set(renter).expect(200);
+  assert.deepEqual(result.body.data.recommended.items.map(item=>item.publicId),['l-valid']);
+});
+
 test('view writes are authenticated, deduplicated, server-derived and clear only own history', async t => {
   await makeListing('l-camera');
   const calls = Array.from({length:5},()=>request(app).post('/api/v1/listings/l-camera/views').set(renter)

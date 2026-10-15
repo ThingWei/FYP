@@ -55,6 +55,19 @@ const cameraInput = {
   ],
 };
 
+test('listing delivery fees use existing money validation and preserve legacy/service defaults', async () => {
+  await startOwner();
+  const listing = await activeListing();
+  assert.equal(listing.deliveryFee, 0);
+  for (const deliveryFee of ['abc123', '1e2', '2.001', -1, 100001, null]) {
+    await request(app).patch(`/api/v1/listings/${listing.publicId}`).set(ownerHeaders).send({ deliveryFee }).expect(422);
+  }
+  const saved = await request(app).patch(`/api/v1/listings/${listing.publicId}`).set(ownerHeaders).send({ deliveryFee: '12.50' }).expect(200);
+  assert.equal(saved.body.data.deliveryFee, 12.5);
+  const service = await activeListing({ listingType: 'service', category: 'Services', serviceDetails: { packageName: 'Photography', durationMinutes: 60 }, deliveryFee: 12.5 });
+  assert.equal(service.deliveryFee, 0);
+});
+
 async function startOwner() {
   return request(app).post('/api/v1/users/session').set(ownerHeaders);
 }

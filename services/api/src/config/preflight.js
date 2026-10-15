@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { readFile } from 'node:fs/promises';
+import { applicationDefault } from 'firebase-admin/app';
 import { connectDatabase, disconnectDatabase } from './database.js';
 import { env, validateEnv } from './env.js';
 import { storageAdapter } from '../integrations/storageAdapter.js';
@@ -6,6 +8,32 @@ import { assertBindingReady } from '../modules/user/identityBinding.js';
 
 function normalizedIssuer(value) {
   return value.endsWith('/') ? value : `${value}/`;
+}
+
+// Never return credentials, tokens, file paths or SDK errors to the console.
+export async function checkPush(config = env, {
+  credentialPath = process.env.GOOGLE_APPLICATION_CREDENTIALS,
+  read = readFile,
+  credential = applicationDefault,
+} = {}) {
+  if (config.fcmMode !== 'firebase') return { provider: 'disabled', skipped: true };
+  if (!config.firebaseProjectId || config.firebaseProjectId === 'your-project-id') {
+    throw new Error('Set FIREBASE_PROJECT_ID to the Android Firebase project ID');
+  }
+  if (credentialPath) {
+    let account;
+    try { account = JSON.parse(await read(credentialPath, 'utf8')); }
+    catch { throw new Error('Firebase Admin credential file cannot be read as JSON'); }
+    if (account.type !== 'service_account' || !account.client_email || !account.private_key) {
+      throw new Error('Use a Firebase Admin service-account JSON, not Android google-services.json');
+    }
+    if (account.project_id !== config.firebaseProjectId) {
+      throw new Error('Firebase Admin credentials and FIREBASE_PROJECT_ID must use the same project');
+    }
+  }
+  try { await credential().getAccessToken(); }
+  catch { throw new Error('Firebase Admin authentication failed. Configure GOOGLE_APPLICATION_CREDENTIALS with a valid service-account file, then restart the API'); }
+  return { provider: 'firebase', credentialAuthenticated: true, deliveryTested: false };
 }
 
 export async function checkAuth0(config = env, fetchImpl = fetch) {
@@ -94,6 +122,7 @@ export async function runPreflight({
     }),
   );
   checks.push(await result('authentication', () => checkAuth0(config)));
+  checks.push(await result('push_notifications', () => checkPush(config)));
   if (checks.find(check => check.name === 'database')?.status === 'pass') {
     checks.push(await result('mykad_identity_binding', () => assertBindingReady(config)));
   }

@@ -69,6 +69,8 @@ class LiveLocationPicker extends StatefulWidget {
       this.initialSelection,
       this.mapBuilder,
       this.positionClient,
+      this.startWithCurrentLocation = false,
+      this.searchAreaOnly = false,
       this.title = 'Choose location'});
   final ListingLocationApi api;
   final String initialLabel;
@@ -76,6 +78,7 @@ class LiveLocationPicker extends StatefulWidget {
   final LocationMapBuilder? mapBuilder;
   final CurrentLocationClient? positionClient;
   final String title;
+  final bool startWithCurrentLocation, searchAreaOnly;
   @override
   State<LiveLocationPicker> createState() => _LiveLocationPickerState();
 }
@@ -115,6 +118,11 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
   void initState() {
     super.initState();
     _configure();
+    if (widget.startWithCurrentLocation && gpsAvailable) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _locate();
+      });
+    }
   }
 
   @override
@@ -216,6 +224,9 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
       final point = LatLng(reading.latitude, reading.longitude);
       setState(() {
         _clearLocality();
+        // A search centre is not a postal address. Do not reverse-geocode GPS
+        // automatically or invent address details for physical destinations.
+        label.text = widget.searchAreaOnly ? 'Current area' : '';
         selected = ListingLocationSelection(
             label: label.text,
             point: point,
@@ -417,6 +428,12 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: Text(widget.title)),
+      bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.all(16),
+          child: FilledButton(
+              onPressed:
+                  selected == null || resolving || locating ? null : _confirm,
+              child: const Text('Use this location'))),
       body: SafeArea(
           child: Center(
               child: ConstrainedBox(
@@ -563,7 +580,9 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                               _discardAddressLookup();
                             }),
                         decoration: InputDecoration(
-                            labelText: 'Exact address or pickup point',
+                            labelText: widget.searchAreaOnly
+                                ? 'Search area name'
+                                : 'Exact address or pickup point',
                             errorText: labelError,
                             counterText: '')),
                     const Padding(
@@ -596,11 +615,6 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                         decoration: const InputDecoration(
                             labelText: 'Postcode (if known)', counterText: '')),
                     const SizedBox(height: 16),
-                    FilledButton(
-                        onPressed: selected == null || resolving || locating
-                            ? null
-                            : _confirm,
-                        child: const Text('Use this location')),
                     TextButton(
                         onPressed: () => Navigator.pop(context),
                         child: const Text('Cancel and keep existing location')),

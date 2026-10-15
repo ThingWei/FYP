@@ -9,6 +9,7 @@ import 'package:renthub_flutter/core/network/api_client.dart';
 import 'package:renthub_flutter/core/recommendations/recommendation_models.dart';
 import 'package:renthub_flutter/core/theme/app_theme.dart';
 import 'package:renthub_flutter/features/live/live_comparison.dart';
+import 'package:renthub_flutter/features/live/live_listing_collection.dart';
 import 'package:renthub_flutter/features/live/live_recommendations.dart';
 import 'package:renthub_flutter/features/live/live_renter_shell.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
@@ -64,6 +65,7 @@ class FeedApi extends ApiClient {
   final replies = <Completer<dynamic>>[];
   bool delay = false, failViews = false;
   Map<String, dynamic> response = feed();
+  List<Map<String, dynamic>> unavailableRanges = [];
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     calls.add((method, path, body));
@@ -75,6 +77,10 @@ class FeedApi extends ApiClient {
       }
       return response;
     }
+    if (path.startsWith('/listings?') ||
+        path.startsWith('/listings/recommended?')) {
+      return [item('l-search')];
+    }
     if (path.endsWith('/views')) {
       if (failViews) throw Exception('network');
       return {'recorded': true};
@@ -84,7 +90,7 @@ class FeedApi extends ApiClient {
     }
     if (path.endsWith('/reviews')) return <dynamic>[];
     if (path.endsWith('/availability')) {
-      return {'listingId': 'l-camera', 'unavailableRanges': []};
+      return {'listingId': 'l-camera', 'unavailableRanges': unavailableRanges};
     }
     if (path == '/users/me/browsing-history') return {'cleared': true};
     if (path == '/users/me/comparison') {
@@ -133,6 +139,111 @@ Future<void> reveal(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  testWidgets(
+      'listing hides past blocked days and shows delivery fee only when selected',
+      (tester) async {
+    final api = FeedApi()
+      ..unavailableRanges = [
+        {'start': '2020-01-01', 'end': '2020-01-03', 'source': 'booking'},
+        {'start': '2090-01-01', 'end': '2090-01-03', 'source': 'owner_blackout'}
+      ];
+    final c = LiveRentHubController(api)..profile = person('u-renter');
+    addTearDown(c.dispose);
+    await tester.pumpWidget(app(
+        c,
+        LiveBookingPage(
+            listing: Listing.fromJson({...item('l-camera'), 'deliveryFee': 25}),
+            onSubmitted: () {})));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Unavailable dates'), 250,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.textContaining('1/1/2020'), findsNothing);
+    expect(find.textContaining('1/1/2090'), findsOneWidget);
+    final fulfilment =
+        find.widgetWithText(DropdownButtonFormField<String>, 'Fulfilment');
+    await tester.scrollUntilVisible(fulfilment, 250,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(fulfilment);
+    await tester.pumpAndSettle();
+    await tester.tap(fulfilment);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Owner delivery').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Delivery fee: RM 25.00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  for (final width in [360.0, 390.0, 1200.0]) {
+    testWidgets(
+        'compact catalogue, horizontal sections, views and filters at $width',
+        (tester) async {
+      await tester.binding.setSurfaceSize(Size(width, 1100));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final api = FeedApi()
+        ..response = {
+          ...feed(),
+          'recommended': {
+            'status': 'ready',
+            'items': [for (var i = 0; i < 6; i++) item('l-$i')]
+          }
+        };
+      final c = LiveRentHubController(api)
+        ..profile = person('u-renter')
+        ..savedListings = [Listing.fromJson(item('l-0'))];
+      addTearDown(c.dispose);
+      await tester.pumpWidget(app(
+          c,
+          LiveMarketplacePage(
+              title: 'RentHub', featuredOnly: true, onOpenBookings: () {}),
+          scale: 1.4));
+      await tester.pumpAndSettle();
+      expect(find.byType(FilterChip), findsNothing);
+      expect(find.text('Discover rentals around you'), findsNothing);
+      expect(find.text('Filters & sorting'), findsNothing);
+      final swipe = find.descendant(
+          of: find.byType(ListingCollection).first,
+          matching: find.byType(ListView));
+      expect(tester.widget<ListView>(swipe).scrollDirection, Axis.horizontal);
+      await tester.drag(swipe, const Offset(-280, 0));
+      await tester.pumpAndSettle();
+      await tester.drag(swipe, const Offset(280, 0));
+      await tester.pumpAndSettle();
+      expect(
+          tester
+              .widget<IconButton>(find
+                  .byWidgetPredicate((widget) =>
+                      widget is IconButton &&
+                      widget.tooltip == 'Remove from wishlist')
+                  .first)
+              .color,
+          AppColors.error);
+      await tester.tap(find.byTooltip('Grid view').first);
+      await tester.pumpAndSettle();
+      final grid = tester.widget<GridView>(find.byType(GridView).first);
+      expect(
+          (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
+              .crossAxisCount,
+          width >= 1000 ? 4 : 2);
+      await tester.tap(find.byTooltip('List view').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(ListingCardSummary), findsWidgets);
+      final search =
+          find.widgetWithText(TextFormField, 'Search rentals and services');
+      await tester.enterText(search, 'camera');
+      await tester.pump();
+      await tester.tap(find.byTooltip('Clear search'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextFormField>(search).controller!.text, isEmpty);
+      await tester.tap(find.byTooltip('Filters and sorting'));
+      await tester.pumpAndSettle();
+      expect(find.byType(FilterChip), findsNWidgets(7));
+      await tester.tap(find.widgetWithText(FilterChip, 'Devices'));
+      await tester.tap(find.text('Apply Filters'));
+      await tester.pumpAndSettle();
+      expect(api.calls.any((call) => call.$2.contains('category=Devices')),
+          isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets(
       'comparison Choose Dates opens the existing picker without booking or payment writes',
       (tester) async {
@@ -218,7 +329,9 @@ void main() {
         c,
         SingleChildScrollView(
             child: LiveRecommendationHomeContent(
-                onOpen: (_) async {}, positionClient: gps))));
+                showAreaControls: true,
+                onOpen: (_) async {},
+                positionClient: gps))));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Use current location'));
     await tester.pump();
@@ -389,7 +502,9 @@ void main() {
           c,
           SingleChildScrollView(
               child: LiveRecommendationHomeContent(
-                  onOpen: (_) async {}, positionClient: gps)),
+                  showAreaControls: true,
+                  onOpen: (_) async {},
+                  positionClient: gps)),
           scale: 1.4));
       await tester.pumpAndSettle();
       expect(gps.calls, 0);
@@ -424,7 +539,9 @@ void main() {
           c,
           SingleChildScrollView(
               child: LiveRecommendationHomeContent(
-                  onOpen: (_) async {}, positionClient: Gps(error: failure)))));
+                  showAreaControls: true,
+                  onOpen: (_) async {},
+                  positionClient: Gps(error: failure)))));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Use current location'));
       await tester.pumpAndSettle();

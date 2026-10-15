@@ -28,6 +28,7 @@ const editableFields = new Set([
   'priceUnit',
   'condition',
   'securityDeposit',
+  'deliveryFee',
   'damageWaiverAvailable',
   'damageWaiverFee',
   'fulfilmentMethods',
@@ -84,6 +85,7 @@ const listingFields = [
     .custom(moneyInput).bail().isFloat({ min: 0, max: 1_000_000 })
     .toFloat(),
   body('damageWaiverAvailable').optional().isBoolean().toBoolean(),
+  body('deliveryFee').optional().custom(moneyInput).bail().isFloat({ min: 0, max: 100_000 }).toFloat(),
   body('damageWaiverFee')
     .optional()
     .custom(moneyInput).bail().isFloat({ min: 0, max: 100_000 })

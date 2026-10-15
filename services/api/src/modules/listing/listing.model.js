@@ -114,6 +114,7 @@ const listingSchema = new mongoose.Schema(
       enum: ['Fair', 'Good', 'Very good', 'Excellent', 'Like New'],
     },
     securityDeposit: { type: Number, min: 0, max: 1_000_000, default: 0 },
+    deliveryFee: { type: Number, min: 0, max: 100_000, default: 0 },
     damageWaiverAvailable: { type: Boolean, default: false },
     damageWaiverFee: { type: Number, min: 0, max: 100_000, default: 0 },
     fulfilmentMethods: {
@@ -208,6 +209,7 @@ listingSchema.pre('validate', function validateListingType() {
     }
     this.condition = undefined;
     this.securityDeposit = 0;
+    this.deliveryFee = 0;
     this.damageWaiverAvailable = false;
     this.damageWaiverFee = 0;
     this.fulfilmentMethods = [];
