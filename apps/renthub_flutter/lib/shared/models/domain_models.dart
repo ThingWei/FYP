@@ -249,6 +249,9 @@ class Listing {
     this.bundleActive = false,
     this.images = const [],
     this.recommendationReason = '',
+    this.recommendationAvailability = '',
+    this.reviewCount = 0,
+    this.ownerRating,
     this.recommendationAdapter = '',
     this.recommendationAvailable = true,
     this.recommendationScore,
@@ -284,6 +287,9 @@ class Listing {
   final List<String> bundleListingIds;
   final List<String> images;
   final String recommendationReason, recommendationAdapter;
+  final String recommendationAvailability;
+  final int reviewCount;
+  final double? ownerRating;
   final bool recommendationAvailable;
   final String itemVerificationOutcome;
   final double? recommendationScore,
@@ -375,6 +381,10 @@ class Listing {
           .map((item) => item as String)
           .toList(),
       recommendationReason: recommendation['reason'] as String? ?? '',
+      recommendationAvailability:
+          recommendation['availabilityLabel'] as String? ?? '',
+      reviewCount: (j['reviewCount'] as num?)?.toInt() ?? 0,
+      ownerRating: (j['ownerRating'] as num?)?.toDouble(),
       recommendationAdapter: recommendation['adapter'] as String? ?? '',
       recommendationAvailable: recommendation['available'] as bool? ?? true,
       recommendationScore: (recommendation['score'] as num?)?.toDouble(),

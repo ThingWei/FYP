@@ -29,6 +29,7 @@ Map<String, dynamic> listingJson({
       'publicId': id,
       'title': title,
       'category': 'Devices',
+      'subcategory': 'Cameras',
       'listingType': 'physical',
       'dailyPrice': price,
       'effectiveDailyPrice': price,

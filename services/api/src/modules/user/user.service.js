@@ -6,6 +6,8 @@ import { adminModule } from '../admin/index.js';
 import { notifyUser } from '../communication/notification.service.js';
 import { DeviceRegistrationModel } from '../communication/deviceRegistration.model.js';
 import { ListingModel } from '../listing/listing.model.js';
+import { validComparison } from '../listing/comparisonPolicy.js';
+import { ListingViewModel } from '../listing/listingView.model.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { RentalModel } from '../rental/rental.model.js';
 import { DisputeModel } from '../dispute/dispute.model.js';
@@ -1003,10 +1005,18 @@ export const userService = {
 
   async comparison(identity) {
     const user = await requireCurrentUser(identity);
-    return ListingModel.find({
+    const listings = await ListingModel.find({
       publicId: { $in: user.comparisonListingIds },
       status: 'active',
     });
+    const byId = new Map(listings.map(item => [item.publicId, item]));
+    return user.comparisonListingIds.filter(id => byId.has(id)).map(id => byId.get(id));
+  },
+
+  async clearBrowsingHistory(identity) {
+    const user = await requireCurrentUser(identity);
+    await ListingViewModel.deleteMany({ userId: user.authId });
+    return { cleared: true };
   },
 
   async updateComparison(identity, listingIds) {
@@ -1023,6 +1033,7 @@ export const userService = {
         'INVALID_COMPARISON',
       );
     }
+    if (!validComparison(listings)) throw new AppError('Compare up to three physical items from the same specific category.', 409, 'COMPARISON_CATEGORY_MISMATCH');
     user.comparisonListingIds = uniqueIds;
     await user.save();
     const byId = new Map(listings.map((listing) => [listing.publicId, listing]));

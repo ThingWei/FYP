@@ -47,6 +47,7 @@ async function createListing({
     ownerTrustScore: trust,
     title,
     category: 'Devices',
+    subcategory: 'Cameras',
     listingType: 'physical',
     dailyPrice: price,
     condition: 'Excellent',

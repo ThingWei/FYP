@@ -8,6 +8,7 @@ import {
 } from '../modules/listing/recommendationInteractions.js';
 import { ReviewModel } from '../modules/review/review.model.js';
 import { UserModel } from '../modules/user/user.model.js';
+import { ListingViewModel } from '../modules/listing/listingView.model.js';
 
 function countsBy(rows, field) {
   return rows.reduce((counts, row) => {
@@ -18,7 +19,7 @@ function countsBy(rows, field) {
 }
 
 async function exportRows() {
-  const [users, bookings, reviews] = await Promise.all([
+  const [users, bookings, reviews, views] = await Promise.all([
     UserModel.find({ 'savedListingIds.0': { $exists: true } })
       .select('authId savedListingIds createdAt updatedAt')
       .lean(),
@@ -46,9 +47,11 @@ async function exportRows() {
         'updatedAt',
       ].join(' '))
       .lean(),
+    ListingViewModel.find({ expiresAt: { $gt: new Date() } }).lean(),
   ]);
   return buildRecommendationInteractions({
     users,
+    views,
     bookings,
     reviews,
     includeDemoSeed: true,

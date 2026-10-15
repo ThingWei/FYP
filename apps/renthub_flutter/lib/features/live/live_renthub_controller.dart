@@ -12,6 +12,8 @@ import '../../core/network/socket_service.dart';
 import '../../core/notifications/push_notification_service.dart';
 import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
+import '../../core/recommendations/recommendation_models.dart';
+import '../../core/location/confirmed_location.dart';
 
 class LiveRentHubController extends ChangeNotifier {
   LiveRentHubController(
@@ -41,6 +43,140 @@ class LiveRentHubController extends ChangeNotifier {
   List<Listing> recommendedListings = [];
   List<Listing> savedListings = [];
   List<Listing> comparisonListings = [];
+  Map<String, RecommendationSection> recommendationSections = {};
+  ListingLocationSelection? recommendationCentre;
+  int recommendationRadius = 10;
+  Map<String, String> recommendationFilters = {};
+  DateTime? recommendationUpdatedAt;
+  bool recommendationDirty = true;
+  final Set<String> recommendationLoadingSections = {};
+  final Map<String, int> _recommendationRequests = {};
+  bool get recommendationLoading => recommendationLoadingSections.isNotEmpty;
+  int _recommendationRevision = 0;
+  int _recommendationGeneration = 0;
+  String? _recommendationUser;
+
+  Map<String, String> get recommendationQuery => {
+        ...recommendationFilters,
+        'limit': '30',
+        if (recommendationCentre != null) ...{
+          'latitude': '${recommendationCentre!.point.latitude}',
+          'longitude': '${recommendationCentre!.point.longitude}',
+          'radiusKm': '$recommendationRadius',
+        },
+      };
+
+  void _syncRecommendationUser() {
+    if (_recommendationUser == profile?.id) return;
+    _recommendationUser = profile?.id;
+    _recommendationGeneration++;
+    recommendationSections = {};
+    recommendationCentre = null;
+    recommendationFilters = {};
+    recommendationUpdatedAt = null;
+    recommendationDirty = true;
+    recommendationLoadingSections.clear();
+    _recommendationRequests.clear();
+  }
+
+  void prepareRecommendationAccount() => _syncRecommendationUser();
+
+  void setRecommendationArea(ListingLocationSelection? value, int radius) {
+    _syncRecommendationUser();
+    recommendationCentre = value;
+    recommendationRadius = radius;
+    _recommendationGeneration++;
+    recommendationLoadingSections.clear();
+    recommendationSections = {};
+    recommendationDirty = true;
+    unawaited(refreshRecommendationFeed());
+  }
+
+  Future<void> refreshRecommendationFeed({String? section}) async {
+    if (profile == null) return;
+    _syncRecommendationUser();
+    final userId = profile!.id,
+        generation = _recommendationGeneration,
+        revision = _recommendationRevision;
+    final keys = section == null
+        ? ['recommended', 'trending', 'recentlyViewed']
+        : [section];
+    final requests = {
+      for (final key in keys) key: (_recommendationRequests[key] ?? 0) + 1
+    };
+    _recommendationRequests.addAll(requests);
+    recommendationLoadingSections.addAll(keys);
+    notifyListeners();
+    bool current(String key) =>
+        requests.containsKey(key) &&
+        generation == _recommendationGeneration &&
+        profile?.id == userId &&
+        _recommendationRequests[key] == requests[key];
+    try {
+      final query = Uri(queryParameters: {
+        ...recommendationQuery,
+        if (section != null) 'section': section
+      }).query;
+      final response =
+          await api.request('GET', '/listings/recommendation-feed?$query');
+      if (response is! Map) throw const FormatException('Invalid feed');
+      for (final key in keys) {
+        if (current(key)) {
+          recommendationSections[key] =
+              RecommendationSection.fromJson(response[key]);
+        }
+      }
+      if (current('recommended')) {
+        recommendedListings = recommendationSections['recommended']!.items;
+      }
+      if (section == null &&
+          revision == _recommendationRevision &&
+          keys.every(current)) {
+        recommendationDirty = false;
+      }
+    } catch (_) {
+      for (final key in keys) {
+        if (current(key)) {
+          recommendationSections[key] =
+              const RecommendationSection('unavailable');
+        }
+      }
+    } finally {
+      if (keys.any(current)) {
+        for (final key in keys) {
+          if (current(key)) recommendationLoadingSections.remove(key);
+        }
+        recommendationUpdatedAt = DateTime.now();
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> recordListingView(String id) async {
+    if (profile == null) return;
+    try {
+      await api.request('POST', '/listings/$id/views');
+      _recommendationRevision++;
+      recommendationDirty = true;
+    } catch (_) {}
+  }
+
+  Future<RecommendationSection> complementaryListings(String id) async {
+    try {
+      final query = Uri(queryParameters: recommendationQuery).query;
+      return RecommendationSection.fromJson(
+          await api.request('GET', '/listings/$id/complements?$query'));
+    } catch (_) {
+      return const RecommendationSection('unavailable');
+    }
+  }
+
+  Future<void> clearBrowsingHistory() async {
+    await api.request('DELETE', '/users/me/browsing-history');
+    recommendationDirty = true;
+    await refreshRecommendationFeed();
+  }
+
   List<Listing> ownerListings = [];
   List<Listing> adminListings = [];
   List<Booking> bookings = [];
@@ -74,6 +210,9 @@ class LiveRentHubController extends ChangeNotifier {
   void selectRenterTab(int index) {
     if (index < 0 || index > 4 || renterTabIndex == index) return;
     renterTabIndex = index;
+    if (index == 0 && recommendationDirty) {
+      unawaited(refreshRecommendationFeed());
+    }
     notifyListeners();
   }
 
@@ -283,9 +422,12 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/rewards/summary'),
           api.request('GET', '/users/me/saved-listings'),
           api.request('GET', '/users/me/comparison'),
-          api.request('GET', '/listings/recommended?limit=10'),
+          api
+              .request('GET', '/listings/recommended?limit=10')
+              .catchError((_) => <dynamic>[]),
         ]);
         profile = User.fromJson(results[0] as Map<String, dynamic>);
+        _syncRecommendationUser();
         await _connectRealtime(profile!.id);
         listings = _models(results[1], Listing.fromJson);
         bookings = _models(results[2], Booking.fromJson);
@@ -487,6 +629,8 @@ class LiveRentHubController extends ChangeNotifier {
       comparisonListings.any((listing) => listing.id == listingId);
 
   Future<void> toggleSavedListing(Listing listing) => _perform(() async {
+        _recommendationRevision++;
+        recommendationDirty = true;
         if (isSaved(listing.id)) {
           await api.request('DELETE', '/users/me/saved-listings/${listing.id}');
           savedListings.removeWhere((item) => item.id == listing.id);
@@ -504,14 +648,24 @@ class LiveRentHubController extends ChangeNotifier {
         if (ids.remove(listing.id)) {
           // The item was already selected and is now removed.
         } else {
-          if (ids.length >= 4) {
+          if (ids.length >= 3) {
             throw ApiException(
               409,
-              'You can compare up to four listings at a time.',
+              'You can compare up to three listings at a time.',
               code: 'COMPARISON_LIMIT',
             );
           }
           ids.add(listing.id);
+        }
+        final proposed = ids
+            .map((id) => id == listing.id
+                ? listing
+                : comparisonListings.firstWhere((item) => item.id == id))
+            .toList();
+        if (!validComparison(proposed)) {
+          throw ApiException(
+              409, 'Choose physical items from the same specific category.',
+              code: 'COMPARISON_CATEGORY_MISMATCH');
         }
         comparisonListings = _models(
           await api.request(
@@ -530,6 +684,18 @@ class LiveRentHubController extends ChangeNotifier {
           body: {'listingIds': <String>[]},
         );
         comparisonListings = [];
+      });
+
+  Future<void> replaceComparison(List<Listing> items) => _perform(() async {
+        if (!validComparison(items)) {
+          throw ApiException(409,
+              'Choose up to three physical items from the same specific category.',
+              code: 'COMPARISON_CATEGORY_MISMATCH');
+        }
+        comparisonListings = _models(
+            await api.request('PUT', '/users/me/comparison',
+                body: {'listingIds': items.map((item) => item.id).toList()}),
+            Listing.fromJson);
       });
 
   Future<void> submitModerationReport({
@@ -1177,6 +1343,8 @@ class LiveRentHubController extends ChangeNotifier {
       });
 
   void _replaceBooking(Booking booking) {
+    _recommendationRevision++;
+    recommendationDirty = true;
     final index = bookings.indexWhere((item) => item.id == booking.id);
     if (index < 0) {
       bookings.insert(0, booking);
@@ -1645,6 +1813,7 @@ class LiveRentHubController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _recommendationGeneration++;
     _socketSubscription?.cancel();
     _socket?.dispose();
     _realtimeMessages.close();

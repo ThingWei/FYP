@@ -21,6 +21,8 @@ import 'live_agreement.dart';
 import 'live_checkout_page.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
+import 'live_recommendations.dart';
+import 'live_comparison.dart';
 import 'live_shared_pages.dart';
 
 class LiveRenterShell extends StatefulWidget {
@@ -180,6 +182,17 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
           ),
       };
       final controller = context.read<LiveRentHubController>();
+      if (widget.featuredOnly) {
+        controller.recommendationFilters = {
+          for (final entry in parameters.entries)
+            if (entry.value.isNotEmpty &&
+                !['latitude', 'longitude', 'radiusKm'].contains(entry.key))
+              entry.key: entry.value
+        };
+        controller.setRecommendationArea(
+            filters.centre ?? controller.recommendationCentre,
+            filters.radiusKm);
+      }
       final found = useRecommendations
           ? await controller.recommendListings({
               ...parameters,
@@ -220,7 +233,48 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
 
   Future<void> _refresh() async {
     await context.read<LiveRentHubController>().loadRenter();
+    if (mounted && widget.featuredOnly) {
+      await context.read<LiveRentHubController>().refreshRecommendationFeed();
+    }
     if (mounted) setState(() => results = null);
+  }
+
+  Future<void> _openListing(Listing listing) => Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+          builder: (_) => LiveBookingPage(
+              listing: listing, onSubmitted: widget.onOpenBookings)));
+
+  Widget _recommendationActions(Listing listing) {
+    final controller = context.read<LiveRentHubController>();
+    return Column(children: [
+      IconButton(
+          tooltip: controller.isSaved(listing.id)
+              ? 'Remove from wishlist'
+              : 'Save to wishlist',
+          onPressed: () async {
+            try {
+              await controller.toggleSavedListing(listing);
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(friendlyError(e))));
+              }
+            }
+          },
+          icon: Icon(controller.isSaved(listing.id)
+              ? Icons.favorite
+              : Icons.favorite_outline)),
+      if (!listing.isService)
+        IconButton(
+            tooltip: controller.isCompared(listing.id)
+                ? 'Remove from comparison'
+                : 'Add to comparison',
+            onPressed: () => toggleLiveComparison(context, listing),
+            icon: Icon(controller.isCompared(listing.id)
+                ? Icons.compare_arrows
+                : Icons.compare_arrows_outlined)),
+    ]);
   }
 
   @override
@@ -350,221 +404,232 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               ),
             ),
             const SizedBox(height: 16),
-            if (searching) const LinearProgressIndicator(),
-            if (searching) const SizedBox(height: 8),
-            if (widget.featuredOnly)
-              Text(
-                showingAiRecommendations
-                    ? ((results == null &&
-                            controller.recommendedListings.isEmpty)
-                        ? 'Marketplace highlights'
-                        : 'Recommended for you')
-                    : 'Marketplace results',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            Text(
-              '${listings.length} listing${listings.length == 1 ? '' : 's'}',
-              style: const TextStyle(color: AppColors.secondaryText),
-            ),
-            const SizedBox(height: 8),
-            if (listings.isEmpty)
-              const SizedBox(
-                height: 360,
-                child: RentHubFeedbackState(
-                  kind: FeedbackKind.empty,
-                  title: 'No matching listings',
-                  message: 'Try another category or search term.',
+            if (widget.featuredOnly && results == null)
+              LiveRecommendationHomeContent(
+                  onOpen: _openListing, actions: _recommendationActions)
+            else ...[
+              if (widget.featuredOnly)
+                TextButton(
+                    onPressed: () => setState(() => results = null),
+                    child: const Text('Back to recommendations')),
+              if (searching) const LinearProgressIndicator(),
+              if (searching) const SizedBox(height: 8),
+              if (widget.featuredOnly)
+                Text(
+                  showingAiRecommendations
+                      ? ((results == null &&
+                              controller.recommendedListings.isEmpty)
+                          ? 'Marketplace highlights'
+                          : 'Recommended for you')
+                      : 'Marketplace results',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-              )
-            else
-              for (final listing in listings)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Card(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () => Navigator.push<void>(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => LiveBookingPage(
-                            listing: listing,
-                            onSubmitted: widget.onOpenBookings,
+              Text(
+                '${listings.length} listing${listings.length == 1 ? '' : 's'}',
+                style: const TextStyle(color: AppColors.secondaryText),
+              ),
+              const SizedBox(height: 8),
+              if (listings.isEmpty)
+                const SizedBox(
+                  height: 360,
+                  child: RentHubFeedbackState(
+                    kind: FeedbackKind.empty,
+                    title: 'No matching listings',
+                    message: 'Try another category or search term.',
+                  ),
+                )
+              else
+                for (final listing in listings)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Card(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => Navigator.push<void>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LiveBookingPage(
+                              listing: listing,
+                              onSubmitted: widget.onOpenBookings,
+                            ),
                           ),
                         ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 76,
-                              height: 76,
-                              clipBehavior: Clip.antiAlias,
-                              decoration: BoxDecoration(
-                                color: AppColors.primaryLight,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: listing.images.isEmpty
-                                  ? Icon(
-                                      listing.isService
-                                          ? Icons.design_services_outlined
-                                          : Icons.inventory_2_outlined,
-                                      color: AppColors.primaryDark,
-                                    )
-                                  : Image.network(
-                                      controller.api
-                                          .absoluteUrl(listing.images.first),
-                                      fit: BoxFit.cover,
-                                      semanticLabel: '${listing.title} image',
-                                      errorBuilder: (_, __, ___) => Icon(
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 76,
+                                height: 76,
+                                clipBehavior: Clip.antiAlias,
+                                decoration: BoxDecoration(
+                                  color: AppColors.primaryLight,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: listing.images.isEmpty
+                                    ? Icon(
                                         listing.isService
                                             ? Icons.design_services_outlined
                                             : Icons.inventory_2_outlined,
                                         color: AppColors.primaryDark,
+                                      )
+                                    : Image.network(
+                                        controller.api
+                                            .absoluteUrl(listing.images.first),
+                                        fit: BoxFit.cover,
+                                        semanticLabel: '${listing.title} image',
+                                        errorBuilder: (_, __, ___) => Icon(
+                                          listing.isService
+                                              ? Icons.design_services_outlined
+                                              : Icons.inventory_2_outlined,
+                                          color: AppColors.primaryDark,
+                                        ),
+                                      ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      listing.title,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium,
+                                    ),
+                                    Text(
+                                      '${listing.ownerName} · ${listing.location}',
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppColors.secondaryText,
+                                        fontSize: 12,
                                       ),
                                     ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    listing.title,
-                                    style:
-                                        Theme.of(context).textTheme.titleMedium,
-                                  ),
-                                  Text(
-                                    '${listing.ownerName} · ${listing.location}',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: AppColors.secondaryText,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  if (showingAiRecommendations &&
-                                      listing.recommendationReason.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Icon(
-                                            Icons.auto_awesome_outlined,
-                                            size: 14,
-                                            color: AppColors.info,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Expanded(
-                                            child: Text(
-                                              listing.recommendationReason,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: AppColors.secondaryText,
-                                                fontSize: 11,
+                                    if (showingAiRecommendations &&
+                                        listing.recommendationReason.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Icon(
+                                              Icons.auto_awesome_outlined,
+                                              size: 14,
+                                              color: AppColors.info,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                listing.recommendationReason,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color:
+                                                      AppColors.secondaryText,
+                                                  fontSize: 11,
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                  const SizedBox(height: 7),
-                                  Wrap(
-                                    spacing: 8,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      if (listing.promotionActive)
+                                    const SizedBox(height: 7),
+                                    Wrap(
+                                      spacing: 8,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        if (listing.promotionActive)
+                                          Text(
+                                            formatMoney(listing.dailyPrice),
+                                            style: const TextStyle(
+                                              color: AppColors.secondaryText,
+                                              decoration:
+                                                  TextDecoration.lineThrough,
+                                            ),
+                                          ),
                                         Text(
-                                          formatMoney(listing.dailyPrice),
+                                          '${formatMoney(listing.displayPrice)} / ${listing.priceUnit}',
                                           style: const TextStyle(
-                                            color: AppColors.secondaryText,
-                                            decoration:
-                                                TextDecoration.lineThrough,
+                                            color: AppColors.primaryDark,
+                                            fontWeight: FontWeight.w800,
                                           ),
                                         ),
-                                      Text(
-                                        '${formatMoney(listing.displayPrice)} / ${listing.priceUnit}',
-                                        style: const TextStyle(
-                                          color: AppColors.primaryDark,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      if (listing.promotionActive)
-                                        StatusBadge(
-                                          '${listing.promotionDiscountPercent.toStringAsFixed(0)}% off',
-                                        ),
-                                      if (listing.verified)
-                                        const Chip(
-                                          avatar: Icon(
-                                            Icons.verified,
-                                            size: 16,
-                                            color: AppColors.success,
+                                        if (listing.promotionActive)
+                                          StatusBadge(
+                                            '${listing.promotionDiscountPercent.toStringAsFixed(0)}% off',
                                           ),
-                                          label: Text('Verified'),
-                                        ),
-                                    ],
+                                        if (listing.verified)
+                                          const Chip(
+                                            avatar: Icon(
+                                              Icons.verified,
+                                              size: 16,
+                                              color: AppColors.success,
+                                            ),
+                                            label: Text('Verified'),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                children: [
+                                  IconButton(
+                                    tooltip: controller.isSaved(listing.id)
+                                        ? 'Remove from wishlist'
+                                        : 'Save to wishlist',
+                                    onPressed: () =>
+                                        controller.toggleSavedListing(listing),
+                                    icon: Icon(
+                                      controller.isSaved(listing.id)
+                                          ? Icons.favorite
+                                          : Icons.favorite_outline,
+                                      color: controller.isSaved(listing.id)
+                                          ? AppColors.error
+                                          : AppColors.secondaryText,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: controller.isCompared(listing.id)
+                                        ? 'Remove from comparison'
+                                        : 'Add to comparison',
+                                    onPressed: () async {
+                                      try {
+                                        await toggleLiveComparison(
+                                            context, listing);
+                                      } catch (exception) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                  friendlyError(exception)),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    },
+                                    icon: Icon(
+                                      controller.isCompared(listing.id)
+                                          ? Icons.compare_arrows
+                                          : Icons.compare_arrows_outlined,
+                                      color: controller.isCompared(listing.id)
+                                          ? AppColors.primary
+                                          : AppColors.secondaryText,
+                                    ),
                                   ),
                                 ],
                               ),
-                            ),
-                            Column(
-                              children: [
-                                IconButton(
-                                  tooltip: controller.isSaved(listing.id)
-                                      ? 'Remove from wishlist'
-                                      : 'Save to wishlist',
-                                  onPressed: () =>
-                                      controller.toggleSavedListing(listing),
-                                  icon: Icon(
-                                    controller.isSaved(listing.id)
-                                        ? Icons.favorite
-                                        : Icons.favorite_outline,
-                                    color: controller.isSaved(listing.id)
-                                        ? AppColors.error
-                                        : AppColors.secondaryText,
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: controller.isCompared(listing.id)
-                                      ? 'Remove from comparison'
-                                      : 'Add to comparison',
-                                  onPressed: () async {
-                                    try {
-                                      await controller
-                                          .toggleComparisonListing(listing);
-                                    } catch (exception) {
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          SnackBar(
-                                            content:
-                                                Text(friendlyError(exception)),
-                                          ),
-                                        );
-                                      }
-                                    }
-                                  },
-                                  icon: Icon(
-                                    controller.isCompared(listing.id)
-                                        ? Icons.compare_arrows
-                                        : Icons.compare_arrows_outlined,
-                                    color: controller.isCompared(listing.id)
-                                        ? AppColors.primary
-                                        : AppColors.secondaryText,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+            ],
           ],
         ),
       ),
@@ -891,95 +956,47 @@ class LiveSavedListingsPage extends StatelessWidget {
 
 class LiveComparisonPage extends StatelessWidget {
   const LiveComparisonPage({super.key});
-
   @override
   Widget build(BuildContext context) {
-    final controller = context.watch<LiveRentHubController>();
-    final listings = controller.comparisonListings;
+    final c = context.watch<LiveRentHubController>();
+    void open(Listing listing, {bool chooseDates = false}) {
+      Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+              builder: (_) => LiveBookingPage(
+                  listing: listing,
+                  chooseDatesInitially: chooseDates,
+                  onSubmitted: () => c.selectRenterTab(2))));
+    }
+
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Compare (${listings.length}/4)'),
-        actions: [
-          if (listings.isNotEmpty)
-            IconButton(
-              tooltip: 'Clear comparison',
-              onPressed: () async {
-                final accepted = await confirmAction(
-                  context,
-                  title: 'Clear comparison?',
-                  message: 'All selected listings will be removed.',
-                  action: 'Clear',
-                );
-                if (accepted) await controller.clearComparison();
-              },
-              icon: const Icon(Icons.delete_outline),
-            ),
-        ],
-      ),
-      body: listings.isEmpty
-          ? const RentHubFeedbackState(
-              kind: FeedbackKind.empty,
-              title: 'Nothing to compare',
-              message: 'Select up to four listings from Home or Explore.',
-            )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final listing in listings)
-                    SizedBox(
-                      width: 260,
-                      child: Card(
-                        margin: const EdgeInsets.only(right: 12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                listing.isService
-                                    ? Icons.design_services_outlined
-                                    : Icons.inventory_2_outlined,
-                                size: 40,
-                                color: AppColors.primary,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                listing.title,
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const Divider(height: 24),
-                              Text(
-                                  '${formatMoney(listing.displayPrice)} / ${listing.priceUnit}'),
-                              Text(
-                                  'Type: ${listing.isService ? 'Service' : 'Physical item'}'),
-                              if (!listing.isService)
-                                Text('Condition: ${listing.condition}'),
-                              Text(
-                                  'Rating: ${listing.rating.toStringAsFixed(1)} / 5'),
-                              Text(
-                                  'Owner trust: ${listing.ownerTrustScore.toStringAsFixed(0)} / 100'),
-                              Text('Approximate area: ${listing.location}'),
-                              Text(
-                                  'Verified: ${listing.verified ? 'Yes' : 'No'}'),
-                              const SizedBox(height: 12),
-                              OutlinedButton.icon(
-                                onPressed: () =>
-                                    controller.toggleComparisonListing(listing),
-                                icon: const Icon(Icons.close),
-                                label: const Text('Remove'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-    );
+        appBar: AppBar(
+            title: Text('Compare (${c.comparisonListings.length}/3)'),
+            actions: [
+              if (c.comparisonListings.isNotEmpty)
+                IconButton(
+                    tooltip: 'Clear comparison',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () async {
+                      final accepted = await confirmAction(context,
+                          title: 'Clear comparison?',
+                          message: 'All selected listings will be removed.',
+                          action: 'Clear');
+                      if (accepted) {
+                        try {
+                          await c.clearComparison();
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(friendlyError(e))));
+                          }
+                        }
+                      }
+                    }),
+            ]),
+        body: LiveComparisonContent(
+            onOpen: (listing) => open(listing),
+            onChooseDates: (listing) => open(listing, chooseDates: true)));
   }
 }
 
@@ -989,11 +1006,13 @@ class LiveBookingPage extends StatefulWidget {
     required this.listing,
     required this.onSubmitted,
     this.locationMapBuilder,
+    this.chooseDatesInitially = false,
   });
 
   final Listing listing;
   final VoidCallback onSubmitted;
   final LocationMapBuilder? locationMapBuilder;
+  final bool chooseDatesInitially;
 
   @override
   State<LiveBookingPage> createState() => _LiveBookingPageState();
@@ -1016,6 +1035,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   bool checkingIdentity = false;
   bool availabilityLoading = true;
   bool availabilityRequested = false;
+  bool initialDatePickerOpened = false;
   String? availabilityError;
   ListingAvailability? availability;
   late final String checkoutIdempotencyKey = newCheckoutIdempotencyKey();
@@ -1036,6 +1056,9 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
         context.read<LiveRentHubController>().listingReviews(widget.listing.id);
     if (!availabilityRequested) {
       availabilityRequested = true;
+      context
+          .read<LiveRentHubController>()
+          .recordListingView(widget.listing.id);
       _loadAvailability();
     }
   }
@@ -1056,6 +1079,16 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       if (mounted) setState(() => availabilityError = friendlyError(exception));
     } finally {
       if (mounted) setState(() => availabilityLoading = false);
+    }
+    if (mounted &&
+        widget.chooseDatesInitially &&
+        !initialDatePickerOpened &&
+        availability != null &&
+        availability!.isDayAvailable(_firstAvailableOnOrAfter(start))) {
+      initialDatePickerOpened = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _pick(true);
+      });
     }
   }
 
@@ -1545,6 +1578,14 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            LiveComplementsSection(
+                listingId: listing.id,
+                onOpen: (item) => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => LiveBookingPage(
+                            listing: item, onSubmitted: widget.onSubmitted)))),
             const SizedBox(height: 12),
             if (availabilityLoading)
               const Card(

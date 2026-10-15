@@ -1,6 +1,138 @@
 # RentHub recommendation AI result
 
-Last verified: 4 October 2026
+Last updated: 15 October 2026
+
+## Current scope-aligned implementation (15 October)
+
+Home now contains **Recommended For You**, **Trending Near You** and
+**Recently Viewed**. Listing details contain **You Might Also Need**.
+The existing five renter navigation destinations remain unchanged. Each section
+has its own loading/empty/unavailable state, retry and a full list when results
+exist. A failed section does not hide healthy sections. Section-only retries do
+not rerun unrelated sections.
+
+### Live signals and ranking
+
+- Opening the live listing-details/booking page records a view, not an impression
+  from Home, search, comparison or recommendation cards. Rebuilds do not record
+  another view. Tracking failure does not block viewing or booking.
+- `ListingView` records are unique per account/listing/Malaysian calendar day.
+  The server supplies account, day and timestamps. TTL is 90 days, and read
+  queries also enforce the time window rather than relying on immediate TTL cleanup.
+- Viewed = rating 2 / precedence 0, below saved, booking, completed-rental and
+  published-review signals. The export and Python training schema accept the same
+  signal; no export, training or model replacement was automatically executed.
+- Up to 100 current user's historical listing profiles are loaded separately
+  from candidate results. A radius/category filter therefore does not erase a
+  known interest merely because the older listing is outside that result page.
+  Metadata is limited to eligible active listings, without private locations.
+- Base hybrid relevance remains **60% content + 40% collaborative**. Reranking is
+  `(0.75 × base + 0.15 × proximity + 0.10 × availability) / applicable weights`.
+  Missing location/usable public pin removes the proximity component; service
+  slot availability is not guessed and removes the availability component.
+- Proximity uses the existing approximate public grid points and a linear
+  `max(0, 1 − approximate distance / radius)` score. No exact distances or scores
+  appear in ordinary recommendation cards.
+- Physical availability uses selected dates when present, otherwise today's
+  **Malaysian calendar date in RentHub's UTC-midnight date-only storage**. Existing
+  approved/active/unresolved-physical-dispute/manual blocks are reused. Pending
+  requests remain soft holds. “Available today—check your rental dates” is a guide,
+  not a reservation or promise of availability on future dates.
+- Trending uses real activity in the previous 30 days: strongest signal per
+  renter/listing is viewed = 1, approved/active booking = 3, completed = 5.
+  Scores sum across renters; proximity breaks ties. Active bookings use their
+  activation timestamp where present. Rejected/cancelled/expired, demo-seed and
+  synthetic bookings do not contribute. Promotion is not organic popularity.
+
+### Complementary evidence and limits
+
+Eligibility is controlled by reviewed generic-use rules, not unrestricted cosine
+similarity. Cameras can suggest clearly identified tripods, suitable lighting
+types or recording microphones; Event equipment can suggest clearly identified
+PA/audio equipment. Current titles/product models must identify the compatible
+generic item type in an eligible domain. Other domains intentionally return no
+complements until a rule is reviewed; no new product category was added.
+
+Within eligible results, real listing-level co-rentals take precedence when at
+least three distinct renters rented the anchor and candidate, their start dates
+were within seven days, and both start dates fall within the past year. Only
+approved/active/completed marketplace records count. Otherwise the existing
+content/proximity/availability ordering is the disclosed fallback. The message
+asks renters to check compatibility; it does not guarantee mounts, connectors,
+sizes, capacity or exact accessory fit.
+
+### Interfaces, privacy and refresh
+
+| Interface | Purpose |
+| --- | --- |
+| `POST /api/v1/listings/:id/views` | Authenticated renter detail-view signal |
+| `GET /api/v1/listings/recommendation-feed` | Recommended, trending and recently viewed sections |
+| `GET /api/v1/listings/:id/complements` | Eligible complementary suggestions |
+| `DELETE /api/v1/users/me/browsing-history` | Clear only the current renter's browsing signals |
+| Existing `/api/v1/listings/recommended` | Preserved list response with optional ranking metadata |
+
+Feed/complement queries reuse existing filters, date validation and the
+latitude/longitude/radius triplet. Feed additionally accepts optional
+`section=recommended|trending|recentlyViewed` for independent retry. Sections
+return `{status, items}` with ready/empty/unavailable/location_required states.
+Candidate views are bounded, with at most 200 candidates to inference and
+1–30 public results per section; recent history is distinct/newest first.
+
+Own, inactive, blocked-Owner and restricted-account listings are excluded in every
+section. Trending requires a selected centre; without one it prompts for an area.
+Recently Viewed remains a history list rather than being silently radius-filtered.
+Radius choices remain 5/10/25/50 km, default 10. Unpinned listings are omitted from
+radius results, while ordinary browsing remains usable.
+
+GPS is requested only on an explicit tap, with one 15-second reading. Accuracy is
+displayed; coarse readings warn the renter to adjust the area. Denial, disabled
+GPS and timeout retain manual area selection. No background tracking or automatic
+reverse geocoding is used. Raw renter GPS is not sent to FastAPI, stored in view
+records, exported as activity, or logged by the existing path-only diagnostics.
+Listing serializers continue to remove private exact points and address details.
+
+Returning from a listing, saving/booking changes, pull-to-refresh and area changes
+refresh results. Foreground Home return refreshes dirty/results older than 60
+seconds. Account/context generations and per-section request tokens discard late
+responses, including overlapping retries; changed-account data is cleared.
+Clearing history requires confirmation and does not delete saved listings or
+bookings. No automatic retry of booking/payment writes was introduced.
+
+Restart with the updated launcher. It requires API `recommendation-feed-v2` and
+AI `hybrid-profile-v2` so old processes cannot silently omit the profile/feed.
+Existing MyKad, licence and other readiness checks remain in place. The new
+collection/indexes use normal model initialization; no bulk migration is run.
+
+### Verification and accuracy boundary
+
+- API: 330 passed / 3 skipped, including eight new scope/evidence/privacy tests
+  against isolated temporary databases, not the live database.
+- AI: 384 passed; new cases cover external-to-page profiles, weak view precedence
+  and duplicate profile metadata. Existing hybrid/artifact tests remain intact.
+- Flutter scope suite: 17 passed, including 360/390 mobile, 1100-wide aligned
+  comparisons, increased text size, denial/timeout/coarse GPS, stale responses,
+  independent retries, explicit legacy recovery and no booking/payment on navigation.
+- Full Flutter suite: **332 passed / 3 skipped**; web and Android debug builds pass.
+  Full static analysis still reports the two pre-existing Auth0 test
+  constructor errors; application-only analysis is clean.
+- Launcher regression passes. Existing dependency deprecation, Wasm/font and
+  Android plugin migration warnings are unrelated.
+
+Sparse real activity can leave Trending or complements empty and force conservative
+recommendation fallbacks. The artifact was not retrained, and these tests do not
+establish real-world ranking accuracy. The historic 4 October dataset/metrics below
+are an earlier measurement, **not a new audit of today's database**. Bounded
+activity/candidate queries and request-time SVD remain FYP-scale limitations;
+larger deployments need aggregation and model lifecycle work. Real-device GPS,
+network interruption and multi-account demonstration checks remain handoff tasks.
+
+See [comparison scope/UI result](COMPARISON_SCOPE_AND_UI_RESULT.md) for comparison
+rules, rollout, complete verification and the commit message.
+
+## Historical baseline report (4 October 2026)
+
+The following baseline architecture, training measurements and verification are
+retained for provenance. Current behaviour is described above.
 
 ## Scope and architecture
 

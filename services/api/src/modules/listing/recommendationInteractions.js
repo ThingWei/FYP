@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export const RECOMMENDATION_INTERACTION_RULES = Object.freeze({
+  viewed: { rating: 2, precedence: 0 },
   saved: { rating: 3.5, precedence: 1 },
   booking: { rating: 4, precedence: 2 },
   completed_rental: { rating: 4.5, precedence: 3 },
@@ -53,12 +54,17 @@ export function recommendationUserId(userId) {
 
 export function buildRecommendationInteractions({
   users = [],
+  views = [],
   bookings = [],
   reviews = [],
   includeDemoSeed = false,
 } = {}) {
   const interactions = new Map();
   const bookingSourceById = new Map();
+  for (const view of views) retainHigherConfidence(interactions, {
+    userId: view.userId, listingId: view.listingId, interactionType: 'viewed',
+    rating: 2, observedAt: validDate(view.lastViewedAt), sourceType: 'marketplace',
+  });
 
   for (const user of users) {
     for (const listingId of user.savedListingIds ?? []) {

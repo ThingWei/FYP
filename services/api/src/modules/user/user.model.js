@@ -220,8 +220,8 @@ const userSchema = new mongoose.Schema(
       type: [{ type: String, match: /^l-[a-z0-9-]+$/i }],
       default: [],
       validate: {
-        validator: (ids) => ids.length <= 4 && new Set(ids).size === ids.length,
-        message: 'Comparison must contain at most 4 unique items',
+        validator: function(ids) { return (typeof this.isModified === 'function' && !this.isModified('comparisonListingIds') || ids.length <= 3) && new Set(ids).size === ids.length; },
+        message: 'Comparison must contain at most 3 unique items',
       },
     },
     settings: {

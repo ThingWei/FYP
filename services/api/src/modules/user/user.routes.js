@@ -27,6 +27,7 @@ import {
 } from './user.validation.js';
 
 export const userRouter = Router();
+userRouter.delete('/me/browsing-history', authenticate, authorize('renter'), userController.clearBrowsingHistory);
 
 userRouter.post(
   '/local-login',

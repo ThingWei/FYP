@@ -3,10 +3,14 @@ import { matchedData } from 'express-validator';
 import { asyncHandler } from '../../core/asyncHandler.js';
 import { created, ok } from '../../core/respond.js';
 import { listingService } from './listing.service.js';
+import { recommendationFeed } from './recommendationFeed.service.js';
 
 const bodyData = (req) => matchedData(req, { locations: ['body'] });
 
 export const listingController = {
+  recommendationFeed: asyncHandler(async (req, res) => ok(res, await recommendationFeed.home(req.user, req.query))),
+  recordView: asyncHandler(async (req, res) => ok(res, await recommendationFeed.recordView(req.user, req.params.id))),
+  complements: asyncHandler(async (req, res) => ok(res, await recommendationFeed.complements(req.user, req.params.id, req.query))),
   recommended: asyncHandler(async (req, res) =>
     ok(res, await listingService.recommended(req.user, req.query)),
   ),

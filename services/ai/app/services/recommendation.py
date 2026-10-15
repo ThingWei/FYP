@@ -6,8 +6,10 @@ from ..schemas import ItemRecommendationRequest, Recommendation, UserInteraction
 
 
 CONTENT_WEIGHT = 0.6
+CONTRACT = 'hybrid-profile-v2'
 COLLABORATIVE_WEIGHT = 0.4
 INTERACTION_PRECEDENCE = {
+    'viewed': 0,
     'saved': 1,
     'booking': 2,
     'completed_rental': 3,
@@ -105,7 +107,7 @@ def _reason(*, has_history: bool, has_content_profile: bool, collaborative: bool
     if collaborative:
         return 'Personalized from your marketplace activity and similar listings'
     if has_content_profile:
-        return 'Similar to listings you saved, booked, completed, or reviewed'
+        return 'Based on listings you viewed, saved or rented'
     if has_history:
         return 'Popular active listings related to your current marketplace context'
     return 'Popular and highly rated active marketplace listings'
@@ -122,6 +124,8 @@ class HybridRecommendationService:
         except ImportError as error:
             raise RuntimeError(f'scikit-learn is required: {error}') from error
 
+        candidate_ids = {item.item_id for item in candidates}
+        corpus = candidates + [item for item in request.profile_items if item.item_id not in candidate_ids]
         documents = [
             ' '.join(filter(None, [
                 candidate.title,
@@ -133,7 +137,7 @@ class HybridRecommendationService:
                 candidate.location,
                 candidate.condition,
             ]))
-            for candidate in candidates
+            for candidate in corpus
         ]
         matrix = TfidfVectorizer(
             stop_words='english',
@@ -147,18 +151,18 @@ class HybridRecommendationService:
         }
         profile_indexes = [
             index
-            for index, item in enumerate(candidates)
+            for index, item in enumerate(corpus)
             if item.item_id in user_interactions
         ]
         if profile_indexes:
             weights = [[
-                user_interactions[candidates[index].item_id].rating / 5
+                user_interactions[corpus[index].item_id].rating / 5
             ] for index in profile_indexes]
             # scipy returns ``numpy.matrix`` for sparse means.  Newer
             # scikit-learn versions intentionally reject that legacy type, so
             # expose the profile as a regular two-dimensional ndarray.
             profile = matrix[profile_indexes].multiply(weights).mean(axis=0).A
-            content_scores = cosine_similarity(profile, matrix).flatten().tolist()
+            content_scores = cosine_similarity(profile, matrix[:len(candidates)]).flatten().tolist()
         else:
             maximum_popularity = max(
                 (item.popularity for item in candidates),

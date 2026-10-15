@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
+import 'package:renthub_flutter/core/recommendations/recommendation_models.dart';
 import 'package:renthub_flutter/features/live/live_renter_shell.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
@@ -192,6 +193,10 @@ void main() {
         },
       })
     ];
+    controller.recommendationSections = {
+      'recommended':
+          RecommendationSection('ready', controller.recommendedListings),
+    };
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
         value: controller,
@@ -206,7 +211,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Recommended for you'), findsOneWidget);
+    expect(find.text('Recommended For You'), findsOneWidget);
     expect(
       find.text(
           'Similar to listings you saved, booked, completed, or reviewed'),

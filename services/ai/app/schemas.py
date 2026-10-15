@@ -85,6 +85,7 @@ class UserInteraction(BaseModel):
     item_id: str
     rating: float = Field(ge=1, le=5)
     interaction_type: Literal[
+        'viewed',
         'saved',
         'booking',
         'completed_rental',
@@ -97,8 +98,9 @@ class UserInteraction(BaseModel):
 
 class ItemRecommendationRequest(BaseModel):
     user_id: str
-    limit: int = Field(default=10, ge=1, le=100)
+    limit: int = Field(default=10, ge=1, le=200)
     candidates: list[RecommendationCandidate] = Field(default_factory=list)
+    profile_items: list[RecommendationCandidate] = Field(default_factory=list)
     interactions: list[UserInteraction] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 

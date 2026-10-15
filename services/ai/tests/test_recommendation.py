@@ -57,6 +57,34 @@ def missing_artifact(monkeypatch, tmp_path):
     _collaborative_model.cache_clear()
 
 
+def test_view_history_outside_candidate_page_builds_a_content_profile():
+    request = ItemRecommendationRequest.model_validate({
+        'user_id': 'browser',
+        'candidates': [candidate('l-new-camera', 'Canon mirrorless camera', 'Devices', subcategory='Cameras'),
+                       candidate('l-bike', 'Giant mountain bicycle', 'Vehicles', subcategory='Bicycles')],
+        'profile_items': [candidate('l-old-camera', 'Canon mirrorless camera', 'Devices', subcategory='Cameras')],
+        'interactions': [{'user_id':'browser', 'item_id':'l-old-camera', 'interaction_type':'viewed', 'rating':2}],
+    })
+    results = HybridRecommendationService().recommend(request)
+    assert results[0].item_id == 'l-new-camera'
+    assert results[0].content_score > results[1].content_score
+    assert 'viewed' in results[0].reason
+    assert 'l-old-camera' not in [row.item_id for row in results]
+
+
+def test_browsing_is_weaker_than_saved_and_export_schema_accepts_it():
+    records = [UserInteraction(user_id='u', item_id='l', rating=2, interaction_type='viewed'),
+               UserInteraction(user_id='u', item_id='l', rating=3.5, interaction_type='saved')]
+    assert _canonical_interactions(records)[0].interaction_type == 'saved'
+
+
+def test_profile_item_duplicate_does_not_duplicate_results():
+    item = candidate('l-camera', 'Mirrorless camera', 'Devices')
+    request = ItemRecommendationRequest.model_validate({'user_id':'u', 'candidates':[item],
+        'profile_items':[item], 'interactions':[{'user_id':'u','item_id':'l-camera','rating':2,'interaction_type':'viewed'}]})
+    assert len(HybridRecommendationService().recommend(request)) == 1
+
+
 def test_content_profile_ranks_a_new_camera_above_unrelated_bicycle():
     request = ItemRecommendationRequest.model_validate({
         'user_id': 'u-camera',
@@ -87,7 +115,7 @@ def test_content_profile_ranks_a_new_camera_above_unrelated_bicycle():
         for item in HybridRecommendationService().recommend(request)
     }
     assert results['l-camera-new'].content_score > results['l-bicycle'].content_score
-    assert 'saved, booked, completed, or reviewed' in results['l-camera-new'].reason
+    assert 'viewed, saved or rented' in results['l-camera-new'].reason
 
 
 def test_new_user_uses_truthful_popularity_fallback_and_60_40_score():
@@ -126,7 +154,7 @@ def test_corrupt_artifact_degrades_to_truthful_fallback(monkeypatch, tmp_path):
     result = HybridRecommendationService().recommend(request)[0]
     assert result.adapter == 'content-cosine-with-popularity-fallback-v1'
     assert result.reason == (
-        'Similar to listings you saved, booked, completed, or reviewed'
+        'Based on listings you viewed, saved or rented'
     )
 
 

@@ -151,7 +151,7 @@ export const comparisonValidation = [
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
   }),
-  body('listingIds').isArray({ max: 4 }),
+  body('listingIds').isArray({ max: 3 }),
   body('listingIds.*').matches(/^l-[a-z\d-]+$/i),
   body('listingIds').custom((ids) => {
     if (new Set(ids).size !== ids.length) {

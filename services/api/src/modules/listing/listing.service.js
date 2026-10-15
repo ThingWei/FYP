@@ -25,6 +25,8 @@ import {
   recommendationUserId,
 } from './recommendationInteractions.js';
 import { nextAvailableDate } from './availabilityRules.js';
+import { ListingViewModel } from './listingView.model.js';
+import { availabilityContext, rerankRecommendations, DAY } from './recommendationEvidence.js';
 import {
   PRICING_EVIDENCE_QUERY_LIMIT,
   PRICING_EVIDENCE_WINDOW_DAYS,
@@ -189,12 +191,12 @@ async function requireOwnedListing(id, identity, { verifiedIdentity = false } = 
 }
 
 export const listingService = {
-  async recommended(identity, query) {
+  async recommended(identity, query, options = {}) {
     const user = await UserModel.findOne({ authId: identity.authId });
     if (!user || !user.roles.includes('renter')) {
       throw new AppError('Renter role is required', 403, 'FORBIDDEN');
     }
-    const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 30);
+    const limit = options.returnAll ? 200 : Math.min(Math.max(Number(query.limit) || 10, 1), 30);
     const restrictedOwnerIds = await UserModel.distinct('authId', {
       accountStatus: { $ne: 'active' },
     });
@@ -208,6 +210,7 @@ export const listingService = {
       status: 'active',
       ownerId: { $nin: excludedOwnerIds },
     };
+    if (options.candidateIds) candidateFilter.publicId = { $in: options.candidateIds };
     if (query.search?.trim()) {
       const pattern = escapedPattern(query.search.trim());
       candidateFilter.$or = [
@@ -245,11 +248,11 @@ export const listingService = {
         new Date(query.availableFrom),
         new Date(query.availableTo),
       );
-      if (unavailableIds.length) candidateFilter.publicId = { $nin: unavailableIds };
+      if (unavailableIds.length) candidateFilter.publicId = { ...(candidateFilter.publicId ?? {}), $nin: unavailableIds };
     }
     const [candidates, interactionUsers, bookings, reviews] = await Promise.all([
       ListingModel.find(candidateFilter)
-        .sort({ promoted: -1, rating: -1, createdAt: -1 })
+        .sort({ rating: -1, createdAt: -1 })
         .limit(200),
       UserModel.find({ 'savedListingIds.0': { $exists: true } })
         .select('authId savedListingIds createdAt updatedAt')
@@ -284,48 +287,52 @@ export const listingService = {
         .limit(5000)
         .lean(),
     ]);
+    // Always include this renter's bounded history before the global CF window.
+    const [views, ownBookings, ownReviews] = await Promise.all([
+      ListingViewModel.find({ userId: identity.authId, lastViewedAt: { $gte: new Date(Date.now() - 90 * DAY) } })
+        .sort({ lastViewedAt: -1 }).limit(500).lean(),
+      BookingModel.find({ renterId: identity.authId }).sort({ createdAt: -1 }).limit(100).lean(),
+      ReviewModel.find({ authorId: identity.authId, authorRole: 'renter', status: 'published' }).sort({ createdAt: -1 }).limit(100).lean(),
+    ]);
     const interactions = buildRecommendationInteractions({
       users: interactionUsers,
-      bookings,
-      reviews,
+      views,
+      bookings: [...ownBookings, ...bookings],
+      reviews: [...ownReviews, ...reviews],
       includeDemoSeed: env.recommendationIncludeDemoSeed,
     });
+    const historyIds = interactions.filter(row => row.userId === identity.authId)
+      .sort((a, b) => b.observedAt - a.observedAt).slice(0, 100).map(row => row.listingId);
+    const profileItems = await ListingModel.find({ publicId: { $in: historyIds }, status: 'active', ownerId: { $nin: excludedOwnerIds } }).limit(100);
+    const candidate = item => ({ item_id: item.publicId, title: item.title,
+      category: item.category, subcategory: item.subcategory, brand: item.brand,
+      product_model: item.productModel, description: item.description, condition: item.condition ?? '',
+      price: item.dailyPrice, rating: item.rating, popularity: item.reviewCount, available: true });
     const recommendations = await aiClient.recommendItems({
       user_id: recommendationUserId(identity.authId),
-      limit,
-      candidates: candidates.map((item) => ({
-        item_id: item.publicId,
-        title: item.title,
-        category: item.category,
-        subcategory: item.subcategory,
-        brand: item.brand,
-        product_model: item.productModel,
-        description: item.description,
-        location: item.toJSON().location,
-        condition: item.condition ?? '',
-        price: item.dailyPrice,
-        rating: item.rating,
-        popularity: item.reviewCount + (item.promoted ? 5 : 0),
-        available: true,
-      })),
+      limit: Math.max(candidates.length, 1),
+      candidates: candidates.map(candidate),
+      profile_items: profileItems.map(candidate),
       interactions: interactions.map(modelInteraction),
       context: {},
     });
+    const availability = await availabilityContext(query);
     if (!Array.isArray(recommendations) || !recommendations.length) {
-      return candidates.slice(0, limit).map((item) => ({
+      return rerankRecommendations(candidates.map((item) => ({
         ...item.toJSON(),
         recommendation: {
           available: false,
+          score: Math.max(0, Math.min(1, (item.rating ?? 0) / 5)),
           adapter: 'marketplace-ordering-fallback-v1',
           reason: 'Personalized ranking is unavailable; active marketplace highlights are shown',
         },
-      }));
+      })), query, availability).slice(0, limit);
     }
     const byId = new Map(candidates.map((item) => [item.publicId, item]));
-    return recommendations.flatMap((recommendation) => {
+    return rerankRecommendations(recommendations.flatMap((recommendation) => {
       const item = byId.get(recommendation.item_id);
       return item ? [{ ...item.toJSON(), recommendation }] : [];
-    });
+    }), query, availability).slice(0, limit);
   },
 
   async recommendPrice(input, identity) {

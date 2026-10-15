@@ -48,6 +48,7 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'mykad-current-draft-pair-v1' -and `
             $response.data.capabilities -contains 'mykad-bidirectional-capture-pair-v1' -and `
             $response.data.capabilities -contains 'driving-licence-ocr-review-v1' -and `
+            $response.data.capabilities -contains 'recommendation-feed-v2' -and `
             $response.data.capabilities -contains 'mandatory-identity-access-v1' -and `
             $response.data.capabilities -contains 'listing-maps-push-status-v1' -and `
             $response.data.capabilities -contains 'precise-locations-v1'
@@ -73,7 +74,8 @@ function Test-RentHubAiCompatible {
 
     return $null -ne $Health -and $Health.status -eq 'ok' -and `
         $Health.document_frame_contract -eq 'opencv-document-yolo-v6' -and `
-        $Health.driving_licence_contract -eq 'malaysian-driving-ocr-v1'
+        $Health.driving_licence_contract -eq 'malaysian-driving-ocr-v1' -and `
+        $Health.recommendation_contract -eq 'hybrid-profile-v2'
 }
 
 function Get-RentHubAiArguments {
@@ -355,13 +357,13 @@ try {
     if (-not $SkipAi) {
         $aiHealth = Get-RentHubAiHealth
         if (Test-RentHubAiCompatible -Health $aiHealth) {
-            Write-Host 'RentHub AI service is already ready with the current scanner contract on port 8001.' -ForegroundColor Green
+            Write-Host 'RentHub AI service is already ready with current scanner, licence and recommendation contracts on port 8001.' -ForegroundColor Green
             Write-Host 'Reusing the existing AI process. Its original owner controls reload and shutdown.' -ForegroundColor DarkGray
         }
         else {
             if (Test-RentHubTcpPort -HostName '127.0.0.1' -Port 8001) {
                 if ($null -ne $aiHealth -and $aiHealth.status -eq 'ok') {
-                    throw "The AI service on port 8001 has an incompatible scanner contract (opencv-document-yolo-v6 is required; reported '$($aiHealth.document_frame_contract)'). Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. Re-running without stopping that process would reuse old code. No existing service was stopped."
+                    throw "The AI service on port 8001 has incompatible service contracts. Required scanner=opencv-document-yolo-v6, licence=malaysian-driving-ocr-v1, recommendation=hybrid-profile-v2; reported '$($aiHealth.document_frame_contract)', '$($aiHealth.driving_licence_contract)', '$($aiHealth.recommendation_contract)'. Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. No existing service was stopped."
                 }
                 throw 'Port 8001 is occupied by an unhealthy or different service. Stop the identified owning process before rerunning this launcher. Do not start a second AI server on that port.'
             }
@@ -405,14 +407,14 @@ try {
                     'No AI error log was produced.'
                 }
                 $readinessDetails = if ($null -ne $aiHealth) {
-                    "Health status: '$($aiHealth.status)'; scanner contract: '$($aiHealth.document_frame_contract)'; required: 'opencv-document-yolo-v6'."
+                    "Health status: '$($aiHealth.status)'; scanner='$($aiHealth.document_frame_contract)', licence='$($aiHealth.driving_licence_contract)', recommendation='$($aiHealth.recommendation_contract)'. Required: opencv-document-yolo-v6, malaysian-driving-ocr-v1, hybrid-profile-v2."
                 }
                 else {
                     'No health response was received from http://127.0.0.1:8001/health.'
                 }
                 throw "The AI service did not become ready. $readinessDetails Review $aiErrorLog.`n$details"
             }
-            Write-Host 'RentHub AI service is ready with the current scanner contract.' -ForegroundColor Green
+            Write-Host 'RentHub AI service is ready with current scanner, licence and recommendation contracts.' -ForegroundColor Green
         }
 
         if ($aiHealth.artifacts.price_model -eq $true) {

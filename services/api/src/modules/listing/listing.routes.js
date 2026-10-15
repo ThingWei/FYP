@@ -17,6 +17,9 @@ import {
 } from './listing.validation.js';
 
 export const listingRouter = Router();
+listingRouter.get('/recommendation-feed', authenticate, authorize('renter'), recommendationValidation, validate, listingController.recommendationFeed);
+listingRouter.post('/:id/views', authenticate, authorize('renter'), listingIdValidation, validate, listingController.recordView);
+listingRouter.get('/:id/complements', authenticate, authorize('renter'), listingIdValidation, recommendationValidation, validate, listingController.complements);
 
 listingRouter.get(
   '/recommended',

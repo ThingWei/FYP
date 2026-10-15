@@ -11,6 +11,7 @@ import pandas as pd
 
 
 INTERACTION_PRECEDENCE = {
+    'viewed': 0,
     'saved': 1,
     'booking': 2,
     'completed_rental': 3,

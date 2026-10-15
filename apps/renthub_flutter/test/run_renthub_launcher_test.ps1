@@ -54,7 +54,7 @@ Assert-Launcher (-not (Test-RentHubAiCompatible @{
     status = 'error'; document_frame_contract = 'opencv-document-yolo-v6'
 })) 'Unhealthy service must fail'
 Assert-Launcher (Test-RentHubAiCompatible @{
-    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v6'; driving_licence_contract = 'malaysian-driving-ocr-v1'
+    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v6'; driving_licence_contract = 'malaysian-driving-ocr-v1'; recommendation_contract = 'hybrid-profile-v2'
 }) 'Current contract must pass'
 
 Assert-Launcher (-not (Test-RentHubAiCompatible @{
@@ -73,7 +73,10 @@ $serviceContract = [regex]::Match($contractSource, "DOCUMENT_FRAME_CONTRACT = '(
 Assert-Launcher (-not [string]::IsNullOrWhiteSpace($serviceContract)) 'Service scanner contract must be discoverable'
 $licenceSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot '..\..\..\services\ai\app\services\driving_licence.py')
 $licenceContract = [regex]::Match($licenceSource, "CONTRACT = '([^']+)'").Groups[1].Value
-Assert-Launcher (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract }) 'Launcher must accept current Python scanner and licence contracts'
+$recommendationSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot '..\..\..\services\ai\app\services\recommendation.py')
+$recommendationContract = [regex]::Match($recommendationSource, "CONTRACT = '([^']+)'").Groups[1].Value
+Assert-Launcher (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract; recommendation_contract = $recommendationContract }) 'Launcher must accept current Python scanner, licence and recommendation contracts'
+Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract })) 'Missing profile-aware recommendation service must fail'
 Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract })) 'Missing licence contract must fail'
 Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = 'old' })) 'Old licence contract must fail'
 
@@ -101,6 +104,8 @@ Assert-Launcher (-not (Test-RentHubApiReady)) 'API without replacement-front sca
 $script:apiHealthFixture.data.capabilities += 'mykad-bidirectional-capture-pair-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'API without licence OCR review must fail'
 $script:apiHealthFixture.data.capabilities += 'driving-licence-ocr-review-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without recommendation feed must fail'
+$script:apiHealthFixture.data.capabilities += 'recommendation-feed-v2'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'
