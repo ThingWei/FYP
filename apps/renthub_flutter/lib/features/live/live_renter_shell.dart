@@ -2,6 +2,9 @@ import 'live_location_picker.dart';
 import 'live_location_field.dart';
 import 'live_booking_locations.dart';
 import 'live_booking_charges.dart';
+import 'live_booking_workspace.dart';
+import 'live_existing_booking_request.dart';
+import 'live_authenticated_page.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -80,7 +83,8 @@ class _LiveRenterShellState extends State<LiveRenterShell> {
       ),
     ];
     return Scaffold(
-      body: controller.loading && controller.profile == null
+      body: controller.renterWorkspace.loading &&
+              !controller.renterWorkspace.loaded
           ? const SafeArea(
               child: RentHubFeedbackState(
                 kind: FeedbackKind.loading,
@@ -88,17 +92,29 @@ class _LiveRenterShellState extends State<LiveRenterShell> {
                 message: 'Getting your marketplace ready…',
               ),
             )
-          : controller.error != null && controller.profile == null
+          : controller.renterWorkspace.error != null &&
+                  !controller.renterWorkspace.loaded
               ? SafeArea(
                   child: RentHubFeedbackState(
                     kind: FeedbackKind.error,
-                    title: controller.errorTitle,
-                    message: controller.error!,
-                    actionLabel: controller.sessionExpired
+                    title:
+                        UserFacingError.from(controller.renterWorkspace.error)
+                            .title,
+                    message: friendlyError(controller.renterWorkspace.error!),
+                    actionLabel: controller.renterWorkspace.error
+                                is ApiException &&
+                            (controller.renterWorkspace.error as ApiException)
+                                    .status ==
+                                401
                         ? 'Sign in again'
                         : 'Try Again',
-                    onAction:
-                        controller.sessionExpired ? widget.onLogout : _load,
+                    onAction: controller.renterWorkspace.error
+                                is ApiException &&
+                            (controller.renterWorkspace.error as ApiException)
+                                    .status ==
+                                401
+                        ? widget.onLogout
+                        : _load,
                   ),
                 )
               : IndexedStack(index: index, children: pages),
@@ -1225,6 +1241,8 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       return;
     }
     setState(() => submitting = true);
+    final controller = context.read<LiveRentHubController>();
+    final bookingAccount = controller.profile?.id;
     try {
       final bookingStart = widget.listing.isService
           ? DateTime(
@@ -1273,6 +1291,27 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       widget.onSubmitted();
     } catch (exception) {
       if (mounted) {
+        if (bookingAccount != controller.profile?.id) return;
+        setState(() => submitting = false);
+        final handled = await offerExistingBookingRequest(context, exception,
+            onOpen: (id) async {
+          try {
+            await controller.refreshFocusedBooking(id, null);
+            if (!mounted || bookingAccount != controller.profile?.id) return;
+            await Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => LiveAuthenticatedPage(
+                        renterOnly: true,
+                        child: LiveRenterBookingsPage(focusBookingId: id))));
+          } catch (error) {
+            if (mounted && bookingAccount == controller.profile?.id) {
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text(friendlyError(error))));
+            }
+          }
+        });
+        if (handled || !mounted) return;
         if (exception is ApiException &&
             (exception.code == 'KYC_REQUIRED' ||
                 exception.code == 'MYKAD_REQUIRED' ||
@@ -1956,7 +1995,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
-    final visibleBookings = controller.bookings
+    final visibleBookings = controller.renterBookings
         .where((booking) =>
             widget.focusBookingId == null ||
             booking.id == widget.focusBookingId)
@@ -1978,97 +2017,108 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: visibleBookings.isEmpty
-            ? ListView(
-                children: const [
-                  SizedBox(
-                    height: 520,
-                    child: RentHubFeedbackState(
-                      kind: FeedbackKind.empty,
-                      title: 'No bookings yet',
-                      message: 'Your MongoDB booking records will appear here.',
-                    ),
-                  ),
-                ],
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: visibleBookings.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final booking = visibleBookings[index];
-                  final matchingRentals = controller.rentals
-                      .where((item) => item.bookingId == booking.id)
-                      .toList();
-                  final rental =
-                      matchingRentals.isEmpty ? null : matchingRentals.first;
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  booking.listingTitle,
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium,
-                                ),
-                              ),
-                              StatusBadge(booking.status),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(formatDateRange(booking.start, booking.end)),
-                          if (widget.payment != null)
-                            LivePaymentSummary(payment: widget.payment!),
-                          BookingLocationsButton(bookingId: booking.id),
-                          Wrap(spacing: 8, children: [
-                            TextButton.icon(
-                                onPressed: () =>
-                                    showBookingAgreement(context, booking.id),
-                                icon: const Icon(Icons.description_outlined),
-                                label: const Text('View agreement')),
-                            if (booking.status == 'pending' &&
-                                booking.paymentStatus == 'unpaid' &&
-                                (booking.expiresAt == null ||
-                                    booking.expiresAt!.isAfter(DateTime.now())))
-                              FilledButton.tonal(
-                                  onPressed: () =>
-                                      showLiveCheckout(context, booking.id),
-                                  child: const Text('Continue payment')),
-                          ]),
-                          Text(
-                            '${formatMoney(booking.total)} · Payment ${booking.paymentStatus}',
-                            style: const TextStyle(
-                              color: AppColors.primaryDark,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          if (rental != null) ...[
-                            const Divider(height: 22),
-                            Text('Rental/order status: ${rental.status}'),
-                            const SizedBox(height: 8),
-                            _RenterRentalActions(rental: rental),
-                          ],
-                          if (['pending', 'approved'].contains(booking.status))
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: () => _cancel(booking),
-                                child: const Text('Cancel Booking'),
-                              ),
-                            ),
-                        ],
+      body: LiveBookingWorkspace(
+        state: controller.renterWorkspace,
+        hasRecords: visibleBookings.isNotEmpty,
+        onRetry: _refresh,
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: visibleBookings.isEmpty
+              ? ListView(
+                  children: const [
+                    SizedBox(
+                      height: 520,
+                      child: RentHubFeedbackState(
+                        kind: FeedbackKind.empty,
+                        title: 'No bookings yet',
+                        message:
+                            'Items and services you book will appear here.',
                       ),
                     ),
-                  );
-                },
-              ),
+                  ],
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: visibleBookings.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final booking = visibleBookings[index];
+                    final matchingRentals = controller.renterRentals
+                        .where((item) => item.bookingId == booking.id)
+                        .toList();
+                    final rental =
+                        matchingRentals.isEmpty ? null : matchingRentals.first;
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    booking.listingTitle,
+                                    style:
+                                        Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                ),
+                                StatusBadge(booking.status),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(formatDateRange(booking.start, booking.end)),
+                            if (widget.payment != null)
+                              LivePaymentSummary(payment: widget.payment!),
+                            BookingLocationsButton(bookingId: booking.id),
+                            Wrap(spacing: 8, children: [
+                              TextButton.icon(
+                                  onPressed: () =>
+                                      showBookingAgreement(context, booking.id),
+                                  icon: const Icon(Icons.description_outlined),
+                                  label: const Text('View agreement')),
+                              if (booking.status == 'pending' &&
+                                  booking.paymentStatus == 'unpaid' &&
+                                  (booking.expiresAt == null ||
+                                      booking.expiresAt!
+                                          .isAfter(DateTime.now())))
+                                FilledButton.tonal(
+                                    onPressed: () =>
+                                        showLiveCheckout(context, booking.id),
+                                    child: const Text('Continue payment')),
+                            ]),
+                            Text(
+                              '${formatMoney(booking.total)} · Payment ${booking.paymentStatus}',
+                              style: const TextStyle(
+                                color: AppColors.primaryDark,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (booking.status == 'pending' &&
+                                booking.paymentStatus == 'authorized')
+                              const Text('Awaiting Owner approval'),
+                            if (rental != null) ...[
+                              const Divider(height: 22),
+                              Text('Rental/order status: ${rental.status}'),
+                              const SizedBox(height: 8),
+                              _RenterRentalActions(rental: rental),
+                            ],
+                            if (['pending', 'approved']
+                                .contains(booking.status))
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: () => _cancel(booking),
+                                  child: const Text('Cancel Booking'),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }

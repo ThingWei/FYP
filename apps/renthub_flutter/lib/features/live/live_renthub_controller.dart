@@ -15,6 +15,24 @@ import '../../shared/models/domain_models.dart';
 import '../../core/recommendations/recommendation_models.dart';
 import '../../core/location/confirmed_location.dart';
 
+class BookingWorkspaceState {
+  List<Booking> bookings = [];
+  List<Rental> rentals = [];
+  bool loading = false;
+  bool loaded = false;
+  Object? error;
+  int generation = 0;
+
+  void clear() {
+    generation++;
+    bookings = [];
+    rentals = [];
+    loading = false;
+    loaded = false;
+    error = null;
+  }
+}
+
 class LiveRentHubController extends ChangeNotifier {
   LiveRentHubController(
     this.api, {
@@ -38,7 +56,97 @@ class LiveRentHubController extends ChangeNotifier {
       lastError is ApiException &&
       (lastError as ApiException).status == 401 &&
       (lastError as ApiException).code != 'INVALID_CREDENTIALS';
-  User? profile;
+  User? _profile;
+  User? get profile => _profile;
+  set profile(User? value) {
+    if (_profile?.id != value?.id) {
+      _accountGeneration++;
+      _workspaceGeneration++;
+      renterWorkspace.clear();
+      ownerWorkspace.clear();
+      adminWorkspace.clear();
+      loading = false;
+      error = null;
+      lastError = null;
+      _socketSubscription?.cancel();
+      _socket?.dispose();
+      _socketUserId = null;
+    }
+    _profile = value;
+  }
+
+  int _accountGeneration = 0;
+  int _workspaceGeneration = 0;
+  final renterWorkspace = BookingWorkspaceState();
+  final ownerWorkspace = BookingWorkspaceState();
+  final adminWorkspace = BookingWorkspaceState();
+  User? _authenticatedUser;
+  UserRole? _sessionRole;
+
+  /// Bound to authentication by the app provider, including logout/account changes.
+  void syncSession(User? user) {
+    if (identical(user, _authenticatedUser) && profile?.id == user?.id) return;
+    _authenticatedUser = user;
+    if (_sessionRole != user?.activeRole) _workspaceGeneration++;
+    _sessionRole = user?.activeRole;
+    profile = user;
+  }
+
+  bool _sameAccount(int generation) =>
+      !_disposed && generation == _accountGeneration;
+
+  bool canManageBooking(Booking booking) =>
+      profile != null &&
+      booking.ownerId == profile!.id &&
+      booking.renterId != profile!.id;
+
+  List<Booking> get renterBookings => List.unmodifiable(renterWorkspace.bookings
+      .where((item) => profile != null && item.renterId == profile!.id));
+  List<Booking> get ownerBookings =>
+      List.unmodifiable(ownerWorkspace.bookings.where(canManageBooking));
+  List<Rental> get renterRentals => List.unmodifiable(renterWorkspace.rentals
+      .where((item) => profile != null && item.renterId == profile!.id));
+  List<Rental> get ownerRentals =>
+      List.unmodifiable(ownerWorkspace.rentals.where((item) =>
+          profile != null &&
+          item.ownerId == profile!.id &&
+          item.renterId != profile!.id));
+
+  // Participant lookup for focused notification destinations, never a role feed.
+  List<Booking> get bookings => [...renterBookings, ...ownerBookings];
+  List<Rental> get rentals => [...renterRentals, ...ownerRentals];
+
+  Future<void> _loadWorkspace(UserRole role,
+      Future<void> Function(bool Function() current) operation) async {
+    final state = switch (role) {
+      UserRole.renter => renterWorkspace,
+      UserRole.owner => ownerWorkspace,
+      UserRole.admin => adminWorkspace,
+    };
+    final account = _accountGeneration;
+    final workspace = ++_workspaceGeneration;
+    final request = ++state.generation;
+    bool current() =>
+        _sameAccount(account) &&
+        workspace == _workspaceGeneration &&
+        request == state.generation;
+    state.loading = true;
+    state.error = null;
+    notifyListeners();
+    try {
+      await operation(current);
+      if (current()) state.loaded = true;
+    } catch (exception) {
+      if (current()) state.error = exception;
+      rethrow;
+    } finally {
+      if (_sameAccount(account) && request == state.generation) {
+        state.loading = false;
+        if (!_disposed) notifyListeners();
+      }
+    }
+  }
+
   List<Listing> listings = [];
   List<Listing> recommendedListings = [];
   List<Listing> savedListings = [];
@@ -270,8 +378,6 @@ class LiveRentHubController extends ChangeNotifier {
 
   List<Listing> ownerListings = [];
   List<Listing> adminListings = [];
-  List<Booking> bookings = [];
-  List<Rental> rentals = [];
   List<Conversation> conversations = [];
   List<RentHubNotification> notifications = [];
   List<Map<String, dynamic>> notificationDevices = [];
@@ -479,6 +585,7 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   Future<T> _perform<T>(Future<T> Function() operation) async {
+    final account = _accountGeneration;
     loading = true;
     error = null;
     lastError = null;
@@ -486,12 +593,16 @@ class LiveRentHubController extends ChangeNotifier {
     try {
       return await operation();
     } catch (exception) {
-      lastError = exception;
-      error = friendlyError(exception);
+      if (_sameAccount(account)) {
+        lastError = exception;
+        error = friendlyError(exception);
+      }
       rethrow;
     } finally {
-      loading = false;
-      notifyListeners();
+      if (_sameAccount(account)) {
+        loading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -500,7 +611,16 @@ class LiveRentHubController extends ChangeNotifier {
           .map((item) => parse(item as Map<String, dynamic>))
           .toList();
 
-  Future<void> loadRenter() => _perform(() async {
+  void _acceptWorkspaceProfile(dynamic data) {
+    final user = User.fromJson(data as Map<String, dynamic>);
+    if (profile != null && profile!.id != user.id) {
+      throw ApiException(401, 'Your account changed. Please try again.',
+          code: 'SESSION_CHANGED');
+    }
+    _profile = user;
+  }
+
+  Future<void> loadRenter() => _loadWorkspace(UserRole.renter, (current) async {
         final results = await Future.wait([
           api.request('GET', '/users/me'),
           api.request('GET', '/listings'),
@@ -514,12 +634,14 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/users/me/saved-listings'),
           api.request('GET', '/users/me/comparison'),
         ]);
-        profile = User.fromJson(results[0] as Map<String, dynamic>);
+        if (!current()) return;
+        _acceptWorkspaceProfile(results[0]);
         _syncRecommendationUser();
         await _connectRealtime(profile!.id);
+        if (!current()) return;
         listings = _models(results[1], Listing.fromJson);
-        bookings = _models(results[2], Booking.fromJson);
-        rentals = _models(results[3], Rental.fromJson);
+        renterWorkspace.bookings = _models(results[2], Booking.fromJson);
+        renterWorkspace.rentals = _models(results[3], Rental.fromJson);
         conversations = _models(results[4], Conversation.fromJson);
         reviews = _models(results[5], Review.fromJson);
         disputes = _models(results[6], Dispute.fromJson);
@@ -529,7 +651,7 @@ class LiveRentHubController extends ChangeNotifier {
         comparisonListings = _models(results[10], Listing.fromJson);
       });
 
-  Future<void> loadOwner() => _perform(() async {
+  Future<void> loadOwner() => _loadWorkspace(UserRole.owner, (current) async {
         final results = await Future.wait([
           api.request('GET', '/users/me'),
           api.request('GET', '/listings/owner/mine'),
@@ -542,11 +664,13 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/disputes/claims/mine'),
           api.request('GET', '/rewards/summary'),
         ]);
-        profile = User.fromJson(results[0] as Map<String, dynamic>);
+        if (!current()) return;
+        _acceptWorkspaceProfile(results[0]);
         await _connectRealtime(profile!.id);
+        if (!current()) return;
         ownerListings = _models(results[1], Listing.fromJson);
-        bookings = _models(results[2], Booking.fromJson);
-        rentals = _models(results[3], Rental.fromJson);
+        ownerWorkspace.bookings = _models(results[2], Booking.fromJson);
+        ownerWorkspace.rentals = _models(results[3], Rental.fromJson);
         conversations = _models(results[4], Conversation.fromJson);
         receivedReviews = _models(results[5], Review.fromJson);
         reviews = _models(results[6], Review.fromJson);
@@ -555,7 +679,7 @@ class LiveRentHubController extends ChangeNotifier {
         loyalty = Reward.fromJson(results[9] as Map<String, dynamic>);
       });
 
-  Future<void> loadAdmin() => _perform(() async {
+  Future<void> loadAdmin() => _loadWorkspace(UserRole.admin, (current) async {
         final results = await Future.wait([
           api.request('GET', '/users/me'),
           api.request('GET', '/users?limit=100'),
@@ -577,11 +701,12 @@ class LiveRentHubController extends ChangeNotifier {
           api.request('GET', '/admin/reporting/schedules'),
           api.request('GET', '/admin/reporting/reports'),
         ]);
-        profile = User.fromJson(results[0] as Map<String, dynamic>);
+        if (!current()) return;
+        _acceptWorkspaceProfile(results[0]);
         users = (results[1] as List).cast<Map<String, dynamic>>();
         adminListings = _models(results[2], Listing.fromJson);
-        bookings = _models(results[3], Booking.fromJson);
-        rentals = _models(results[4], Rental.fromJson);
+        adminWorkspace.bookings = _models(results[3], Booking.fromJson);
+        adminWorkspace.rentals = _models(results[4], Rental.fromJson);
         transactions = _models(results[5], Transaction.fromJson);
         messageReports = (results[6] as List).cast<Map<String, dynamic>>();
         adminReviews = _models(results[7], Review.fromJson);
@@ -1009,6 +1134,7 @@ class LiveRentHubController extends ChangeNotifier {
     List<String> evidence = const [],
   }) =>
       _perform(() async {
+        final account = _accountGeneration;
         final dispute = Dispute.fromJson(
           await api.request(
             'POST',
@@ -1022,8 +1148,9 @@ class LiveRentHubController extends ChangeNotifier {
             },
           ) as Map<String, dynamic>,
         );
+        if (!_sameAccount(account)) return dispute;
         disputes.insert(0, dispute);
-        rentals = rentals
+        final updatedRentals = rentals
             .map((item) => item.id == rental.id
                 ? Rental(
                     item.id,
@@ -1042,6 +1169,9 @@ class LiveRentHubController extends ChangeNotifier {
                   )
                 : item)
             .toList();
+        for (final item in updatedRentals) {
+          _replaceRental(item);
+        }
         notifyListeners();
         return dispute;
       });
@@ -1204,6 +1334,7 @@ class LiveRentHubController extends ChangeNotifier {
   }) =>
       _perform(() async {
         final checkoutKey = idempotencyKey ?? newCheckoutIdempotencyKey();
+        final account = _accountGeneration;
         final bookingData = await api.request(
           'POST',
           '/bookings',
@@ -1228,13 +1359,22 @@ class LiveRentHubController extends ChangeNotifier {
           },
         ) as Map<String, dynamic>;
         final booking = Booking.fromJson(bookingData);
+        if (!_sameAccount(account)) {
+          throw ApiException(401, 'Your account changed. Please try again.',
+              code: 'SESSION_CHANGED');
+        }
         _replaceBooking(booking);
         return booking;
       });
 
   Future<Booking> getBooking(String id) async {
+    final account = _accountGeneration;
     final booking = Booking.fromJson(Map<String, dynamic>.from(
         await api.request('GET', '/bookings/$id') as Map));
+    if (!_sameAccount(account)) {
+      throw ApiException(401, 'Your account changed. Please try again.',
+          code: 'SESSION_CHANGED');
+    }
     _replaceBooking(booking, activity: false);
     return booking;
   }
@@ -1275,6 +1415,7 @@ class LiveRentHubController extends ChangeNotifier {
       String renterNote = '',
       required bool agreementAccepted,
       String? idempotencyKey}) async {
+    final account = _accountGeneration;
     final key = idempotencyKey ?? newCheckoutIdempotencyKey();
     final booking = await createBooking(
         listing: listing,
@@ -1293,10 +1434,15 @@ class LiveRentHubController extends ChangeNotifier {
       'method': paymentMethod,
       'idempotencyKey': key
     });
+    if (!_sameAccount(account)) {
+      throw ApiException(401, 'Your account changed. Please try again.',
+          code: 'SESSION_CHANGED');
+    }
     return getBooking(booking.id);
   }
 
   Future<void> cancelBooking(String id, String reason) => _perform(() async {
+        final account = _accountGeneration;
         final updated = Booking.fromJson(
           await api.request(
             'POST',
@@ -1304,7 +1450,7 @@ class LiveRentHubController extends ChangeNotifier {
             body: {'reason': reason},
           ) as Map<String, dynamic>,
         );
-        _replaceBooking(updated);
+        if (_sameAccount(account)) _replaceBooking(updated);
       });
 
   Future<Review> submitReview({
@@ -1417,6 +1563,14 @@ class LiveRentHubController extends ChangeNotifier {
     String reason = '',
   }) =>
       _perform(() async {
+        final booking =
+            ownerBookings.where((item) => item.id == id).firstOrNull;
+        if (booking == null || !canManageBooking(booking)) {
+          throw ApiException(403,
+              'Only the Owner of this listing can approve or reject its requests.',
+              code: 'FORBIDDEN');
+        }
+        final account = _accountGeneration;
         final updated = Booking.fromJson(
           await api.request(
             'PATCH',
@@ -1427,29 +1581,73 @@ class LiveRentHubController extends ChangeNotifier {
             },
           ) as Map<String, dynamic>,
         );
+        if (!_sameAccount(account)) return;
         _replaceBooking(updated);
         if (status == 'approved') await _reloadOwnerBookingState();
       });
 
   void _replaceBooking(Booking booking, {bool activity = true}) {
     if (activity) _recommendationsChanged();
-    final index = bookings.indexWhere((item) => item.id == booking.id);
-    if (index < 0) {
-      bookings.insert(0, booking);
-    } else {
-      bookings[index] = booking;
+    for (final state in [renterWorkspace, ownerWorkspace, adminWorkspace]) {
+      final belongs = state == renterWorkspace
+          ? profile != null && booking.renterId == profile!.id
+          : state == ownerWorkspace
+              ? canManageBooking(booking)
+              : profile?.roles.contains(UserRole.admin) == true;
+      state.bookings = [
+        if (belongs) booking,
+        ...state.bookings.where((item) => item.id != booking.id),
+      ];
     }
     notifyListeners();
   }
 
+  void _replaceRental(Rental rental) {
+    for (final state in [renterWorkspace, ownerWorkspace, adminWorkspace]) {
+      final belongs = state == renterWorkspace
+          ? profile != null && rental.renterId == profile!.id
+          : state == ownerWorkspace
+              ? profile != null &&
+                  rental.ownerId == profile!.id &&
+                  rental.renterId != profile!.id
+              : profile?.roles.contains(UserRole.admin) == true;
+      state.rentals = [
+        if (belongs) rental,
+        ...state.rentals.where((item) => item.id != rental.id),
+      ];
+    }
+  }
+
   Future<void> _reloadOwnerBookingState() async {
-    final results = await Future.wait([
-      api.request('GET', '/bookings/owner'),
-      api.request('GET', '/rentals/owner'),
-    ]);
-    bookings = _models(results[0], Booking.fromJson);
-    rentals = _models(results[1], Rental.fromJson);
+    await _reloadBookingState(ownerWorkspace, owner: true);
+  }
+
+  Future<void> _reloadBookingState(BookingWorkspaceState state,
+      {required bool owner}) async {
+    final account = _accountGeneration;
+    final request = ++state.generation;
+    bool current() => _sameAccount(account) && request == state.generation;
+    state.loading = true;
+    state.error = null;
     notifyListeners();
+    try {
+      final results = await Future.wait([
+        api.request('GET', owner ? '/bookings/owner' : '/bookings/mine'),
+        api.request('GET', owner ? '/rentals/owner' : '/rentals/mine'),
+      ]);
+      if (!current()) return;
+      state.bookings = _models(results[0], Booking.fromJson);
+      state.rentals = _models(results[1], Rental.fromJson);
+      state.loaded = true;
+    } catch (exception) {
+      if (current()) state.error = exception;
+      rethrow;
+    } finally {
+      if (current()) {
+        state.loading = false;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> runRentalAction(
@@ -1459,6 +1657,14 @@ class LiveRentHubController extends ChangeNotifier {
     bool owner = false,
   }) =>
       _perform(() async {
+        final account = _accountGeneration;
+        if (owner &&
+            (profile == null ||
+                rental.ownerId != profile!.id ||
+                rental.renterId == profile!.id)) {
+          throw ApiException(403, 'Only the Owner can manage this rental.',
+              code: 'FORBIDDEN');
+        }
         final method = action == 'extension-decision' ? 'PATCH' : 'POST';
         final path = switch (action) {
           'handover' => '/rentals/${rental.id}/handover',
@@ -1472,13 +1678,9 @@ class LiveRentHubController extends ChangeNotifier {
           _ => throw ArgumentError('Unknown rental action: $action'),
         };
         await api.request(method, path, body: body);
-        rentals = _models(
-          await api.request(
-            'GET',
-            owner ? '/rentals/owner' : '/rentals/mine',
-          ),
-          Rental.fromJson,
-        );
+        if (!_sameAccount(account)) return;
+        await _reloadBookingState(owner ? ownerWorkspace : renterWorkspace,
+            owner: owner);
       });
 
   Future<List<Message>> loadMessages(String threadId) async => _models(
@@ -1616,7 +1818,7 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   Future<void> refreshFocusedBooking(String id, String? rentalId) async {
-    final user = profile?.id;
+    final account = _accountGeneration;
     final row = await api
         .request('GET', '/bookings/$id')
         .timeout(const Duration(seconds: 15));
@@ -1625,13 +1827,13 @@ class LiveRentHubController extends ChangeNotifier {
         : await api
             .request('GET', '/rentals/$rentalId')
             .timeout(const Duration(seconds: 15));
-    if (_disposed || user != profile?.id) return;
+    if (!_sameAccount(account)) return;
     final booking = Booking.fromJson(Map<String, dynamic>.from(row as Map));
-    bookings = [...bookings.where((item) => item.id != id), booking];
+    _replaceBooking(booking, activity: false);
     if (rentalRow != null) {
       final rental =
           Rental.fromJson(Map<String, dynamic>.from(rentalRow as Map));
-      rentals = [...rentals.where((item) => item.id != rental.id), rental];
+      _replaceRental(rental);
     }
     notifyListeners();
   }

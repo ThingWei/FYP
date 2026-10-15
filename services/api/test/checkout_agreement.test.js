@@ -88,7 +88,7 @@ test('decline is durable/idempotent and cannot approve; explicit retry can autho
   assert.equal(success.body.data.amount, 130); assert.equal(success.body.data.status, 'authorized'); assert.equal(success.body.data.simulated, true);
   const booking = await BookingModel.findOne({ publicId: id }); assert.equal(booking.status, 'pending'); assert.equal(booking.paymentStatus, 'authorized');
   assert.equal(await PaymentModel.countDocuments({}), 2); assert.equal(await RentalModel.countDocuments({}), 0);
-  const overlapping = await request(app).post('/api/v1/bookings').set(renter).send({ ...input, idempotencyKey: 'another-soft-hold' }).expect(201);
+  const overlapping = await request(app).post('/api/v1/bookings').set(other).send({ ...input, idempotencyKey: 'another-soft-hold' }).expect(201);
   assert.equal(overlapping.body.data.status, 'pending');
 });
 
@@ -178,7 +178,8 @@ test('a paid request past its expiry cannot be approved before the lifecycle job
 });
 
 test('concurrent key collision across bookings cannot return another booking payment', async () => {
-  const second = await request(app).post('/api/v1/bookings').set(renter).send({ ...input, idempotencyKey: 'key-collision-booking' }).expect(201);
+  const second = await request(app).post('/api/v1/bookings').set(renter).send({ ...input,
+    startDate: '2026-12-21', endDate: '2026-12-21', idempotencyKey: 'key-collision-booking' }).expect(201);
   let entered = 0, signalBoth, release;
   const both = new Promise(resolve => { signalBoth = resolve; });
   const gate = new Promise(resolve => { release = resolve; });

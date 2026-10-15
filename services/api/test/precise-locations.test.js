@@ -39,6 +39,10 @@ test('Owner-set delivery fee is snapshotted, server-controlled, charged once and
   const pickup = await request(app).post('/api/v1/bookings').set(renter).send(bookingInput(listing)).expect(201);
   assert.equal(pickup.body.data.pricing.deliveryFee, 0);
   assert.equal(pickup.body.data.pricing.total, 120);
+  // Changing fulfilment uses the normal cancel-and-replace flow, not a second
+  // overlapping pending request from the same renter.
+  await request(app).post(`/api/v1/bookings/${pickup.body.data.publicId}/cancel`).set(renter)
+    .send({ reason: 'Switching this request from pickup to delivery' }).expect(200);
   const input = bookingInput(listing, { fulfilmentMethod: 'owner_delivery', deliveryLocation: place('Delivery entrance') });
   const delivered = await request(app).post('/api/v1/bookings').set(renter).send(input).expect(201);
   const id = delivered.body.data.publicId;

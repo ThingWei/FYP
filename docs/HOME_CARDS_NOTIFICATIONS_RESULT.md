@@ -1,5 +1,8 @@
 # Home recommendations, catalogue cards and notification navigation
 
+Follow-up: [Renter/Owner booking isolation](BOOKING_ROLE_ISOLATION_RESULT.md)
+separates role feeds and account-scoped caches, including focused notification reads.
+
 Updated: 15 October 2026. Extends the existing live app and preserves the preceding uncommitted catalogue, delivery, maps and push work.
 
 ## Findings and fixes

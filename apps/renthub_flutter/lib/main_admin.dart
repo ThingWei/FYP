@@ -23,8 +23,9 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: authController),
-        ChangeNotifierProvider(
+        ChangeNotifierProxyProvider<AuthController, LiveRentHubController>(
           create: (_) => LiveRentHubController(dependencies.api),
+          update: (_, auth, controller) => controller!..syncSession(auth.user),
         ),
       ],
       child: const LiveAdminApp(),

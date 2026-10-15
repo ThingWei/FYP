@@ -97,6 +97,8 @@ void main() {
       'listingId': 'l-camera',
       'listingTitle': 'Sony Alpha Camera',
       'listingType': 'physical',
+      'renterId': 'u-renter',
+      'ownerId': 'u-owner',
       'startDate': '2026-09-20T00:00:00.000Z',
       'endDate': '2026-09-22T00:00:00.000Z',
       'status': 'pending',
@@ -109,7 +111,13 @@ void main() {
       {'publicId': 'TXN-AUTH-ABC12345', 'status': 'authorized'},
       authorized,
     ]);
-    final controller = LiveRentHubController(api);
+    final controller = LiveRentHubController(api)
+      ..profile = const User(
+          id: 'u-renter',
+          email: 'renter@example.invalid',
+          name: 'Test renter',
+          roles: {UserRole.renter});
+    controller.selectRenterTab(2);
     addTearDown(controller.dispose);
 
     final booking = await controller.createAndAuthorizeBooking(
@@ -147,6 +155,8 @@ void main() {
     expect(booking.paymentStatus, 'authorized');
     expect(booking.total, 570);
     expect(controller.bookings.single.id, booking.id);
+    expect(controller.renterBookings.single.id, booking.id);
+    expect(controller.ownerBookings, isEmpty);
   });
 
   test('physical booking response dates retain calendar-day semantics', () {

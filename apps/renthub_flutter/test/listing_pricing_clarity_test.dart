@@ -77,6 +77,7 @@ class UnavailableController extends LiveRentHubController {
     loads++;
     lastError = ApiException(status, 'private server details');
     error = friendlyError(lastError);
+    ownerWorkspace.error = lastError;
     notifyListeners();
   }
 }

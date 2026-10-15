@@ -4,8 +4,10 @@ import 'live_location_picker.dart';
 import 'live_location_field.dart';
 import 'live_booking_locations.dart';
 import 'live_booking_charges.dart';
+import 'live_booking_workspace.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/network/user_facing_error.dart';
+import '../../core/network/api_client.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
 import 'dart:async';
@@ -75,7 +77,8 @@ class _LiveOwnerShellState extends State<LiveOwnerShell> {
       ),
     ];
     return Scaffold(
-      body: controller.loading && controller.profile == null
+      body: controller.ownerWorkspace.loading &&
+              !controller.ownerWorkspace.loaded
           ? const SafeArea(
               child: RentHubFeedbackState(
                 kind: FeedbackKind.loading,
@@ -83,17 +86,27 @@ class _LiveOwnerShellState extends State<LiveOwnerShell> {
                 message: 'Getting your listings and requests ready…',
               ),
             )
-          : controller.error != null && controller.profile == null
+          : controller.ownerWorkspace.error != null &&
+                  !controller.ownerWorkspace.loaded
               ? SafeArea(
                   child: RentHubFeedbackState(
                     kind: FeedbackKind.error,
-                    title: controller.errorTitle,
-                    message: controller.error!,
-                    actionLabel: controller.sessionExpired
+                    title: UserFacingError.from(controller.ownerWorkspace.error)
+                        .title,
+                    message: friendlyError(controller.ownerWorkspace.error!),
+                    actionLabel: controller.ownerWorkspace.error
+                                is ApiException &&
+                            (controller.ownerWorkspace.error as ApiException)
+                                    .status ==
+                                401
                         ? 'Sign in again'
                         : 'Try Again',
-                    onAction:
-                        controller.sessionExpired ? widget.onLogout : _load,
+                    onAction: controller.ownerWorkspace.error is ApiException &&
+                            (controller.ownerWorkspace.error as ApiException)
+                                    .status ==
+                                401
+                        ? widget.onLogout
+                        : _load,
                   ),
                 )
               : IndexedStack(index: index, children: pages),
@@ -184,9 +197,10 @@ class LiveOwnerDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
-    final pending =
-        controller.bookings.where((item) => item.status == 'pending').length;
-    final active = controller.rentals
+    final pending = controller.ownerBookings
+        .where((item) => item.status == 'pending')
+        .length;
+    final active = controller.ownerRentals
         .where((item) => ['active', 'overdue'].contains(item.status))
         .length;
     return Scaffold(
@@ -261,7 +275,7 @@ class LiveOwnerDashboard extends StatelessWidget {
             Text('Rental and service actions',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
-            if (controller.rentals.isEmpty)
+            if (controller.ownerRentals.isEmpty)
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(20),
@@ -269,7 +283,7 @@ class LiveOwnerDashboard extends StatelessWidget {
                 ),
               )
             else
-              for (final rental in controller.rentals)
+              for (final rental in controller.ownerRentals)
                 _OwnerRentalCard(rental: rental),
             const SizedBox(height: 20),
             Text('Reviews received',
@@ -2309,7 +2323,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
-    final visibleBookings = controller.bookings
+    final visibleBookings = controller.ownerBookings
         .where(
             (booking) => focusBookingId == null || booking.id == focusBookingId)
         .toList();
@@ -2317,107 +2331,117 @@ class LiveOwnerRequestsPage extends StatelessWidget {
       appBar: AppBar(
           title: Text(
               focusBookingId == null ? 'Booking Requests' : 'Booking details')),
-      body: RefreshIndicator(
-        onRefresh: focusBookingId == null
+      body: LiveBookingWorkspace(
+        state: controller.ownerWorkspace,
+        hasRecords: visibleBookings.isNotEmpty,
+        onRetry: focusBookingId == null
             ? controller.loadOwner
             : () => controller.refreshFocusedBooking(
                 focusBookingId!, focusRentalId),
-        child: visibleBookings.isEmpty
-            ? ListView(
-                children: const [
-                  SizedBox(
-                    height: 520,
-                    child: RentHubFeedbackState(
-                      kind: FeedbackKind.empty,
-                      title: 'No booking requests',
-                      message: 'Renter requests will appear here.',
+        child: RefreshIndicator(
+          onRefresh: focusBookingId == null
+              ? controller.loadOwner
+              : () => controller.refreshFocusedBooking(
+                  focusBookingId!, focusRentalId),
+          child: visibleBookings.isEmpty
+              ? ListView(
+                  children: const [
+                    SizedBox(
+                      height: 520,
+                      child: RentHubFeedbackState(
+                        kind: FeedbackKind.empty,
+                        title: 'No booking requests',
+                        message: 'Renter requests will appear here.',
+                      ),
                     ),
-                  ),
-                ],
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: visibleBookings.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final booking = visibleBookings[index];
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(booking.listingTitle,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium),
-                              ),
-                              StatusBadge(booking.status),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text('${booking.renterName} · ${booking.id}'),
-                          if (payment != null)
-                            LivePaymentSummary(payment: payment!),
-                          BookingLocationsButton(bookingId: booking.id),
-                          if (focusBookingId != null)
-                            for (final rental in controller.rentals.where(
-                                (rental) => rental.bookingId == booking.id))
-                              _OwnerRentalCard(rental: rental),
-                          TextButton.icon(
-                              onPressed: () =>
-                                  showBookingAgreement(context, booking.id),
-                              icon: const Icon(Icons.description_outlined),
-                              label: const Text('View agreement')),
-                          if (booking.status == 'pending' &&
-                              booking.paymentStatus != 'authorized')
-                            const Text(
-                                'Waiting for the renter to complete demo payment.'),
-                          Text(formatDateRange(booking.start, booking.end)),
-                          Text(
-                            '${formatMoney(booking.total)} · ${booking.paymentStatus}',
-                            style: const TextStyle(
-                              color: AppColors.primaryDark,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          if (booking.status == 'pending') ...[
-                            const SizedBox(height: 12),
+                  ],
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: visibleBookings.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final booking = visibleBookings[index];
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Row(
                               children: [
                                 Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () =>
-                                        _decide(context, booking, 'rejected'),
-                                    child: const Text('Reject'),
-                                  ),
+                                  child: Text(booking.listingTitle,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium),
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed:
-                                        booking.paymentStatus == 'authorized'
-                                            ? () => _decide(
-                                                  context,
-                                                  booking,
-                                                  'approved',
-                                                )
-                                            : null,
-                                    child: const Text('Approve'),
-                                  ),
-                                ),
+                                StatusBadge(booking.status),
                               ],
                             ),
+                            const SizedBox(height: 6),
+                            Text('${booking.renterName} · ${booking.id}'),
+                            if (payment != null)
+                              LivePaymentSummary(payment: payment!),
+                            BookingLocationsButton(bookingId: booking.id),
+                            if (focusBookingId != null)
+                              for (final rental in controller.ownerRentals
+                                  .where((rental) =>
+                                      rental.bookingId == booking.id))
+                                _OwnerRentalCard(rental: rental),
+                            TextButton.icon(
+                                onPressed: () =>
+                                    showBookingAgreement(context, booking.id),
+                                icon: const Icon(Icons.description_outlined),
+                                label: const Text('View agreement')),
+                            if (booking.status == 'pending' &&
+                                booking.paymentStatus != 'authorized')
+                              const Text(
+                                  'Waiting for the renter to complete demo payment.'),
+                            Text(formatDateRange(booking.start, booking.end)),
+                            Text(
+                              '${formatMoney(booking.total)} · ${booking.paymentStatus}',
+                              style: const TextStyle(
+                                color: AppColors.primaryDark,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (booking.status == 'pending' &&
+                                controller.canManageBooking(booking)) ...[
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: () =>
+                                          _decide(context, booking, 'rejected'),
+                                      child: const Text('Reject'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed:
+                                          booking.paymentStatus == 'authorized'
+                                              ? () => _decide(
+                                                    context,
+                                                    booking,
+                                                    'approved',
+                                                  )
+                                              : null,
+                                      child: const Text('Approve'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }

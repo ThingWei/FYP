@@ -17,6 +17,10 @@ class UserFacingError {
     }
     if (error is ApiException) {
       final known = <String, String>{
+        'DUPLICATE_PENDING_BOOKING':
+            'You already have a request for this item on overlapping dates. Open it in Bookings to continue.',
+        'BOOKING_REQUEST_IN_PROGRESS':
+            'Your request is still processing. Check Bookings before trying again.',
         'MAPS_UNAVAILABLE':
             'Location search is unavailable. Try again or enter your listing location manually.',
         'MAPS_BUSY':

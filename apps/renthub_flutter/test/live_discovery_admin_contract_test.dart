@@ -201,6 +201,7 @@ void main() {
             {'name': name, 'active': true},
         ],
       };
+    controller.adminWorkspace.loaded = true;
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(

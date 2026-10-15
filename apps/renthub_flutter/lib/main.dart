@@ -49,7 +49,7 @@ Future<void> main() async {
             return controller;
           },
         ),
-        ChangeNotifierProvider(
+        ChangeNotifierProxyProvider<AuthController, LiveRentHubController>(
           create: (_) => LiveRentHubController(
             dependencies.api,
             pushNotifications: dependencies.pushNotifications,
@@ -58,6 +58,7 @@ Future<void> main() async {
               defaultValue: 'http://localhost:3000',
             ),
           ),
+          update: (_, auth, controller) => controller!..syncSession(auth.user),
         ),
       ],
       child: RentHubApp(showIntroduction: !onboardingCompleted),

@@ -16,6 +16,16 @@ export const bookingRepository = {
       '+idempotencyKey +idempotencyFingerprint',
     ),
   findById: (id) => BookingModel.findOne({ $or: identifiers(id) }),
+  findOwnPendingOverlap: ({ renterId, listingId, startDate, endDate }) =>
+    BookingModel.findOne({
+      renterId,
+      listingId,
+      listingType: 'physical',
+      status: 'pending',
+      $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: null }],
+      startDate: { $lte: endDate },
+      endDate: { $gte: startDate },
+    }).sort({ createdAt: -1 }).select('publicId').lean(),
   findParticipantBooking: (id, identity) =>
     BookingModel.findOne({
       $or: identifiers(id),

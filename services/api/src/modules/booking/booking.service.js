@@ -24,6 +24,7 @@ import { BOOKING_STATUSES } from './booking.model.js';
 import { bookingRepository } from './booking.repository.js';
 import { agreementTerms } from './agreementTerms.js';
 import { presentBooking } from '../../core/location.js';
+import { withBookingRequestLock } from './bookingRequestLock.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -224,8 +225,7 @@ async function assertAvailable(listing, startDate, endDate, excludeId) {
   }
 }
 
-export const bookingService = {
-  async create(input, identity) {
+async function createBooking(input, identity, ensureLockOwned) {
     const renter = await requireActiveUser(identity, 'renter');
     const listing = await ListingModel.findOne({
       publicId: input.listingId,
@@ -275,6 +275,15 @@ export const bookingService = {
       if (replay.agreement?.version !== input.agreementVersion) throw new AppError('Agreement changed for this request', 409, 'IDEMPOTENCY_CONFLICT');
       return replay;
     }
+    if (listing.listingType === 'physical') {
+      const existing = await bookingRepository.findOwnPendingOverlap({
+        renterId: renter.authId, listingId: listing.publicId, startDate, endDate,
+      });
+      if (existing) {
+        throw new AppError('You already have a pending request for this item on overlapping dates.',
+          409, 'DUPLICATE_PENDING_BOOKING', { bookingId: existing.publicId });
+      }
+    }
     await assertAvailable(listing, startDate, endDate);
     if (
       listing.listingType === 'physical' &&
@@ -302,7 +311,10 @@ export const bookingService = {
     if (input.deliveryLocation) validateLocation(input.deliveryLocation);
     const waiverSelected =
       Boolean(input.damageWaiverSelected) && listing.damageWaiverAvailable;
+    const ownerNameSnapshot = (await UserModel.findOne({ authId: listing.ownerId })
+      .select('displayName'))?.displayName ?? '';
     let booking;
+    await ensureLockOwned();
     try {
       booking = await bookingRepository.create({
         publicId: publicId(listing.listingType, startDate),
@@ -314,7 +326,7 @@ export const bookingService = {
         renterId: renter.authId,
         renterName: renter.displayName,
         ownerId: listing.ownerId,
-        ownerName: (await UserModel.findOne({ authId: listing.ownerId }).select('displayName'))?.displayName ?? '',
+        ownerName: ownerNameSnapshot,
         idempotencyKey: input.idempotencyKey,
         idempotencyFingerprint: fingerprint,
         startDate,
@@ -364,6 +376,12 @@ export const bookingService = {
       entityId: booking.publicId,
     });
     return booking;
+}
+
+export const bookingService = {
+  create(input, identity) {
+    return withBookingRequestLock(identity.authId, input.listingId,
+      (ensureOwned) => createBooking(input, identity, ensureOwned));
   },
 
   async locations(id, identity) {
@@ -438,7 +456,7 @@ export const bookingService = {
   async decide(id, input, identity) {
     await requireActiveUser(identity, 'owner');
     const booking = await bookingRepository.findById(id);
-    if (!booking || booking.ownerId !== identity.authId) {
+    if (!booking || booking.ownerId !== identity.authId || booking.renterId === identity.authId) {
       throw new AppError('Booking not found', 404, 'NOT_FOUND');
     }
     if (booking.status !== 'pending') {

@@ -89,7 +89,7 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
             actions: [
               IconButton(
                 tooltip: 'Refresh live data',
-                onPressed: controller.loading ? null : _load,
+                onPressed: controller.adminWorkspace.loading ? null : _load,
                 icon: const Icon(Icons.refresh),
               ),
               IconButton(
@@ -108,19 +108,20 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
                   child: navigation,
                 ),
               Expanded(
-                child: controller.loading && controller.profile == null
+                child: controller.adminWorkspace.loading &&
+                        !controller.adminWorkspace.loaded
                     ? const Center(child: CircularProgressIndicator())
-                    : controller.error != null && controller.profile == null
+                    : controller.adminWorkspace.error != null &&
+                            !controller.adminWorkspace.loaded
                         ? RentHubFeedbackState(
                             kind: FeedbackKind.error,
-                            title: controller.errorTitle,
-                            message: controller.error!,
-                            actionLabel: controller.sessionExpired
-                                ? 'Sign in again'
-                                : 'Try Again',
-                            onAction: controller.sessionExpired
-                                ? () => context.read<AuthController>().logout()
-                                : _load,
+                            title: UserFacingError.from(
+                                    controller.adminWorkspace.error)
+                                .title,
+                            message:
+                                friendlyError(controller.adminWorkspace.error!),
+                            actionLabel: 'Try Again',
+                            onAction: _load,
                           )
                         : _page(selected),
               ),
@@ -222,7 +223,7 @@ class _AdminDashboard extends StatelessWidget {
               ),
               _AdminMetric(
                 'Bookings',
-                '${data.bookings.length}',
+                '${data.adminWorkspace.bookings.length}',
                 Icons.receipt_long_outlined,
               ),
               _AdminMetric(
@@ -1280,7 +1281,7 @@ class _AdminBookingsTransactions extends StatelessWidget {
       children: [
         Text('Bookings', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        for (final booking in data.bookings)
+        for (final booking in data.adminWorkspace.bookings)
           Card(
             child: ListTile(
               title: Text(booking.listingTitle),

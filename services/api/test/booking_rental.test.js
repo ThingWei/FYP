@@ -8,6 +8,7 @@ import {
   disconnectDatabase,
 } from '../src/config/database.js';
 import { BookingModel } from '../src/modules/booking/booking.model.js';
+import { BookingRequestLockModel, withBookingRequestLock } from '../src/modules/booking/bookingRequestLock.js';
 import { AvailabilityModel } from '../src/modules/listing/availability.model.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
 import {
@@ -114,16 +115,17 @@ async function createCatalog() {
   });
 }
 
-async function createCameraBooking({ idempotencyKey } = {}) {
+async function createCameraBooking({ idempotencyKey, headers = renter, listingId = 'l-camera',
+  startDate = '2026-09-20T00:00:00.000Z', endDate = '2026-09-22T00:00:00.000Z' } = {}) {
   bookingSequence += 1;
   return request(app)
     .post('/api/v1/bookings')
-    .set(renter)
+    .set(headers)
     .send({
-      listingId: 'l-camera',
+      listingId,
       idempotencyKey: idempotencyKey ?? `booking-test:${bookingSequence}`,
-      startDate: '2026-09-20T00:00:00.000Z',
-      endDate: '2026-09-22T00:00:00.000Z',
+      startDate,
+      endDate,
       fulfilmentMethod: 'pickup',
       damageWaiverSelected: true,
       agreementAccepted: true,
@@ -164,6 +166,7 @@ before(async () => {
     ListingModel.init(),
     AvailabilityModel.init(),
     BookingModel.init(),
+    BookingRequestLockModel.init(),
     PaymentModel.init(),
     NotificationModel.init(),
     ThreadModel.init(),
@@ -183,6 +186,7 @@ beforeEach(async () => {
     ListingModel.deleteMany({}),
     AvailabilityModel.deleteMany({}),
     BookingModel.deleteMany({}),
+    BookingRequestLockModel.deleteMany({}),
     PaymentModel.deleteMany({}),
     NotificationModel.deleteMany({}),
     ThreadModel.deleteMany({}),
@@ -474,6 +478,94 @@ test('deduplicates concurrent booking requests', async () => {
   );
 });
 
+for (const paid of [false, true]) {
+  test(`rejects fresh-key overlapping pending requests for the same renter (paid=${paid})`, async () => {
+    const first = await createCameraBooking();
+    assert.equal(first.status, 201);
+    if (paid) await authorizeBooking(first.body.data.id);
+    for (const [startDate, endDate] of [
+      ['2026-09-20', '2026-09-22'], ['2026-09-19', '2026-09-20'],
+      ['2026-09-22', '2026-09-24'], ['2026-09-21', '2026-09-21'],
+      ['2026-09-19', '2026-09-24'],
+    ]) {
+      const duplicate = await createCameraBooking({ startDate, endDate });
+      assert.equal(duplicate.status, 409, JSON.stringify(duplicate.body));
+      assert.equal(duplicate.body.error.code, 'DUPLICATE_PENDING_BOOKING');
+      assert.deepEqual(duplicate.body.error.details, { bookingId: first.body.data.id });
+    }
+    assert.equal(await BookingModel.countDocuments(), 1);
+    assert.equal(await ThreadModel.countDocuments(), 1);
+    assert.equal(await NotificationModel.countDocuments({ type: 'booking_created' }), 1);
+    assert.equal(await PaymentModel.countDocuments(), paid ? 1 : 0);
+    const original = await BookingModel.findOne({ publicId: first.body.data.id }).lean();
+    assert.equal(original.status, 'pending');
+    assert.equal(original.paymentStatus, paid ? 'authorized' : 'unpaid');
+  });
+}
+
+test('same renter can request non-overlapping dates or another item without hard-holding other renters', async () => {
+  await createCameraBooking();
+  const next = await createCameraBooking({ startDate: '2026-09-23', endDate: '2026-09-24' });
+  assert.equal(next.status, 201);
+  const original = (await ListingModel.findOne({ publicId: 'l-camera' })).toObject();
+  delete original._id;
+  await ListingModel.create({ ...original, publicId: 'l-camera-two' });
+  assert.equal((await createCameraBooking({ listingId: 'l-camera-two' })).status, 201);
+  const other = { ...renter, 'x-user-id': 'u-renter-two', 'x-user-email': 'two@renthub.my' };
+  await request(app).post('/api/v1/users/session').set(other);
+  await approveTestIdentity('u-renter-two');
+  assert.equal((await createCameraBooking({ headers: other })).status, 201);
+});
+
+for (const status of ['cancelled', 'rejected', 'expired', 'completed']) {
+  test(`a ${status} request does not prevent a new request for the same dates`, async () => {
+    const first = await createCameraBooking();
+    await BookingModel.updateOne({ publicId: first.body.data.id }, { $set: { status } });
+    assert.equal((await createCameraBooking()).status, 201);
+  });
+}
+
+test('elapsed pending expiry is not a duplicate, while legacy undated expiry still is', async () => {
+  const first = await createCameraBooking();
+  await BookingModel.updateOne({ publicId: first.body.data.id }, { $unset: { expiresAt: 1 } });
+  assert.equal((await createCameraBooking()).body.error.code, 'DUPLICATE_PENDING_BOOKING');
+  await BookingModel.updateOne({ publicId: first.body.data.id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+  assert.equal((await createCameraBooking()).status, 201);
+});
+
+for (const partial of [false, true]) {
+  test(`simultaneous fresh-key requests cannot both create overlapping pending bookings (partial=${partial})`, async () => {
+    const results = await Promise.all([
+      createCameraBooking({ idempotencyKey: 'checkout:parallel-one' }),
+      createCameraBooking({ idempotencyKey: 'checkout:parallel-two',
+        ...(partial && { startDate: '2026-09-22', endDate: '2026-09-24' }) }),
+    ]);
+    assert.deepEqual(results.map((result) => result.status).sort(), [201, 409]);
+    const winner = results.find((result) => result.status === 201);
+    const duplicate = results.find((result) => result.status === 409);
+    assert.equal(duplicate.body.error.code, 'DUPLICATE_PENDING_BOOKING');
+    assert.equal(duplicate.body.error.details.bookingId, winner.body.data.id);
+    assert.equal(await BookingModel.countDocuments(), 1);
+    assert.equal(await NotificationModel.countDocuments({ type: 'booking_created' }), 1);
+  });
+}
+
+test('request mutex releases on failure, recovers expired locks and refuses lost ownership', async () => {
+  await assert.rejects(withBookingRequestLock('test-renter', 'test-listing', async () => {
+    throw new Error('Controlled test failure');
+  }), /Controlled test failure/);
+  assert.equal(await BookingRequestLockModel.countDocuments(), 0);
+  await withBookingRequestLock('test-renter', 'test-listing', async (ensureOwned) => {
+    await ensureOwned();
+    await BookingRequestLockModel.updateOne({}, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+    await withBookingRequestLock('test-renter', 'test-listing', async (newOwner) => {
+      await newOwner();
+      await assert.rejects(ensureOwned(), (error) => error.code === 'BOOKING_REQUEST_IN_PROGRESS');
+    });
+  });
+  assert.equal(await BookingRequestLockModel.countDocuments(), 0);
+});
+
 test('rejects reuse of a booking idempotency key for changed input', async () => {
   const idempotencyKey = 'checkout:changed-request';
   const first = await createCameraBooking({ idempotencyKey });
@@ -495,6 +587,52 @@ test('rejects reuse of a booking idempotency key for changed input', async () =>
   assert.equal(conflict.status, 409);
   assert.equal(conflict.body.error.code, 'IDEMPOTENCY_CONFLICT');
   assert.equal(await BookingModel.countDocuments(), 1);
+});
+
+test('dual-role renter cannot decide their outgoing request; only the actual Owner can', async () => {
+  const dual = { ...renter, 'x-user-roles': 'renter,owner' };
+  await request(app).post('/api/v1/users/session').set(dual).expect(200);
+  const created = await createCameraBooking();
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId, dual);
+  const mine = await request(app).get('/api/v1/bookings/mine').set(dual).expect(200);
+  const incoming = await request(app).get('/api/v1/bookings/owner').set(dual).expect(200);
+  assert.equal(mine.body.data.length, 1);
+  assert.equal(incoming.body.data.length, 0);
+  for (const status of ['approved', 'rejected']) {
+    await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(dual)
+      .send({ status, reason: 'Cannot decide my outgoing rental' }).expect(404);
+    const unchanged = await BookingModel.findOne({ publicId: bookingId }).lean();
+    assert.equal(unchanged.status, 'pending');
+    assert.equal(unchanged.paymentStatus, 'authorized');
+    assert.equal(await RentalModel.countDocuments({ bookingId }), 0);
+  }
+  const approved = await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner)
+    .send({ status: 'approved' }).expect(200);
+  assert.equal(approved.body.data.status, 'approved');
+  assert.equal(await RentalModel.countDocuments({ bookingId }), 1);
+});
+
+test('self-booking remains prohibited and malformed legacy self-requests cannot be decided', async () => {
+  const dual = { ...renter, 'x-user-roles': 'renter,owner' };
+  await request(app).post('/api/v1/users/session').set(dual).expect(200);
+  await ListingModel.updateOne({ publicId: 'l-camera' }, { $set: { ownerId: 'u-renter' } });
+  const selfBooking = await createCameraBooking();
+  assert.equal(selfBooking.status, 400);
+  assert.equal(selfBooking.body.error.code, 'OWN_LISTING');
+  await ListingModel.updateOne({ publicId: 'l-camera' }, { $set: { ownerId: 'u-owner' } });
+  const created = await createCameraBooking();
+  assert.equal(created.status, 201);
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId, dual);
+  // A historical malformed record must not grant approval to its own renter.
+  await BookingModel.updateOne({ publicId: bookingId }, { $set: { ownerId: 'u-renter' } });
+  for (const status of ['approved', 'rejected']) {
+    await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(dual)
+      .send({ status, reason: 'Invalid self-request' }).expect(404);
+  }
+  assert.equal((await BookingModel.findOne({ publicId: bookingId }).lean()).status, 'pending');
 });
 
 test('runs physical approval, handover, extension and return lifecycle', async () => {
