@@ -142,3 +142,15 @@ test('expires abandoned bookings and marks physical rentals overdue once', async
   assert.equal(second.overdueRentals, 0);
   assert.equal(await NotificationModel.countDocuments(), 4);
 });
+
+test('payment deadlines never expire authorized pending requests, including legacy records', async () => {
+  const now = new Date('2026-10-15T12:00:00Z');
+  await BookingModel.create(booking({ suffix: 'PAIDWAIT', title: 'Paid request waiting for Owner',
+    startDate: new Date('2026-10-22T00:00:00Z'), endDate: new Date('2026-10-24T00:00:00Z'),
+    status: 'pending', paymentStatus: 'authorized', expiresAt: new Date('2026-10-14T00:00:00Z') }));
+  const result = await runLifecycleJobs({ now });
+  assert.equal(result.expiredBookings, 0);
+  const saved = await BookingModel.findOne({ publicId: 'RH-BKG-2026-PAIDWAIT' });
+  assert.equal(saved.status, 'pending');
+  assert.equal(saved.paymentStatus, 'authorized');
+});

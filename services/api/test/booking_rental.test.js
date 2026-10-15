@@ -533,6 +533,24 @@ test('elapsed pending expiry is not a duplicate, while legacy undated expiry sti
   assert.equal((await createCameraBooking()).status, 201);
 });
 
+test('legacy paid pending requests block duplicates after their payment timer, ahead of newer unpaid duplicates', async () => {
+  const first = await createCameraBooking();
+  const id = first.body.data.id;
+  await authorizeBooking(id);
+  await BookingModel.updateOne({ publicId: id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+  let duplicate = await createCameraBooking();
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.details.bookingId, id);
+  const legacy = (await BookingModel.findOne({ publicId: id })).toObject();
+  delete legacy._id;
+  await BookingModel.create({ ...legacy, publicId: 'RH-BKG-2026-LEGACYDUP', paymentStatus: 'unpaid',
+    expiresAt: new Date(Date.now() + 60_000), createdAt: new Date(Date.now() + 1000) });
+  duplicate = await createCameraBooking();
+  assert.equal(duplicate.status, 409);
+  assert.equal(duplicate.body.error.details.bookingId, id);
+  assert.equal(await BookingModel.countDocuments(), 2);
+});
+
 for (const partial of [false, true]) {
   test(`simultaneous fresh-key requests cannot both create overlapping pending bookings (partial=${partial})`, async () => {
     const results = await Promise.all([

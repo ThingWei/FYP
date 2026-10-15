@@ -14,6 +14,7 @@ import { UserModel } from '../src/modules/user/user.model.js';
 import { aiClient } from '../src/integrations/aiClient.js';
 import { uploadService } from '../src/modules/upload/upload.service.js';
 import { env } from '../src/config/env.js';
+import { CATALOG_COVERAGE } from '../src/modules/catalog/catalog.coverage.js';
 
 let mongodb;
 
@@ -498,6 +499,50 @@ test('strict submission preserves failed evidence and still needs admin approval
     assert.equal(candidate.status, 200);
     assert.equal(candidate.body.data.status, 'pending_review');
     assert.equal(candidate.body.data.itemVerificationHistory.length, 2);
+  } finally {
+    env.aiEnforcementMode = originalMode;
+    aiClient.verifyItem = originalVerify;
+    uploadService.readOwnedReferences = originalRead;
+  }
+});
+
+test('all 22 physical subcategories forward stored photos and retain inconclusive evidence for review', async () => {
+  await startOwner();
+  await UserModel.updateOne({ authId: 'u-owner' }, { $set: {
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }],
+  } });
+  const originalVerify = aiClient.verifyItem;
+  const originalRead = uploadService.readOwnedReferences;
+  const originalMode = env.aiEnforcementMode;
+  env.aiEnforcementMode = 'advisory';
+  const photos = [{ content_base64: 'overview' }, { content_base64: 'detail' }, { content_base64: 'other-side' }];
+  uploadService.readOwnedReferences = async () => photos;
+  try {
+    assert.equal(CATALOG_COVERAGE.length, 22);
+    for (const { category, subcategory } of CATALOG_COVERAGE) {
+      aiClient.verifyItem = async (payload) => {
+        assert.equal(payload.category, category);
+        assert.equal(payload.subcategory, subcategory);
+        assert.deepEqual(payload.images, photos);
+        return { adapter: 'renthub-item-evidence-v3', accepted: false, outcome: 'manual_review',
+          extracted_fields: { categoryMatched: null, categoryMatchStatus: 'partial_views',
+            matchingViewCount: 1, submittedViewCount: 3, unconfirmedViewCount: 2,
+            authenticityVerified: false, adminReviewRequired: true,
+            categoryCoverage: { allProductsCovered: false, specificCategoryVerified: false } },
+          risk_indicators: [], reasons: ['Detail views require manual review'] };
+      };
+      const created = await request(app).post('/api/v1/listings').set(ownerHeaders)
+        .send({ ...cameraInput, title: 'Representative item photo evidence', category, subcategory });
+      assert.equal(created.status, 201, `${category}/${subcategory}: ${JSON.stringify(created.body.error)}`);
+      const submitted = await request(app).post(`/api/v1/listings/${created.body.data.id}/submit`).set(ownerHeaders);
+      assert.equal(submitted.status, 200);
+      assert.equal(submitted.body.data.status, 'pending_review');
+      const evidence = submitted.body.data.itemVerification;
+      assert.equal(evidence.extracted_fields.categoryMatched, null);
+      assert.equal(evidence.extracted_fields.categoryCoverage.allProductsCovered, false);
+      assert.deepEqual(evidence.risk_indicators, []);
+      assert.equal(submitted.body.data.itemVerificationHistory.length, 1);
+    }
   } finally {
     env.aiEnforcementMode = originalMode;
     aiClient.verifyItem = originalVerify;

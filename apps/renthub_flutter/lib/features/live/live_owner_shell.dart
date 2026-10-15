@@ -24,11 +24,13 @@ import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
 import 'live_photo_widgets.dart';
+import 'live_listing_photo_picker.dart';
 import 'live_agreement.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_shared_pages.dart';
 import 'live_item_verification_panel.dart';
+import 'live_item_photo_summary.dart';
 
 class LiveOwnerShell extends StatefulWidget {
   const LiveOwnerShell({
@@ -593,6 +595,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   String requiredLicenceClass = '';
   String condition = 'Excellent';
   bool saving = false;
+  bool addingImages = false;
   bool checkingIdentity = false;
   late String? savedListingId = widget.listing?.id;
   bool suggestingPrice = false;
@@ -918,19 +921,22 @@ class _LiveListingFormState extends State<LiveListingForm> {
   }
 
   Future<void> _addImage() async {
-    if (images.length >= 10) return;
+    if (images.length >= 10 || saving || addingImages) return;
+    final controller = context.read<LiveRentHubController>();
+    final account = controller.profile?.id;
+    setState(() => addingImages = true);
     try {
-      final reference = await pickAndPreviewUpload(
-        context,
-        purpose: 'listing_image',
-        publicUrl: true,
-      );
-      if (reference != null && mounted) setState(() => images.add(reference));
+      final references = await pickListingPhotos(context, 10 - images.length);
+      if (mounted && account == controller.profile?.id) {
+        setState(() => images.addAll(references));
+      }
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
+    } finally {
+      if (mounted) setState(() => addingImages = false);
     }
   }
 
@@ -1002,7 +1008,12 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   Future<void> _save({bool submitForReview = true}) async {
     if (!InputValidation.validate(context)) return;
-    if (!formKey.currentState!.validate() || saving || checkingIdentity) return;
+    if (!formKey.currentState!.validate() ||
+        saving ||
+        checkingIdentity ||
+        addingImages) {
+      return;
+    }
     if (submitForReview) {
       setState(() => checkingIdentity = true);
       final approved = await ensureMarketplaceIdentity(context,
@@ -1184,8 +1195,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   ),
                                   Text('${images.length}/10'),
                                   IconButton(
-                                    tooltip: 'Upload listing image',
-                                    onPressed: saving || images.length >= 10
+                                    tooltip: 'Add photos',
+                                    onPressed: saving ||
+                                            addingImages ||
+                                            images.length >= 10
                                         ? null
                                         : _addImage,
                                     icon: const Icon(
@@ -1195,18 +1208,22 @@ class _LiveListingFormState extends State<LiveListingForm> {
                               ),
                               Text(
                                 widget.isService
-                                    ? 'Add photos of your work. JPEG, PNG or WebP.'
-                                    : 'Add at least 3 clear views of the item for review. JPEG, PNG or WebP.',
+                                    ? 'Add photos of your work. JPEG, PNG or WebP, up to 10 MB each.'
+                                    : 'Add at least 3 clear views of the item. JPEG, PNG or WebP, up to 10 MB each.',
                                 style:
                                     TextStyle(color: AppColors.secondaryText),
                               ),
+                              if (!widget.isService) ...[
+                                const SizedBox(height: 8),
+                                Text(ItemPhotoSummary.photoGuidance(category)),
+                              ],
                               for (var index = 0;
                                   index < images.length;
                                   index++)
                                 PhotoAttachmentTile(
                                     reference: images[index],
                                     label: 'Image ${index + 1}',
-                                    onRemove: saving
+                                    onRemove: saving || addingImages
                                         ? null
                                         : () => _removeImage(index)),
                             ],

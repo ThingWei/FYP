@@ -1168,10 +1168,11 @@ class _AdminListings extends StatelessWidget {
             title: Text(listing.title),
             onTap: listing.isService
                 ? null
-                : () => showItemPhotoReview(context, listing),
+                : () => showItemPhotoReview(context, listing,
+                    showDiagnostics: true),
             subtitle: Text(
               '${listing.ownerName} · ${formatMoney(listing.dailyPrice)} · ${listing.listingTypeLabel}'
-              '${!listing.isService ? '\n${listing.itemPhotoCheckLabel} · Tap to view photos & checks' : ''}',
+              '${!listing.isService ? '\n${listing.itemPhotoCheckLabel} · View photos' : ''}',
             ),
             isThreeLine: !listing.isService,
             trailing: listing.status == 'pending_review'

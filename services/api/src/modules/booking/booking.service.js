@@ -470,7 +470,7 @@ export const bookingService = {
       throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
     }
     if (input.status === 'approved') {
-      if (booking.expiresAt && booking.expiresAt <= new Date()) {
+      if (booking.paymentStatus !== 'authorized' && booking.expiresAt && booking.expiresAt <= new Date()) {
         throw new AppError('This request has expired', 409, 'INVALID_BOOKING_STATE');
       }
       if (booking.paymentStatus !== 'authorized') {

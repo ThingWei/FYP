@@ -22,10 +22,16 @@ export const bookingRepository = {
       listingId,
       listingType: 'physical',
       status: 'pending',
-      $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: null }],
+      $or: [
+        { paymentStatus: 'authorized' },
+        { expiresAt: { $gt: new Date() } },
+        { expiresAt: null },
+      ],
       startDate: { $lte: endDate },
       endDate: { $gte: startDate },
-    }).sort({ createdAt: -1 }).select('publicId').lean(),
+    // Prefer the paid request when legacy duplicates coexist (authorized sorts
+    // before unpaid), so recovery does not invite another payment.
+    }).sort({ paymentStatus: 1, createdAt: -1 }).select('publicId').lean(),
   findParticipantBooking: (id, identity) =>
     BookingModel.findOne({
       $or: identifiers(id),

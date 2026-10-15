@@ -1,5 +1,13 @@
 # RentHub item-photo verification — implementation result
 
+15 October category-coverage follow-up: see
+[all-category audit and detail-view fixes](ITEM_LEGITIMACY_CATEGORY_COVERAGE_RESULT.md).
+It supersedes the historical local-artifact inventory below: the custom detector
+now exists (16 classes), local general weights supplement it, six of 22
+subcategories still lack matching labels, and the item-risk model remains absent.
+The new evidence contract is `renthub-item-evidence-v3`; model misses are manual
+review evidence, not automatic photo-quality failures.
+
 9 October update: public listing photo loading is fixed; all existing photo
 inputs have confirmation previews. New verification results include boxes,
 per-photo quality and view-coverage-weighted detection scores. These do not fix
@@ -174,3 +182,58 @@ the same item/source together. More epochs cannot add classes missing from data.
 Restart the API/AI/app with the existing launcher if the running services have not
 reloaded the changed code. Submit a new physical listing or edit/resubmit a rejected
 one, then open its listing card in Owner/Admin to review photos and advisory checks.
+
+## Plain-language review follow-up — 15 October 2026
+
+The live Owner/Admin item-photo dialog now uses a compact summary rather than
+displaying every model explanation, risk indicator and confidence percentage.
+
+- Short status labels: **No photo issues flagged**, **Photos need attention**,
+  **Photos need review**, **Photo check unavailable**, or **Photos not checked yet**.
+- The main view shows a brief explanation and at most three practical notes, such
+  as **Retake blurry photos** or **Replace repeated photos with different views**.
+- **Photo details** expands category/photo-coverage information, remaining notes
+  and short per-photo guidance. Raw server reasons are not copied into Owner copy;
+  unknown concerns receive a conservative review message, not a made-up verdict.
+- One reminder stays visible: **Photos alone cannot prove an item is genuine or
+  who owns it.** The enlarged-photo explanation is also shorter and avoids jargon.
+- Administrators can expand **Technical details** for the retained detector,
+  classifier, synthetic-training, confidence and original review evidence. That
+  section is collapsed by default and is not offered in the normal Owner dialog.
+- Photo previews, enlargement, highlighted boxes and all moderation actions remain
+  available. Services still do not display physical-item photo verification.
+
+The new presentation adapter reads the existing response without changing model
+results, thresholds, saved evidence, endpoints or authorization. Missing/malformed
+summary metadata falls back to manual review rather than claiming success. No
+retraining, API/AI code change, dependency or database update was needed.
+
+Verification for this follow-up:
+
+- Focused photo-panel and preview suites: **16 passed**.
+- Full non-live Flutter suite: **379 passed, 3 skipped**.
+- Source and changed-test analysis: **no issues**.
+- Web build: **passed**, retaining the existing Socket.IO WebAssembly dry-run and
+  Cupertino-font warnings.
+- Full analysis retains the two existing Auth0 test named-parameter errors above.
+- Widget coverage includes 360/390/1024 widths with 1.5x text for the panel,
+  collapsed/expanded details, retained admin evidence, service exclusion,
+  unavailable/partial/malformed summaries and opening/enlarging/closing photos.
+  No Android hardware/visual UAT is claimed.
+
+Hot-reload or restart Flutter, then open a physical listing's photo review from
+Owner Listings. Repeat in Admin Listings to check the optional technical section.
+The API and AI services do not need restarting for this presentation-only change.
+
+Commit message:
+
+```text
+refactor(ui): simplify item photo verification wording
+
+- replace lengthy evidence text with short statuses and practical photo notes
+- move per-photo summaries behind expandable Photo details
+- retain raw model evidence in collapsed administrator Technical details
+- remove owner-facing scores and shorten photo-preview guidance
+- preserve authenticity limits, photo previews and moderation behaviour
+- add responsive wording and diagnostic-expansion regressions
+```

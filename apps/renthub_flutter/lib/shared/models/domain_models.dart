@@ -301,9 +301,10 @@ class Listing {
   final Map<String, dynamic> itemVerification;
 
   String get itemPhotoCheckLabel => switch (itemVerificationOutcome) {
-        'approved' || 'approved_candidate' => 'No automated concerns found',
-        'warning' || 'rejected' || 'rescan_required' => 'Photos need review',
-        'manual_review' || 'unavailable' => 'Manual photo review needed',
+        'approved' || 'approved_candidate' => 'No photo issues flagged',
+        'warning' || 'rejected' || 'rescan_required' => 'Photos need attention',
+        'manual_review' => 'Photos need review',
+        'unavailable' => 'Photo check unavailable',
         _ => 'Photos not checked yet',
       };
 

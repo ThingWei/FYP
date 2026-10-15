@@ -17,6 +17,8 @@ class UserFacingError {
     }
     if (error is ApiException) {
       final known = <String, String>{
+        'LISTING_PHOTO_TOO_LARGE':
+            'Choose listing photos that are 10 MB or smaller.',
         'DUPLICATE_PENDING_BOOKING':
             'You already have a request for this item on overlapping dates. Open it in Bookings to continue.',
         'BOOKING_REQUEST_IN_PROGRESS':

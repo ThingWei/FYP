@@ -470,6 +470,23 @@ class LiveRentHubController extends ChangeNotifier {
     return uploaded['reference'] as String;
   }
 
+  Future<String> uploadListingPhoto(Uint8List bytes, String filename) async {
+    final account = _accountGeneration;
+    if (bytes.isEmpty) throw ApiException(400, 'The selected photo is empty.');
+    final uploaded = await _perform(() => api.uploadFile('/uploads',
+        bytes: bytes, filename: filename, purpose: 'listing_image'));
+    if (!_sameAccount(account)) {
+      throw ApiException(401, 'Your account changed. Please try again.',
+          code: 'SESSION_CHANGED');
+    }
+    final reference = uploaded['contentUrl'];
+    if (reference is! String || reference.isEmpty) {
+      throw ApiException(502, 'Photo upload could not be confirmed.',
+          code: 'INVALID_RESPONSE');
+    }
+    return reference;
+  }
+
   Future<Map<String, dynamic>> inspectVerificationFrame(
     Uint8List bytes,
     String documentType, {

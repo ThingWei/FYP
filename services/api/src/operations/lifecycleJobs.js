@@ -58,17 +58,18 @@ async function expirePendingBookings(now, expiryMinutes) {
 
   let expired = 0;
   for (const booking of bookings) {
-    const claimed = await BookingModel.findOne({
+    const claimed = await BookingModel.findOneAndUpdate({
       _id: booking._id,
       status: 'pending',
       paymentStatus: 'unpaid',
-    });
+      $or: [
+        { expiresAt: { $lte: now } },
+        { expiresAt: null, createdAt: { $lte: fallbackCutoff } },
+      ],
+    }, { $set: { status: 'expired', expiredAt: now,
+      cancellationReason: 'Automatically expired because payment was not authorized in time.' } }, { new: true });
     if (!claimed) continue;
     await voidBookingPayment(claimed);
-    claimed.status = 'expired';
-    claimed.expiredAt = now;
-    claimed.cancellationReason =
-      'Automatically expired because payment was not authorized in time.';
     await claimed.save();
     await Promise.all([
       notifyUser({

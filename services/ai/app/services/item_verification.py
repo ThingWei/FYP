@@ -11,7 +11,7 @@ from pathlib import Path
 from ..schemas import VerificationResponse
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTRACT = 'renthub-item-evidence-v2'
+CONTRACT = 'renthub-item-evidence-v3'
 RISK_CONTRACT = 'renthub-item-risk-v1'
 THRESHOLD = 0.55
 DETECTOR_LOCK = Lock()
@@ -26,14 +26,14 @@ def normalize(value):
 DOMAINS = {
     'devices': {
         'smartphones': {'cell phone', 'mobile phone', 'smartphone', 'phone'},
-        'cameras': {'camera', 'digital camera', 'mirrorless camera', 'dslr'},
+        'cameras': {'camera', 'cameras', 'digital camera', 'mirrorless camera', 'dslr'},
         'computers': {'laptop', 'computer', 'desktop', 'desktop computer'},
         'audio': {'speaker', 'headphones', 'headphone', 'microphone', 'amplifier'},
         'gaming': {'game console', 'gaming console', 'console', 'game controller'},
         'other devices': {'tv', 'television', 'projector', 'tablet', 'printer'},
     },
     'vehicles': {
-        'cars': {'car', 'automobile', 'sedan', 'suv', 'hatchback'},
+        'cars': {'car', 'cars', 'automobile', 'sedan', 'suv', 'hatchback'},
         'motorcycles': {'motorcycle', 'motorbike', 'scooter'},
         'bicycles': {'bicycle', 'cycle'},
         'other vehicles': {'truck', 'bus', 'van', 'boat'},
@@ -45,7 +45,7 @@ DOMAINS = {
                              'snowboard', 'bicycle', 'kayak', 'dumbbell'},
         'event equipment': {'chair', 'dining table', 'table', 'tent', 'canopy',
                             'projector', 'speaker', 'stage light'},
-        'other equipment': {'equipment', 'generator', 'ladder'},
+        'other equipment': {'generator', 'ladder', 'pressure washer', 'vacuum cleaner'},
     },
     'books': {key: {'book', 'books'} for key in
               ('textbooks', 'reference books', 'fiction', 'other books')},
@@ -62,9 +62,136 @@ def expected_labels(category, subcategory):
     domains = DOMAINS.get(normalize(category or ''), {})
     if subcategory:
         key = normalize(subcategory)
-        labels = domains.get(key)
-        return labels | {key} if labels is not None else set()
-    return set().union(*(labels | {key} for key, labels in domains.items())) if domains else set()
+        return domains.get(key, set()).copy()
+    # A missing/unknown specific category cannot silently inherit broad support.
+    return set()
+
+
+# Photo guidance is separate from the label vocabulary. Detail views are useful
+# evidence, but a whole-object detector cannot establish what every detail shows.
+PHOTO_GUIDANCE = {
+    'devices': ('Include a photo of the whole device, then its other side and useful details such as ports or labels.'),
+    'vehicles': ('Include the whole vehicle, another angle and details showing its condition.'),
+    'equipment': ('Include the whole item, another angle and useful details such as attachments or labels.'),
+    'books': ('Include the cover, spine or back cover, and an inside page. Keep the page edges visible.'),
+    'clothing': ('Include the whole garment, its other side and details such as the fabric or care label.'),
+}
+
+
+def detector_vocabulary(detector):
+    names = detector.names if detector is not None else {}
+    return {normalize(str(name)) for name in (names.values() if isinstance(names, dict) else names)}
+
+
+def category_coverage(category, subcategory, detectors):
+    allowed = expected_labels(category, subcategory)
+    sources = [{'source': source, 'version': version,
+                'matchingLabels': sorted(allowed & detector_vocabulary(model))}
+               for model, source, version in detectors]
+    matched = sorted(set().union(*(set(row['matchingLabels']) for row in sources))) if sources else []
+    return {
+        'category': category, 'subcategory': subcategory,
+        'strategy': 'object_detection_then_admin_review' if matched else 'manual_review',
+        'status': 'limited_object_labels' if matched else 'no_matching_labels',
+        'matchingLabels': matched, 'sources': sources,
+        'allProductsCovered': False,
+        'evaluationStatus': 'subcategory_accuracy_not_established',
+        'specificCategoryVerified': False,
+        'photoGuidance': PHOTO_GUIDANCE.get(normalize(category or ''),
+                                          'Include the whole item and different detail views.'),
+    }
+
+
+def coverage_matrix(detectors):
+    return [category_coverage(category, subcategory, detectors)
+            for category, subcategories in DOMAINS.items() for subcategory in subcategories]
+
+
+def verification_detectors(detector, status):
+    """Keep the configured detector; supplement only with an existing local model.
+
+    Does not change the single-detector contract used by MyKad phone screening.
+    An explicitly broken custom path still fails instead of silently falling back.
+    """
+    if detector is None:
+        return []
+    result = [(detector, status['detectorSource'], status['detectorVersion'])]
+    fallback = artifact_path('ITEM_PRETRAINED_YOLO_PATH', 'yolov8n.pt')
+    selected, _ = detector_selection()
+    if (status['detectorSource'] == 'configured_item_model' and
+            os.getenv('ITEM_ALLOW_PRETRAINED_DETECTOR', 'true').lower() == 'true' and
+            fallback.resolve() != selected.resolve() and fallback.is_file()):
+        try:
+            model = load_detector(fallback, fallback.stat().st_mtime_ns)
+            result.append((model, 'general_pretrained', fallback.name))
+        except Exception:
+            pass  # Optional supplement cannot invalidate the configured detector.
+    return result
+
+
+def original_box(box, image, turns):
+    """Map a box from an inference-only CCW rotation back to uploaded pixels."""
+    height, width = image.shape[:2]
+    rotated_height, rotated_width = (width, height) if turns % 2 else (height, width)
+    coordinates = box.xyxy[0].tolist()
+    if len(coordinates) != 4:
+        return None
+    x1, y1, x2, y2 = [float(value) / size for value, size in
+                       zip(coordinates, [rotated_width, rotated_height] * 2)]
+    if not (all(math.isfinite(v) and 0 <= v <= 1 for v in (x1, y1, x2, y2)) and
+            x1 < x2 and y1 < y2):
+        return None
+    transform = (lambda x, y: (x, y), lambda x, y: (1 - y, x),
+                 lambda x, y: (1 - x, 1 - y), lambda x, y: (y, 1 - x))[turns]
+    points = [transform(x, y) for x, y in ((x1, y1), (x1, y2), (x2, y1), (x2, y2))]
+    return [min(x for x, _ in points), min(y for _, y in points),
+            max(x for x, _ in points), max(y for _, y in points)]
+
+
+def detect_photo(image, allowed, detectors):
+    """At most two local models x four orientations; no threshold reduction.
+
+    Stop on positive object evidence. Repeated predictions never become extra
+    views or corroboration. A miss remains inconclusive, not a category mismatch.
+    """
+    import numpy as np
+    detections, attempts, failures = [], 0, 0
+    eligible = [entry for entry in detectors if allowed & detector_vocabulary(entry[0])]
+    # Unknown categories still receive one ordinary detection for admin context.
+    candidates = eligible or detectors[:1]
+    for turns in ((0, 1, 3, 2) if eligible else (0,)):
+        for model, source, version in candidates:
+            attempts += 1
+            try:
+                with DETECTOR_LOCK:
+                    result = model.predict(np.ascontiguousarray(np.rot90(image, turns)),
+                                           verbose=False, conf=THRESHOLD, device='cpu', max_det=20)[0]
+                for box in result.boxes:
+                    label = str(result.names[int(box.cls.item())])
+                    score = float(box.conf.item())
+                    if not math.isfinite(score) or not THRESHOLD <= score <= 1:
+                        continue
+                    detection = {'label': label, 'confidence': round(score, 4),
+                                 'matchesCategory': normalize(label) in allowed,
+                                 'source': source, 'modelVersion': version,
+                                 'rotationDegrees': turns * 90}
+                    try:
+                        bounds = original_box(box, image, turns)
+                        if bounds is not None:
+                            detection['boundingBox'] = bounds
+                    except (AttributeError, TypeError, ValueError, IndexError):
+                        pass
+                    # Keep strongest evidence per label, not eight copies of it.
+                    previous = next((d for d in detections if d['label'] == label), None)
+                    if previous is None:
+                        detections.append(detection)
+                    elif score > previous['confidence']:
+                        detections[detections.index(previous)] = detection
+                if any(d['matchesCategory'] for d in detections):
+                    return detections, attempts, failures
+            except Exception:
+                failures += 1
+    return detections, attempts, failures
 
 
 def artifact_path(setting, default):
@@ -136,7 +263,7 @@ def models_status():
         risk, metadata = load_risk(risk_path, risk_path.stat().st_mtime_ns)
     except Exception:
         risk_issue = 'load_failed_or_incompatible' if risk_path.is_file() else 'artifact_missing'
-    return detector, risk, {
+    status = {
         'detectorAvailable': detector is not None,
         'detectorSource': source,
         'detectorVersion': detector_path.name if detector is not None else None,
@@ -147,6 +274,12 @@ def models_status():
         'detectorIssue': detector_issue,
         'riskClassifierIssue': risk_issue,
     }
+    detectors = verification_detectors(detector, status)
+    status['detectors'] = [{'source': source, 'version': version,
+                            'labels': sorted(detector_vocabulary(model))}
+                           for model, source, version in detectors]
+    status['categoryCoverage'] = coverage_matrix(detectors)
+    return detector, risk, status
 
 
 def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
@@ -160,14 +293,19 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         'categoryMatched': None,
         'confidenceMeaning': 'view_coverage_weighted_detection_score_not_authenticity_probability',
     }
-    if len(decoded) < 3:
+    if len(decoded) < 3 or len(decoded) > 10 or len(request.images) > 10:
         return VerificationResponse(
             accepted=False, outcome='rejected', confidence=0, adapter=CONTRACT,
-            reasons=errors + ['At least three valid item images are required'],
+            reasons=errors + ['At least three and no more than ten valid item images are required'],
             extracted_fields=fields,
         )
     detector, risk, status = models_status()
-    fields['models'] = status
+    detectors = verification_detectors(detector, status)
+    # The global matrix belongs in health/audit, not duplicated in each history row.
+    fields['models'] = {key: value for key, value in status.items() if key != 'categoryCoverage'}
+    coverage = category_coverage(request.expected_category, request.expected_subcategory, detectors)
+    fields['categoryCoverage'] = coverage
+    fields['photoGuidance'] = coverage['photoGuidance']
     reasons = list(errors)
     indicators = []
     qualities = [quality_fn(image) for _, image in decoded]
@@ -179,12 +317,9 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
            not q['hasUsableResolution'] for q in qualities):
         indicators.append('One or more photos need better focus, lighting or resolution')
     allowed = expected_labels(request.expected_category, request.expected_subcategory)
-    names = detector.names if detector is not None else {}
-    vocabulary = names.values() if isinstance(names, dict) else names
-    supported = bool(allowed & {normalize(name) for name in vocabulary})
-    fields['categorySupport'] = 'supported' if supported else 'unsupported'
+    supported = bool(coverage['matchingLabels'])
+    fields['categorySupport'] = 'limited_object_labels' if supported else 'unsupported'
     labels = set()
-    matching_scores = []
     per_image = []
     failures = False
     source_indices = {id(entry): index for index, entry in enumerate(request.images)}
@@ -193,41 +328,19 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
                     'imageWidth': image.shape[1], 'imageHeight': image.shape[0],
                     'quality': qualities[index],
                     'detections': [], 'categoryMatched': None}
-        if detector is not None:
-            try:
-                # Ultralytics caches mutable prediction state on the model.
-                with DETECTOR_LOCK:
-                    result = detector.predict(image, verbose=False, conf=THRESHOLD, device='cpu')[0]
-                for box in result.boxes:
-                    label = str(result.names[int(box.cls.item())])
-                    score = float(box.conf.item())
-                    if not math.isfinite(score) or not THRESHOLD <= score <= 1:
-                        continue
-                    matches = supported and normalize(label) in allowed
-                    labels.add(label)
-                    detection = {
-                        'label': label, 'confidence': round(score, 4),
-                        'matchesCategory': matches,
-                    }
-                    try:
-                        coordinates = box.xyxy[0].tolist()
-                        normalized_box = [float(value) / size for value, size in
-                                          zip(coordinates, [image.shape[1], image.shape[0]] * 2)]
-                        if (len(normalized_box) == 4 and
-                            all(math.isfinite(value) and 0 <= value <= 1 for value in normalized_box) and
-                            normalized_box[0] < normalized_box[2] and normalized_box[1] < normalized_box[3]):
-                            detection['boundingBox'] = normalized_box
-                    except (AttributeError, TypeError, ValueError, IndexError):
-                        pass  # Older adapters/fixtures may not expose coordinates.
-                    evidence['detections'].append(detection)
-                    if matches:
-                        matching_scores.append(score)
-                if supported:
-                    evidence['categoryMatched'] = any(
-                        entry['matchesCategory'] for entry in evidence['detections'])
-            except Exception:
-                failures = True
-                evidence['detectorUnavailable'] = True
+        detections, attempts, failed = detect_photo(image, allowed, detectors)
+        evidence.update({'detections': detections, 'detectionAttempts': attempts,
+                         'failedDetectionAttempts': failed})
+        labels.update(d['label'] for d in detections)
+        matched = any(d['matchesCategory'] for d in detections)
+        # Missing whole-object evidence is not bad quality or a wrong-item verdict.
+        evidence['categoryMatched'] = True if matched else None
+        evidence['objectEvidenceStatus'] = (
+            'expected_type_detected' if matched else 'analysis_incomplete' if failed or not detectors
+            else 'not_detected' if supported else 'category_not_covered')
+        if failed:
+            failures = True
+            evidence['detectorUnavailable'] = True
         if risk is not None:
             try:
                 score = risk_fn(risk, image)
@@ -243,17 +356,17 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
     fields['images'] = per_image
     if detector is None:
         reasons.append('Item detector is unavailable; manual photo review is needed')
-    elif status['detectorSource'] == 'general_pretrained':
+    elif any(source == 'general_pretrained' for _, source, _ in detectors):
         reasons.append('General pretrained object detector; not trained to authenticate rental items')
     if not supported:
         reasons.append('The detector does not cover this specific category; this is not a mismatch')
     elif not failures:
         matched_views = sum(e['categoryMatched'] is True for e in per_image)
-        fields['categoryMatched'] = matched_views == len(per_image) and not errors
-        if not matching_scores:
-            indicators.append('Expected item type was not detected clearly in the photos; admin review needed')
-        elif matched_views < 2:
-            reasons.append('Item type was detected in only one view; admin should check the remaining photos')
+        fields['categoryMatched'] = True if matched_views == len(per_image) and not errors else None
+        if not matched_views:
+            reasons.append('Item type could not be established automatically; this is not a photo-quality or authenticity verdict')
+        elif matched_views < len(per_image):
+            reasons.append('Some views have object evidence; remaining views may be details or missed detections and require administrator review')
     if normalize(request.expected_category or '') == 'books':
         reasons.append('Book detection does not verify the book title, edition or genre')
     if risk is None:
@@ -269,6 +382,8 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
     fields.update({
         'matchingViewCount': matched_views, 'submittedViewCount': submitted_views,
         'analysedViewCount': len(per_image),
+        'unconfirmedViewCount': len(per_image) - matched_views,
+        'detailViewsVerified': False,
         'categoryMatchStatus': ('unsupported' if not supported else 'analysis_incomplete' if failures or errors
                                 else 'all_views_detected' if all_views_match else 'partial_views' if matched_views
                                 else 'not_detected'),

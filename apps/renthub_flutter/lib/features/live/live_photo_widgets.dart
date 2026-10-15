@@ -214,7 +214,7 @@ Future<void> showPhotoBytes(
                   const Padding(
                       padding: EdgeInsets.all(12),
                       child: Text(
-                          'Boxes show model guesses, not proof of the item type or authenticity.')),
+                          'Highlights are suggestions, not proof the item is genuine.')),
               ]),
             ),
           ));

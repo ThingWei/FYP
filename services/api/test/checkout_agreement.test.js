@@ -170,11 +170,25 @@ test('rejection voids the simulated hold and preserves accepted agreement histor
   assert.equal(result.body.data.history.ownerApprovedAt, null); assert.ok(result.body.data.history.renterAcceptedAt);
 });
 
-test('a paid request past its expiry cannot be approved before the lifecycle job runs', async () => {
+test('a paid pending request remains approvable after its old payment deadline', async () => {
   await pay('paid-before-expiry').expect(201);
   await BookingModel.updateOne({ publicId: id }, { expiresAt: new Date(Date.now() - 1) });
-  await request(app).patch(`/api/v1/bookings/${id}/decision`).set(owner).send({ status: 'approved' }).expect(409);
-  assert.equal(await RentalModel.countDocuments({}), 0);
+  await request(app).patch(`/api/v1/bookings/${id}/decision`).set(owner).send({ status: 'approved' }).expect(200);
+  assert.equal(await RentalModel.countDocuments({}), 1);
+});
+
+test('successful payment clears its deadline; a durable in-time authorization can recover after that deadline', async () => {
+  const success = await pay('deadline-success').expect(201);
+  const saved = await BookingModel.findOne({ publicId: id });
+  assert.equal(saved.expiresAt, undefined);
+  const future = new Date(Date.now() + 1000);
+  await PaymentModel.collection.updateOne({ publicId: success.body.data.publicId }, { $set: { createdAt: new Date(Date.now() - 10_000) } });
+  await BookingModel.updateOne({ publicId: id }, { $set: { paymentStatus: 'unpaid', paymentAuthorizationId: '', expiresAt: new Date(future.getTime() - 2000) } });
+  await pay('deadline-success').expect(201);
+  const restored = await BookingModel.findOne({ publicId: id });
+  assert.equal(restored.paymentStatus, 'authorized');
+  assert.equal(restored.expiresAt, undefined);
+  assert.equal(await PaymentModel.countDocuments({}), 1);
 });
 
 test('concurrent key collision across bookings cannot return another booking payment', async () => {

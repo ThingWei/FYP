@@ -7,7 +7,9 @@ Implemented 15 October 2026, preserving the uncommitted role-isolation work.
 - A renter cannot submit another pending request for the same physical item with
   any overlapping rental dates, even with a fresh submission key or different
   fulfilment options. Physical rental end dates remain inclusive.
-- Both unpaid and payment-authorized pending requests are covered.
+- Both unpaid and payment-authorized pending requests are covered. Following the
+  paid-deadline correction below, authorized requests remain pending until an Owner
+  decision/cancellation or a competing approved booking resolves them.
 - A duplicate returns HTTP 409, code `DUPLICATE_PENDING_BOOKING`, with only
   `details.bookingId` pointing to that renter's existing request. It creates no
   booking, payment, conversation or extra booking-created notification.
@@ -20,9 +22,14 @@ Implemented 15 October 2026, preserving the uncommitted role-isolation work.
 - To change dates or fulfilment, cancel the existing request before replacing it.
   Different items and non-overlapping date ranges remain bookable.
 - Cancelled, rejected, expired and completed requests do not block a new attempt.
-  A pending record whose expiry has elapsed also does not prevent replacement;
+  An unpaid pending record whose expiry has elapsed also does not prevent replacement;
   normal lifecycle processing remains responsible for its expiry/payment cleanup.
   Legacy pending records without an expiry still count as pending until resolved.
+
+Paid pending requests are not excluded just because an old `expiresAt` value has
+elapsed. New successful payments clear that payment deadline. See
+[Paid pending requests and listing photos](PAID_PENDING_AND_LISTING_PHOTOS_RESULT.md)
+for the correction, legacy recovery and current verification results.
 
 ## Soft holds and authorization
 

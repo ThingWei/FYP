@@ -182,8 +182,14 @@ export const paymentService = {
     const authorization = existing?.status === 'authorized' ? existing
       : await paymentRepository.findAuthorization(booking.publicId);
     if (authorization?.status === 'authorized') {
-      const restored = await BookingModel.findOneAndUpdate({ ...eligible, paymentStatus: 'unpaid' },
-        { $set: { paymentStatus: 'authorized', paymentAuthorizationId: authorization.publicId } });
+      // A successful payment ends the payment deadline, including recovery of a
+      // durable authorization written before that deadline by an interrupted call.
+      const recordedInTime = !booking.expiresAt ||
+        authorization.createdAt instanceof Date && authorization.createdAt <= booking.expiresAt;
+      const restored = recordedInTime && await BookingModel.findOneAndUpdate({
+        publicId: booking.publicId, renterId: identity.authId, status: 'pending', paymentStatus: 'unpaid',
+      }, { $set: { paymentStatus: 'authorized', paymentAuthorizationId: authorization.publicId },
+        $unset: { expiresAt: 1 } });
       if (restored || booking.paymentStatus !== 'unpaid') return existing ?? authorization;
       await paymentAdapter.voidAuthorization({ amount: authorization.amount });
       await paymentRepository.updateStatus(authorization._id, 'voided');
@@ -227,7 +233,8 @@ export const paymentService = {
       }
       if (payment.status === 'authorized') {
         const updated = await BookingModel.findOneAndUpdate({ ...eligible, paymentLeaseToken: token, paymentStatus: 'unpaid' },
-          { $set: { paymentStatus: 'authorized', paymentAuthorizationId: payment.publicId } });
+          { $set: { paymentStatus: 'authorized', paymentAuthorizationId: payment.publicId },
+            $unset: { expiresAt: 1 } });
         if (!updated) {
           const latest = await BookingModel.findOne({ publicId: booking.publicId });
           if (latest?.paymentAuthorizationId !== payment.publicId || latest.status !== 'pending') {
