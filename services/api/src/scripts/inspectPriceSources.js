@@ -4,7 +4,12 @@ import { collectSourceQuotes } from '../modules/listing/priceSync.service.js';
 // Read-only onboarding diagnostic: no MongoDB connection, no insertion or enabling.
 const id = process.argv[2];
 if (id && !PRICE_SOURCES.some((source) => source.id === id)) throw new Error('Unknown source ID');
-for (const source of PRICE_SOURCES.filter((entry) => entry.adapter && (!id || entry.id === id))) {
+for (const source of PRICE_SOURCES.filter((entry) => !id || entry.id === id)) {
+  if (!source.adapter) {
+    console.log(JSON.stringify({ sourceId: source.id, available: false,
+      error: 'ADAPTER_PENDING', reason: source.limitation, enabled: false, databaseWrites: 0 }));
+    continue;
+  }
   try {
     const result = await collectSourceQuotes(source);
     console.log(JSON.stringify({ sourceId: source.id, accepted: result.rows.length,

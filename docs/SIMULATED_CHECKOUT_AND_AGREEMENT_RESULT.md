@@ -156,3 +156,19 @@ feat(bookings): add simulated checkout and versioned full-page agreements
 - document simulation limitations, verification and remaining Auth0 test errors
 ```
 
+## Lifecycle follow-up — 20 October 2026
+
+See [Auth0/source/lifecycle handoff](AUTH0_SOURCES_AND_LIFECYCLE_RESULT.md).
+Confirmed overlapping-approval and concurrent-refund bugs were reproduced and
+fixed. Listing-scoped leases now coordinate approval/cancellation and rental
+transitions without turning pending requests into hard holds. Refunds enforce
+cent-based balances and changed-input idempotency conflicts, reconcile interrupted
+booking-status writes and deduplicate notifications. Extensions respect unresolved
+disputed dates and cannot be approved after return submission.
+
+Full API suite: 389 passed/3 skipped; Flutter: 407 passed/3 skipped; analysis and
+Web/Android debug builds pass. The previously reported Auth0 analyzer errors are
+fixed. Payments remain simulated. Extension checkout, automatic dispute/claim
+payouts, post-settlement refund reconciliation and comprehensive crash/concurrency
+recovery remain separate policy/implementation gaps, not silently added rules.
+

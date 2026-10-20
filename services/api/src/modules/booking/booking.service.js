@@ -24,7 +24,7 @@ import { BOOKING_STATUSES } from './booking.model.js';
 import { bookingRepository } from './booking.repository.js';
 import { agreementTerms } from './agreementTerms.js';
 import { presentBooking } from '../../core/location.js';
-import { withBookingRequestLock } from './bookingRequestLock.js';
+import { withBookingRequestLock, withOperationLock } from './bookingRequestLock.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -455,141 +455,163 @@ export const bookingService = {
 
   async decide(id, input, identity) {
     await requireActiveUser(identity, 'owner');
-    const booking = await bookingRepository.findById(id);
-    if (!booking || booking.ownerId !== identity.authId || booking.renterId === identity.authId) {
+    const context = await bookingRepository.findById(id);
+    if (!context || context.ownerId !== identity.authId || context.renterId === identity.authId) {
       throw new AppError('Booking not found', 404, 'NOT_FOUND');
     }
-    if (booking.status !== 'pending') {
-      throw new AppError(
-        'Only pending bookings can be decided',
-        409,
-        'INVALID_BOOKING_STATE',
-      );
-    }
-    if (input.status === 'rejected' && !input.reason?.trim()) {
-      throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
-    }
-    if (input.status === 'approved') {
-      if (booking.paymentStatus !== 'authorized' && booking.expiresAt && booking.expiresAt <= new Date()) {
-        throw new AppError('This request has expired', 409, 'INVALID_BOOKING_STATE');
+    return withOperationLock('listing-decision', context.listingId, async (ensureOwned) => {
+      await requireActiveUser(identity, 'owner');
+      // Re-read after acquiring the listing-scoped lock: a competing decision may
+      // have expired this pending request while we waited. Pending creation is
+      // deliberately not covered by this lock and remains a soft hold.
+      const booking = await bookingRepository.findById(id);
+      if (!booking || booking.ownerId !== identity.authId || booking.renterId === identity.authId) {
+        throw new AppError('Booking not found', 404, 'NOT_FOUND');
       }
-      if (booking.paymentStatus !== 'authorized') {
+      if (booking.status !== 'pending') {
         throw new AppError(
-          'Payment authorization is required before approval',
+          'Only pending bookings can be decided',
           409,
-          'PAYMENT_NOT_AUTHORIZED',
+          'INVALID_BOOKING_STATE',
         );
       }
-      const listing = await ListingModel.findOne({ publicId: booking.listingId });
-      if (!listing || listing.status !== 'active') {
-        throw new AppError('Listing is no longer active', 409, 'LISTING_INACTIVE');
+      if (input.status === 'rejected' && !input.reason?.trim()) {
+        throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
       }
-      if (booking.category === 'Vehicles' || listing.category === 'Vehicles') {
-        const renter = await UserModel.findOne({ authId: booking.renterId });
-        if (!renter) throw new AppError('Renter not found', 404, 'NOT_FOUND');
-        assertDrivingEligibility(renter, booking.category === 'Vehicles' ? booking : listing, booking.endDate);
+      if (input.status === 'approved') {
+        if (booking.paymentStatus !== 'authorized' && booking.expiresAt && booking.expiresAt <= new Date()) {
+          throw new AppError('This request has expired', 409, 'INVALID_BOOKING_STATE');
+        }
+        if (booking.paymentStatus !== 'authorized') {
+          throw new AppError(
+            'Payment authorization is required before approval',
+            409,
+            'PAYMENT_NOT_AUTHORIZED',
+          );
+        }
+        const listing = await ListingModel.findOne({ publicId: booking.listingId });
+        if (!listing || listing.status !== 'active') {
+          throw new AppError('Listing is no longer active', 409, 'LISTING_INACTIVE');
+        }
+        if (booking.category === 'Vehicles' || listing.category === 'Vehicles') {
+          const renter = await UserModel.findOne({ authId: booking.renterId });
+          if (!renter) throw new AppError('Renter not found', 404, 'NOT_FOUND');
+          assertDrivingEligibility(renter, booking.category === 'Vehicles' ? booking : listing, booking.endDate);
+        }
+        await assertAvailable(
+          listing,
+          booking.startDate,
+          booking.endDate,
+          booking.publicId,
+        );
+        booking.status = 'approved';
+        await ensureOwned();
+        const agreement = booking.listingType === 'physical'
+          ? await blockchainAdapter.createAgreement({
+              rentalAmount: booking.pricing.baseAmount,
+              depositAmount: booking.pricing.securityDeposit,
+            })
+          : undefined;
+        await ensureOwned();
+        await RentalModel.create({
+          publicId: rentalId(booking.startDate),
+          bookingId: booking.publicId,
+          listingId: booking.listingId,
+          listingType: booking.listingType,
+          category: booking.category ?? listing.category,
+          requiredLicenceClass: booking.category ? booking.requiredLicenceClass : listing.requiredLicenceClass,
+          renterId: booking.renterId,
+          ownerId: booking.ownerId,
+          startDate: booking.startDate,
+          endDate: booking.endDate,
+          status: 'scheduled',
+          ...(agreement && {
+            contractAddress: agreement.contractAddress,
+            transactionHash: agreement.deploymentTransactionHash,
+            blockchain: agreement,
+          }),
+        });
+      } else {
+        booking.status = 'rejected';
+        await voidBookingPayment(booking);
       }
-      await assertAvailable(
-        listing,
-        booking.startDate,
-        booking.endDate,
-        booking.publicId,
-      );
-      booking.status = 'approved';
-      const agreement = booking.listingType === 'physical'
-        ? await blockchainAdapter.createAgreement({
-            rentalAmount: booking.pricing.baseAmount,
-            depositAmount: booking.pricing.securityDeposit,
-          })
-        : undefined;
-      await RentalModel.create({
-        publicId: rentalId(booking.startDate),
-        bookingId: booking.publicId,
-        listingId: booking.listingId,
-        listingType: booking.listingType,
-        category: booking.category ?? listing.category,
-        requiredLicenceClass: booking.category ? booking.requiredLicenceClass : listing.requiredLicenceClass,
-        renterId: booking.renterId,
-        ownerId: booking.ownerId,
-        startDate: booking.startDate,
-        endDate: booking.endDate,
-        status: 'scheduled',
-        ...(agreement && {
-          contractAddress: agreement.contractAddress,
-          transactionHash: agreement.deploymentTransactionHash,
-          blockchain: agreement,
-        }),
+      booking.ownerDecisionReason = input.reason?.trim() ?? '';
+      booking.decidedAt = new Date();
+      await ensureOwned();
+      await booking.save();
+      if (booking.status === 'approved') {
+        await expireCompetingPhysicalRequests(booking);
+      }
+      await notifyUser({
+        userId: booking.renterId,
+        category: 'booking',
+        type: `booking_${booking.status}`,
+        title:
+          booking.status === 'approved'
+            ? 'Booking approved'
+            : 'Booking request declined',
+        body:
+          booking.status === 'approved'
+            ? `${booking.listingTitle} is confirmed by the Owner.`
+            : `${booking.listingTitle} was declined by the Owner.`,
+        entityType: 'booking',
+        entityId: booking.publicId,
       });
-    } else {
-      booking.status = 'rejected';
-      await voidBookingPayment(booking);
-    }
-    booking.ownerDecisionReason = input.reason?.trim() ?? '';
-    booking.decidedAt = new Date();
-    await booking.save();
-    if (booking.status === 'approved') {
-      await expireCompetingPhysicalRequests(booking);
-    }
-    await notifyUser({
-      userId: booking.renterId,
-      category: 'booking',
-      type: `booking_${booking.status}`,
-      title:
-        booking.status === 'approved'
-          ? 'Booking approved'
-          : 'Booking request declined',
-      body:
-        booking.status === 'approved'
-          ? `${booking.listingTitle} is confirmed by the Owner.`
-          : `${booking.listingTitle} was declined by the Owner.`,
-      entityType: 'booking',
-      entityId: booking.publicId,
+      return booking;
     });
-    return booking;
   },
 
   async cancel(id, reason, identity) {
     await requireActiveUser(identity, 'renter');
-    const booking = await bookingRepository.findById(id);
-    if (!booking || booking.renterId !== identity.authId) {
+    const context = await bookingRepository.findById(id);
+    if (!context || context.renterId !== identity.authId) {
       throw new AppError('Booking not found', 404, 'NOT_FOUND');
     }
-    if (!['pending', 'approved'].includes(booking.status)) {
-      throw new AppError(
-        'This booking can no longer be cancelled',
-        409,
-        'INVALID_BOOKING_STATE',
-      );
-    }
-    booking.status = 'cancelled';
-    booking.cancellationReason = reason.trim();
-    booking.cancelledAt = new Date();
-    await voidBookingPayment(booking);
-    await booking.save();
-    const rental = await RentalModel.findOne({
-      bookingId: booking.publicId,
-      status: 'scheduled',
-    });
-    if (rental) {
-      if (rental.listingType === 'physical') {
-        const result = await blockchainAdapter.cancel(
-          rental.blockchain?.contractAddress || rental.contractAddress,
-        );
-        rental.blockchain = { ...rental.blockchain?.toObject?.(), ...result };
-        rental.transactionHash = result.lastTransactionHash ?? rental.transactionHash;
+    return withOperationLock('listing-decision', context.listingId, async (ensureOwned) => {
+      await requireActiveUser(identity, 'renter');
+      const booking = await bookingRepository.findById(id);
+      if (!booking || booking.renterId !== identity.authId) {
+        throw new AppError('Booking not found', 404, 'NOT_FOUND');
       }
-      rental.status = 'cancelled';
-      await rental.save();
-    }
-    await notifyUser({
-      userId: booking.ownerId,
-      category: 'booking',
-      type: 'booking_cancelled',
-      title: 'Booking cancelled',
-      body: `${booking.renterName} cancelled ${booking.listingTitle}.`,
-      entityType: 'booking',
-      entityId: booking.publicId,
+      if (!['pending', 'approved'].includes(booking.status)) {
+        throw new AppError(
+          'This booking can no longer be cancelled',
+          409,
+          'INVALID_BOOKING_STATE',
+        );
+      }
+      booking.status = 'cancelled';
+      booking.cancellationReason = reason.trim();
+      booking.cancelledAt = new Date();
+      await ensureOwned();
+      await voidBookingPayment(booking);
+      await ensureOwned();
+      await booking.save();
+      const rental = await RentalModel.findOne({
+        bookingId: booking.publicId,
+        status: 'scheduled',
+      });
+      if (rental) {
+        if (rental.listingType === 'physical') {
+          const result = await blockchainAdapter.cancel(
+            rental.blockchain?.contractAddress || rental.contractAddress,
+          );
+          rental.blockchain = { ...rental.blockchain?.toObject?.(), ...result };
+          rental.transactionHash = result.lastTransactionHash ?? rental.transactionHash;
+        }
+        rental.status = 'cancelled';
+        await rental.save();
+      }
+      await notifyUser({
+        userId: booking.ownerId,
+        category: 'booking',
+        type: 'booking_cancelled',
+        title: 'Booking cancelled',
+        body: `${booking.renterName} cancelled ${booking.listingTitle}.`,
+        entityType: 'booking',
+        entityId: booking.publicId,
+      });
+      return booking;
     });
-    return booking;
   },
 };

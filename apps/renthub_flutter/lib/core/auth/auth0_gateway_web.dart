@@ -51,6 +51,8 @@ class Auth0Gateway {
     Future<void> Function(Uri uri)? browserLauncher,
     Stream<Uri>? callbackLinks,
     Future<Uri?> Function()? initialLinkProvider,
+    Future<Uri?> Function()? latestLinkProvider,
+    Duration mobileLinkPollInterval = const Duration(milliseconds: 350),
     bool? androidOverride,
     DateTime Function()? now,
   }) : domain = domain

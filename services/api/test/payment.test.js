@@ -115,6 +115,74 @@ after(async () => {
   await mongodb.stop();
 });
 
+async function createCapture() {
+  const booking = await setupBooking();
+  const bookingId = booking.body.data.id;
+  await authorize(bookingId);
+  await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner).send({ status: 'approved' }).expect(200);
+  const rental = await RentalModel.findOne({ bookingId });
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Excellent', evidence: ['local://handover/camera.jpg'] }).expect(200);
+  return PaymentModel.findOne({ bookingId, type: 'capture' });
+}
+
+test('concurrent refunds cannot exceed the captured amount', async () => {
+  const capture = await createCapture();
+  const results = await Promise.all(['first', 'second'].map((key) => request(app)
+    .post(`/api/v1/payments/${capture.publicId}/refunds`).set(admin)
+    .send({ amount: 400, reason: 'Reviewed refund request', idempotencyKey: `concurrent-refund-${key}` })));
+  assert.deepEqual(results.map((r) => r.status).sort(), [201, 400]);
+  const refunds = await PaymentModel.find({ parentTransactionId: capture.publicId, type: 'refund', status: 'succeeded' });
+  assert.equal(refunds.reduce((sum, r) => sum + r.amount, 0), 400);
+});
+
+test('refund replay rejects a changed amount rather than silently returning the old payment', async () => {
+  const capture = await createCapture();
+  const endpoint = `/api/v1/payments/${capture.publicId}/refunds`;
+  await request(app).post(endpoint).set(admin)
+    .send({ amount: 100, reason: 'Reviewed refund request', idempotencyKey: 'refund-fingerprint-key' }).expect(201);
+  const changed = await request(app).post(endpoint).set(admin)
+    .send({ amount: 200, reason: 'Reviewed refund request', idempotencyKey: 'refund-fingerprint-key' });
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.error.code, 'IDEMPOTENCY_CONFLICT');
+});
+
+test('same refund retry reconciles an interrupted booking update without another refund or notification', async () => {
+  const capture = await createCapture();
+  const input = { amount: 100, reason: 'Reviewed refund request', idempotencyKey: 'refund-recovery-key' };
+  const endpoint = `/api/v1/payments/${capture.publicId}/refunds`;
+  const first = await request(app).post(endpoint).set(admin).send(input).expect(201);
+  await BookingModel.updateOne({ publicId: capture.bookingId }, { $set: { paymentStatus: 'captured' } });
+  const retried = await request(app).post(endpoint).set(admin).send(input).expect(201);
+  assert.equal(retried.body.data.id, first.body.data.id);
+  assert.equal((await BookingModel.findOne({ publicId: capture.bookingId })).paymentStatus, 'partially_refunded');
+  assert.equal(await PaymentModel.countDocuments({ type: 'refund' }), 1);
+  assert.equal(await NotificationModel.countDocuments({ type: 'payment_refunded' }), 1);
+});
+
+test('concurrent identical refunds produce one record and replay the same result', async () => {
+  const capture = await createCapture();
+  const input = { amount: 100, reason: 'Reviewed refund request', idempotencyKey: 'refund-double-tap-key' };
+  const results = await Promise.all([1, 2].map(() => request(app)
+    .post(`/api/v1/payments/${capture.publicId}/refunds`).set(admin).send(input)));
+  assert.ok(results.every((r) => r.status === 201));
+  assert.equal(results[0].body.data.id, results[1].body.data.id);
+  assert.equal(await PaymentModel.countDocuments({ type: 'refund' }), 1);
+});
+
+test('refund balance uses cents and remains administrator-only', async () => {
+  const capture = await createCapture();
+  const endpoint = `/api/v1/payments/${capture.publicId}/refunds`;
+  const input = { amount: 569.7, reason: 'Reviewed refund request', idempotencyKey: 'refund-cents-first' };
+  await request(app).post(endpoint).set(renter).send(input).expect(403);
+  await request(app).post(endpoint).set(owner).send(input).expect(403);
+  await request(app).post(endpoint).set(admin).send(input).expect(201);
+  await request(app).post(endpoint).set(admin).send({ ...input, amount: 0.1, idempotencyKey: 'refund-cents-second' }).expect(201);
+  await request(app).post(endpoint).set(admin).send({ ...input, amount: 0.2, idempotencyKey: 'refund-cents-third' }).expect(201);
+  assert.equal((await BookingModel.findOne({ publicId: capture.bookingId })).paymentStatus, 'refunded');
+  await request(app).post(endpoint).set(admin).send({ ...input, amount: 0.01, idempotencyKey: 'refund-cents-excess' }).expect(400);
+});
+
 test('authorizes the server total and handles retries idempotently', async () => {
   const booking = await setupBooking();
   const bookingId = booking.body.data.id;

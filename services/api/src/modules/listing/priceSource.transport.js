@@ -22,7 +22,7 @@ export async function fetchSourceText(url, signal) {
 
 export function robotsAllows(text, url) {
   // HTML challenge/error pages are not a robots policy and must fail closed.
-  if (/<html|<!doctype/i.test(text)) return false;
+  if (/<\s*\/?\s*[a-z!]/i.test(text)) return false;
   const groups = [];
   let group, hasRules = false;
   for (const line of text.split(/\r?\n/)) {

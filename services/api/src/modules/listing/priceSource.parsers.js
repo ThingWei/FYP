@@ -216,14 +216,70 @@ function futago(root) {
   return rows;
 }
 
+function irent(root) {
+  // A category-page "From" price is never evidence. Read the product's own
+  // server-rendered duration table, not scripts, checkout totals or related cards.
+  const summary = classed(root, 'entry-summary')[0];
+  if (!summary || !/\bCategory:\s*Smartphone Rental\b/i.test(textOf(classed(summary, 'product_meta')[0] ?? ''))) return [];
+  const label = textOf(classed(summary, 'product_title')[0] ?? '').replace(/\s+(?:phone\s+)?rental$/i, '').trim();
+  if (!label || /\+|\bbundle\b|\bcombo\b|\bset of\b/i.test(label)) return [];
+  const rows = [];
+  for (const panel of classed(summary, 'irent-discount-table-wrapper')) {
+    if (textOf(tagged(panel, 'h4')[0] ?? '') !== 'Rental Pricing Tiers') continue;
+    for (const tr of tagged(panel, 'tr')) {
+      const cells = tagged(tr, 'td').map(textOf);
+      if (cells.length !== 3) continue;
+      const duration = cells[0].match(/^(\d+)(?:\s*[-–]\s*(\d+))?\s*Days?$/i);
+      const rate = cells[2].match(/^RM\s*(\d+(?:\.\d{1,2})?)\s*\/\s*day$/i);
+      if (!duration || !rate) continue; // 31+ Days (Yearly) is deliberately ambiguous.
+      const min = Number(duration[1]), max = Number(duration[2] ?? duration[1]);
+      if (min < 1 || max > 365 || min > max) continue;
+      rows.push(quote(label, 'Devices', 'Smartphones', Math.round(Number(rate[1]) * min * 100) / 100, min,
+        { durationMinDays: min, durationMaxDays: max,
+          packageNotes: `Explicit daily tier for ${min}-${max} days; deposit and collection/delivery charges excluded. Source stock-substitution terms apply.` }));
+    }
+  }
+  if (rows.some((a, i) => rows.some((b, j) => i !== j && a.durationMinDays <= b.durationMaxDays && b.durationMinDays <= a.durationMaxDays &&
+      (a.durationMinDays !== b.durationMinDays || a.durationMaxDays !== b.durationMaxDays)))) return [];
+  return rows;
+}
+
+function twelveRent(root) {
+  const titles = tagged(root, 'h3').map(textOf).filter((title) => /^\[RENTAL\]/i.test(title));
+  if (!titles.length) return [];
+  return tagged(root, 'ul').flatMap((ul) => {
+    const fields = new Map();
+    for (const li of ul.children.filter((node) => typeof node !== 'string' && node.tag === 'li')) {
+      const pair = textOf(li).match(/^(Status|Brand|Model|Type|Lease Term|Lease Rate|Minimum Rental Period):\s*(.+)$/i);
+      if (!pair) continue;
+      const key = pair[1].toLowerCase();
+      if (fields.has(key) && fields.get(key) !== pair[2]) return [];
+      fields.set(key, pair[2]);
+    }
+    if (fields.get('status') !== 'Rental' || !/^Daily\s*\(DL\)$/i.test(fields.get('lease term') ?? '')) return [];
+    const rate = (fields.get('lease rate') ?? '').match(/^RM\s*(\d+(?:\.\d{1,2})?)\s+DL$/i);
+    const minimum = (fields.get('minimum rental period') ?? '').match(/^(\d+)\s+Days?$/i);
+    const brand = fields.get('brand'), model = fields.get('model'), type = fields.get('type');
+    if (!rate || !minimum || !brand || !model || !type) return [];
+    const days = Number(minimum[1]), label = `${brand} ${model}`;
+    if (days < 1 || days > 365 || /\+|\bbundle\b|operator|crew/i.test(type) ||
+        !titles.some((title) => keyText(title).includes(keyText(label)))) return [];
+    const productType = productTypeFor('Equipment', 'Tools', `${label} ${type}`);
+    return [quote(label, 'Equipment', 'Tools', Math.round(Number(rate[1]) * days * 100) / 100, days,
+      { brand, productModel: model, productType,
+        packageNotes: `Daily lease rate; minimum ${days} days. Only the minimum-period quote is captured; refundable deposit, consumables and shipping excluded.` })];
+  });
+}
+
 const parsers = { rentism, itpa, cilt, drivor, ecocana, 'rental-guy': rentalGuy,
-  'pc-rent': pcRent, jomrent, partymix, futago };
+  'pc-rent': pcRent, jomrent, partymix, futago, irent, '12rent': twelveRent };
 
 export function parsePriceSource(entry, content, url = entry.urls[0]) {
   if (!entry.adapter) return { rows: [], skipped: ['adapter_pending'], links: [] };
   const root = readHtml(content);
   const rows = entry.id === 'alquiler' ? alquiler(content) : parsers[entry.adapter](root);
-  const links = entry.discovery ? tagged(root, 'a').map((node) => {
+  const discover = entry.discovery && (!entry.discoveryFrom || entry.discoveryFrom.test(new URL(url).pathname));
+  const links = discover ? tagged(root, 'a').map((node) => {
     try { return new URL((node.attrs.href ?? '').trim(), url).href; } catch { return ''; }
   }).filter((link) => isAllowedSourceUrl(entry, link)) : [];
   return { rows, links: [...new Set(links)].slice(0, 20), skipped: rows.length ? [] : ['no_supported_quotes_or_layout_changed'] };

@@ -23,6 +23,7 @@ import { ThreadModel } from '../src/modules/communication/thread.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
 import { ReviewModel } from '../src/modules/review/review.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
+import { blockchainAdapter } from '../src/integrations/blockchainAdapter.js';
 
 let mongodb;
 let bookingSequence = 0;
@@ -768,6 +769,97 @@ test('runs physical approval, handover, extension and return lifecycle', async (
     2,
   );
   assert.equal((await LoyaltyAccountModel.findOne({ userId: 'u-owner' })).points, 250);
+});
+
+test('concurrent Owner approvals cannot confirm overlapping requests from different renters', async () => {
+  const secondRenter = { ...renter, 'x-user-id': 'u-second-renter', 'x-user-email': 'second@renthub.my' };
+  await request(app).post('/api/v1/users/session').set(secondRenter).expect(201);
+  await approveTestIdentity('u-second-renter');
+  const first = await createCameraBooking();
+  const second = await createCameraBooking({ headers: secondRenter });
+  assert.equal(first.status, 201); assert.equal(second.status, 201);
+  const ids = [first.body.data.id, second.body.data.id];
+  await authorizeBooking(ids[0]); await authorizeBooking(ids[1], secondRenter);
+  const original = blockchainAdapter.createAgreement;
+  blockchainAdapter.createAgreement = async (...args) => {
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    return original(...args);
+  };
+  try {
+    const responses = await Promise.all(ids.map((id) => request(app)
+      .patch(`/api/v1/bookings/${id}/decision`).set(owner).send({ status: 'approved' })));
+    assert.deepEqual(responses.map((r) => r.status).sort(), [200, 409]);
+    assert.equal(await BookingModel.countDocuments({ publicId: { $in: ids }, status: 'approved' }), 1);
+    assert.equal(await BookingModel.countDocuments({ publicId: { $in: ids }, status: 'expired' }), 1);
+    assert.equal(await RentalModel.countDocuments({ bookingId: { $in: ids } }), 1);
+  } finally { blockchainAdapter.createAgreement = original; }
+});
+
+test('cancellation racing approval leaves no active scheduled rental or payment hold', async () => {
+  const created = await createCameraBooking();
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId);
+  const original = blockchainAdapter.createAgreement;
+  blockchainAdapter.createAgreement = async (...args) => {
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    return original(...args);
+  };
+  try {
+    const results = await Promise.all([
+      request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner).send({ status: 'approved' }),
+      request(app).post(`/api/v1/bookings/${bookingId}/cancel`).set(renter).send({ reason: 'Schedule changed' }),
+    ]);
+    assert.equal(results[1].status, 200);
+    assert.ok([200, 409].includes(results[0].status));
+    const booking = await BookingModel.findOne({ publicId: bookingId });
+    assert.equal(booking.status, 'cancelled');
+    assert.equal(booking.paymentStatus, 'voided');
+    assert.equal(await RentalModel.countDocuments({ bookingId, status: { $ne: 'cancelled' } }), 0);
+  } finally { blockchainAdapter.createAgreement = original; }
+});
+
+test('double handover and double return confirmation do not duplicate captures or settlements', async () => {
+  const created = await createCameraBooking();
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId);
+  await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner).send({ status: 'approved' }).expect(200);
+  const rental = await RentalModel.findOne({ bookingId });
+  const handovers = await Promise.all([1, 2].map(() => request(app)
+    .post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Excellent', evidence: ['local://handover/front.jpg'] })));
+  assert.deepEqual(handovers.map((r) => r.status).sort(), [200, 409]);
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 1);
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/return`).set(renter)
+    .send({ condition: 'Excellent', evidence: ['local://return/front.jpg'] }).expect(200);
+  const returns = await Promise.all([1, 2].map(() => request(app)
+    .post(`/api/v1/rentals/${rental.publicId}/return/confirm`).set(owner)
+    .send({ condition: 'Excellent', depositDeduction: 0 })));
+  assert.deepEqual(returns.map((r) => r.status).sort(), [200, 409]);
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'owner_settlement' }), 1);
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'deposit_release' }), 1);
+});
+
+test('extension cannot overlap an unresolved disputed rental or be approved after return submission', async () => {
+  const created = await createCameraBooking();
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId);
+  await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner).send({ status: 'approved' }).expect(200);
+  const rental = await RentalModel.findOne({ bookingId });
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Excellent', evidence: ['local://handover/front.jpg'] }).expect(200);
+  const original = await BookingModel.findOne({ publicId: bookingId }).lean();
+  const { _id, __v, ...conflict } = original;
+  await BookingModel.create({ ...conflict, publicId: 'RH-BKG-2026-DISPUTED', renterId: 'another-renter',
+    status: 'disputed', startDate: '2026-09-23', endDate: '2026-09-24', idempotencyKey: undefined });
+  const input = { requestedEndDate: '2026-09-24', reason: 'Production needs more time' };
+  const blocked = await request(app).post(`/api/v1/rentals/${rental.publicId}/extensions`).set(renter).send(input).expect(409);
+  assert.equal(blocked.body.error.code, 'AVAILABILITY_CONFLICT');
+  await BookingModel.updateOne({ publicId: 'RH-BKG-2026-DISPUTED' }, { status: 'completed' });
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/extensions`).set(renter).send(input).expect(200);
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/return`).set(renter)
+    .send({ condition: 'Excellent', evidence: ['local://return/front.jpg'] }).expect(200);
+  await request(app).patch(`/api/v1/rentals/${rental.publicId}/extensions/decision`).set(owner)
+    .send({ status: 'approved' }).expect(409);
 });
 
 test('locks approved dates against another booking', async () => {

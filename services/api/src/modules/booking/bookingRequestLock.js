@@ -3,8 +3,9 @@ import { setTimeout } from 'node:timers/promises';
 import mongoose from 'mongoose';
 import { AppError } from '../../core/errors.js';
 
-// A short creation mutex, NOT an availability reservation. Different renters
-// never share a lock. The built-in unique _id works on standalone MongoDB too.
+// Short operation mutexes, NOT availability reservations. Request creation is
+// renter-scoped; listing decisions/refunds use separate resource namespaces.
+// The built-in unique _id works on standalone MongoDB too.
 const schema = new mongoose.Schema({
   _id: String,
   token: { type: String, required: true },
@@ -20,7 +21,16 @@ function busy() {
 }
 
 export async function withBookingRequestLock(renterId, listingId, operation) {
-  const _id = createHash('sha256').update(JSON.stringify([renterId, listingId])).digest('hex');
+  return withLock([renterId, listingId], operation, busy);
+}
+
+export function withOperationLock(scope, resourceId, operation) {
+  return withLock(['operation-v1', scope, resourceId], operation, () => new AppError(
+    'This action is still processing. Check its status before trying again.', 409, 'OPERATION_IN_PROGRESS'));
+}
+
+async function withLock(parts, operation, unavailable) {
+  const _id = createHash('sha256').update(JSON.stringify(parts)).digest('hex');
   const token = randomUUID();
   let acquired = false;
   // Briefly wait for an ordinary concurrent double tap, then fail safely.
@@ -37,14 +47,14 @@ export async function withBookingRequestLock(renterId, listingId, operation) {
       await setTimeout(25);
     }
   }
-  if (!acquired) throw busy();
+  if (!acquired) throw unavailable();
   const ensureOwned = async () => {
     // Renew immediately before persistence, not after an expired lease.
     if (!await BookingRequestLockModel.findOneAndUpdate(
       { _id, token, expiresAt: { $gt: new Date() } },
       { $set: { expiresAt: new Date(Date.now() + 60_000) } },
     )) {
-      throw busy();
+      throw unavailable();
     }
   };
   try {

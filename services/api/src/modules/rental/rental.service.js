@@ -16,6 +16,8 @@ import { assertDrivingEligibility } from '../user/drivingEligibility.js';
 import { awardRentalCompletion } from '../loyalty/loyalty.service.js';
 import { RENTAL_STATUSES } from './rental.model.js';
 import { rentalRepository } from './rental.repository.js';
+import { withOperationLock } from '../booking/bookingRequestLock.js';
+import { blockingBookingCriteria } from '../listing/availabilityRules.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -65,6 +67,16 @@ async function linkedBooking(rental) {
   return booking;
 }
 
+async function mutateRental(id, identity, role, operation) {
+  const context = await ownedRental(id, identity, role);
+  return withOperationLock('listing-decision', context.listingId, async (ensureOwned) => {
+    // Re-read state and ownership after waiting for another lifecycle action.
+    const rental = await ownedRental(id, identity, role);
+    await ensureOwned();
+    return operation(rental, ensureOwned);
+  });
+}
+
 async function assertExtensionAvailable(rental, requestedEndDate) {
   const extensionStart = new Date(rental.endDate.getTime() + dayMs);
   const exclusiveEnd = new Date(requestedEndDate.getTime() + dayMs);
@@ -81,7 +93,7 @@ async function assertExtensionAvailable(rental, requestedEndDate) {
     BookingModel.findOne({
       listingId: rental.listingId,
       publicId: { $ne: rental.bookingId },
-      status: { $in: ['approved', 'active'] },
+      ...blockingBookingCriteria(),
       startDate: { $lte: requestedEndDate },
       endDate: { $gte: extensionStart },
     }).lean(),
@@ -162,257 +174,271 @@ export const rentalService = {
   },
 
   async confirmHandover(id, input, identity) {
-    const rental = await ownedRental(id, identity, 'owner');
-    await uploadService.assertOwnedReferences(identity, input.evidence, ['handover_evidence']);
-    if (rental.listingType !== 'physical' || rental.status !== 'scheduled') {
-      throw new AppError('Handover is unavailable', 409, 'INVALID_RENTAL_STATE');
-    }
-    await assertVehicleCredential(rental, rental.endDate);
-    rental.handover = {
-      condition: input.condition,
-      notes: input.notes ?? '',
-      evidence: input.evidence,
-      recordedAt: new Date(),
-    };
-    rental.status = 'active';
-    const booking = await linkedBooking(rental);
-    await captureBookingPayment(booking);
-    booking.status = 'active';
-    booking.activatedAt = new Date();
-    await Promise.all([rental.save(), booking.save()]);
-    await notifyUser({
-      userId: rental.renterId,
-      category: 'rental',
-      type: 'rental_handover',
-      title: 'Rental handover confirmed',
-      body: `${booking.listingTitle} is now an active rental.`,
-      entityType: 'rental',
-      entityId: rental.publicId,
+    return mutateRental(id, identity, 'owner', async (rental, ensureOwned) => {
+      await uploadService.assertOwnedReferences(identity, input.evidence, ['handover_evidence']);
+      if (rental.listingType !== 'physical' || rental.status !== 'scheduled') {
+        throw new AppError('Handover is unavailable', 409, 'INVALID_RENTAL_STATE');
+      }
+      await assertVehicleCredential(rental, rental.endDate);
+      rental.handover = {
+        condition: input.condition,
+        notes: input.notes ?? '',
+        evidence: input.evidence,
+        recordedAt: new Date(),
+      };
+      rental.status = 'active';
+      const booking = await linkedBooking(rental);
+      await captureBookingPayment(booking);
+      await ensureOwned();
+      booking.status = 'active';
+      booking.activatedAt = new Date();
+      await Promise.all([rental.save(), booking.save()]);
+      await notifyUser({
+        userId: rental.renterId,
+        category: 'rental',
+        type: 'rental_handover',
+        title: 'Rental handover confirmed',
+        body: `${booking.listingTitle} is now an active rental.`,
+        entityType: 'rental',
+        entityId: rental.publicId,
+      });
+      return rental;
     });
-    return rental;
   },
 
   async startService(id, identity) {
-    const rental = await ownedRental(id, identity, 'owner');
-    if (rental.listingType !== 'service' || rental.status !== 'scheduled') {
-      throw new AppError('Service cannot be started', 409, 'INVALID_RENTAL_STATE');
-    }
-    rental.status = 'active';
-    const booking = await linkedBooking(rental);
-    await captureBookingPayment(booking);
-    booking.status = 'active';
-    booking.activatedAt = new Date();
-    await Promise.all([rental.save(), booking.save()]);
-    await notifyUser({
-      userId: rental.renterId,
-      category: 'rental',
-      type: 'service_started',
-      title: 'Service started',
-      body: `${booking.listingTitle} is now in progress.`,
-      entityType: 'rental',
-      entityId: rental.publicId,
+    return mutateRental(id, identity, 'owner', async (rental, ensureOwned) => {
+      if (rental.listingType !== 'service' || rental.status !== 'scheduled') {
+        throw new AppError('Service cannot be started', 409, 'INVALID_RENTAL_STATE');
+      }
+      rental.status = 'active';
+      const booking = await linkedBooking(rental);
+      await captureBookingPayment(booking);
+      await ensureOwned();
+      booking.status = 'active';
+      booking.activatedAt = new Date();
+      await Promise.all([rental.save(), booking.save()]);
+      await notifyUser({
+        userId: rental.renterId,
+        category: 'rental',
+        type: 'service_started',
+        title: 'Service started',
+        body: `${booking.listingTitle} is now in progress.`,
+        entityType: 'rental',
+        entityId: rental.publicId,
+      });
+      return rental;
     });
-    return rental;
   },
 
   async requestExtension(id, input, identity) {
-    const rental = await ownedRental(id, identity, 'renter');
-    if (
-      rental.listingType !== 'physical' ||
-      !['active', 'overdue'].includes(rental.status)
-    ) {
-      throw new AppError('Extension is unavailable', 409, 'INVALID_RENTAL_STATE');
-    }
-    if (rental.extension.status === 'pending') {
-      throw new AppError('An extension is already pending', 409, 'EXTENSION_PENDING');
-    }
-    const requestedEndDate = physicalRentalDate(input.requestedEndDate);
-    if (requestedEndDate <= rental.endDate) {
-      throw new AppError(
-        'The requested end date must be later',
-        400,
-        'INVALID_EXTENSION_DATE',
-      );
-    }
-    await assertExtensionAvailable(rental, requestedEndDate);
-    await assertVehicleCredential(rental, requestedEndDate);
-    rental.extension = {
-      requestedEndDate,
-      reason: input.reason,
-      status: 'pending',
-      requestedAt: new Date(),
-    };
-    await rental.save();
-    await notifyUser({
-      userId: rental.ownerId,
-      category: 'rental',
-      type: 'extension_requested',
-      title: 'Extension requested',
-      body: 'The renter submitted a new rental extension request.',
-      entityType: 'rental',
-      entityId: rental.publicId,
+    return mutateRental(id, identity, 'renter', async (rental) => {
+      if (
+        rental.listingType !== 'physical' ||
+        !['active', 'overdue'].includes(rental.status)
+      ) {
+        throw new AppError('Extension is unavailable', 409, 'INVALID_RENTAL_STATE');
+      }
+      if (rental.extension.status === 'pending') {
+        throw new AppError('An extension is already pending', 409, 'EXTENSION_PENDING');
+      }
+      const requestedEndDate = physicalRentalDate(input.requestedEndDate);
+      if (requestedEndDate <= rental.endDate) {
+        throw new AppError(
+          'The requested end date must be later',
+          400,
+          'INVALID_EXTENSION_DATE',
+        );
+      }
+      await assertExtensionAvailable(rental, requestedEndDate);
+      await assertVehicleCredential(rental, requestedEndDate);
+      rental.extension = {
+        requestedEndDate,
+        reason: input.reason,
+        status: 'pending',
+        requestedAt: new Date(),
+      };
+      await rental.save();
+      await notifyUser({
+        userId: rental.ownerId,
+        category: 'rental',
+        type: 'extension_requested',
+        title: 'Extension requested',
+        body: 'The renter submitted a new rental extension request.',
+        entityType: 'rental',
+        entityId: rental.publicId,
+      });
+      return rental;
     });
-    return rental;
   },
 
   async decideExtension(id, input, identity) {
-    const rental = await ownedRental(id, identity, 'owner');
-    if (rental.extension.status !== 'pending') {
-      throw new AppError('No extension is pending', 409, 'INVALID_RENTAL_STATE');
-    }
-    if (input.status === 'rejected' && !input.reason?.trim()) {
-      throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
-    }
-    if (input.status === 'approved') {
-      await assertExtensionAvailable(rental, rental.extension.requestedEndDate);
-      await assertVehicleCredential(rental, rental.extension.requestedEndDate);
-      rental.endDate = rental.extension.requestedEndDate;
-      const booking = await linkedBooking(rental);
-      booking.endDate = rental.endDate;
-      await booking.save();
-      if (rental.status === 'overdue' && rental.endDate > new Date()) {
-        rental.status = 'active';
+    return mutateRental(id, identity, 'owner', async (rental) => {
+      if (rental.listingType !== 'physical' || !['active', 'overdue'].includes(rental.status)) {
+        throw new AppError('Extension decision is unavailable', 409, 'INVALID_RENTAL_STATE');
       }
-    }
-    rental.extension.status = input.status;
-    rental.extension.ownerReason = input.reason?.trim() ?? '';
-    rental.extension.decidedAt = new Date();
-    await rental.save();
-    await notifyUser({
-      userId: rental.renterId,
-      category: 'rental',
-      type: `extension_${input.status}`,
-      title:
-        input.status === 'approved'
-          ? 'Extension approved'
-          : 'Extension declined',
-      body: `Your rental extension was ${input.status}.`,
-      entityType: 'rental',
-      entityId: rental.publicId,
+      if (rental.extension.status !== 'pending') {
+        throw new AppError('No extension is pending', 409, 'INVALID_RENTAL_STATE');
+      }
+      if (input.status === 'rejected' && !input.reason?.trim()) {
+        throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
+      }
+      if (input.status === 'approved') {
+        await assertExtensionAvailable(rental, rental.extension.requestedEndDate);
+        await assertVehicleCredential(rental, rental.extension.requestedEndDate);
+        rental.endDate = rental.extension.requestedEndDate;
+        const booking = await linkedBooking(rental);
+        booking.endDate = rental.endDate;
+        await booking.save();
+        if (rental.status === 'overdue' && rental.endDate > new Date()) {
+          rental.status = 'active';
+        }
+      }
+      rental.extension.status = input.status;
+      rental.extension.ownerReason = input.reason?.trim() ?? '';
+      rental.extension.decidedAt = new Date();
+      await rental.save();
+      await notifyUser({
+        userId: rental.renterId,
+        category: 'rental',
+        type: `extension_${input.status}`,
+        title:
+          input.status === 'approved'
+            ? 'Extension approved'
+            : 'Extension declined',
+        body: `Your rental extension was ${input.status}.`,
+        entityType: 'rental',
+        entityId: rental.publicId,
+      });
+      return rental;
     });
-    return rental;
   },
 
   async submitReturn(id, input, identity) {
-    const rental = await ownedRental(id, identity, 'renter');
-    await uploadService.assertOwnedReferences(identity, input.evidence, ['return_evidence']);
-    if (
-      rental.listingType !== 'physical' ||
-      !['active', 'overdue'].includes(rental.status)
-    ) {
-      throw new AppError('Return cannot be submitted', 409, 'INVALID_RENTAL_STATE');
-    }
-    rental.returnSubmission = {
-      condition: input.condition,
-      notes: input.notes ?? '',
-      evidence: input.evidence,
-      recordedAt: new Date(),
-    };
-    rental.status = 'return_submitted';
-    await rental.save();
-    await notifyUser({
-      userId: rental.ownerId,
-      category: 'rental',
-      type: 'return_submitted',
-      title: 'Return submitted',
-      body: 'The renter submitted return condition evidence.',
-      entityType: 'rental',
-      entityId: rental.publicId,
+    return mutateRental(id, identity, 'renter', async (rental) => {
+      await uploadService.assertOwnedReferences(identity, input.evidence, ['return_evidence']);
+      if (
+        rental.listingType !== 'physical' ||
+        !['active', 'overdue'].includes(rental.status)
+      ) {
+        throw new AppError('Return cannot be submitted', 409, 'INVALID_RENTAL_STATE');
+      }
+      rental.returnSubmission = {
+        condition: input.condition,
+        notes: input.notes ?? '',
+        evidence: input.evidence,
+        recordedAt: new Date(),
+      };
+      rental.status = 'return_submitted';
+      await rental.save();
+      await notifyUser({
+        userId: rental.ownerId,
+        category: 'rental',
+        type: 'return_submitted',
+        title: 'Return submitted',
+        body: 'The renter submitted return condition evidence.',
+        entityType: 'rental',
+        entityId: rental.publicId,
+      });
+      return rental;
     });
-    return rental;
   },
 
   async confirmReturn(id, input, identity) {
-    const rental = await ownedRental(id, identity, 'owner');
-    if (rental.listingType !== 'physical' || rental.status !== 'return_submitted') {
-      throw new AppError('Return cannot be confirmed', 409, 'INVALID_RENTAL_STATE');
-    }
-    const booking = await linkedBooking(rental);
-    if (input.depositDeduction > booking.pricing.securityDeposit) {
-      throw new AppError(
-        'Deposit deduction exceeds the security deposit',
-        400,
-        'INVALID_DEDUCTION',
+    return mutateRental(id, identity, 'owner', async (rental, ensureOwned) => {
+      if (rental.listingType !== 'physical' || rental.status !== 'return_submitted') {
+        throw new AppError('Return cannot be confirmed', 409, 'INVALID_RENTAL_STATE');
+      }
+      const booking = await linkedBooking(rental);
+      if (input.depositDeduction > booking.pricing.securityDeposit) {
+        throw new AppError(
+          'Deposit deduction exceeds the security deposit',
+          400,
+          'INVALID_DEDUCTION',
+        );
+      }
+      rental.returnOutcome = {
+        condition: input.condition,
+        notes: input.notes ?? '',
+        depositDeduction: input.depositDeduction,
+        confirmedAt: new Date(),
+      };
+      const chainResult = await blockchainAdapter.complete(
+        rental.blockchain?.contractAddress || rental.contractAddress,
+        input.depositDeduction,
       );
-    }
-    rental.returnOutcome = {
-      condition: input.condition,
-      notes: input.notes ?? '',
-      depositDeduction: input.depositDeduction,
-      confirmedAt: new Date(),
-    };
-    const chainResult = await blockchainAdapter.complete(
-      rental.blockchain?.contractAddress || rental.contractAddress,
-      input.depositDeduction,
-    );
-    rental.blockchain = { ...rental.blockchain?.toObject?.(), ...chainResult };
-    rental.transactionHash = chainResult.lastTransactionHash ?? rental.transactionHash;
-    await recordPhysicalSettlement(booking, input.depositDeduction);
-    const completedRental = await complete(rental, booking);
-    await runPostCompletionTasks(
-      [
-        notifyUser({
-          userId: rental.renterId,
-          category: 'rental',
-          type: 'rental_completed',
-          title: 'Rental completed',
-          body: `${booking.listingTitle} return was confirmed.`,
-          entityType: 'rental',
-          entityId: rental.publicId,
-          dedupeKey: `rental:${rental.publicId}:completed`,
-        }),
-        awardRentalCompletion(completedRental, booking),
-      ],
-      rental.publicId,
-    );
-    return completedRental;
+      rental.blockchain = { ...rental.blockchain?.toObject?.(), ...chainResult };
+      rental.transactionHash = chainResult.lastTransactionHash ?? rental.transactionHash;
+      await ensureOwned();
+      await recordPhysicalSettlement(booking, input.depositDeduction);
+      const completedRental = await complete(rental, booking);
+      await runPostCompletionTasks(
+        [
+          notifyUser({
+            userId: rental.renterId,
+            category: 'rental',
+            type: 'rental_completed',
+            title: 'Rental completed',
+            body: `${booking.listingTitle} return was confirmed.`,
+            entityType: 'rental',
+            entityId: rental.publicId,
+            dedupeKey: `rental:${rental.publicId}:completed`,
+          }),
+          awardRentalCompletion(completedRental, booking),
+        ],
+        rental.publicId,
+      );
+      return completedRental;
+    });
   },
 
   async markServiceDelivered(id, identity) {
-    const rental = await ownedRental(id, identity, 'owner');
-    if (rental.listingType !== 'service' || rental.status !== 'active') {
-      throw new AppError('Service delivery cannot be marked', 409, 'INVALID_RENTAL_STATE');
-    }
-    rental.status = 'completion_pending';
-    rental.serviceDeliveredAt = new Date();
-    await rental.save();
-    await notifyUser({
-      userId: rental.renterId,
-      category: 'rental',
-      type: 'service_delivered',
-      title: 'Service marked complete',
-      body: 'The Owner marked the service as delivered. Please confirm completion.',
-      entityType: 'rental',
-      entityId: rental.publicId,
+    return mutateRental(id, identity, 'owner', async (rental) => {
+      if (rental.listingType !== 'service' || rental.status !== 'active') {
+        throw new AppError('Service delivery cannot be marked', 409, 'INVALID_RENTAL_STATE');
+      }
+      rental.status = 'completion_pending';
+      rental.serviceDeliveredAt = new Date();
+      await rental.save();
+      await notifyUser({
+        userId: rental.renterId,
+        category: 'rental',
+        type: 'service_delivered',
+        title: 'Service marked complete',
+        body: 'The Owner marked the service as delivered. Please confirm completion.',
+        entityType: 'rental',
+        entityId: rental.publicId,
+      });
+      return rental;
     });
-    return rental;
   },
 
   async confirmServiceCompletion(id, identity) {
-    const rental = await ownedRental(id, identity, 'renter');
-    if (rental.listingType !== 'service' || rental.status !== 'completion_pending') {
-      throw new AppError('Service cannot be completed', 409, 'INVALID_RENTAL_STATE');
-    }
-    rental.serviceCompletedAt = new Date();
-    const booking = await linkedBooking(rental);
-    await recordServiceSettlement(booking);
-    const completedRental = await complete(rental, booking);
-    await runPostCompletionTasks(
-      [
-        notifyUser({
-          userId: rental.ownerId,
-          category: 'rental',
-          type: 'service_completed',
-          title: 'Service completion confirmed',
-          body: `${booking.listingTitle} was confirmed complete by the renter.`,
-          entityType: 'rental',
-          entityId: rental.publicId,
-          dedupeKey: `rental:${rental.publicId}:service-completed`,
-        }),
-        awardRentalCompletion(completedRental, booking),
-      ],
-      rental.publicId,
-    );
-    return completedRental;
+    return mutateRental(id, identity, 'renter', async (rental) => {
+      if (rental.listingType !== 'service' || rental.status !== 'completion_pending') {
+        throw new AppError('Service cannot be completed', 409, 'INVALID_RENTAL_STATE');
+      }
+      rental.serviceCompletedAt = new Date();
+      const booking = await linkedBooking(rental);
+      await recordServiceSettlement(booking);
+      const completedRental = await complete(rental, booking);
+      await runPostCompletionTasks(
+        [
+          notifyUser({
+            userId: rental.ownerId,
+            category: 'rental',
+            type: 'service_completed',
+            title: 'Service completion confirmed',
+            body: `${booking.listingTitle} was confirmed complete by the renter.`,
+            entityType: 'rental',
+            entityId: rental.publicId,
+            dedupeKey: `rental:${rental.publicId}:service-completed`,
+          }),
+          awardRentalCompletion(completedRental, booking),
+        ],
+        rental.publicId,
+      );
+      return completedRental;
+    });
   },
 };

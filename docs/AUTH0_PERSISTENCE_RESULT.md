@@ -147,3 +147,12 @@ below:
 
 Web Auth0 behavior, local JWT behavior, MongoDB architecture, Socket.IO,
 blockchain, payments, and XGBoost pricing were not restructured.
+
+## Constructor compatibility follow-up — 20 October 2026
+
+Web/stub gateways now accept the native constructor's `latestLinkProvider` and
+`mobileLinkPollInterval` optional hooks. The parameters are inert on those
+platforms; login/session behaviour is unchanged. This resolves the two previously
+reported whole-project analyzer errors. Full analysis is clean; all 16 persistence
+tests and the full Flutter suite (407 passed/3 skipped) pass. Web/Android debug
+builds pass. See [handoff](AUTH0_SOURCES_AND_LIFECYCLE_RESULT.md).

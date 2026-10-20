@@ -1,6 +1,6 @@
 # Automatic rental-price sources — implementation result
 
-Implemented and inspected on 12 October 2026. Product identities are separate from
+Initially implemented on 12 October 2026; source follow-up on 20 October 2026 below. Product identities are separate from
 price observations. These are **advertised asking prices**, not completed RentHub
 transactions and not a promise of current availability or a guaranteed market price.
 
@@ -16,7 +16,8 @@ The API checks due sources once a minute; each successful source is due again af
 24 hours. A ten-minute atomic MongoDB lease prevents overlapping workers, including
 different API processes. A crashed lease expires. Fetches are sequential, capped at
 20 pages/500 observations, 2 MB/page, 15 seconds/request and five minutes/collection.
-Discovery is confined to DRIVOR's allowlisted vehicle paths. Requests cannot follow
+Discovery is confined to DRIVOR's allowlisted vehicle paths and the reviewed
+iRent/12RENT product paths from category pages. Requests cannot follow
 redirects, arbitrary links, query URLs or administrator-supplied URLs. Robots restrictions
 are checked every collection, including discovered pages. A confirmed robots HTTP
 404/410 means no published robots policy, not denied access or reuse permission;
@@ -39,7 +40,7 @@ All sources remain disabled by default pending the one-time access/reuse review.
 
 | Category | Specific category | Source / current result | Fallback / test |
 | --- | --- | --- | --- |
-| Devices | Smartphones | [RENTISM](https://www.rentism.com.my/price-list/) parser usable; [iRent](https://irent.my/product-category/smartphone-rental/) adapter pending: minimum/period semantics | RentHub/estimate/manual; coverage + smartphone fixture passed |
+| Devices | Smartphones | [RENTISM](https://www.rentism.com.my/price-list/) parser usable; [iRent](https://irent.my/product-category/smartphone-rental/) explicit product-tier parser usable: 6 duration bands across 2 models in the 20 October read-only probe | RentHub/estimate/manual; coverage + smartphone/tier fixtures passed |
 | Devices | Cameras | RENTISM parser usable; camera bodies/lenses remain different product types | RentHub/estimate/manual; coverage + camera fixture passed |
 | Devices | Computers | [ITPA](https://itpa.my/pc-rental.php) usable: 3 quotes; [RentSmart electronics](https://rentsmartasia.com/product-category/rent-equipment/electronics/) pending | RentHub/estimate/manual; coverage + laptop fixture passed |
 | Devices | Audio | RENTISM microphone quotes usable; RentSmart pending | RentHub/estimate/manual; coverage + microphone fixture passed |
@@ -50,7 +51,7 @@ All sources remain disabled by default pending the one-time access/reuse review.
 | Vehicles | Bicycles | [Ecocana Sports](https://ecocanasports.com/rent) usable: 10 explicitly daily-rental bicycle quotes | RentHub/estimate/manual; coverage + bicycle fixture passed |
 | Vehicles | Other vehicles | [RentSmart scooters](https://rentsmartasia.com/product-category/rent-vehicles-vessels/scooters/) adapter pending: retrieval/currency/period not validated | RentHub/estimate/manual; registry + unavailable fallback tested |
 | Equipment | Event equipment | [The Rental Guy](https://therentalguy.com.my/av-solution/) usable: 7 specification quotes, one unsupported type excluded; [PC Rent](https://www.pcrent.com.my/home/rental_rates) usable: 3 specification-only daily projector quotes after missing-robots handling fix | RentHub/estimate/manual; coverage + projector/type fixtures passed |
-| Equipment | Tools | [JomRentPro](https://jomrentpro.com/) cordless-drill quote usable; [12RENT](https://toolrent.instantestore.com/cat-power-tools.cfm) pending: sale/deposit/period ambiguity | RentHub/estimate/manual; coverage + equipment-only drill fixture passed |
+| Equipment | Tools | [JomRentPro](https://jomrentpro.com/) cordless-drill quote usable; [12RENT](https://toolrent.instantestore.com/cat-power-tools.cfm) labelled lease/minimum-period parser implemented, but current malformed robots response blocks collection | RentHub/estimate/manual; coverage + labelled drill/period fixtures passed |
 | Equipment | Sports equipment | [RentSmart sports](https://rentsmartasia.com/product-category/rentals/sports/) adapter pending; no automatic quotes currently accepted | RentHub/estimate/manual; registry + unavailable fallback tested |
 | Equipment | Other equipment | JomRentPro cleaning-equipment quotes usable; total 6 accepted across cleaning/tools, one unknown type excluded | RentHub/estimate/manual; coverage + washer fixture passed |
 | Books | Textbooks | No verified Malaysian per-title rental source | RentHub/estimate/manual; no-source strategy tested |
@@ -210,3 +211,21 @@ progress/error/retry in a long list at mobile width have regression coverage.
 Final Flutter Web build passed (existing socket.io Wasm dry-run warning). Source-local
 failure layouts were inspected at 360/390/1024px. Full analysis still reports only
 the two unrelated Auth0 test named-parameter errors documented above.
+
+## 20 October 2026: adapter completion and current blockers
+
+See [Auth0/source/lifecycle handoff](AUTH0_SOURCES_AND_LIFECYCLE_RESULT.md) for
+current probes, exact source semantics, setup and test results. This section
+supersedes historical pending-adapter/analyzer statements above.
+
+iRent now yields six explicit product/duration-band quotes in a bounded seven-page
+read-only probe. Headline minimums and ambiguous yearly tiers are excluded. 12RENT's
+lease-field parser is implemented, but an HTTP-200 robots response containing
+unrendered template markup blocks automatic collection. RentSmart's directly
+retrieved old/current public category pages are empty; it remains unavailable,
+and search-index excerpts are not imported. Unsupported-source diagnostics are
+now explicit rather than silent. No live source was enabled or imported.
+
+Flutter analysis is now clean after matching Auth0 constructor signatures. Full
+verification: API 389 passed/3 skipped; AI 482 passed; Flutter 407 passed/3 skipped;
+Web and Android debug builds passed. Existing Wasm/Kotlin warnings remain.

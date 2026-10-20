@@ -6,6 +6,7 @@ import { notifyUser } from '../communication/notification.service.js';
 import { UserModel } from '../user/user.model.js';
 import { PAYMENT_STATUSES, PAYMENT_TYPES } from './payment.model.js';
 import { paymentRepository } from './payment.repository.js';
+import { withOperationLock } from '../booking/bookingRequestLock.js';
 
 function transactionId(type) {
   const code = {
@@ -290,58 +291,75 @@ export const paymentService = {
     if (!capture || capture.type !== 'capture' || capture.status !== 'succeeded') {
       throw new AppError('Captured transaction not found', 404, 'NOT_FOUND');
     }
-    const idempotencyKey = input.idempotencyKey;
-    const existing = await paymentRepository.findByIdempotencyKey(idempotencyKey);
-    if (existing) {
-      if (
-        existing.type !== 'refund' ||
-        existing.parentTransactionId !== capture.publicId
-      ) {
-        throw new AppError(
-          'Idempotency key is already in use',
-          409,
-          'IDEMPOTENCY_CONFLICT',
-        );
+    return withOperationLock('capture-refund', capture.publicId, async (ensureOwned) => {
+      const idempotencyKey = input.idempotencyKey;
+      const existing = await paymentRepository.findByIdempotencyKey(idempotencyKey);
+      const requestedAmount = input.amount == null ? 'remaining' : String(input.amount);
+      if (existing) {
+        if (
+          existing.type !== 'refund' ||
+          existing.parentTransactionId !== capture.publicId ||
+          (existing.metadata?.get('requestedAmount') != null
+            ? existing.metadata.get('requestedAmount') !== requestedAmount
+            : input.amount != null && existing.amount !== input.amount) ||
+          existing.reason !== input.reason
+        ) {
+          throw new AppError(
+            'Idempotency key is already in use',
+            409,
+            'IDEMPOTENCY_CONFLICT',
+          );
+        }
       }
-      return existing;
-    }
-    const refunded = await paymentRepository.sumRefunds(capture.publicId);
-    const refundable = Math.max(capture.amount - refunded, 0);
-    const amount = input.amount ?? refundable;
-    if (amount <= 0 || amount > refundable) {
-      throw new AppError('Refund amount exceeds the refundable balance', 400, 'INVALID_REFUND');
-    }
-    const gateway = await paymentAdapter.refund({ amount });
-    const refund = await paymentRepository.create({
-      publicId: transactionId('refund'),
-      bookingId: capture.bookingId,
-      payerId: capture.payeeId,
-      payeeId: capture.payerId,
-      type: 'refund',
-      amount,
-      method: 'system',
-      status: gateway.status,
-      gatewayReference: gateway.id,
-      idempotencyKey,
-      parentTransactionId: capture.publicId,
-      reason: input.reason,
-      simulated: true,
+      const refunded = await paymentRepository.sumRefunds(capture.publicId);
+      const refundableCents = Math.max(Math.round(capture.amount * 100) - Math.round(refunded * 100), 0);
+      const amountCents = input.amount == null ? refundableCents : Math.round(input.amount * 100);
+      if (!existing && (amountCents <= 0 || amountCents > refundableCents)) {
+        throw new AppError('Refund amount exceeds the refundable balance', 400, 'INVALID_REFUND');
+      }
+      const amount = amountCents / 100;
+      let refund = existing;
+      if (!refund) {
+        await ensureOwned();
+        const gateway = await paymentAdapter.refund({ amount });
+        await ensureOwned();
+        refund = await paymentRepository.create({
+          publicId: transactionId('refund'),
+          bookingId: capture.bookingId,
+          payerId: capture.payeeId,
+          payeeId: capture.payerId,
+          type: 'refund',
+          amount,
+          method: 'system',
+          status: gateway.status,
+          gatewayReference: gateway.id,
+          idempotencyKey,
+          parentTransactionId: capture.publicId,
+          reason: input.reason,
+          metadata: { requestedAmount },
+          simulated: true,
+        });
+      }
+      if (refund.status !== 'succeeded') return refund;
+      // Reconcile a durable refund whose booking-status update was interrupted.
+      const totalRefundedCents = Math.round((await paymentRepository.sumRefunds(capture.publicId)) * 100);
+      await ensureOwned();
+      const booking = await BookingModel.findOneAndUpdate({ publicId: capture.bookingId }, {
+        $set: { paymentStatus: totalRefundedCents >= Math.round(capture.amount * 100) ? 'refunded' : 'partially_refunded' },
+      }, { new: true });
+      if (booking) {
+        await notifyUser({
+          userId: booking.renterId,
+          category: 'payment',
+          type: 'payment_refunded',
+          title: 'Refund processed',
+          body: `RM ${refund.amount.toFixed(2)} was refunded for ${booking.listingTitle}.`,
+          entityType: 'payment',
+          entityId: refund.publicId,
+          dedupeKey: `refund:${refund.publicId}:processed`,
+        });
+      }
+      return refund;
     });
-    const booking = await BookingModel.findOne({ publicId: capture.bookingId });
-    if (booking) {
-      booking.paymentStatus =
-        refunded + amount >= capture.amount ? 'refunded' : 'partially_refunded';
-      await booking.save();
-      await notifyUser({
-        userId: booking.renterId,
-        category: 'payment',
-        type: 'payment_refunded',
-        title: 'Refund processed',
-        body: `RM ${amount.toFixed(2)} was refunded for ${booking.listingTitle}.`,
-        entityType: 'payment',
-        entityId: refund.publicId,
-      });
-    }
-    return refund;
   },
 };
