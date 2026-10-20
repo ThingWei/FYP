@@ -56,7 +56,7 @@ Assert-Launcher (-not (Test-RentHubAiCompatible @{
     status = 'error'; document_frame_contract = 'opencv-document-yolo-v6'
 })) 'Unhealthy service must fail'
 Assert-Launcher (Test-RentHubAiCompatible @{
-    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v6'; driving_licence_contract = 'malaysian-driving-ocr-v1'; recommendation_contract = 'hybrid-profile-v2'
+    status = 'ok'; document_frame_contract = 'opencv-document-yolo-v6'; driving_licence_contract = 'malaysian-driving-ocr-v1'; recommendation_contract = 'hybrid-profile-v2'; item_verification_contract = 'renthub-item-evidence-v4'
 }) 'Current contract must pass'
 
 Assert-Launcher (-not (Test-RentHubAiCompatible @{
@@ -77,7 +77,12 @@ $licenceSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScri
 $licenceContract = [regex]::Match($licenceSource, "CONTRACT = '([^']+)'").Groups[1].Value
 $recommendationSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot '..\..\..\services\ai\app\services\recommendation.py')
 $recommendationContract = [regex]::Match($recommendationSource, "CONTRACT = '([^']+)'").Groups[1].Value
-Assert-Launcher (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract; recommendation_contract = $recommendationContract }) 'Launcher must accept current Python scanner, licence and recommendation contracts'
+$itemSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot '..\..\..\services\ai\app\services\item_verification.py')
+$itemContract = [regex]::Match($itemSource, "CONTRACT = '([^']+)'").Groups[1].Value
+Assert-Launcher (-not [string]::IsNullOrWhiteSpace($itemContract)) 'Item evidence contract must be discoverable'
+Assert-Launcher (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract; recommendation_contract = $recommendationContract; item_verification_contract = $itemContract }) 'Launcher must accept current Python scanner, licence, recommendation and item contracts'
+Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract; recommendation_contract = $recommendationContract })) 'Missing item evidence contract must fail'
+Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract; recommendation_contract = $recommendationContract; item_verification_contract = 'renthub-item-evidence-v3' })) 'Old item evidence without advisory World handling must fail'
 Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = $licenceContract })) 'Missing profile-aware recommendation service must fail'
 Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract })) 'Missing licence contract must fail'
 Assert-Launcher (-not (Test-RentHubAiCompatible @{ status = 'ok'; document_frame_contract = $serviceContract; driving_licence_contract = 'old' })) 'Old licence contract must fail'

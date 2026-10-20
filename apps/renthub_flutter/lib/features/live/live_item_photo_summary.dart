@@ -79,6 +79,13 @@ class ItemPhotoSummary {
       result.add('This item type needs a manual check.');
       result.add(photoGuidance(listing.category));
     }
+    if (fields['openVocabularyEvidenceUsed'] == true) {
+      result.add('An admin will check the suggested item type.');
+    }
+    if (fields['syntheticRiskOnly'] == true) {
+      result
+          .add('The photo-risk check is experimental. Admin review is needed.');
+    }
     if (result.isEmpty && _signals.contains('focus, lighting or resolution')) {
       result.add('Use clear, well-lit photos of the whole item.');
     }

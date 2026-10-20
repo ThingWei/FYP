@@ -11,7 +11,7 @@ from pathlib import Path
 from ..schemas import VerificationResponse
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTRACT = 'renthub-item-evidence-v3'
+CONTRACT = 'renthub-item-evidence-v4'
 RISK_CONTRACT = 'renthub-item-risk-v1'
 THRESHOLD = 0.55
 DETECTOR_LOCK = Lock()
@@ -86,6 +86,7 @@ def detector_vocabulary(detector):
 def category_coverage(category, subcategory, detectors):
     allowed = expected_labels(category, subcategory)
     sources = [{'source': source, 'version': version,
+                'labelScope': 'prompted_not_finetuned' if source == 'yolo_world_pretrained' else 'detector_vocabulary',
                 'matchingLabels': sorted(allowed & detector_vocabulary(model))}
                for model, source, version in detectors]
     matched = sorted(set().union(*(set(row['matchingLabels']) for row in sources))) if sources else []
@@ -94,6 +95,8 @@ def category_coverage(category, subcategory, detectors):
         'strategy': 'object_detection_then_admin_review' if matched else 'manual_review',
         'status': 'limited_object_labels' if matched else 'no_matching_labels',
         'matchingLabels': matched, 'sources': sources,
+        'openVocabularyOnly': bool(matched) and not any(
+            row['matchingLabels'] for row in sources if row['source'] != 'yolo_world_pretrained'),
         'allProductsCovered': False,
         'evaluationStatus': 'subcategory_accuracy_not_established',
         'specificCategoryVerified': False,
@@ -126,6 +129,13 @@ def verification_detectors(detector, status):
             result.append((model, 'general_pretrained', fallback.name))
         except Exception:
             pass  # Optional supplement cannot invalidate the configured detector.
+    if status.get('world', {}).get('available'):
+        from .item_world import artifact_path as world_path, load_world, SOURCE
+        path = world_path()
+        try:
+            result.append((load_world(path, path.stat().st_mtime_ns), SOURCE, path.name))
+        except Exception:
+            pass  # Prepared artifact disappeared; no automatic download/fallback pass.
     return result
 
 
@@ -149,7 +159,7 @@ def original_box(box, image, turns):
 
 
 def detect_photo(image, allowed, detectors):
-    """At most two local models x four orientations; no threshold reduction.
+    """At most three local models x four orientations; no threshold reduction.
 
     Stop on positive object evidence. Repeated predictions never become extra
     views or corroboration. A miss remains inconclusive, not a category mismatch.
@@ -159,38 +169,42 @@ def detect_photo(image, allowed, detectors):
     eligible = [entry for entry in detectors if allowed & detector_vocabulary(entry[0])]
     # Unknown categories still receive one ordinary detection for admin context.
     candidates = eligible or detectors[:1]
-    for turns in ((0, 1, 3, 2) if eligible else (0,)):
-        for model, source, version in candidates:
-            attempts += 1
-            try:
-                with DETECTOR_LOCK:
-                    result = model.predict(np.ascontiguousarray(np.rot90(image, turns)),
-                                           verbose=False, conf=THRESHOLD, device='cpu', max_det=20)[0]
-                for box in result.boxes:
-                    label = str(result.names[int(box.cls.item())])
-                    score = float(box.conf.item())
-                    if not math.isfinite(score) or not THRESHOLD <= score <= 1:
-                        continue
-                    detection = {'label': label, 'confidence': round(score, 4),
-                                 'matchesCategory': normalize(label) in allowed,
-                                 'source': source, 'modelVersion': version,
-                                 'rotationDegrees': turns * 90}
-                    try:
-                        bounds = original_box(box, image, turns)
-                        if bounds is not None:
-                            detection['boundingBox'] = bounds
-                    except (AttributeError, TypeError, ValueError, IndexError):
-                        pass
-                    # Keep strongest evidence per label, not eight copies of it.
-                    previous = next((d for d in detections if d['label'] == label), None)
-                    if previous is None:
-                        detections.append(detection)
-                    elif score > previous['confidence']:
-                        detections[detections.index(previous)] = detection
-                if any(d['matchesCategory'] for d in detections):
-                    return detections, attempts, failures
-            except Exception:
-                failures += 1
+    # Exhaust ordinary detectors/orientations BEFORE open vocabulary, so an
+    # already-working trained detector is never replaced by a prompted score.
+    phases = ([entry for entry in candidates if entry[1] != 'yolo_world_pretrained'],
+              [entry for entry in candidates if entry[1] == 'yolo_world_pretrained'])
+    plan = [(turns, entry) for phase in phases
+            for turns in ((0, 1, 3, 2) if eligible else (0,)) for entry in phase]
+    for turns, (model, source, version) in plan:
+        attempts += 1
+        try:
+            with DETECTOR_LOCK:
+                result = model.predict(np.ascontiguousarray(np.rot90(image, turns)),
+                                       verbose=False, conf=THRESHOLD, device='cpu', max_det=20)[0]
+            for box in result.boxes:
+                label = str(result.names[int(box.cls.item())])
+                score = float(box.conf.item())
+                if not math.isfinite(score) or not THRESHOLD <= score <= 1:
+                    continue
+                detection = {'label': label, 'confidence': round(score, 4),
+                             'matchesCategory': normalize(label) in allowed,
+                             'source': source, 'modelVersion': version,
+                             'rotationDegrees': turns * 90}
+                try:
+                    bounds = original_box(box, image, turns)
+                    if bounds is not None:
+                        detection['boundingBox'] = bounds
+                except (AttributeError, TypeError, ValueError, IndexError):
+                    pass
+                previous = next((d for d in detections if d['label'] == label), None)
+                if previous is None:
+                    detections.append(detection)
+                elif score > previous['confidence']:
+                    detections[detections.index(previous)] = detection
+            if any(d['matchesCategory'] for d in detections):
+                return detections, attempts, failures
+        except Exception:
+            failures += 1
     return detections, attempts, failures
 
 
@@ -271,9 +285,13 @@ def models_status():
         'riskClassifierVersion': risk_path.name if risk is not None else None,
         'riskTrainingSource': metadata.get('sourceTypes', []),
         'riskEvaluation': metadata.get('testMetrics', {}),
+        'riskEvaluationScope': metadata.get('evaluationScope', 'not_established'),
+        'riskEvaluationBySource': metadata.get('testMetricsBySourceType', {}),
         'detectorIssue': detector_issue,
         'riskClassifierIssue': risk_issue,
     }
+    from .item_world import availability as world_availability
+    _, status['world'] = world_availability()
     detectors = verification_detectors(detector, status)
     status['detectors'] = [{'source': source, 'version': version,
                             'labels': sorted(detector_vocabulary(model))}
@@ -377,6 +395,15 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         indicators.append('Some supplied images could not be decoded')
     complete = detector is not None and risk is not None and supported and not failures
     all_views_match = all(e['categoryMatched'] is True for e in per_image)
+    world_used = any(d['matchesCategory'] and d.get('source') == 'yolo_world_pretrained'
+                     for e in per_image for d in e['detections'])
+    fields['openVocabularyEvidenceUsed'] = world_used
+    if world_used:
+        reasons.append('Open-vocabulary evidence is uncalibrated for RentHub; administrator review is mandatory')
+    research_risk = status.get('riskTrainingSource') == ['synthetic_manipulation']
+    fields['syntheticRiskOnly'] = research_risk
+    if research_risk:
+        reasons.append('Item-risk classifier has only synthetic training evidence; independent real evaluation is missing')
     submitted_views = max(len(request.images), len(decoded))
     matched_views = sum(e['categoryMatched'] is True for e in per_image)
     fields.update({
@@ -391,7 +418,7 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
     reasons.append('Detection scores are not calibrated authenticity probabilities. '
                    'Illustrations, wallpapers and screenshots can produce confident false detections; '
                    'review the highlighted region in every photo.')
-    accepted = complete and all_views_match and not indicators
+    accepted = complete and all_views_match and not indicators and not world_used and not research_risk
     outcome = 'approved_candidate' if accepted else (
         'warning' if indicators else 'manual_review')
     if accepted:

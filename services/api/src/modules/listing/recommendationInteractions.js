@@ -36,11 +36,16 @@ function retainHigherConfidence(map, interaction) {
   const nextRule = RECOMMENDATION_INTERACTION_RULES[interaction.interactionType];
   const existingRule = existing &&
     RECOMMENDATION_INTERACTION_RULES[existing.interactionType];
+  const sourcePriority = { marketplace: 2, demo_seed: 1, synthetic: 0 };
+  const nextSource = sourcePriority[interaction.sourceType] ?? -1;
+  const previousSource = existing ? sourcePriority[existing.sourceType] ?? -1 : -1;
   if (
     !existing ||
-    nextRule.precedence > existingRule.precedence ||
-    (nextRule.precedence === existingRule.precedence &&
-      interaction.observedAt > existing.observedAt)
+    nextSource > previousSource ||
+    (nextSource === previousSource && (
+      nextRule.precedence > existingRule.precedence ||
+      (nextRule.precedence === existingRule.precedence &&
+        interaction.observedAt > existing.observedAt)))
   ) {
     map.set(key, interaction);
   }

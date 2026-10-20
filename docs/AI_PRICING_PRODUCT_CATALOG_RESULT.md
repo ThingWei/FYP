@@ -651,3 +651,16 @@ Malaysian-market accuracy.
 - Flutter: 91 passed, 2 intentionally skipped;
 - Flutter analyzer: no issues;
 - OpenAPI YAML: parsed successfully.
+
+## Evidence export follow-up — 20 October 2026
+
+See [Pricing/recommendation evidence results](PRICING_AND_RECOMMENDATION_EVIDENCE_RESULT.md).
+The pricing exporter now includes eligible reviewed/automated advertised references,
+retains source/package/duration provenance and keeps them separate from completed
+rentals. A bounded read-only check found 332 external references, three platform
+asking prices, four accepted bookings and one eligible completed physical rental.
+No history, live price model or saved metrics were changed. Future training reports
+separate target-source metrics; additional completed-rental evidence and stricter
+forward-time evaluation remain necessary. Earlier dataset figures above are historical.
+Verification: full AI suite 482 passed; full API suite 375 passed and three
+optional tests skipped. Flutter source was unchanged and builds were not rerun.

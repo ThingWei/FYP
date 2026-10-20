@@ -48,6 +48,19 @@ FEATURES = CATEGORICAL_FEATURES + NUMERIC_FEATURES
 REQUIRED_COLUMNS = FEATURES + [
     'daily_price', 'source_type', 'target_source', 'observed_at', 'group_id',
 ]
+PROVENANCE_COLUMNS = [
+    'canonicalProductId', 'productMatchType', 'identity_level', 'product_type',
+    'collection_method', 'source_name', 'source_url', 'package_notes',
+    'quoted_rental_days', 'duration_feature_basis', 'duration_min_days', 'duration_max_days',
+    'available_at', 'marketplace_active_listing_count', 'external_asking_price_count',
+    'active_comparable_tier', 'historical_comparable_tier',
+]
+
+
+def _observation_columns(frame):
+    # Duration bands with the same daily rate are distinct advertised offers.
+    return ['group_id', 'observed_at', 'daily_price', 'target_source',
+            'rental_duration_days'] + [c for c in ['duration_min_days', 'duration_max_days'] if c in frame]
 
 
 def _synthetic_rows(rows: int, seed: int) -> pd.DataFrame:
@@ -154,7 +167,7 @@ def _real_rows(path: Path | None) -> pd.DataFrame:
     for column in REQUIRED_COLUMNS:
         if column not in frame:
             frame[column] = np.nan
-    return frame[REQUIRED_COLUMNS]
+    return frame[REQUIRED_COLUMNS + [c for c in PROVENANCE_COLUMNS if c in frame]]
 
 
 def validate_dataset(frame: pd.DataFrame) -> dict:
@@ -163,12 +176,24 @@ def validate_dataset(frame: pd.DataFrame) -> dict:
         raise ValueError(f'Missing pricing columns: {missing}')
     if frame.empty:
         raise ValueError('Pricing dataset is empty')
+    valid_sources = {'synthetic', 'real', 'demo_seed', 'external_asking_price'}
+    if not frame['source_type'].isin(valid_sources).all():
+        raise ValueError('Unknown or missing pricing provenance')
+    expected = {
+        'synthetic': {'synthetic_seed'},
+        'real': {'active_asking', 'accepted_booking', 'completed_rental'},
+        'demo_seed': {'demo_seed_active_asking', 'demo_seed_accepted_booking', 'demo_seed_completed_rental'},
+        'external_asking_price': {'external_asking_price'},
+    }
+    if any(not group['target_source'].isin(expected[source]).all()
+           for source, group in frame.groupby('source_type')):
+        raise ValueError('Pricing source/target provenance mismatch')
     frame['daily_price'] = pd.to_numeric(frame['daily_price'], errors='coerce')
     invalid_target = (~np.isfinite(frame['daily_price'])) | (frame['daily_price'] <= 0)
     if invalid_target.any():
         raise ValueError(f'Invalid daily-price rows: {int(invalid_target.sum())}')
     duplicate_count = int(frame.duplicated(
-        subset=['group_id', 'observed_at', 'daily_price', 'target_source'],
+        subset=_observation_columns(frame),
     ).sum())
     if duplicate_count:
         raise ValueError(f'Duplicate pricing observations: {duplicate_count}')
@@ -185,6 +210,7 @@ def validate_dataset(frame: pd.DataFrame) -> dict:
         'rows': int(len(frame)),
         'sourceTypes': frame['source_type'].value_counts(dropna=False).to_dict(),
         'targetSources': frame['target_source'].value_counts(dropna=False).to_dict(),
+        'provenanceNote': 'Source labels are not independent verification of financial transactions',
         'categories': frame['category'].value_counts(dropna=False).to_dict(),
         'target': {
             'minimum': float(frame['daily_price'].min()),
@@ -202,7 +228,7 @@ def validate_dataset(frame: pd.DataFrame) -> dict:
 
 def prepare_dataset(real_export: Path | None, synthetic_rows: int, seed: int = SEED):
     real = _real_rows(real_export)
-    frames = [real.dropna(axis=1, how='all')] if not real.empty else []
+    frames = [real] if not real.empty else []
     if synthetic_rows:
         frames.append(_synthetic_rows(synthetic_rows, seed))
     if not frames:
@@ -210,7 +236,7 @@ def prepare_dataset(real_export: Path | None, synthetic_rows: int, seed: int = S
     frame = pd.concat(frames, ignore_index=True)
     frame = frame.dropna(subset=['category', 'daily_price', 'observed_at', 'group_id'])
     frame = frame.drop_duplicates(
-        subset=['group_id', 'observed_at', 'daily_price', 'target_source'],
+        subset=_observation_columns(frame),
     ).reset_index(drop=True)
     summary = validate_dataset(frame)
     fingerprint_source = frame.sort_values(

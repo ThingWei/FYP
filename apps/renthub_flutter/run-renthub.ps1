@@ -77,7 +77,8 @@ function Test-RentHubAiCompatible {
     return $null -ne $Health -and $Health.status -eq 'ok' -and `
         $Health.document_frame_contract -eq 'opencv-document-yolo-v6' -and `
         $Health.driving_licence_contract -eq 'malaysian-driving-ocr-v1' -and `
-        $Health.recommendation_contract -eq 'hybrid-profile-v2'
+        $Health.recommendation_contract -eq 'hybrid-profile-v2' -and `
+        $Health.item_verification_contract -eq 'renthub-item-evidence-v4'
 }
 
 function Get-RentHubAiArguments {
@@ -362,13 +363,13 @@ try {
     if (-not $SkipAi) {
         $aiHealth = Get-RentHubAiHealth
         if (Test-RentHubAiCompatible -Health $aiHealth) {
-            Write-Host 'RentHub AI service is already ready with current scanner, licence and recommendation contracts on port 8001.' -ForegroundColor Green
+            Write-Host 'RentHub AI service is already ready with current scanner, licence, recommendation and item-photo contracts on port 8001.' -ForegroundColor Green
             Write-Host 'Reusing the existing AI process. Its original owner controls reload and shutdown.' -ForegroundColor DarkGray
         }
         else {
             if (Test-RentHubTcpPort -HostName '127.0.0.1' -Port 8001) {
                 if ($null -ne $aiHealth -and $aiHealth.status -eq 'ok') {
-                    throw "The AI service on port 8001 has incompatible service contracts. Required scanner=opencv-document-yolo-v6, licence=malaysian-driving-ocr-v1, recommendation=hybrid-profile-v2; reported '$($aiHealth.document_frame_contract)', '$($aiHealth.driving_licence_contract)', '$($aiHealth.recommendation_contract)'. Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. No existing service was stopped."
+                    throw "The AI service on port 8001 has incompatible service contracts. Required scanner=opencv-document-yolo-v6, licence=malaysian-driving-ocr-v1, recommendation=hybrid-profile-v2, item=renthub-item-evidence-v4; reported '$($aiHealth.document_frame_contract)', '$($aiHealth.driving_licence_contract)', '$($aiHealth.recommendation_contract)', '$($aiHealth.item_verification_contract)'. Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. No existing service was stopped."
                 }
                 throw 'Port 8001 is occupied by an unhealthy or different service. Stop the identified owning process before rerunning this launcher. Do not start a second AI server on that port.'
             }
@@ -412,14 +413,21 @@ try {
                     'No AI error log was produced.'
                 }
                 $readinessDetails = if ($null -ne $aiHealth) {
-                    "Health status: '$($aiHealth.status)'; scanner='$($aiHealth.document_frame_contract)', licence='$($aiHealth.driving_licence_contract)', recommendation='$($aiHealth.recommendation_contract)'. Required: opencv-document-yolo-v6, malaysian-driving-ocr-v1, hybrid-profile-v2."
+                    "Health status: '$($aiHealth.status)'; scanner='$($aiHealth.document_frame_contract)', licence='$($aiHealth.driving_licence_contract)', recommendation='$($aiHealth.recommendation_contract)', item='$($aiHealth.item_verification_contract)'. Required: opencv-document-yolo-v6, malaysian-driving-ocr-v1, hybrid-profile-v2, renthub-item-evidence-v4."
                 }
                 else {
                     'No health response was received from http://127.0.0.1:8001/health.'
                 }
                 throw "The AI service did not become ready. $readinessDetails Review $aiErrorLog.`n$details"
             }
-            Write-Host 'RentHub AI service is ready with current scanner, licence and recommendation contracts.' -ForegroundColor Green
+            Write-Host 'RentHub AI service is ready with current scanner, licence, recommendation and item-photo contracts.' -ForegroundColor Green
+        }
+
+        if ($aiHealth.item_verification_status.world.available) {
+            Write-Host 'Optional YOLO-World item fallback is prepared locally (advisory; administrator review required).' -ForegroundColor DarkGray
+        }
+        else {
+            Write-Warning 'Optional YOLO-World fallback is not prepared/enabled. Existing item checks and manual review remain available; the launcher will not download weights.'
         }
 
         if ($aiHealth.artifacts.price_model -eq $true) {

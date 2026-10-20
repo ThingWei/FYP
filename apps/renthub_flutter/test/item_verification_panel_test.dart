@@ -12,6 +12,30 @@ import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
 
 void main() {
+  test('prompted types and synthetic-only risk remain clear review messages',
+      () {
+    final summary = ItemPhotoSummary(const Listing(
+        id: 'prompted',
+        title: 'Console',
+        category: 'Devices',
+        dailyPrice: 10,
+        itemVerificationOutcome: 'manual_review',
+        itemVerification: {
+          'extracted_fields': {
+            'openVocabularyEvidenceUsed': true,
+            'syntheticRiskOnly': true,
+            'categoryMatchStatus': 'all_views_detected'
+          }
+        }));
+    expect(summary.notes,
+        contains('An admin will check the suggested item type.'));
+    expect(
+        summary.notes,
+        contains(
+            'The photo-risk check is experimental. Admin review is needed.'));
+    expect(summary.notes.join(' '), isNot(contains('YOLO')));
+    expect(summary.explanation, isNot(contains('No issues')));
+  });
   final listing = Listing.fromJson({
     'id': 'l-fixture',
     'title': 'Vehicle photo check',
@@ -281,6 +305,8 @@ void main() {
           itemVerification: {
             'extracted_fields': {
               'categoryMatchStatus': 'partial_views',
+              'openVocabularyEvidenceUsed': true,
+              'syntheticRiskOnly': true,
               'matchingViewCount': 1,
               'submittedViewCount': 3,
               'images': [

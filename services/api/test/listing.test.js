@@ -524,8 +524,9 @@ test('all 22 physical subcategories forward stored photos and retain inconclusiv
         assert.equal(payload.category, category);
         assert.equal(payload.subcategory, subcategory);
         assert.deepEqual(payload.images, photos);
-        return { adapter: 'renthub-item-evidence-v3', accepted: false, outcome: 'manual_review',
+        return { adapter: 'renthub-item-evidence-v4', accepted: false, outcome: 'manual_review',
           extracted_fields: { categoryMatched: null, categoryMatchStatus: 'partial_views',
+            openVocabularyEvidenceUsed: true,
             matchingViewCount: 1, submittedViewCount: 3, unconfirmedViewCount: 2,
             authenticityVerified: false, adminReviewRequired: true,
             categoryCoverage: { allProductsCovered: false, specificCategoryVerified: false } },
@@ -539,6 +540,7 @@ test('all 22 physical subcategories forward stored photos and retain inconclusiv
       assert.equal(submitted.body.data.status, 'pending_review');
       const evidence = submitted.body.data.itemVerification;
       assert.equal(evidence.extracted_fields.categoryMatched, null);
+      assert.equal(evidence.extracted_fields.openVocabularyEvidenceUsed, true);
       assert.equal(evidence.extracted_fields.categoryCoverage.allProductsCovered, false);
       assert.deepEqual(evidence.risk_indicators, []);
       assert.equal(submitted.body.data.itemVerificationHistory.length, 1);

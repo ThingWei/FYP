@@ -65,7 +65,7 @@ def _load_export(path: Path | None) -> list[dict]:
     if path is None or not path.is_file():
         return []
     payload = json.loads(path.read_text(encoding='utf-8'))
-    rows = payload.get('rows', payload if isinstance(payload, list) else [])
+    rows = payload if isinstance(payload, list) else payload.get('rows', [])
     return [{
         'user_id': row.get('userId', row.get('user_id')),
         'item_id': row.get('listingId', row.get('item_id')),
@@ -111,10 +111,15 @@ def _canonicalize(rows: list[dict]) -> tuple[pd.DataFrame, int]:
     discarded = int((~valid).sum())
     frame = frame.loc[valid].copy()
     frame['precedence'] = frame['interaction_type'].map(INTERACTION_PRECEDENCE)
+    # A demo/synthetic record must not replace a marketplace observation for
+    # the same pair. Stronger-signal precedence still applies within a source.
+    frame['source_priority'] = frame['source_type'].map(
+        {'synthetic': 0, 'demo_seed': 1, 'marketplace': 2},
+    )
     frame = frame.sort_values(
-        ['user_id', 'item_id', 'precedence', 'observed_at'],
+        ['user_id', 'item_id', 'source_priority', 'precedence', 'observed_at'],
     ).drop_duplicates(['user_id', 'item_id'], keep='last')
-    frame = frame.drop(columns='precedence').sort_values(
+    frame = frame.drop(columns=['precedence', 'source_priority']).sort_values(
         ['user_id', 'observed_at', 'item_id'],
     ).reset_index(drop=True)
     return frame, discarded

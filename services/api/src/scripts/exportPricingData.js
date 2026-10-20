@@ -1,211 +1,66 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { connectDatabase, disconnectDatabase } from '../config/database.js';
-import { BookingModel } from '../modules/booking/booking.model.js';
-import { ListingModel } from '../modules/listing/listing.model.js';
-import { ReviewModel } from '../modules/review/review.model.js';
-import {
-  PRICING_COMPLETED_PAYMENT_STATUSES,
-  robustPriceStats,
-  selectComparableTier,
-} from '../modules/listing/pricingEvidence.js';
+import mongoose from 'mongoose';
+import { env } from '../config/env.js';
+import { PRICE_SOURCES } from '../modules/listing/priceSources.registry.js';
+import { buildPricingTrainingExport } from '../modules/listing/pricingTrainingExport.js';
 
-const ELIGIBLE_BOOKING_PAYMENT_STATUSES = [
-  'authorized',
-  ...PRICING_COMPLETED_PAYMENT_STATUSES,
-];
-
-function rentalDays(booking) {
-  const milliseconds = new Date(booking.endDate) - new Date(booking.startDate);
-  return Math.max(1, Math.floor(milliseconds / 86_400_000) + 1);
-}
-
-function safeDate(...values) {
-  return values
-    .map((value) => value && new Date(value))
-    .find((value) => value && !Number.isNaN(value.getTime()));
-}
-
-function anonymousGroup(value) {
-  return createHash('sha256').update(String(value)).digest('hex').slice(0, 20);
-}
-
-function baseRow(listing, observedAt, dailyPrice, targetSource, sourceType) {
-  return {
-    category: listing.category,
-    subcategory: listing.subcategory || 'Unknown',
-    condition: listing.condition || 'Unknown',
-    brand: listing.brand || 'Unknown',
-    product_model: listing.productModel || listing.title,
-    canonicalProductId: listing.canonicalProductId ?? null,
-    productMatchType: listing.productMatchType ?? 'manual_entry',
-    state: listing.state || 'Unknown',
-    location: listing.location || listing.state || 'Unknown',
-    item_age_years: listing.itemAgeYears ?? null,
-    // No point-in-time trust-score snapshot exists yet; leave it missing rather
-    // than leaking the Owner's current score into a historical observation.
-    owner_trust_score: null,
-    owner_average_rating: 0,
-    owner_completed_rentals: 0,
-    daily_price: dailyPrice,
-    source_type: sourceType === 'demo_seed' ? 'demo_seed' : 'real',
-    target_source: targetSource,
-    observed_at: observedAt.toISOString(),
-    group_id: `listing:${anonymousGroup(listing.publicId)}`,
-    listingId: listing.publicId,
-    ownerId: listing.ownerId,
+export async function readPricingTrainingExport(db, { limit = 10000, now = new Date() } = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100000) throw new Error('Limit must be 1–100000');
+  const read = async (collection, query, projection) => {
+    const rows = await db.collection(collection).find(query, { projection }).sort({ _id: 1 }).limit(limit + 1).toArray();
+    if (rows.length > limit) throw new Error('Export limit exceeded; no partial export written. Increase --limit deliberately.');
+    return rows;
   };
-}
-
-async function exportRows() {
-  const [listings, bookings, ownerReviews] = await Promise.all([
-    ListingModel.find({ listingType: 'physical' })
-      .select('publicId ownerId title category subcategory condition brand productModel canonicalProductId productMatchType itemAgeYears location state dailyPrice status sourceType createdAt updatedAt')
-      .lean(),
-    BookingModel.find({
-      listingType: 'physical',
-      status: { $in: ['completed', 'active', 'approved'] },
-      paymentStatus: { $in: ELIGIBLE_BOOKING_PAYMENT_STATUSES },
-      'pricing.baseAmount': { $gt: 0 },
-    })
-      .select('listingId status startDate endDate pricing.baseAmount completedAt decidedAt sourceType createdAt')
-      .lean(),
-    ReviewModel.find({
-      subjectRole: 'owner',
-      status: 'published',
-    })
-      .select('subjectId overallRating createdAt')
-      .lean(),
+  const [listings, bookings, reviews, references, sources] = await Promise.all([
+    read('listings', { listingType: 'physical' }, { publicId: 1, ownerId: 1, title: 1, listingType: 1,
+      category: 1, subcategory: 1, brand: 1, productModel: 1, canonicalProductId: 1, condition: 1,
+      itemAgeYears: 1, 'locationDetails.city': 1, state: 1, dailyPrice: 1, status: 1, sourceType: 1, createdAt: 1, updatedAt: 1 }),
+    read('bookings', { listingType: 'physical', status: { $in: ['completed', 'active', 'approved'] } },
+      { listingId: 1, status: 1, startDate: 1, endDate: 1, 'pricing.baseAmount': 1, paymentStatus: 1,
+        completedAt: 1, decidedAt: 1, sourceType: 1, createdAt: 1 }),
+    read('reviews', { subjectRole: 'owner', status: 'published' }, { subjectId: 1, overallRating: 1, createdAt: 1 }),
+    read('pricing_references', { active: true }, { publicId: 1, observationKey: 1, sourceType: 1,
+      category: 1, subcategory: 1, brand: 1, productModel: 1, canonicalProductId: 1, condition: 1, itemAgeYears: 1,
+      state: 1, quotedAmount: 1, rentalDurationDays: 1, dailyPrice: 1, currency: 1, country: 1, sourceName: 1,
+      sourceUrl: 1, observedAt: 1, createdAt: 1, packageNotes: 1, active: 1, collectionMethod: 1, sourceId: 1,
+      sourceProductKey: 1, productType: 1, identityLevel: 1, validationStatus: 1, validatedAt: 1,
+      durationMinDays: 1, durationMaxDays: 1, reviewedAt: 1, reviewedBy: 1 }),
+    read('pricing_sources', { enabled: true }, { sourceId: 1 }),
   ]);
-  const byId = new Map(listings.map((listing) => [listing.publicId, listing]));
-  const observations = [];
-  for (const booking of bookings) {
-    const listing = byId.get(booking.listingId);
-    if (!listing) continue;
-    const dailyPrice = booking.pricing.baseAmount / rentalDays(booking);
-    if (!Number.isFinite(dailyPrice) || dailyPrice <= 0) continue;
-    const completed = booking.status === 'completed';
-    const observedAt = safeDate(
-      completed && booking.completedAt,
-      booking.decidedAt,
-      booking.createdAt,
-    );
-    if (!observedAt) continue;
-    observations.push({
-      ...baseRow(
-        listing,
-        observedAt,
-        dailyPrice,
-        booking.sourceType === 'demo_seed'
-          ? completed ? 'demo_seed_completed_rental' : 'demo_seed_accepted_booking'
-          : completed ? 'completed_rental' : 'accepted_booking',
-        booking.sourceType,
-      ),
-      rental_duration_days: rentalDays(booking),
-    });
-  }
-  for (const listing of listings.filter((item) => item.status === 'active')) {
-    const observedAt = safeDate(listing.updatedAt, listing.createdAt);
-    if (!observedAt || !Number.isFinite(listing.dailyPrice) || listing.dailyPrice <= 0) continue;
-    observations.push({
-      ...baseRow(
-        listing,
-        observedAt,
-        listing.dailyPrice,
-        listing.sourceType === 'demo_seed'
-          ? 'demo_seed_active_asking'
-          : 'active_asking',
-        listing.sourceType,
-      ),
-      rental_duration_days: 1,
-    });
-  }
-  observations.sort((left, right) => new Date(left.observed_at) - new Date(right.observed_at));
-  const prepared = [];
-  for (const observation of observations) {
-    const at = new Date(observation.observed_at);
-    const prior = prepared.filter(
-      (candidate) =>
-        new Date(candidate.observed_at) < at &&
-        candidate.listingId !== observation.listingId &&
-        candidate.category === observation.category,
-    );
-    const profile = {
-      ...observation,
-      product_model: observation.product_model,
-    };
-    const activeTier = selectComparableTier(
-      prior.filter((item) => ['active_asking', 'demo_seed_active_asking'].includes(item.target_source)).map((item) => ({
-        ...item,
-        productModel: item.product_model,
-        dailyPrice: item.daily_price,
-      })),
-      profile,
-    );
-    const historicalTier = selectComparableTier(
-      prior.filter((item) => ['completed_rental', 'demo_seed_completed_rental'].includes(item.target_source)).map((item) => ({
-        ...item,
-        productModel: item.product_model,
-        dailyPrice: item.daily_price,
-      })),
-      profile,
-    );
-    const active = robustPriceStats(activeTier.items.map((item) => item.dailyPrice));
-    const historical = robustPriceStats(historicalTier.items.map((item) => item.dailyPrice));
-    const evidenceDates = [...activeTier.items, ...historicalTier.items]
-      .map((item) => new Date(item.observed_at))
-      .filter((date) => !Number.isNaN(date.getTime()));
-    const freshestEvidence = evidenceDates.length
-      ? new Date(Math.max(...evidenceDates.map((date) => date.getTime())))
-      : null;
-    const priorOwnerReviews = ownerReviews.filter(
-      (review) =>
-        review.subjectId === observation.ownerId &&
-        new Date(review.createdAt) < at,
-    );
-    const ownerAverageRating = priorOwnerReviews.length
-      ? priorOwnerReviews.reduce((sum, review) => sum + review.overallRating, 0) /
-        priorOwnerReviews.length
-      : 0;
-    const ownerCompletedRentals = prior.filter(
-      (candidate) =>
-        candidate.ownerId === observation.ownerId &&
-        ['completed_rental', 'demo_seed_completed_rental'].includes(candidate.target_source),
-    ).length;
-    prepared.push({
-      ...observation,
-      comparable_active_count: active.count,
-      comparable_active_median: active.median,
-      comparable_active_mean: active.mean,
-      comparable_active_iqr: active.iqr,
-      historical_rental_count: historical.count,
-      historical_rental_median: historical.median,
-      historical_rental_mean: historical.mean,
-      historical_rental_iqr: historical.iqr,
-      market_freshness_days: freshestEvidence
-        ? Math.max(0, Math.floor((at - freshestEvidence) / 86_400_000))
-        : null,
-      demand_supply_ratio: historical.count / Math.max(active.count, 1),
-      owner_average_rating: ownerAverageRating,
-      owner_completed_rentals: ownerCompletedRentals,
-      prediction_month: at.getUTCMonth() + 1,
-    });
-  }
-  return prepared.map(({ listingId: _listingId, ownerId: _ownerId, ...row }) => row);
+  const approved = new Set(PRICE_SOURCES.filter((s) => s.adapter && env.priceSyncApprovedSources.includes(s.id)).map((s) => s.id));
+  return buildPricingTrainingExport({ listings, bookings, reviews, references, now,
+    enabledSourceIds: sources.filter((s) => approved.has(s.sourceId)).map((s) => s.sourceId) });
 }
 
-const outputArgument = process.argv[2];
-const output = path.resolve(outputArgument || '.data/pricing_observations.json');
-try {
-  await connectDatabase();
-  const rows = await exportRows();
-  await mkdir(path.dirname(output), { recursive: true });
-  await writeFile(output, JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    rows,
-  }, null, 2));
-  console.log(JSON.stringify({ output, rows: rows.length }));
-} finally {
-  await disconnectDatabase();
+export async function main(args = process.argv.slice(2)) {
+  let output = '.data/pricing_observations.json', summaryOnly = false, limit = 10000;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--summary-only') summaryOnly = true;
+    else if (arg === '--limit' || arg.startsWith('--limit=')) limit = Number(arg.includes('=') ? arg.split('=')[1] : args[++i]);
+    else if (arg === '--output') output = args[++i];
+    else if (!arg.startsWith('-') && i === 0) output = arg; // Existing positional path remains supported.
+    else throw new Error('Use [output-path] [--summary-only] [--limit N] or --output PATH');
+  }
+  if (!output) throw new Error('An output path is required');
+  // Native read-only queries: importing this script never initializes Mongoose
+  // schemas/indexes or collections, unlike connecting exported model classes.
+  const client = new mongoose.mongo.MongoClient(env.mongoUri, { serverSelectionTimeoutMS: 10000 });
+  try {
+    await client.connect();
+    const payload = await readPricingTrainingExport(client.db(), { limit });
+    if (!summaryOnly) {
+      const destination = path.resolve(output);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(destination, JSON.stringify(payload, null, 2));
+    }
+    console.log(JSON.stringify({ ...payload.summary, databaseWrites: 0, fileWritten: !summaryOnly }));
+    return payload.summary;
+  } finally { await client.close(); }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(() => { console.error('Pricing export failed; check configuration, limits and source validity. No database writes were requested.'); process.exitCode = 1; });
 }

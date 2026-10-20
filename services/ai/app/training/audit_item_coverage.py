@@ -15,8 +15,11 @@ def main():
     missing = [f"{row['category']}/{row['subcategory']}" for row in matrix
                if not row['matchingLabels']]
     print(json.dumps({'contract': CONTRACT, 'detectors': status['detectors'],
+                      'world': status.get('world', {}),
                       'riskClassifierAvailable': status['riskClassifierAvailable'],
                       'categoryCount': len(matrix), 'categoriesWithoutLabels': missing,
+                      'openVocabularyOnlyCategories': [f"{r['category']}/{r['subcategory']}"
+                                                      for r in matrix if r.get('openVocabularyOnly')],
                       'coverage': matrix,
                       'warning': 'Label coverage is not real-photo accuracy or authenticity verification.'},
                      indent=2))

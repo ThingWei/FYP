@@ -102,6 +102,14 @@ def main():
         'preprocessing': 'rgb-224-imagenet-v1',
         'seed': args.seed,
         'sourceTypes': sorted({r['source_type'] for rows in splits.values() for r in rows}),
+        'evaluationScope': (
+            'synthetic_only' if all(r['source_type'] == 'synthetic_manipulation' for rows in splits.values() for r in rows)
+            else 'reviewed_real_only' if all(r['source_type'] == 'reviewed_real' for rows in splits.values() for r in rows)
+            else 'mixed_provenance'),
+        'labelDefinitions': {
+            'normal': 'No labelled alteration; NOT proof of authenticity, ownership or condition',
+            'risky': 'Labelled photo-risk signal; synthetic edits are NOT real counterfeit evidence'},
+        'itemLevelGroupingVerified': False,
         'splitImageCounts': {name: len(rows) for name, rows in splits.items()},
         'splitItemCounts': {name: len({r['item_id'] for r in rows}) for name, rows in splits.items()},
         'testMetrics': {
@@ -114,6 +122,15 @@ def main():
                        'Synthetic evaluation is not real-world tamper accuracy',
                        'Normal is not proof of authenticity or ownership'],
     }
+    test_rows = splits['test']
+    metadata['testMetricsBySourceType'] = {}
+    for source in sorted({row['source_type'] for row in test_rows}):
+        positions = [i for i, row in enumerate(test_rows) if row['source_type'] == source]
+        observed, inferred = [actual[i] for i in positions], [predicted[i] for i in positions]
+        metadata['testMetricsBySourceType'][source] = {
+            'samples': len(positions), 'accuracy': float(accuracy_score(observed, inferred)),
+            'macroF1': float(f1_score(observed, inferred, labels=[0, 1], average='macro', zero_division=0)),
+            'confusionMatrix': confusion_matrix(observed, inferred, labels=[0, 1]).tolist()}
     root = Path(__file__).resolve().parents[2]
     (root / 'models').mkdir(exist_ok=True)
     (root / 'metrics').mkdir(exist_ok=True)

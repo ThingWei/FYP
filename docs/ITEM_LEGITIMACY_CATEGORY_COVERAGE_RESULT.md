@@ -1,5 +1,12 @@
 # Item-photo checks: category coverage and detail views
 
+20 October follow-up: [offline YOLO-World and item-risk preparation](ITEM_WORLD_AND_RISK_PREPARATION_RESULT.md)
+adds the prepared optional fallback and v4 contract. All 22 domains now have
+configured prompts, but real-photo testing remains incomplete; the bounded local
+comparison did not show improved hybrid localization. This 15 October matrix
+below remains the historical **fixed-model** label audit, not today's prompted
+vocabulary coverage or a full-accuracy claim.
+
 Updated: 15 October 2026. Contract: `renthub-item-evidence-v3`.
 
 ## Outcome and important limit

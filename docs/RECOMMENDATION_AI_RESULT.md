@@ -325,3 +325,22 @@ A practical FYP retraining cycle is:
 ## Home refresh reliability follow-up — 15 October 2026
 
 See [Home/cards/notification results](HOME_CARDS_NOTIFICATIONS_RESULT.md) for per-section successful freshness, coalesced requests, post-write activity refreshes, retained results on transient failure and eligible AI-ID fallback checks. Ranking weights and fitted artifacts are unchanged; this work fixes refresh/presentation reliability rather than claiming better learned accuracy or fabricating history.
+
+## Source-separated evaluation follow-up — 20 October 2026
+
+See [Pricing/recommendation evidence results](PRICING_AND_RECOMMENDATION_EVIDENCE_RESULT.md)
+for commands and measured results. `--evaluate-only` leaves deployed models,
+production metrics and generated training CSVs untouched. Reports now separate
+marketplace/demo/synthetic holdouts and provide an independent marketplace-only
+fit with a train-mean baseline. Express/Python provenance precedence prevents a
+demo signal from replacing a marketplace observation for the same pair.
+
+The saved 6 October export contains 11 marketplace-labelled interactions; only
+three reach the holdout. Marketplace-only MAE was 0.68264 versus mean-baseline
+MAE 0.66667. This is too sparse to claim improvement. The existing deployed
+artifact already knew all 723 combined holdout pairs, so its comparison is
+explicitly rejected as non-independent. Artifact/metrics hashes did not change.
+This is SVD-only, per-user-time evaluation, not a full hybrid-feed or globally
+chronological validation. More consented real activity is still required.
+Verification: full AI suite 482 passed; full API suite 375 passed and three
+optional tests skipped. Existing unrelated Auth0 analyzer errors were not changed.

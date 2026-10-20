@@ -34,6 +34,39 @@ hard-coded confidence values when a model is missing.
 
 ## Create the local research artifacts
 
+### Optional broader item detector and separate risk-data preparation
+
+The existing trained/general item detectors remain first. A prepared local
+YOLO-World artifact can supply advisory fallback evidence; prompted matches never
+automatically pass a listing. No request/launcher downloads weights or changes
+text prompts. One-time setup (roughly 400 MB) from this directory:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-item-world.txt
+.\.venv\Scripts\python.exe -m app.training.prepare_item_world --download
+.\.venv\Scripts\python.exe -m app.training.audit_item_coverage
+```
+
+Set `ITEM_WORLD_ENABLED=false` to disable it; the default prepared path is
+`models/item_world_offline.pt`. This artifact is already prepared on the current
+workstation, not committed to Git. Prompts are configured for 22 subcategories,
+not claimed as successful real-photo validation for all 22.
+
+Read-only evaluation and synthetic ITEM risk preview:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.training.evaluate_item_recognition --dataset-yaml .data/datasets/open_images_items_v1/data.yaml --per-class 3
+.\.venv\Scripts\python.exe -m app.training.prepare_item_risk .data/datasets/open_images_items_v1/data.yaml --per-class 3
+```
+
+The risk preview creates/trains nothing. Generation requires an explicit opt-in,
+source permission and subsequent pair/group review. Synthetic-only risk scores
+remain experimental and cannot clear a candidate. See the
+[full setup, measured results and remaining data gaps](../../docs/ITEM_WORLD_AND_RISK_PREPARATION_RESULT.md)
+before generation or training. MyKad weights/data are not item-risk substitutes.
+
+### Existing training commands
+
 From `services/ai`, create a Python 3.11 virtual environment, install
 `requirements.txt`, then run:
 
@@ -117,6 +150,23 @@ and deterministic synthetic rows separately. It saves the SVD artifact only
 after atomic write, reload, and smoke inference succeed. See
 `../../docs/RECOMMENDATION_AI_RESULT.md` for the current measured results and
 cold-start limitations.
+
+For a safe offline check without replacing the running recommendation artifact:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.training.train_recommendation --evaluate-only
+.\.venv\Scripts\python.exe -m app.training.train_recommendation --evaluate-only --no-synthetic
+```
+
+Reports separate marketplace, demo and synthetic evidence and include a separate
+marketplace-only experiment. Optional `--report .data/new-evaluation.json` creates
+a new file only (existing files and deployed models/metrics/data are protected).
+The input defaults to the existing API export, not a fresh MongoDB export.
+Do not remove `--evaluate-only` unless intentionally training and deploying.
+Pricing exports support `npm.cmd run export:pricing-data -- --summary-only` in
+`services/api` for a bounded read-only count, including eligible external asking
+prices without turning them into transactions. See
+`../../docs/PRICING_AND_RECOMMENDATION_EVIDENCE_RESULT.md` for measured limitations.
 
 Set `EASYOCR_ALLOW_DOWNLOAD=true` only when an intentional first-run model
 download is acceptable. All uploads are sent to this service as authenticated

@@ -44,6 +44,7 @@ TARGET_SOURCE_WEIGHTS = {
     'completed_rental': 1.0,
     'accepted_booking': 0.75,
     'active_asking': 0.45,
+    'external_asking_price': 0.45,  # Advertised asking price, not an achieved rental.
     'synthetic_seed': 0.35,
     'demo_seed_completed_rental': 0.35,
     'demo_seed_accepted_booking': 0.25,
@@ -321,6 +322,13 @@ def train_price(frame: pd.DataFrame, models: Path, metrics_dir: Path, seed: int,
             )
             for source in sorted(test['source_type'].unique())
             if len(test[test['source_type'] == source]) >= 2
+        },
+        'targetSources': {
+            source: _metric_block(
+                test.loc[test['target_source'] == source, 'daily_price'],
+                global_model.predict(test.loc[test['target_source'] == source, FEATURES]),
+            )
+            for source in sorted(test['target_source'].unique())
         },
         'predictionInterval': {
             'quantile': CALIBRATION_QUANTILE,

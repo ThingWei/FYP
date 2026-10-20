@@ -1,0 +1,5 @@
+# Optional, one-time offline-vocabulary preparation only. Runtime uses embedded
+# embeddings and does not import CLIP. Existing torch/ultralytics are retained.
+ftfy==6.3.1
+regex==2024.11.6
+clip @ git+https://github.com/openai/CLIP.git@d05afc436d78f1c48dc0dbf8e5980a9d471f35f6

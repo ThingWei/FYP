@@ -1,5 +1,10 @@
 # RentHub item-photo verification — implementation result
 
+20 October follow-up: [YOLO-World and item-risk preparation](ITEM_WORLD_AND_RISK_PREPARATION_RESULT.md)
+records the prepared optional model, v4 contract, actual bounded evaluation and
+separate preview-only risk dataset workflow. Prompt availability is not complete
+real-photo coverage or authenticity verification.
+
 15 October category-coverage follow-up: see
 [all-category audit and detail-view fixes](ITEM_LEGITIMACY_CATEGORY_COVERAGE_RESULT.md).
 It supersedes the historical local-artifact inventory below: the custom detector
