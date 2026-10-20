@@ -29,6 +29,7 @@ const claimSchema = new mongoose.Schema(
     },
     status: { type: String, enum: CLAIM_STATUSES, default: 'pending', index: true },
     decision: {
+      payoutStatus: { type: String, enum: ['pending_funding', 'not_applicable'], default: 'not_applicable' },
       reason: { type: String, trim: true, maxlength: 1000 },
       approvedAmount: { type: Number, min: 0, default: 0 },
       decidedBy: String,

@@ -2582,21 +2582,32 @@ class _OwnerRentalCard extends StatelessWidget {
             onPressed: () => _run(
               context,
               'extension-decision',
-              body: const {
+              body: {
                 'status': 'rejected',
                 'reason': 'The item is committed to another renter',
+                if (rental.extension != null)
+                  'extensionId': rental.extension!.id,
               },
             ),
             child: const Text('Reject Extension'),
           ),
           FilledButton(
-            onPressed: () => _run(
-              context,
-              'extension-decision',
-              body: const {'status': 'approved'},
-            ),
+            onPressed: rental.extension?.paymentStatus != 'authorized'
+                ? null
+                : () => _run(
+                      context,
+                      'extension-decision',
+                      body: {
+                        'status': 'approved',
+                        if (rental.extension != null)
+                          'extensionId': rental.extension!.id
+                      },
+                    ),
             child: const Text('Approve Extension'),
           ),
+          Text(rental.extension?.paymentStatus == 'authorized'
+              ? 'Extra days: ${formatMoney(rental.extension!.amount)} demo payment ready'
+              : 'Awaiting renter payment for extra days'),
         ],
       );
     }

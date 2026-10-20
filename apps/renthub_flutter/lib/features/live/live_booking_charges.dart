@@ -14,9 +14,11 @@ class LivePaymentSummary extends StatelessWidget {
             Text(
                 switch (payment.type) {
                   'refund' => 'Refund',
+                  'dispute_release' => 'Dispute refund',
                   'deposit_release' => 'Deposit returned',
                   'deposit_deduction' => 'Deposit deduction',
                   'owner_settlement' => 'Owner earnings',
+                  'platform_retention' => 'Platform fee retained',
                   'capture' => 'Payment collected',
                   _ => 'Payment update'
                 },
@@ -63,7 +65,23 @@ class LiveBookingCharges extends StatelessWidget {
         const Text(
             'The detailed charge breakdown is unavailable for this record.'),
       const Divider(),
-      row('Total (MYR)', booking.total),
+      row(
+          booking.extensionCharges.isEmpty
+              ? 'Total (MYR)'
+              : 'Original booking total',
+          booking.total),
+      for (final extension in booking.extensionCharges)
+        row('Approved extra days (${extension.extraDays})', extension.amount),
+      if (booking.extensionCharges.isNotEmpty) ...[
+        const Divider(),
+        row(
+            'Charges including extra days',
+            booking.total +
+                booking.extensionCharges.fold<double>(
+                    0, (sum, extension) => sum + extension.amount)),
+        const Text(
+            'Refunds and payouts are shown separately in payment history.'),
+      ],
     ]);
   }
 }

@@ -76,6 +76,7 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   int _accountGeneration = 0;
+  final Map<String, String> _refundAttemptKeys = {};
   int _workspaceGeneration = 0;
   final renterWorkspace = BookingWorkspaceState();
   final ownerWorkspace = BookingWorkspaceState();
@@ -1180,6 +1181,7 @@ class LiveRentHubController extends ChangeNotifier {
                     start: item.start,
                     end: item.end,
                     extensionStatus: item.extensionStatus,
+                    extension: item.extension,
                     blockchainStatus: item.blockchainStatus,
                     contractAddress: item.contractAddress,
                     blockchainTransactionHash: item.blockchainTransactionHash,
@@ -1694,11 +1696,66 @@ class LiveRentHubController extends ChangeNotifier {
           'service-completion' => '/rentals/${rental.id}/service-completion',
           _ => throw ArgumentError('Unknown rental action: $action'),
         };
-        await api.request(method, path, body: body);
+        try {
+          await api.request(method, path, body: body);
+        } catch (_) {
+          // Read status after an uncertain outcome; never repeat the write.
+          if (_sameAccount(account)) {
+            try {
+              final updated = Rental.fromJson(await api.request(
+                  'GET', '/rentals/${rental.id}') as Map<String, dynamic>);
+              if (_sameAccount(account)) {
+                _replaceRental(updated);
+                await getBooking(rental.bookingId);
+              }
+            } catch (_) {/* Keep the cached draft and original failure. */}
+          }
+          rethrow;
+        }
         if (!_sameAccount(account)) return;
         await _reloadBookingState(owner ? ownerWorkspace : renterWorkspace,
             owner: owner);
       });
+
+  Future<Rental> extensionRental(String id) async {
+    final account = _accountGeneration;
+    final rental = Rental.fromJson(
+        await api.request('GET', '/rentals/$id') as Map<String, dynamic>);
+    if (!_sameAccount(account) ||
+        profile == null ||
+        rental.renterId != profile!.id) {
+      throw ApiException(403, 'This payment belongs to another renter.',
+          code: 'FORBIDDEN');
+    }
+    return rental;
+  }
+
+  Future<Rental> payExtension(Rental rental,
+      {required String method,
+      required String outcome,
+      required String attemptKey}) async {
+    final account = _accountGeneration;
+    if (profile == null || rental.renterId != profile!.id) {
+      throw ApiException(403, 'Only the renter can pay this extension.',
+          code: 'FORBIDDEN');
+    }
+    final updated = Rental.fromJson(await api
+        .request('POST', '/rentals/${rental.id}/extensions/payment', body: {
+      'extensionId': rental.extension!.id,
+      'method': method,
+      'simulationOutcome': outcome,
+      'idempotencyKey': attemptKey,
+    }) as Map<String, dynamic>);
+    if (!_sameAccount(account)) {
+      throw ApiException(401, 'Your session changed.');
+    }
+    await _reloadBookingState(renterWorkspace, owner: false);
+    return updated;
+  }
+
+  Future<Map<String, dynamic>> paymentBalance(String bookingId) async =>
+      Map<String, dynamic>.from(await api.request(
+          'GET', '/payments/booking/$bookingId/balance') as Map);
 
   Future<List<Message>> loadMessages(String threadId) async => _models(
         await api.request('GET', '/messages/threads/$threadId/messages'),
@@ -2141,16 +2198,19 @@ class LiveRentHubController extends ChangeNotifier {
     String reason,
   ) =>
       _perform(() async {
+        final scope = '${profile?.id}:$id:$amount:$reason';
+        final attemptKey =
+            _refundAttemptKeys.putIfAbsent(scope, newCheckoutIdempotencyKey);
         await api.request(
           'POST',
           '/payments/$id/refunds',
           body: {
             'amount': amount,
             'reason': reason,
-            'idempotencyKey':
-                'admin-refund:$id:${DateTime.now().millisecondsSinceEpoch}',
+            'idempotencyKey': attemptKey,
           },
         );
+        _refundAttemptKeys.remove(scope);
         await loadAdmin();
       });
 

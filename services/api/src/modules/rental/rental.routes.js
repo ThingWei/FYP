@@ -4,6 +4,7 @@ import { validate } from '../../middleware/validate.js';
 import { rentalController } from './rental.controller.js';
 import {
   extensionDecisionValidation,
+  extensionPaymentValidation,
   extensionRequestValidation,
   handoverValidation,
   listRentalsValidation,
@@ -70,6 +71,7 @@ rentalRouter.patch(
   validate,
   rentalController.decideExtension,
 );
+rentalRouter.post('/:id/extensions/payment', authenticate, authorize('renter'), extensionPaymentValidation, validate, rentalController.payExtension);
 rentalRouter.post(
   '/:id/return',
   authenticate,

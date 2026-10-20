@@ -38,8 +38,17 @@ export const extensionRequestValidation = [
 
 export const extensionDecisionValidation = [
   rentalId,
+  body('extensionId').optional().isString().matches(/^EXT-[a-f0-9-]{36}$/i),
   body('status').isIn(['approved', 'rejected']),
   body('reason').optional().custom(textInput).bail().trim().isLength({ max: 500 }),
+];
+
+export const extensionPaymentValidation = [
+  rentalId,
+  body('extensionId').isString().matches(/^EXT-[a-f0-9-]{36}$/i),
+  body('method').isIn(['card', 'fpx', 'wallet']),
+  body('simulationOutcome').isIn(['success', 'declined']),
+  body('idempotencyKey').custom(textInput).bail().trim().isLength({ min: 8, max: 100 }).matches(/^[a-zA-Z0-9:_-]+$/),
 ];
 
 export const returnConfirmationValidation = [

@@ -148,6 +148,11 @@ update on retry without creating another refund or duplicate notification.
 
 ### Remaining policy/financial gaps — not silently invented
 
+The list below records the state at the earlier review. The subsequent approved
+implementation addresses these four items; see
+`PAID_EXTENSIONS_AND_SETTLEMENT_RECOVERY_RESULT.md` for the current workflow,
+verification and remaining real-payment/blockchain/legacy limitations.
+
 - **Extension billing:** approval currently changes end dates without an additional
   checkout or extra rental payment. This pre-existing behaviour is unchanged; a
   charging/acceptance policy and extension-payment workflow need a separate decision.

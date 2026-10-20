@@ -30,6 +30,14 @@ const evidenceSchema = new mongoose.Schema(
 
 const extensionSchema = new mongoose.Schema(
   {
+    id: String,
+    previousEndDate: Date,
+    extraDays: { type: Number, min: 1 },
+    dailyRate: { type: Number, min: 0 },
+    amount: { type: Number, min: 0 },
+    paymentStatus: { type: String, enum: ['unpaid', 'authorized', 'captured', 'voided'], default: 'unpaid' },
+    authorizationId: String,
+    expiresAt: Date,
     requestedEndDate: Date,
     reason: { type: String, trim: true, maxlength: 500, default: '' },
     status: {
@@ -46,6 +54,7 @@ const extensionSchema = new mongoose.Schema(
 
 const rentalSchema = new mongoose.Schema(
   {
+    lifecycleRevision: { type: Number, default: 0, select: false },
     publicId: { type: String, required: true, unique: true },
     bookingId: { type: String, required: true, unique: true, index: true },
     listingId: { type: String, required: true, index: true },
@@ -68,6 +77,7 @@ const rentalSchema = new mongoose.Schema(
     serviceDeliveredAt: Date,
     serviceCompletedAt: Date,
     extension: { type: extensionSchema, default: () => ({ status: 'none' }) },
+    extensionHistory: { type: [extensionSchema], default: [] },
     automation: {
       startReminderSentAt: Date,
       dueReminderSentAt: Date,
@@ -106,6 +116,7 @@ const rentalSchema = new mongoose.Schema(
         value.id = value.publicId;
         delete value._id;
         delete value.__v;
+        delete value.lifecycleRevision;
         return value;
       },
     },

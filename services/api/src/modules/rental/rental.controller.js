@@ -6,6 +6,7 @@ import { rentalService } from './rental.service.js';
 const bodyData = (req) => matchedData(req, { locations: ['body'] });
 
 export const rentalController = {
+  payExtension: asyncHandler(async (req, res) => ok(res, await rentalService.payExtension(req.params.id, bodyData(req), req.user))),
   get: asyncHandler(async (req, res) =>
     ok(res, await rentalService.get(req.params.id, req.user)),
   ),

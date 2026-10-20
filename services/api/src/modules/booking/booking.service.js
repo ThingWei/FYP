@@ -11,7 +11,7 @@ import {
   ensureBookingThread,
   notifyUser,
 } from '../communication/notification.service.js';
-import { voidBookingPayment } from '../payment/payment.service.js';
+import { prepareVoidBookingPayment } from '../payment/payment.service.js';
 import { UserModel } from '../user/user.model.js';
 import { assertDrivingEligibility } from '../user/drivingEligibility.js';
 import { PlatformSettingModel } from '../admin/platformSetting.model.js';
@@ -25,6 +25,7 @@ import { bookingRepository } from './booking.repository.js';
 import { agreementTerms } from './agreementTerms.js';
 import { presentBooking } from '../../core/location.js';
 import { withBookingRequestLock, withOperationLock } from './bookingRequestLock.js';
+import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -121,7 +122,7 @@ function bookingDates(listing, input) {
   return { startDate, endDate };
 }
 
-async function expireCompetingPhysicalRequests(approvedBooking) {
+export async function expireCompetingPhysicalRequests(approvedBooking, ensureOwned = async () => {}) {
   if (approvedBooking.listingType !== 'physical') return [];
   const candidates = await bookingRepository.findCompetingPending({
     listingId: approvedBooking.listingId,
@@ -134,15 +135,12 @@ async function expireCompetingPhysicalRequests(approvedBooking) {
   const reason =
     'Automatically expired because another overlapping request was approved.';
   for (const candidate of candidates) {
-    const claimed = await bookingRepository.claimPendingAsExpired(
-      candidate.publicId,
-      expiredAt,
-      reason,
-    );
-    if (!claimed) continue;
-    await voidBookingPayment(claimed);
-    await claimed.save();
-    await notifyUser({
+    const claimed = candidate;
+    claimed.status = 'expired';
+    claimed.expiredAt = expiredAt;
+    claimed.cancellationReason = reason;
+    const voidedPayment = await prepareVoidBookingPayment(claimed);
+    await commitLifecycle(`competing-expiry:${claimed._id}`, claimed.listingId, [...(voidedPayment ? [voidedPayment] : []), claimed], ensureOwned, { notifications: [{
       userId: claimed.renterId,
       category: 'booking',
       type: 'booking_dates_unavailable',
@@ -151,7 +149,7 @@ async function expireCompetingPhysicalRequests(approvedBooking) {
       entityType: 'booking',
       entityId: claimed.publicId,
       dedupeKey: `booking_dates_unavailable:${claimed.publicId}:${claimed.renterId}`,
-    });
+    }] });
     expired.push(claimed);
   }
   return expired;
@@ -193,6 +191,8 @@ function pricing(listing, startDate, endDate, waiverSelected, fulfilmentMethod) 
       : 0;
   return {
     baseAmount,
+    originalRentalDays: rentalDays,
+    originalDailyRate: money(dailyPrice),
     securityDeposit: money(listing.securityDeposit),
     damageWaiverFee,
     platformFee: 0,
@@ -316,39 +316,45 @@ async function createBooking(input, identity, ensureLockOwned) {
     let booking;
     await ensureLockOwned();
     try {
-      booking = await bookingRepository.create({
-        publicId: publicId(listing.listingType, startDate),
-        listingId: listing.publicId,
-        listingTitle: listing.title,
-        listingType: listing.listingType,
-        category: listing.category,
-        requiredLicenceClass: listing.requiredLicenceClass,
-        renterId: renter.authId,
-        renterName: renter.displayName,
-        ownerId: listing.ownerId,
-        ownerName: ownerNameSnapshot,
-        idempotencyKey: input.idempotencyKey,
-        idempotencyFingerprint: fingerprint,
-        startDate,
-        endDate,
-        fulfilmentMethod: input.fulfilmentMethod,
-        serviceVenueMode: listing.listingType === 'service' ? venueMode : undefined,
-        serviceVenue: listing.listingType === 'service' ? venueMode === 'online' ? (input.serviceVenue || 'Online') : venueMode === 'owner_location' ? (pickup?.displayAddress ?? listing.location) : input.serviceLocation.displayAddress : undefined,
-        serviceLocation: venueMode === 'online' ? undefined : input.serviceLocation,
-        deliveryLocation: input.deliveryLocation,
-        pickupLocationSnapshot: pickup,
-        damageWaiverSelected: waiverSelected,
-        renterNote: input.renterNote ?? '',
-        agreement: {
-          version: acceptedTerms.version,
-          termsHash: acceptedTerms.termsHash,
-          acceptedAt: new Date(),
-        },
-        pricing: pricing(listing, startDate, endDate, waiverSelected, input.fulfilmentMethod),
-        status: 'pending',
-        expiresAt: new Date(
-          Date.now() + env.pendingBookingExpiryMinutes * 60 * 1000,
-        ),
+      booking = await withOperationLock('listing-decision', listing.publicId, async (ensureListingOwned) => {
+        await recoverListingOperations(listing.publicId, ensureListingOwned);
+        await assertAvailable(listing, startDate, endDate);
+        await ensureLockOwned();
+        await ensureListingOwned();
+        return bookingRepository.create({
+          publicId: publicId(listing.listingType, startDate),
+          listingId: listing.publicId,
+          listingTitle: listing.title,
+          listingType: listing.listingType,
+          category: listing.category,
+          requiredLicenceClass: listing.requiredLicenceClass,
+          renterId: renter.authId,
+          renterName: renter.displayName,
+          ownerId: listing.ownerId,
+          ownerName: ownerNameSnapshot,
+          idempotencyKey: input.idempotencyKey,
+          idempotencyFingerprint: fingerprint,
+          startDate,
+          endDate,
+          fulfilmentMethod: input.fulfilmentMethod,
+          serviceVenueMode: listing.listingType === 'service' ? venueMode : undefined,
+          serviceVenue: listing.listingType === 'service' ? venueMode === 'online' ? (input.serviceVenue || 'Online') : venueMode === 'owner_location' ? (pickup?.displayAddress ?? listing.location) : input.serviceLocation.displayAddress : undefined,
+          serviceLocation: venueMode === 'online' ? undefined : input.serviceLocation,
+          deliveryLocation: input.deliveryLocation,
+          pickupLocationSnapshot: pickup,
+          damageWaiverSelected: waiverSelected,
+          renterNote: input.renterNote ?? '',
+          agreement: {
+            version: acceptedTerms.version,
+            termsHash: acceptedTerms.termsHash,
+            acceptedAt: new Date(),
+          },
+          pricing: pricing(listing, startDate, endDate, waiverSelected, input.fulfilmentMethod),
+          status: 'pending',
+          expiresAt: new Date(
+            Date.now() + env.pendingBookingExpiryMinutes * 60 * 1000,
+          ),
+        });
       });
     } catch (error) {
       if (error?.code !== 11000) throw error;
@@ -411,7 +417,10 @@ export const bookingService = {
   async get(id, identity) {
     const booking = await bookingRepository.findParticipantBooking(id, identity);
     if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
-    return booking;
+    return withOperationLock('listing-decision', booking.listingId, async (ensureOwned) => {
+      await recoverListingOperations(booking.listingId, ensureOwned);
+      return bookingRepository.findParticipantBooking(id, identity);
+    });
   },
 
   async listMine(identity, query) {
@@ -460,6 +469,7 @@ export const bookingService = {
       throw new AppError('Booking not found', 404, 'NOT_FOUND');
     }
     return withOperationLock('listing-decision', context.listingId, async (ensureOwned) => {
+      await recoverListingOperations(context.listingId, ensureOwned);
       await requireActiveUser(identity, 'owner');
       // Re-read after acquiring the listing-scoped lock: a competing decision may
       // have expired this pending request while we waited. Pending creation is
@@ -478,6 +488,8 @@ export const bookingService = {
       if (input.status === 'rejected' && !input.reason?.trim()) {
         throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
       }
+      let newRental;
+      let voidedPayment;
       if (input.status === 'approved') {
         if (booking.paymentStatus !== 'authorized' && booking.expiresAt && booking.expiresAt <= new Date()) {
           throw new AppError('This request has expired', 409, 'INVALID_BOOKING_STATE');
@@ -513,7 +525,7 @@ export const bookingService = {
             })
           : undefined;
         await ensureOwned();
-        await RentalModel.create({
+        newRental = new RentalModel({
           publicId: rentalId(booking.startDate),
           bookingId: booking.publicId,
           listingId: booking.listingId,
@@ -533,15 +545,13 @@ export const bookingService = {
         });
       } else {
         booking.status = 'rejected';
-        await voidBookingPayment(booking);
+        voidedPayment = await prepareVoidBookingPayment(booking);
       }
       booking.ownerDecisionReason = input.reason?.trim() ?? '';
       booking.decidedAt = new Date();
       await ensureOwned();
-      await booking.save();
-      if (booking.status === 'approved') {
-        await expireCompetingPhysicalRequests(booking);
-      }
+      await commitLifecycle(`booking-decision:${booking._id}`, booking.listingId, [...(newRental ? [newRental] : []), ...(voidedPayment ? [voidedPayment] : []), booking], ensureOwned,
+        booking.status === 'approved' ? { approvedBooking: booking.publicId } : {});
       await notifyUser({
         userId: booking.renterId,
         category: 'booking',
@@ -568,6 +578,7 @@ export const bookingService = {
       throw new AppError('Booking not found', 404, 'NOT_FOUND');
     }
     return withOperationLock('listing-decision', context.listingId, async (ensureOwned) => {
+      await recoverListingOperations(context.listingId, ensureOwned);
       await requireActiveUser(identity, 'renter');
       const booking = await bookingRepository.findById(id);
       if (!booking || booking.renterId !== identity.authId) {
@@ -584,9 +595,8 @@ export const bookingService = {
       booking.cancellationReason = reason.trim();
       booking.cancelledAt = new Date();
       await ensureOwned();
-      await voidBookingPayment(booking);
+      const voidedPayment = await prepareVoidBookingPayment(booking);
       await ensureOwned();
-      await booking.save();
       const rental = await RentalModel.findOne({
         bookingId: booking.publicId,
         status: 'scheduled',
@@ -600,8 +610,8 @@ export const bookingService = {
           rental.transactionHash = result.lastTransactionHash ?? rental.transactionHash;
         }
         rental.status = 'cancelled';
-        await rental.save();
       }
+      await commitLifecycle(`booking-cancel:${booking._id}`, booking.listingId, [...(voidedPayment ? [voidedPayment] : []), ...(rental ? [rental] : []), booking], ensureOwned);
       await notifyUser({
         userId: booking.ownerId,
         category: 'booking',

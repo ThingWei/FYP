@@ -524,6 +524,7 @@ class Booking {
     this.ownerName = '',
     this.renterId = '',
     this.charges,
+    this.extensionCharges = const [],
     this.expiresAt,
     this.paymentStatus = 'unpaid',
     this.total = 0,
@@ -539,6 +540,7 @@ class Booking {
   final String listingTitle, listingType, renterName, ownerId, paymentStatus;
   final String ownerName, renterId;
   final BookingCharges? charges;
+  final List<RentalExtension> extensionCharges;
   final DateTime? expiresAt;
   final String? fulfilmentMethod, serviceVenue;
   final ListingLocationSelection? pickupLocation,
@@ -573,6 +575,10 @@ class Booking {
               (json['pricing'] as Map).containsKey('baseAmount')
           ? BookingCharges.fromJson(Map<String, dynamic>.from(json['pricing']))
           : null,
+      extensionCharges: (json['extensionCharges'] as List? ?? const [])
+          .map((entry) =>
+              RentalExtension.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .toList(),
       expiresAt: json['expiresAt'] is String
           ? DateTime.parse(json['expiresAt'])
           : null,
@@ -621,6 +627,7 @@ class Booking {
         ownerName: ownerName,
         renterId: renterId,
         charges: charges,
+        extensionCharges: extensionCharges,
         expiresAt: expiresAt,
         paymentStatus: paymentStatus,
         total: total,
@@ -646,6 +653,7 @@ class Rental {
     this.start,
     this.end,
     this.extensionStatus = 'none',
+    this.extension,
     this.blockchainStatus = 'unavailable',
     this.contractAddress = '',
     this.blockchainTransactionHash = '',
@@ -658,6 +666,7 @@ class Rental {
   final String id, status, bookingId, listingId, listingType, renterId, ownerId;
   final DateTime? start, end;
   final String extensionStatus;
+  final RentalExtension? extension;
   final String blockchainStatus, contractAddress, blockchainTransactionHash;
   final String blockchainDeploymentHash, blockchainState, blockchainNetwork;
   final List<String> blockchainSignatureHashes;
@@ -687,6 +696,9 @@ class Rental {
       extensionStatus:
           (json['extension'] as Map<String, dynamic>?)?['status'] as String? ??
               'none',
+      extension: json['extension'] is Map<String, dynamic>
+          ? RentalExtension.fromJson(json['extension'] as Map<String, dynamic>)
+          : null,
       blockchainStatus: blockchain['status'] as String? ?? 'unavailable',
       contractAddress: blockchain['contractAddress'] as String? ??
           json['contractAddress'] as String? ??
@@ -704,6 +716,52 @@ class Rental {
       blockchainError: blockchain['error'] as String? ?? '',
     );
   }
+}
+
+class RentalExtension {
+  const RentalExtension(
+      {required this.id,
+      required this.amount,
+      required this.dailyRate,
+      required this.extraDays,
+      required this.paymentStatus,
+      this.end,
+      this.expiresAt});
+  final String id, paymentStatus;
+  final double amount, dailyRate;
+  final int extraDays;
+  final DateTime? end, expiresAt;
+  bool get payable =>
+      id.isNotEmpty &&
+      amount.isFinite &&
+      amount > 0 &&
+      dailyRate.isFinite &&
+      dailyRate > 0 &&
+      extraDays >= 1 &&
+      extraDays <= 365 &&
+      end != null &&
+      (amount * 100).isFinite &&
+      (dailyRate * extraDays * 100).isFinite &&
+      (amount * 100 - (dailyRate * extraDays * 100).round()).abs() < 0.000001 &&
+      paymentStatus == 'unpaid' &&
+      expiresAt != null &&
+      expiresAt!.isAfter(DateTime.now());
+  factory RentalExtension.fromJson(Map<String, dynamic> json) =>
+      RentalExtension(
+        id: json['id'] as String? ?? '',
+        amount: (json['amount'] as num? ?? 0).toDouble(),
+        dailyRate: (json['dailyRate'] as num? ?? 0).toDouble(),
+        extraDays: json['extraDays'] is num &&
+                (json['extraDays'] as num).isFinite &&
+                (json['extraDays'] as num) % 1 == 0
+            ? (json['extraDays'] as num).toInt()
+            : 0,
+        paymentStatus: json['paymentStatus'] as String? ?? 'unpaid',
+        end: json['requestedEndDate'] is String
+            ? parseApiCalendarDate(json['requestedEndDate'] as String)
+            : null,
+        expiresAt: DateTime.tryParse(json['expiresAt'] as String? ?? ''),
+      );
 }
 
 class Transaction {
@@ -992,11 +1050,13 @@ class InsuranceClaim {
     required this.status,
     this.approvedAmount = 0,
     this.decisionReason = '',
+    this.payoutStatus = 'unavailable',
   });
 
   final String id, disputeId, rentalId, listingTitle, description, status;
   final double amountRequested, approvedAmount;
   final String decisionReason;
+  final String payoutStatus;
 
   factory InsuranceClaim.fromJson(Map<String, dynamic> json) {
     final decision = json['decision'] as Map<String, dynamic>? ?? const {};
@@ -1010,6 +1070,7 @@ class InsuranceClaim {
       status: json['status'] as String,
       approvedAmount: (decision['approvedAmount'] as num?)?.toDouble() ?? 0,
       decisionReason: decision['reason'] as String? ?? '',
+      payoutStatus: decision['payoutStatus'] as String? ?? 'unavailable',
     );
   }
 }

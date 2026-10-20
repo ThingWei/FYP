@@ -69,6 +69,7 @@ const resolutionSchema = new mongoose.Schema(
 
 const disputeSchema = new mongoose.Schema(
   {
+    lifecycleRevision: { type: Number, default: 0, select: false },
     publicId: { type: String, required: true, unique: true, index: true },
     rentalId: { type: String, required: true, unique: true, index: true },
     bookingId: { type: String, required: true, index: true },
@@ -113,6 +114,7 @@ const disputeSchema = new mongoose.Schema(
         value.id = value.publicId;
         delete value._id;
         delete value.__v;
+        delete value.lifecycleRevision;
         return value;
       },
     },

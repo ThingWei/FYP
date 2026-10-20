@@ -27,6 +27,13 @@ paymentRouter.get(
   paymentController.listMine,
 );
 paymentRouter.get(
+  '/booking/:bookingId/balance',
+  authenticate,
+  bookingPaymentsValidation,
+  validate,
+  paymentController.balance,
+);
+paymentRouter.get(
   '/booking/:bookingId',
   authenticate,
   bookingPaymentsValidation,

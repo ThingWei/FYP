@@ -8,6 +8,7 @@ function identifiers(id) {
 }
 
 export const rentalRepository = {
+  listExpiredExtensions: (now) => RentalModel.find({ 'extension.status': 'pending', 'extension.expiresAt': { $lte: now } }).limit(100),
   findById: (id) => RentalModel.findOne({ $or: identifiers(id) }),
 
   findParticipantRental: (id, identity) =>

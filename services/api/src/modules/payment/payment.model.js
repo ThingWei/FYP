@@ -7,6 +7,8 @@ export const PAYMENT_TYPES = [
   'deposit_release',
   'deposit_deduction',
   'owner_settlement',
+  'platform_retention',
+  'dispute_release',
 ];
 export const PAYMENT_STATUSES = [
   'pending',
@@ -18,6 +20,7 @@ export const PAYMENT_STATUSES = [
 
 const paymentSchema = new mongoose.Schema(
   {
+    lifecycleRevision: { type: Number, default: 0, select: false },
     publicId: { type: String, required: true, unique: true, index: true },
     bookingId: { type: String, required: true, index: true },
     payerId: { type: String, required: true, index: true },
@@ -45,6 +48,7 @@ const paymentSchema = new mongoose.Schema(
         delete value._id;
         delete value.__v;
         delete value.authorizationSlot;
+        delete value.lifecycleRevision;
         return value;
       },
     },

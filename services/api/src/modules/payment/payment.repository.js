@@ -12,9 +12,9 @@ export const paymentRepository = {
   findById: (id) => PaymentModel.findOne({ $or: identifiers(id) }),
   findByIdempotencyKey: (key) => PaymentModel.findOne({ idempotencyKey: key }),
   findAuthorization: (bookingId) =>
-    PaymentModel.findOne({ bookingId, type: 'authorization', status: { $ne: 'failed' } }).sort({ createdAt: -1 }),
+    PaymentModel.findOne({ bookingId, type: 'authorization', status: { $ne: 'failed' }, 'metadata.extensionId': { $exists: false } }).sort({ createdAt: -1 }),
   findCapture: (bookingId) =>
-    PaymentModel.findOne({ bookingId, type: 'capture', status: 'succeeded' }).sort({
+    PaymentModel.findOne({ bookingId, type: 'capture', status: 'succeeded', 'metadata.extensionId': { $exists: false } }).sort({
       createdAt: -1,
     }),
   updateStatus: (id, status) =>

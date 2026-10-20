@@ -20,6 +20,7 @@ import {
 } from '../src/modules/loyalty/loyalty.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
+import { PaymentModel } from '../src/modules/payment/payment.model.js';
 
 let mongodb;
 
@@ -80,6 +81,9 @@ async function seedRental(type = 'physical') {
     endDate: new Date('2026-09-22'),
     status: 'active',
   });
+  await PaymentModel.create({ publicId: `TXN-CAP-${physical ? 'DSP1' : 'DSP2'}`, bookingId,
+    payerId: 'u-renter', payeeId: 'u-owner', type: 'capture', amount: physical ? 570 : 450,
+    status: 'succeeded', method: 'card', gatewayReference: 'sim_capture_fixture', idempotencyKey: `fixture:${bookingId}` });
   return { bookingId, rentalId };
 }
 
@@ -104,6 +108,7 @@ before(async () => {
 beforeEach(async () => {
   await Promise.all([
     UserModel.deleteMany({}),
+    PaymentModel.deleteMany({}),
     BookingModel.deleteMany({}),
     RentalModel.deleteMany({}),
     DisputeModel.deleteMany({}),

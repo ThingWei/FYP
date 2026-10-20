@@ -4,6 +4,7 @@ import { created, ok } from '../../core/respond.js';
 import { paymentService } from './payment.service.js';
 
 export const paymentController = {
+  balance: asyncHandler(async (req, res) => ok(res, await paymentService.balance(req.params.bookingId, req.user))),
   authorize: asyncHandler(async (req, res) =>
     created(
       res,

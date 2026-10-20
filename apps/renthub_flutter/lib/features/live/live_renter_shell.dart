@@ -23,6 +23,7 @@ import 'live_renthub_controller.dart';
 import 'live_photo_widgets.dart';
 import 'live_agreement.dart';
 import 'live_checkout_page.dart';
+import 'live_extension_checkout.dart';
 import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_recommendations.dart';
@@ -2228,7 +2229,11 @@ class _RenterRentalActions extends StatelessWidget {
         runSpacing: 8,
         children: [
           OutlinedButton(
-            onPressed: rental.extensionStatus == 'pending'
+            onPressed: rental.extensionStatus == 'pending' &&
+                    rental.extension?.id.isNotEmpty == true &&
+                    (rental.extension?.paymentStatus == 'authorized' ||
+                        rental.extension?.expiresAt?.isAfter(DateTime.now()) ==
+                            true)
                 ? null
                 : () async {
                     final requested = await showDatePicker(
@@ -2240,16 +2245,23 @@ class _RenterRentalActions extends StatelessWidget {
                       lastDate: DateTime.now().add(const Duration(days: 730)),
                     );
                     if (requested != null && context.mounted) {
-                      await _action(
-                        context,
-                        'extension',
-                        {
+                      try {
+                        await context
+                            .read<LiveRentHubController>()
+                            .runRentalAction(rental, 'extension', body: {
                           'requestedEndDate': calendarDateApiValue(requested),
                           'reason':
                               'I need the item for additional project work',
-                        },
-                        'Extension request submitted',
-                      );
+                        });
+                        if (context.mounted) {
+                          await showExtensionCheckout(context, rental.id);
+                        }
+                      } catch (exception) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(friendlyError(exception))));
+                        }
+                      }
                     }
                   },
             child: Text(
@@ -2258,6 +2270,15 @@ class _RenterRentalActions extends StatelessWidget {
                   : 'Request Extension',
             ),
           ),
+          if (rental.extensionStatus == 'pending' &&
+              rental.extension?.payable == true)
+            FilledButton.icon(
+                onPressed: () => showExtensionCheckout(context, rental.id),
+                icon: const Icon(Icons.payment),
+                label: const Text('Pay for extra days')),
+          if (rental.extensionStatus == 'pending' &&
+              rental.extension?.paymentStatus == 'authorized')
+            const Text('Extra-day payment ready — awaiting Owner approval'),
           FilledButton(
             onPressed: () async {
               final accepted = await confirmAction(

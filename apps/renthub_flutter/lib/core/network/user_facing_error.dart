@@ -88,6 +88,20 @@ class UserFacingError {
             'Email is temporarily unavailable. Please try again later.',
         'CATALOG_UNAVAILABLE':
             'Product search is temporarily unavailable. Try again or enter the product manually.',
+        'EXTENSION_PAYMENT_REQUIRED':
+            'The renter needs to complete demo payment for these extra days before Owner approval.',
+        'EXTENSION_CHANGED':
+            'The extra-day request changed. Refresh and review the current dates and price.',
+        'INVALID_EXTENSION_STATE':
+            'This extra-day request is no longer payable. Refresh your rental and request a new quote.',
+        'EXTENSION_RATE_UNAVAILABLE':
+            'The original rate is unavailable for this older extended rental. Contact support for help.',
+        'SETTLEMENT_REVIEW_REQUIRED':
+            'Some money has already been returned or paid out. An administrator needs to review the remaining balance before settlement.',
+        'RECOVERY_REQUIRED':
+            'This action needs a payment-record review. Please contact support before trying again.',
+        'INVALID_REFUND':
+            'This amount exceeds the refundable money still held. Refresh the balance before continuing.',
       };
       if (known.containsKey(error.code)) {
         return UserFacingError('Unable to continue', known[error.code]!);

@@ -7,6 +7,9 @@ import { UserModel } from '../user/user.model.js';
 import { PAYMENT_STATUSES, PAYMENT_TYPES } from './payment.model.js';
 import { paymentRepository } from './payment.repository.js';
 import { withOperationLock } from '../booking/bookingRequestLock.js';
+import { PaymentModel } from './payment.model.js';
+import { bookingBalance, cents, planAllocations } from './paymentLedger.js';
+import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
 
 function transactionId(type) {
   const code = {
@@ -40,34 +43,6 @@ async function requireActiveUser(identity, role) {
     throw new AppError(`${role} role is required`, 403, 'FORBIDDEN');
   }
   return user;
-}
-
-async function systemTransaction({
-  booking,
-  type,
-  amount,
-  status = 'succeeded',
-  parentTransactionId = '',
-  reason = '',
-}) {
-  const idempotencyKey = `${type}:${booking.publicId}`;
-  const existing = await paymentRepository.findByIdempotencyKey(idempotencyKey);
-  if (existing) return existing;
-  return paymentRepository.create({
-    publicId: transactionId(type),
-    bookingId: booking.publicId,
-    payerId: booking.renterId,
-    payeeId: booking.ownerId,
-    type,
-    amount,
-    method: 'system',
-    status,
-    gatewayReference: `system_${type}_${booking.publicId}`,
-    idempotencyKey,
-    parentTransactionId,
-    reason,
-    simulated: true,
-  });
 }
 
 export async function captureBookingPayment(booking) {
@@ -106,6 +81,7 @@ export async function captureBookingPayment(booking) {
 }
 
 export async function voidBookingPayment(booking) {
+  if (await paymentRepository.findCapture(booking.publicId)) return null;
   const authorization = await paymentRepository.findAuthorization(booking.publicId);
   if (!authorization || authorization.status !== 'authorized') return null;
   await paymentAdapter.voidAuthorization({ amount: authorization.amount });
@@ -114,51 +90,59 @@ export async function voidBookingPayment(booking) {
   return voided;
 }
 
-export async function recordPhysicalSettlement(booking, deduction) {
-  const capture = await paymentRepository.findCapture(booking.publicId);
-  if (!capture) {
-    throw new AppError('Captured payment not found', 409, 'CAPTURE_MISSING');
-  }
-  const deposit = booking.pricing.securityDeposit;
-  const release = Math.max(deposit - deduction, 0);
-  if (release > 0) {
-    await systemTransaction({
-      booking,
-      type: 'deposit_release',
-      amount: release,
-      parentTransactionId: capture.publicId,
-    });
-  }
-  if (deduction > 0) {
-    await systemTransaction({
-      booking,
-      type: 'deposit_deduction',
-      amount: deduction,
-      parentTransactionId: capture.publicId,
-      reason: 'Owner-confirmed return deduction',
-    });
-  }
-  await systemTransaction({
-    booking,
-    type: 'owner_settlement',
-    amount: booking.pricing.baseAmount + booking.pricing.damageWaiverFee + (booking.pricing.deliveryFee ?? 0) + deduction,
-    parentTransactionId: capture.publicId,
-  });
-  booking.paymentStatus = 'settled';
+export async function prepareVoidBookingPayment(booking) {
+  if (await paymentRepository.findCapture(booking.publicId)) return null;
+  const authorization = await paymentRepository.findAuthorization(booking.publicId);
+  if (!authorization || authorization.status !== 'authorized') return null;
+  authorization.status = 'voided';
+  booking.paymentStatus = 'voided';
+  return authorization;
 }
 
-export async function recordServiceSettlement(booking) {
+export async function planPhysicalSettlement(booking, deduction) {
   const capture = await paymentRepository.findCapture(booking.publicId);
   if (!capture) {
     throw new AppError('Captured payment not found', 409, 'CAPTURE_MISSING');
   }
-  await systemTransaction({
-    booking,
-    type: 'owner_settlement',
-    amount: booking.pricing.baseAmount,
-    parentTransactionId: capture.publicId,
-  });
+  const key = `physical-settlement:${booking._id}`;
+  const extensions = await PaymentModel.find({ bookingId: booking.publicId, type: 'capture', status: 'succeeded', 'metadata.extensionId': { $exists: true } });
+  const extraCents = extensions.reduce((sum, entry) => sum + cents(entry.amount), 0);
+  return planAllocations(booking, key, [
+    { type: 'deposit_release', amount: (cents(booking.pricing.securityDeposit) - cents(deduction)) / 100 },
+    { type: 'deposit_deduction', amount: deduction, reason: 'Owner-confirmed return deduction (allocation memo, not another payout)' },
+    { type: 'owner_settlement', amount: (cents(booking.pricing.baseAmount) + cents(booking.pricing.damageWaiverFee) + cents(booking.pricing.deliveryFee ?? 0) + cents(deduction) + extraCents) / 100 },
+  ]);
+}
+
+export async function recordPhysicalSettlement(booking, deduction, rental, ensureOwned = async () => {}, preparedEntries) {
+  const key = `physical-settlement:${booking._id}`;
+  const entries = preparedEntries ?? await planPhysicalSettlement(booking, deduction);
   booking.paymentStatus = 'settled';
+  await commitLifecycle(key, booking.listingId, [...entries, ...(rental ? [rental] : []), booking], ensureOwned,
+    rental ? { completion: { rentalId: rental.publicId, bookingId: booking.publicId }, notifications: [{
+      userId: booking.renterId, category: 'rental', type: 'rental_completed', title: 'Rental completed',
+      body: `${booking.listingTitle} return was confirmed.`, entityType: 'rental', entityId: rental.publicId,
+      dedupeKey: `rental:${rental.publicId}:completed`,
+    }] } : {});
+}
+
+export async function recordServiceSettlement(booking, rental, ensureOwned = async () => {}) {
+  const capture = await paymentRepository.findCapture(booking.publicId);
+  if (!capture) {
+    throw new AppError('Captured payment not found', 409, 'CAPTURE_MISSING');
+  }
+  const key = `service-settlement:${booking._id}`;
+  const entries = await planAllocations(booking, key, [
+    { type: 'owner_settlement', amount: booking.pricing.baseAmount },
+    { type: 'platform_retention', amount: booking.pricing.platformFee },
+  ]);
+  booking.paymentStatus = 'settled';
+  await commitLifecycle(key, booking.listingId, [...entries, ...(rental ? [rental] : []), booking], ensureOwned,
+    rental ? { completion: { rentalId: rental.publicId, bookingId: booking.publicId }, notifications: [{
+      userId: booking.ownerId, category: 'rental', type: 'service_completed', title: 'Service completion confirmed',
+      body: `${booking.listingTitle} was confirmed complete by the renter.`, entityType: 'rental', entityId: rental.publicId,
+      dedupeKey: `rental:${rental.publicId}:service-completed`,
+    }] } : {});
 }
 
 function assertAttemptMatches(existing, input, identity, outcome) {
@@ -167,6 +151,32 @@ function assertAttemptMatches(existing, input, identity, outcome) {
       (existing.metadata?.get('simulationOutcome') ?? 'success') !== outcome)) {
     throw new AppError('Idempotency key is already in use', 409, 'IDEMPOTENCY_CONFLICT');
   }
+}
+
+// Covers a process dying after recording an initial authorization while a
+// concurrent cancellation/expiry has already made the request non-payable.
+export async function voidTerminalPaymentHolds() {
+  const candidates = await PaymentModel.aggregate([
+    { $match: { type: 'authorization', status: 'authorized', 'metadata.extensionId': { $exists: false } } },
+    { $lookup: { from: BookingModel.collection.name, localField: 'bookingId', foreignField: 'publicId', as: 'booking' } },
+    { $unwind: '$booking' },
+    { $match: { 'booking.status': { $in: ['expired', 'rejected', 'cancelled'] } } },
+    { $limit: 100 },
+    { $project: { bookingId: 1, listingId: '$booking.listingId' } },
+  ]);
+  let voided = 0;
+  for (const candidate of candidates) {
+    await withOperationLock('listing-decision', candidate.listingId, async (ensureOwned) => {
+      await recoverListingOperations(candidate.listingId, ensureOwned);
+      const booking = await BookingModel.findOne({ publicId: candidate.bookingId, status: { $in: ['expired', 'rejected', 'cancelled'] } });
+      if (!booking) return;
+      const authorization = await prepareVoidBookingPayment(booking);
+      if (!authorization) return;
+      await commitLifecycle(`terminal-hold:${authorization._id}`, candidate.listingId, [authorization, booking], ensureOwned);
+      voided++;
+    });
+  }
+  return voided;
 }
 
 export const paymentService = {
@@ -258,7 +268,7 @@ export const paymentService = {
   async listMine(identity, query) {
     await requireActiveUser(identity);
     const { page, limit } = pages(query);
-    const filter = { payerId: identity.authId };
+    const filter = { $or: [{ payerId: identity.authId }, { payeeId: identity.authId }] };
     if (PAYMENT_TYPES.includes(query.type)) filter.type = query.type;
     if (PAYMENT_STATUSES.includes(query.status)) filter.status = query.status;
     const [items, total] = await paymentRepository.list({ page, limit, filter });
@@ -266,6 +276,7 @@ export const paymentService = {
   },
 
   async listBooking(bookingId, identity) {
+    await requireActiveUser(identity);
     const booking = await BookingModel.findOne({ publicId: bookingId });
     const participant =
       booking &&
@@ -274,6 +285,15 @@ export const paymentService = {
         identity.roles.includes('admin'));
     if (!participant) throw new AppError('Booking not found', 404, 'NOT_FOUND');
     return paymentRepository.listByBooking(bookingId);
+  },
+
+  async balance(bookingId, identity) {
+    await this.listBooking(bookingId, identity);
+    const booking = await BookingModel.findOne({ publicId: bookingId });
+    return withOperationLock('listing-decision', booking.listingId, async (ensureOwned) => {
+      await recoverListingOperations(booking.listingId, ensureOwned);
+      return bookingBalance(bookingId);
+    });
   },
 
   async listAdmin(query) {
@@ -291,7 +311,10 @@ export const paymentService = {
     if (!capture || capture.type !== 'capture' || capture.status !== 'succeeded') {
       throw new AppError('Captured transaction not found', 404, 'NOT_FOUND');
     }
-    return withOperationLock('capture-refund', capture.publicId, async (ensureOwned) => {
+    const context = await BookingModel.findOne({ publicId: capture.bookingId });
+    if (!context) throw new AppError('Booking not found', 404, 'NOT_FOUND');
+    return withOperationLock('listing-decision', context.listingId, async (ensureOwned) => {
+      await recoverListingOperations(context.listingId, ensureOwned);
       const idempotencyKey = input.idempotencyKey;
       const existing = await paymentRepository.findByIdempotencyKey(idempotencyKey);
       const requestedAmount = input.amount == null ? 'remaining' : String(input.amount);
@@ -312,9 +335,10 @@ export const paymentService = {
         }
       }
       const refunded = await paymentRepository.sumRefunds(capture.publicId);
-      const refundableCents = Math.max(Math.round(capture.amount * 100) - Math.round(refunded * 100), 0);
+      const balance = await bookingBalance(capture.bookingId);
+      const refundableCents = Math.min(Math.max(cents(capture.amount) - cents(refunded), 0), cents(balance.held));
       const amountCents = input.amount == null ? refundableCents : Math.round(input.amount * 100);
-      if (!existing && (amountCents <= 0 || amountCents > refundableCents)) {
+      if (!existing && (balance.reconciliationRequired || amountCents <= 0 || amountCents > refundableCents)) {
         throw new AppError('Refund amount exceeds the refundable balance', 400, 'INVALID_REFUND');
       }
       const amount = amountCents / 100;
@@ -323,7 +347,7 @@ export const paymentService = {
         await ensureOwned();
         const gateway = await paymentAdapter.refund({ amount });
         await ensureOwned();
-        refund = await paymentRepository.create({
+        refund = new PaymentModel({
           publicId: transactionId('refund'),
           bookingId: capture.bookingId,
           payerId: capture.payeeId,
@@ -340,13 +364,30 @@ export const paymentService = {
           simulated: true,
         });
       }
-      if (refund.status !== 'succeeded') return refund;
+      if (refund.status !== 'succeeded') {
+        if (refund.isNew) await refund.save();
+        return refund;
+      }
       // Reconcile a durable refund whose booking-status update was interrupted.
-      const totalRefundedCents = Math.round((await paymentRepository.sumRefunds(capture.publicId)) * 100);
+      const allRefunds = await PaymentModel.find({ bookingId: capture.bookingId, type: 'refund', status: 'succeeded' }).select('amount');
+      const totalRefundedCents = allRefunds.reduce((sum, entry) => sum + cents(entry.amount), 0) + (refund.isNew ? cents(refund.amount) : 0);
       await ensureOwned();
-      const booking = await BookingModel.findOneAndUpdate({ publicId: capture.bookingId }, {
-        $set: { paymentStatus: totalRefundedCents >= Math.round(capture.amount * 100) ? 'refunded' : 'partially_refunded' },
-      }, { new: true });
+      const booking = await BookingModel.findOne({ publicId: capture.bookingId });
+      if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
+      if (booking) {
+        const current = await bookingBalance(capture.bookingId);
+        if (refund.isNew) {
+          current.distributed = (cents(current.distributed) + cents(refund.amount)) / 100;
+          current.held = Math.max(cents(current.captured) - cents(current.distributed), 0) / 100;
+        }
+        booking.paymentStatus = current.held === 0 ? (current.distributed === totalRefundedCents / 100 ? 'refunded' : 'settled') : 'partially_refunded';
+        if (!refund.isNew) await booking.save();
+        else await commitLifecycle(`refund:${refund._id}`, booking.listingId, [refund, booking], ensureOwned, {
+          notifications: [{ userId: booking.renterId, category: 'payment', type: 'payment_refunded', title: 'Refund processed',
+            body: `RM ${refund.amount.toFixed(2)} was refunded for ${booking.listingTitle}.`, entityType: 'payment', entityId: refund.publicId,
+            dedupeKey: `refund:${refund.publicId}:processed` }],
+        });
+      }
       if (booking) {
         await notifyUser({
           userId: booking.renterId,

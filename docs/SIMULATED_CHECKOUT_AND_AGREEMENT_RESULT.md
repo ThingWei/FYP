@@ -168,7 +168,14 @@ disputed dates and cannot be approved after return submission.
 
 Full API suite: 389 passed/3 skipped; Flutter: 407 passed/3 skipped; analysis and
 Web/Android debug builds pass. The previously reported Auth0 analyzer errors are
-fixed. Payments remain simulated. Extension checkout, automatic dispute/claim
-payouts, post-settlement refund reconciliation and comprehensive crash/concurrency
-recovery remain separate policy/implementation gaps, not silently added rules.
+fixed. Payments remain simulated. Those counts describe the earlier review;
+the financial gaps recorded then are superseded by the follow-up below. Claim
+payouts deliberately remain unfunded/pending rather than inventing a fund.
+
+## Subsequent financial lifecycle update — 20 October 2026
+
+Paid extra days, held-balance dispute allocations, unfunded-claim status, refund
+reconciliation and recorded-intent crash recovery are documented in
+`PAID_EXTENSIONS_AND_SETTLEMENT_RECOVERY_RESULT.md`. Original agreement/pricing
+snapshots are retained; approved extension charges are displayed separately.
 

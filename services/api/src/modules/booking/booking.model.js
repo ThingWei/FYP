@@ -21,12 +21,15 @@ const pricingSchema = new mongoose.Schema(
     deliveryFee: { type: Number, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0 },
     currency: { type: String, enum: ['MYR'], default: 'MYR' },
+    originalRentalDays: { type: Number, min: 1 },
+    originalDailyRate: { type: Number, min: 0 },
   },
   { _id: false },
 );
 
 const bookingSchema = new mongoose.Schema(
   {
+    lifecycleRevision: { type: Number, default: 0, select: false },
     publicId: {
       type: String,
       required: true,
@@ -68,6 +71,11 @@ const bookingSchema = new mongoose.Schema(
     pickupLocationSnapshot: { type: locationSchema, immutable: true },
     damageWaiverSelected: { type: Boolean, default: false },
     pricing: { type: pricingSchema, required: true },
+    extensionCharges: { type: [new mongoose.Schema({
+      id: String, extraDays: Number, dailyRate: Number, amount: Number,
+      requestedEndDate: Date, decidedAt: Date,
+      paymentStatus: { type: String, enum: ['captured'], default: 'captured' },
+    }, { _id: false })], default: [] },
     paymentStatus: {
       type: String,
       enum: [
@@ -110,6 +118,7 @@ const bookingSchema = new mongoose.Schema(
         value.end = value.endDate;
         value.total = value.pricing?.total;
         delete value.paymentLeaseToken;
+        delete value.lifecycleRevision;
         delete value.paymentLeaseUntil;
         delete value._id;
         delete value.__v;

@@ -1,9 +1,12 @@
 import { env } from '../config/env.js';
 import { BookingModel } from '../modules/booking/booking.model.js';
 import { notifyUser } from '../modules/communication/notification.service.js';
-import { voidBookingPayment } from '../modules/payment/payment.service.js';
+import { voidBookingPayment, voidTerminalPaymentHolds } from '../modules/payment/payment.service.js';
 import { RentalModel } from '../modules/rental/rental.model.js';
 import { runDueReportSchedules } from '../modules/admin/report.service.js';
+import { withOperationLock } from '../modules/booking/bookingRequestLock.js';
+import { recoverLifecycleOperations, recoverListingOperations } from './lifecycleJournal.js';
+import { expireRentalExtensions } from '../modules/rental/rental.service.js';
 
 const state = {
   enabled: env.lifecycleJobsEnabled,
@@ -176,29 +179,31 @@ async function markOverdueRentals(now, graceHours) {
   });
   let marked = 0;
   for (const rental of rentals) {
-    rental.status = 'overdue';
-    rental.automation ??= {};
-    rental.automation.overdueNotifiedAt = now;
-    rental.automation.lastProcessedAt = now;
-    await rental.save();
-    const title = await bookingTitle(rental);
-    await Promise.all([
-      notifyParticipant(
-        rental,
-        rental.renterId,
-        'rental_overdue',
-        'Rental is overdue',
-        `${title} is overdue. Submit the return as soon as possible.`,
-      ),
-      notifyParticipant(
-        rental,
-        rental.ownerId,
-        'rental_overdue',
-        'Rental is overdue',
-        `${title} has passed its return time without a return submission.`,
-      ),
-    ]);
-    marked += 1;
+    await withOperationLock('listing-decision', rental.listingId, async (ensureOwned) => {
+      await recoverListingOperations(rental.listingId, ensureOwned);
+      const claimed = await RentalModel.findOneAndUpdate({ _id: rental._id, status: 'active', endDate: { $lt: cutoff } }, {
+        $set: { status: 'overdue', 'automation.overdueNotifiedAt': now, 'automation.lastProcessedAt': now },
+      }, { new: true });
+      if (!claimed) return;
+      const title = await bookingTitle(rental);
+      await Promise.all([
+        notifyParticipant(
+          rental,
+          rental.renterId,
+          'rental_overdue',
+          'Rental is overdue',
+          `${title} is overdue. Submit the return as soon as possible.`,
+        ),
+        notifyParticipant(
+          rental,
+          rental.ownerId,
+          'rental_overdue',
+          'Rental is overdue',
+          `${title} has passed its return time without a return submission.`,
+        ),
+      ]);
+      marked += 1;
+    });
   }
   return marked;
 }
@@ -263,6 +268,9 @@ export async function runLifecycleJobs({
   state.lastRunAt = now;
   state.lastError = '';
   try {
+    const recoveredListings = await recoverLifecycleOperations();
+    const expiredExtensions = await expireRentalExtensions(now);
+    const voidedTerminalHolds = await voidTerminalPaymentHolds();
     const [
       expiredBookings,
       startReminders,
@@ -280,6 +288,9 @@ export async function runLifecycleJobs({
         runDueReportSchedules(now),
       ]);
     state.lastResult = {
+      recoveredListings,
+      expiredExtensions,
+      voidedTerminalHolds,
       expiredBookings,
       startReminders,
       dueReminders,

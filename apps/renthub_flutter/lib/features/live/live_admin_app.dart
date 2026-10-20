@@ -1206,8 +1206,29 @@ class _AdminBookingsTransactions extends StatelessWidget {
   const _AdminBookingsTransactions();
 
   Future<void> _refund(BuildContext context, Transaction transaction) async {
-    final amount =
-        TextEditingController(text: transaction.amount.toStringAsFixed(2));
+    Map<String, dynamic> balance;
+    try {
+      balance = await context
+          .read<LiveRentHubController>()
+          .paymentBalance(transaction.bookingId);
+    } catch (exception) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    final held = (balance['held'] as num).toDouble();
+    if (held <= 0 || balance['reconciliationRequired'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'No refundable held balance remains. Previous refunds and Owner payments cannot be paid again.')));
+      return;
+    }
+    final amount = TextEditingController(
+        text: (held < transaction.amount ? held : transaction.amount)
+            .toStringAsFixed(2));
     final reason = TextEditingController(text: 'Administrator-approved refund');
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
@@ -1216,13 +1237,22 @@ class _AdminBookingsTransactions extends StatelessWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Text(
+                'Still held: ${formatMoney(held)}. Prior refunds, deposit releases and Owner payouts are excluded.'),
             TextFormField(
               controller: amount,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               decoration: (const InputDecoration(labelText: 'Amount (RM)'))
                   .copyWith(counterText: '', errorMaxLines: 3),
-              validator: InputRules.amountRm.validate,
+              validator: (value) {
+                final error = InputRules.amountRm.validate(value);
+                if (error != null) return error;
+                final parsed = double.tryParse(value ?? '');
+                return parsed == null || parsed <= 0 || parsed > held
+                    ? 'Enter an amount up to ${formatMoney(held)}.'
+                    : null;
+              },
               inputFormatters:
                   InputValidation.formatters(InputRules.amountRm, amount),
               autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -1482,6 +1512,17 @@ class _AdminDisputesClaims extends StatelessWidget {
   }
 
   Future<void> _resolve(BuildContext context, Dispute dispute) async {
+    Map<String, dynamic> balance;
+    try {
+      balance = await context
+          .read<LiveRentHubController>()
+          .paymentBalance(dispute.bookingId);
+    } catch (exception) {
+      if (context.mounted) _showError(context, exception);
+      return;
+    }
+    if (!context.mounted) return;
+    final held = (balance['held'] as num).toDouble();
     var outcome = 'release_to_renter';
     final renterAmount = TextEditingController();
     final ownerAmount = TextEditingController();
@@ -1497,7 +1538,11 @@ class _AdminDisputesClaims extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Text(
+                      'Remaining held balance: ${formatMoney(held)}. Only this balance will be allocated; previous refunds and payouts stay unchanged.'),
+                  const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: outcome,
                     decoration: const InputDecoration(labelText: 'Outcome'),
                     items: const [
@@ -1541,7 +1586,22 @@ class _AdminDisputesClaims extends StatelessWidget {
                       decoration: (const InputDecoration(
                               labelText: 'Owner amount (RM)'))
                           .copyWith(counterText: '', errorMaxLines: 3),
-                      validator: InputRules.ownerAmountRm.validate,
+                      validator: (value) {
+                        final error = InputRules.ownerAmountRm.validate(value);
+                        if (error != null) return error;
+                        final renter = double.tryParse(renterAmount.text);
+                        final owner = double.tryParse(value ?? '');
+                        if (renter == null ||
+                            owner == null ||
+                            renter <= 0 ||
+                            owner <= 0) {
+                          return 'Enter a positive amount for both participants.';
+                        }
+                        return (renter * 100).round() + (owner * 100).round() ==
+                                (held * 100).round()
+                            ? null
+                            : 'The split must total ${formatMoney(held)}.';
+                      },
                       inputFormatters: InputValidation.formatters(
                           InputRules.ownerAmountRm, ownerAmount),
                       autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -1566,7 +1626,7 @@ class _AdminDisputesClaims extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'Amounts are simulated allocations only. This action does not move real money.',
+                    'This records simulated ledger payouts, not real money. A split must allocate the full remaining balance.',
                     style: TextStyle(color: AppColors.secondaryText),
                   ),
                 ],
@@ -1636,6 +1696,9 @@ class _AdminDisputesClaims extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (status == 'approved')
+                const Text(
+                    'Approval records the amount only. Payout stays pending until a funded demo protection pool is available; no money is paid now.'),
               if (status == 'approved')
                 TextFormField(
                   controller: amount,
@@ -1795,7 +1858,7 @@ class _AdminDisputesClaims extends StatelessWidget {
               child: ListTile(
                 title: Text(claim.listingTitle),
                 subtitle: Text(
-                  '${claim.id} • Requested ${formatMoney(claim.amountRequested)}\n${claim.description}',
+                  '${claim.id} • Requested ${formatMoney(claim.amountRequested)}\n${claim.description}${claim.payoutStatus == 'pending_funding' ? '\nApproved; payout awaits a funded demo protection pool. No money has been paid.' : ''}',
                 ),
                 isThreeLine: true,
                 trailing: claim.status == 'pending'

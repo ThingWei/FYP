@@ -8,6 +8,7 @@ import {
   disconnectDatabase,
 } from '../src/config/database.js';
 import { BookingModel } from '../src/modules/booking/booking.model.js';
+import { LifecycleOperationModel } from '../src/operations/lifecycleJournal.js';
 import { BookingRequestLockModel, withBookingRequestLock } from '../src/modules/booking/bookingRequestLock.js';
 import { AvailabilityModel } from '../src/modules/listing/availability.model.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
@@ -183,6 +184,7 @@ before(async () => {
 beforeEach(async () => {
   bookingSequence = 0;
   await Promise.all([
+    LifecycleOperationModel.deleteMany({}),
     UserModel.deleteMany({}),
     ListingModel.deleteMany({}),
     AvailabilityModel.deleteMany({}),
@@ -697,11 +699,15 @@ test('runs physical approval, handover, extension and return lifecycle', async (
     });
   assert.equal(extension.status, 200);
   assert.equal(extension.body.data.extension.status, 'pending');
+  const extensionId = extension.body.data.extension.id;
+  assert.equal(extension.body.data.extension.amount, 170);
+  await request(app).post(`/api/v1/rentals/${rentalRecord.publicId}/extensions/payment`).set(renter)
+    .send({ extensionId, method: 'card', simulationOutcome: 'success', idempotencyKey: 'extension-lifecycle-payment' }).expect(200);
 
   const extensionDecision = await request(app)
     .patch(`/api/v1/rentals/${rentalRecord.publicId}/extensions/decision`)
     .set(owner)
-    .send({ status: 'approved' });
+    .send({ status: 'approved', extensionId });
   assert.equal(extensionDecision.status, 200);
   assert.equal(
     extensionDecision.body.data.endDate,
@@ -739,6 +745,8 @@ test('runs physical approval, handover, extension and return lifecycle', async (
     await PaymentModel.find({ bookingId }).sort({ createdAt: 1 }).lean()
   ).map((payment) => payment.type);
   assert.deepEqual(paymentTypes, [
+    'authorization',
+    'capture',
     'authorization',
     'capture',
     'deposit_release',
@@ -1152,6 +1160,7 @@ test('runs service approval, delivery and renter completion lifecycle', async ()
     'authorization',
     'capture',
     'owner_settlement',
+    'platform_retention',
   ]);
   const notificationTypes = (
     await NotificationModel.find({

@@ -484,7 +484,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                   subtitle: Text(
                     claim.decisionReason.isEmpty
                         ? claim.description
-                        : claim.decisionReason,
+                        : '${claim.decisionReason}${claim.payoutStatus == 'pending_funding' ? '\nPayout pending — no funded demo protection pool is available. No money has been paid.' : ''}',
                   ),
                   trailing: StatusBadge(claim.status),
                 ),
