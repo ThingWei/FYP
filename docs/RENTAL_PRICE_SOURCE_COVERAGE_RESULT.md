@@ -1,5 +1,10 @@
 # Automatic rental-price sources — implementation result
 
+21 October recheck: [AI validation/readiness handoff](AI_VALIDATION_AND_DEMO_READINESS_RESULT.md).
+iRent still yields six bounded quotes but is not permission-approved/enabled here;
+12RENT remains access-restricted; RentSmart's three allowlisted pages have not
+established a usable structured price catalogue. No source was enabled or imported.
+
 Initially implemented on 12 October 2026; source follow-up on 20 October 2026 below. Product identities are separate from
 price observations. These are **advertised asking prices**, not completed RentHub
 transactions and not a promise of current availability or a guaranteed market price.

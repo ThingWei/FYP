@@ -1,5 +1,14 @@
 # YOLO-World fallback and separate item-risk preparation
 
+21 October readiness tooling: [isolated candidate training, reviewed-case validation,
+collection kit and current blockers](AI_VALIDATION_AND_DEMO_READINESS_RESULT.md).
+The earlier training command now requires `--output`; it cannot deploy automatically.
+
+21 October follow-up: a metadata-only item-data review pack is now prepared;
+permission remains pending and no images were generated or model trained.
+See [the preview result](ITEM_DATASET_PREVIEW_RESULT.md) for local counts,
+all-category gaps and review steps.
+
 Updated: 20 October 2026. Item response contract: `renthub-item-evidence-v4`.
 
 ## Delivered / not claimed
@@ -208,7 +217,7 @@ After source-rights/group review, the available commands are:
 .\.venv\Scripts\python.exe -m app.training.prepare_item_risk .data/datasets/open_images_items_v1/data.yaml --per-class 3 --generate --acknowledge-source-permission
 
 # Inspect/spot-review generated pairs and manifest BEFORE this explicit trainer:
-.\.venv\Scripts\python.exe -m app.training.train_image_risk .data/datasets/item_synthetic_risk_v1/manifest.csv --epochs 8 --acknowledge-source-permission
+.\.venv\Scripts\python.exe -m app.training.train_image_risk .data/datasets/item_synthetic_risk_v1/manifest.csv --output .data/candidates/item-risk-round1 --epochs 8 --acknowledge-source-permission
 ```
 
 If independent physical-item groups cannot be established, retain that limitation

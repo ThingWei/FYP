@@ -70,6 +70,51 @@ export function eligibleTrainingReference(row, enabledSourceIds, now = new Date(
     Boolean(row.brand && row.reviewedBy && date(row.reviewedAt)) && !future(row.reviewedAt, now);
 }
 
+// Shared by export preparation and offline forward-time evaluation. The caller
+// restricts history to its training side; this function also excludes future,
+// late-known, same-product and incompatible evidence for each target.
+export function trainingComparableFeatures(row, history, reviews = []) {
+  const at = date(row.observed_at);
+  if (!at) throw new Error('Invalid observation time');
+  const prior = history.filter((candidate) => {
+    const observed = date(candidate.observed_at);
+    const known = date(candidate._knownAt) || date(candidate.available_at) ||
+      (candidate.source_type !== 'external_asking_price' ? observed : null);
+    return candidate.group_id !== row.group_id && candidate.category === row.category &&
+      observed && known && observed < at && known < at &&
+      observed >= new Date(at - PRICING_EVIDENCE_WINDOW_DAYS * DAY) &&
+      (row.source_type === 'demo_seed' || candidate.source_type !== 'demo_seed');
+  });
+  const asCandidate = (r) => ({ ...r, productModel: r.product_model, dailyPrice: r.daily_price,
+    identityLevel: r.identity_level, observedAt: r.observed_at });
+  const externalCompatible = (r) => r.category === row.category && r.subcategory === row.subcategory &&
+    (r.collection_method !== 'automatic' || r.product_type === productTypeFor(row.category, row.subcategory,
+      `${row.brand ?? ''} ${row.product_model}`) && row.rental_duration_days >= r.duration_min_days &&
+      row.rental_duration_days <= r.duration_max_days);
+  const activeTier = selectComparableTier(prior.filter((r) => asking.has(r.target_source) &&
+    (r.source_type !== 'external_asking_price' || externalCompatible(r))).map(asCandidate), row);
+  const historyTier = selectComparableTier(prior.filter((r) => completed.has(r.target_source)).map(asCandidate), row);
+  const active = robustPriceStats(activeTier.items.map((r) => r.dailyPrice));
+  const historical = robustPriceStats(historyTier.items.map((r) => r.dailyPrice));
+  const dates = [...activeTier.items, ...historyTier.items].map((r) => +new Date(r.observed_at));
+  const ownerReviews = row._ownerId ? reviews.filter((r) => r.subjectId === row._ownerId && date(r.createdAt) < at &&
+    date(r.createdAt) && Number.isFinite(r.overallRating)) : [];
+  return {
+    comparable_active_count: active.count, comparable_active_median: active.median,
+    comparable_active_mean: active.mean, comparable_active_iqr: active.iqr,
+    historical_rental_count: historical.count, historical_rental_median: historical.median,
+    historical_rental_mean: historical.mean, historical_rental_iqr: historical.iqr,
+    marketplace_active_listing_count: activeTier.items.filter((r) => r.target_source === 'active_asking').length,
+    external_asking_price_count: activeTier.items.filter((r) => r.source_type === 'external_asking_price').length,
+    active_comparable_tier: activeTier.name, historical_comparable_tier: historyTier.name,
+    market_freshness_days: dates.length ? Math.max(0, Math.floor((at - Math.max(...dates)) / DAY)) : null,
+    demand_supply_ratio: historical.count / Math.max(active.count, 1),
+    owner_average_rating: row._ownerId && ownerReviews.length ? ownerReviews.reduce((s, r) => s + r.overallRating, 0) / ownerReviews.length : null,
+    owner_completed_rentals: row._ownerId ? prior.filter((r) => r._ownerId === row._ownerId && completed.has(r.target_source)).length : null,
+    prediction_month: at.getUTCMonth() + 1,
+  };
+}
+
 export function buildPricingTrainingExport({ listings = [], bookings = [], reviews = [], references = [],
   enabledSourceIds = [], now = new Date() } = {}) {
   const byId = new Map(listings.map((item) => [item.publicId, item]));
@@ -131,38 +176,7 @@ export function buildPricingTrainingExport({ listings = [], bookings = [], revie
   observations.sort((a, b) => new Date(a.observed_at) - new Date(b.observed_at) || a.group_id.localeCompare(b.group_id));
   const prepared = [];
   for (const row of observations) {
-    const at = new Date(row.observed_at), profile = { ...row, canonicalProductId: row.canonicalProductId };
-    const prior = prepared.filter((candidate) => candidate.group_id !== row.group_id &&
-      candidate.category === row.category && new Date(candidate.observed_at) < at && candidate._knownAt < at &&
-      new Date(candidate.observed_at) >= new Date(at - PRICING_EVIDENCE_WINDOW_DAYS * DAY) &&
-      (row.source_type === 'demo_seed' || candidate.source_type !== 'demo_seed'));
-    const asCandidate = (r) => ({ ...r, productModel: r.product_model, dailyPrice: r.daily_price,
-      identityLevel: r.identity_level, observedAt: r.observed_at });
-    const externalCompatible = (r) => r.category === row.category && r.subcategory === row.subcategory &&
-      (r.collection_method !== 'automatic' || r.product_type === productTypeFor(row.category, row.subcategory,
-        `${row.brand ?? ''} ${row.product_model}`) && row.rental_duration_days >= r.duration_min_days &&
-        row.rental_duration_days <= r.duration_max_days);
-    const activeTier = selectComparableTier(prior.filter((r) => asking.has(r.target_source) &&
-      (r.source_type !== 'external_asking_price' || externalCompatible(r))).map(asCandidate), profile);
-    const historyTier = selectComparableTier(prior.filter((r) => completed.has(r.target_source)).map(asCandidate), profile);
-    const active = robustPriceStats(activeTier.items.map((r) => r.dailyPrice));
-    const historical = robustPriceStats(historyTier.items.map((r) => r.dailyPrice));
-    const dates = [...activeTier.items, ...historyTier.items].map((r) => +new Date(r.observed_at));
-    const ownerReviews = row._ownerId ? reviews.filter((r) => r.subjectId === row._ownerId && date(r.createdAt) < at &&
-      date(r.createdAt) && Number.isFinite(r.overallRating)) : [];
-    prepared.push({ ...row,
-      comparable_active_count: active.count, comparable_active_median: active.median,
-      comparable_active_mean: active.mean, comparable_active_iqr: active.iqr,
-      historical_rental_count: historical.count, historical_rental_median: historical.median,
-      historical_rental_mean: historical.mean, historical_rental_iqr: historical.iqr,
-      marketplace_active_listing_count: activeTier.items.filter((r) => r.target_source === 'active_asking').length,
-      external_asking_price_count: activeTier.items.filter((r) => r.source_type === 'external_asking_price').length,
-      active_comparable_tier: activeTier.name, historical_comparable_tier: historyTier.name,
-      market_freshness_days: dates.length ? Math.max(0, Math.floor((at - Math.max(...dates)) / DAY)) : null,
-      demand_supply_ratio: historical.count / Math.max(active.count, 1),
-      owner_average_rating: row._ownerId && ownerReviews.length ? ownerReviews.reduce((s, r) => s + r.overallRating, 0) / ownerReviews.length : null,
-      owner_completed_rentals: row._ownerId ? prior.filter((r) => r._ownerId === row._ownerId && completed.has(r.target_source)).length : null,
-      prediction_month: at.getUTCMonth() + 1 });
+    prepared.push({ ...row, ...trainingComparableFeatures(row, prepared, reviews) });
   }
   const rows = prepared.map(({ _ownerId, _knownAt, ...row }) => row);
   const counts = (field) => rows.reduce((result, row) => { result[row[field]] = (result[row[field]] || 0) + 1; return result; }, {});

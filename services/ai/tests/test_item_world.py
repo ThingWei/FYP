@@ -104,7 +104,8 @@ def test_evaluation_does_not_turn_untested_categories_into_passes(monkeypatch):
     result = evaluation.evaluate(cases, [(detector, world.SOURCE, 'fixture.pt')])
     tested = [row for row in result['categories'] if row['cases']]
     assert tested[0]['withWorldLocalized'] == 1
-    assert tested[0]['baselineLocalized'] == 0
+    assert tested[0]['baselineLocalized'] is None
+    assert result['detectorAvailability']['baseline'] is False
     assert sum(row['status'] == 'not_evaluated' for row in result['categories']) == 21
     assert not result['realPhotoCoverageComplete']
     assert evaluation.iou([0, 0, .1, .1], [.9, .9, 1, 1]) == 0

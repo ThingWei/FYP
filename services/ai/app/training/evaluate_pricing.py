@@ -1,0 +1,173 @@
+"""Forward-time, non-deploying pricing evaluation on reviewed local exports.
+
+Comparable features are rebuilt by RentHub's shared Express evidence code using
+only training-side history. No model, database or production metrics are written.
+"""
+
+import argparse
+import hashlib
+import json
+import subprocess
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from .pricing_dataset import FEATURES, PROVENANCE_COLUMNS, REQUIRED_COLUMNS, validate_dataset
+from .train_tabular_models import _baseline_predict, _metric_block, _pipeline, _sample_weights
+
+ROOT = Path(__file__).resolve().parents[2]
+WORKER = ROOT.parent / 'api/src/scripts/pricingEvaluationFeatures.js'
+TARGETS = ('active_asking', 'external_asking_price', 'accepted_booking', 'completed_rental')
+
+
+def load_observations(path):
+    payload = json.loads(path.read_text(encoding='utf-8-sig'))
+    rows = payload if isinstance(payload, list) else payload.get('rows', [])
+    if not isinstance(rows, list) or len(rows) > 10000:
+        raise ValueError('Expected at most 10000 observations')
+    frame = pd.DataFrame(rows)
+    for column in REQUIRED_COLUMNS:
+        if column not in frame:
+            frame[column] = None
+    if frame.empty:
+        return frame
+    validate_dataset(frame)  # Reject malformed provenance/targets/dates/duplicates, not silent cleanup.
+    if frame[['category', 'subcategory', 'group_id']].isna().any().any():
+        raise ValueError('Missing product grouping/category metadata')
+    # Unknown values must not become zero, and input features cannot carry infinities.
+    for name, minimum, maximum, whole in [('item_age_years', 0, 100, False),
+                                          ('rental_duration_days', 1, 365, True)]:
+        values = pd.to_numeric(frame[name], errors='coerce')
+        supplied = frame[name].notna()
+        invalid = supplied & (~np.isfinite(values) | (values < minimum) | (values > maximum))
+        if whole:
+            invalid |= supplied & (values != values.round())
+        if invalid.any() or (whole and not supplied.all()):
+            raise ValueError('Invalid pricing input feature')
+        frame[name] = values
+    return frame
+
+
+def forward_split(frame, cutoff=None):
+    observed = pd.to_datetime(frame.observed_at, utc=True, format='mixed')
+    available = pd.to_datetime(frame.get('available_at', pd.Series(None, index=frame.index)),
+                               utc=True, format='mixed', errors='coerce')
+    external = frame.source_type == 'external_asking_price'
+    # Missing acquisition/review time for an external quote is unknown, not assumed old.
+    available = available.where(available.notna(), observed.where(~external))
+    known = pd.concat([observed, available], axis=1).max(axis=1)
+    known = known.where(~external | available.notna())
+    timeline = sorted(known.dropna().unique())
+    if cutoff is None:
+        if len(timeline) < 2:
+            return frame.iloc[:0].copy(), frame.iloc[:0].copy(), None
+        cutoff = pd.Timestamp(timeline[min(len(timeline) - 1, int(len(timeline) * .7))])
+    else:
+        cutoff = pd.to_datetime(cutoff, utc=True)
+    train = frame.loc[(known < cutoff) & (observed < cutoff)].copy()
+    test = frame.loc[(observed >= cutoff) & known.notna()].copy()
+    return train, test, cutoff.isoformat()
+
+
+def forward_features(targets, history):
+    columns = list(dict.fromkeys(FEATURES + PROVENANCE_COLUMNS +
+                                ['observed_at', 'group_id', 'source_type', 'target_source', 'daily_price', 'location']))
+    def records(frame):
+        selected = frame[[c for c in columns if c in frame]].copy()
+        # Historical owner aggregates in exports were built outside this fold.
+        for name in ('owner_trust_score', 'owner_average_rating', 'owner_completed_rentals'):
+            selected[name] = None
+        return selected.astype(object).where(pd.notna(selected), None).to_dict('records')
+    result = subprocess.run(['node', str(WORKER)],
+        input=json.dumps({'targets': records(targets), 'history': records(history)}, allow_nan=False),
+        capture_output=True, text=True, timeout=120)
+    if result.returncode:
+        raise ValueError('Offline shared comparable-feature preparation unavailable')
+    values = json.loads(result.stdout)
+    if len(values) != len(targets):
+        raise ValueError('Invalid comparable-feature response')
+    rebuilt = targets.copy().reset_index(drop=True)
+    for name in values[0] if values else []:
+        rebuilt[name] = [row[name] for row in values]
+    rebuilt['owner_trust_score'] = None
+    return rebuilt
+
+
+def cohort_metrics(test, predicted, baseline):
+    report = {}
+    for target in TARGETS:
+        mask = (test.target_source == target).to_numpy()
+        actual = test.loc[mask, 'daily_price']
+        report[target] = ({'status': 'evaluated', 'samples': int(mask.sum()),
+                           'candidate': _metric_block(actual, predicted[mask]),
+                           'categoryMedianBaseline': _metric_block(actual, baseline[mask])}
+                          if mask.any() else {'status': 'no_holdout', 'samples': 0,
+                                              'candidate': None, 'categoryMedianBaseline': None})
+    return report
+
+
+def evaluate(path, *, cutoff=None, seed=42, pipeline_factory=_pipeline):
+    frame = load_observations(path)
+    report = {'mode': 'evaluation_only', 'artifactWritten': False, 'seed': seed,
+              'inputSha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+              'splitStrategy': 'global_forward_time_fixed_training_history',
+              'status': 'insufficient_data', 'candidate': None, 'categoryMedianBaseline': None,
+              'evaluationByTargetSource': {t: {'status': 'not_evaluated', 'samples': 0,
+                                               'candidate': None, 'categoryMedianBaseline': None} for t in TARGETS},
+              'limitations': ['Asking prices are not achieved rental prices',
+                  'Small cohorts cannot validate market-wide accuracy',
+                  'Current listing metadata is not a historical booking-profile snapshot',
+                  'Chronological evaluation may include previously seen product identities',
+                  'Owner history aggregates are excluded because fold-local history is unavailable',
+                  'No live artifact comparison or automatic deployment is performed']}
+    if frame.empty:
+        return {**report, 'inputRows': 0, 'trainRows': 0, 'testRows': 0}
+    eligible = frame.loc[frame.source_type.isin(['real', 'external_asking_price'])].copy()
+    report.update(inputRows=len(frame), excludedDemoSyntheticRows=len(frame) - len(eligible))
+    train, test, split_at = forward_split(eligible, cutoff)
+    report.update(trainRows=len(train), testRows=len(test), cutoff=split_at,
+                  excludedLateOrUnknownRows=len(eligible) - len(train) - len(test),
+                  trainingSources=train.source_type.value_counts().to_dict(),
+                  holdoutTargets=test.target_source.value_counts().to_dict(),
+                  seenHoldoutProductGroups=len(set(train.group_id) & set(test.group_id)))
+    if len(train) < 20 or len(test) < 5:
+        report['reason'] = 'Needs at least 20 earlier training rows and 5 later holdout rows; this is a technical minimum only'
+        return report
+    train_features, test_features = forward_features(train, train), forward_features(test, train)
+    model = pipeline_factory(seed)
+    model.fit(train_features[FEATURES], train_features.daily_price,
+              model__sample_weight=_sample_weights(train_features))
+    predicted = np.asarray(model.predict(test_features[FEATURES]))
+    if not np.isfinite(predicted).all():
+        raise ValueError('Candidate returned non-finite predictions')
+    baseline = _baseline_predict(train_features, test_features)
+    report.update(status='evaluated', candidate=_metric_block(test_features.daily_price, predicted),
+                  categoryMedianBaseline=_metric_block(test_features.daily_price, baseline),
+                  evaluationByTargetSource=cohort_metrics(test_features, predicted, baseline),
+                  holdoutEvidenceTiers=test_features.active_comparable_tier.value_counts().to_dict())
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--real-export', required=True, type=Path)
+    parser.add_argument('--cutoff', help='Optional ISO timestamp; default is the 70%% timeline point')
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--report', type=Path, help='Optional NEW report under .data; never production metrics')
+    args = parser.parse_args()
+    if args.report and (not args.report.resolve().is_relative_to((ROOT / '.data').resolve()) or args.report.exists()):
+        parser.error('Use a new report path under services/ai/.data')
+    try:
+        report = evaluate(args.real_export, cutoff=args.cutoff, seed=args.seed)
+        if args.report:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            with args.report.open('x', encoding='utf-8') as stream:
+                json.dump(report, stream, indent=2, allow_nan=False)
+    except (ValueError, OSError, subprocess.SubprocessError):
+        parser.error('Pricing evaluation failed; check local input, chronology and Node availability. No artifact was written')
+    print(json.dumps(report, indent=2, allow_nan=False))
+
+
+if __name__ == '__main__':
+    main()

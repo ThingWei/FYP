@@ -67,6 +67,17 @@ before generation or training. MyKad weights/data are not item-risk substitutes.
 
 ### Existing training commands
 
+21 October: item-risk training writes only to a NEW isolated candidate directory;
+it never replaces deployed weights. Initialization must be cached unless
+`--allow-download` is explicitly supplied. Image permissions remain pending for
+the current user dataset. See the [validation/readiness handoff](../../docs/AI_VALIDATION_AND_DEMO_READINESS_RESULT.md)
+and [real-data collection guide](../../docs/AI_VALIDATION_COLLECTION_GUIDE.md).
+
+Pricing also has a non-deploying forward-time evaluator:
+`python -m app.training.evaluate_pricing --real-export FILE --report .data/evaluation/NEW.json`.
+Both API export commands accept `--summary-only`, bounded `--limit N` and
+`--staged-users PRIVATE_JSON`, and refuse to overwrite existing export files.
+
 From `services/ai`, create a Python 3.11 virtual environment, install
 `requirements.txt`, then run:
 
@@ -76,7 +87,7 @@ npm run export:pricing-data
 
 cd ..\ai
 python -m app.training.train_tabular_models --real-export ..\api\.data\pricing_observations.json --synthetic-rows 5000
-python -m app.training.train_image_risk .data/datasets/item-risk/manifest.csv --acknowledge-source-permission
+python -m app.training.train_image_risk .data/datasets/item-risk/manifest.csv --output .data/candidates/item-risk-round1 --acknowledge-source-permission
 python -m app.training.train_yolo path/to/dataset.yaml
 python -m app.training.train_document_risk .data/datasets/kyc-risk-manifest.csv
 python -m app.training.train_document_yolo .data/datasets/document-yolo/data.yaml

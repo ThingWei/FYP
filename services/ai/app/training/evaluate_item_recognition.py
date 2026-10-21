@@ -1,7 +1,10 @@
 """Bounded, read-only local-photo evaluation. No API calls, downloads or writes."""
 
 import argparse
+import csv
+import hashlib
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 
@@ -25,6 +28,55 @@ LABEL_DOMAINS = {
     'wrench': ('Equipment', 'Tools'), 'tennis racket': ('Equipment', 'Sports equipment'),
     'dumbbell': ('Equipment', 'Sports equipment'),
 }
+
+
+def reviewed_cases(path, training_manifest=None):
+    cases = json.loads(path.read_text(encoding='utf-8-sig'))
+    if not isinstance(cases, list) or not 1 <= len(cases) <= 500:
+        raise ValueError('Reviewed cases must contain 1-500 completed cases')
+    training_groups, training_hashes = set(), set()
+    if training_manifest:
+        with training_manifest.open(encoding='utf-8-sig', newline='') as stream:
+            for row in csv.DictReader(stream):
+                training_groups.add(row['item_id'])
+                training_hashes.add(hashlib.sha256(
+                    (training_manifest.parent / row['path']).resolve().read_bytes()).hexdigest())
+    seen = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError('Each reviewed case must be an object')
+        key = (items.normalize(case.get('category', '')), items.normalize(case.get('subcategory', '')))
+        if key[1] not in items.DOMAINS.get(key[0], {}):
+            raise ValueError('Unknown category/subcategory')
+        if case.get('reviewed') is not True or case.get('permissionConfirmed') is not True:
+            raise ValueError('Each case requires actual review and permission confirmation')
+        if not isinstance(case.get('item_id'), str) or not case['item_id'].strip():
+            raise ValueError('Each case needs a reviewed physical-item group')
+        if case.get('expectation') not in ('target_present', 'target_absent', 'detail_only'):
+            raise ValueError('Invalid evaluation expectation')
+        if not case.get('path') or not isinstance(case['path'], str):
+            raise ValueError('Each case needs an existing local image')
+        case['path'] = (path.parent / case['path']).resolve()
+        digest = hashlib.sha256(case['path'].read_bytes()).hexdigest()
+        if case['item_id'] in training_groups or digest in training_hashes:
+            raise ValueError('Evaluation overlaps supplied training/development manifest')
+        case_key = (digest, *key)
+        if case_key in seen:
+            raise ValueError('Duplicate evaluation image/domain case')
+        seen.add(case_key)
+        if case['expectation'] == 'target_present':
+            if items.normalize(case.get('label') or '') not in items.expected_labels(*key):
+                raise ValueError('Positive case needs a compatible canonical object label')
+            boxes = case.get('boxes')
+            if not isinstance(boxes, list) or not boxes:
+                raise ValueError('Positive case needs reviewed object boxes')
+            for box in boxes:
+                if (not isinstance(box, list) or len(box) != 4 or
+                        not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                                and 0 <= v <= 1 for v in box) or
+                        box[0] >= box[2] or box[1] >= box[3]):
+                    raise ValueError('Invalid normalized evaluation box')
+    return cases
 
 
 def yolo_cases(path, per_class=3):
@@ -84,6 +136,8 @@ def evaluate(cases, detectors):
             'failedInferenceAttempts': 0, 'status': 'not_evaluated'}
     baseline = [d for d in detectors if d[1] != SOURCE]
     world_only = [d for d in detectors if d[1] == SOURCE]
+    availability = {name: bool(selected) for name, selected in
+                    (('baseline', baseline), ('withWorld', detectors), ('worldOnly', world_only))}
     for case in cases:
         key = (items.normalize(case['category']), items.normalize(case['subcategory']))
         if key not in results or case['expectation'] not in ('target_present', 'target_absent', 'detail_only'):
@@ -97,6 +151,10 @@ def evaluate(cases, detectors):
         expectation = case['expectation']
         row[{'target_present': 'positives', 'target_absent': 'negatives', 'detail_only': 'details'}[expectation]] += 1
         for name, selected in (('baseline', baseline), ('withWorld', detectors), ('worldOnly', world_only)):
+            if not selected:
+                row[name + 'Localized'] = None
+                row[name + 'FalsePositiveCases'] = None
+                continue
             detections, _, failures = items.detect_photo(image, items.expected_labels(*key), selected)
             row['failedInferenceAttempts'] += failures
             matches = [d for d in detections if d['matchesCategory']]
@@ -115,6 +173,7 @@ def evaluate(cases, detectors):
             elif expectation == 'target_absent':
                 row[name + 'FalsePositiveCases'] += int(bool(matches))
     return {'threshold': items.THRESHOLD, 'iouThreshold': .5, 'worldAvailable': bool(world_only),
+            'detectorAvailability': availability,
             'categories': list(results.values()),
             'totalCases': len(cases), 'realPhotoCoverageComplete': False,
             'limitations': ['Bounded case localization counts, not mAP or authenticity accuracy',
@@ -129,17 +188,17 @@ def main():
     group.add_argument('--reviewed-cases', type=Path,
                        help='Private JSON: cases with path/category/subcategory/expectation/label/boxes/view')
     parser.add_argument('--per-class', type=int, default=3)
+    parser.add_argument('--training-manifest', type=Path, help='Optional training/development manifest to reject overlap')
     args = parser.parse_args()
     if not 1 <= args.per_class <= 20:
         parser.error('per-class must be 1–20')
     if args.dataset_yaml:
         cases = yolo_cases(args.dataset_yaml.resolve(), args.per_class)
     else:
-        cases = json.loads(args.reviewed_cases.read_text(encoding='utf-8-sig'))
-        if not isinstance(cases, list) or not 1 <= len(cases) <= 500:
-            parser.error('Reviewed cases must contain 1–500 cases')
-        for case in cases:
-            case['path'] = args.reviewed_cases.parent / case['path']
+        try:
+            cases = reviewed_cases(args.reviewed_cases, args.training_manifest)
+        except (ValueError, OSError, KeyError):
+            parser.error('Review cases are incomplete, invalid, unreadable or overlap the supplied training manifest')
     model, _, status = items.models_status()
     print(json.dumps(evaluate(cases, items.verification_detectors(model, status)), indent=2))
 

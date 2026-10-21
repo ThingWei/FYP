@@ -1,5 +1,11 @@
 # Pricing evidence and safe recommendation evaluation
 
+21 October follow-up: [AI validation/readiness](AI_VALIDATION_AND_DEMO_READINESS_RESULT.md)
+adds global forward-time pricing evaluation with training-only comparable features,
+bounded native recommendation summaries, non-overwriting exports and explicit
+staged-account export overlays. This supersedes the earlier pricing-evaluation
+limitation and stale pending-adapter statements below; deployed models are unchanged.
+
 Follow-up: 20 October 2026. This is training-data preparation and offline evaluation work, not a claim of validated Malaysian-market accuracy.
 
 ## Implemented

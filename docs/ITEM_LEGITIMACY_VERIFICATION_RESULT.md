@@ -141,6 +141,7 @@ prove independence by itself; review near-duplicates/source provenance separatel
 cd C:\Users\weith\FYP\services\ai
 .\.venv\Scripts\python.exe -m app.training.train_image_risk `
   .data/datasets/item-risk/manifest.csv `
+  --output .data/candidates/item-risk-round1 `
   --epochs 8 --acknowledge-source-permission
 ```
 
@@ -148,8 +149,10 @@ The trainer fine-tunes an EfficientNet-B0 two-class head, uses deterministic
 evaluation transforms, keeps the frozen feature extractor in evaluation mode,
 selects the best validation checkpoint and evaluates the held-out test split.
 It exports the runtime metadata, source types, accuracy, macro-F1 and confusion
-matrix, then checks a fresh-loaded export before replacing the previous artifact.
-Pretrained backbone weights may download on the first explicit training run.
+matrix, then checks a fresh-loaded export in the new isolated candidate directory.
+It never replaces a deployed artifact. Pretrained initialization must be cached;
+downloading requires an explicit `--allow-download`. See the
+[readiness handoff](AI_VALIDATION_AND_DEMO_READINESS_RESULT.md).
 Report synthetic evaluation separately; independent realistic held-out testing
 is still needed before interpreting scores as useful real-world risk assistance.
 

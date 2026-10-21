@@ -127,9 +127,19 @@ def _scores(model, train, test, *, candidate_items=None):
 
 
 def _by_source(model, train, test, frame):
-    return {source: _scores(model, train, test.loc[test.source_type == source],
-                           candidate_items=set(frame.loc[frame.source_type == source, 'item_id']))
-            for source in ['marketplace', 'demo_seed', 'synthetic']}
+    reports = {}
+    for source in ['marketplace', 'demo_seed', 'synthetic']:
+        cohort = test.loc[test.source_type == source]
+        training = train.loc[train.source_type == source]
+        scores = _scores(model, train, cohort,
+                         candidate_items=set(frame.loc[frame.source_type == source, 'item_id']))
+        scores['trainMeanBaseline'] = None
+        if not training.empty and not cohort.empty:
+            mean = float(training.rating.mean())
+            scores['trainMeanBaseline'] = {'mae': float((cohort.rating - mean).abs().mean()),
+                                          'rmse': float(((cohort.rating - mean) ** 2).mean() ** .5)}
+        reports[source] = scores
+    return reports
 
 
 def _marketplace_experiment(frame, seed):

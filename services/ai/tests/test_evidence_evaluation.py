@@ -36,8 +36,10 @@ def test_source_specific_and_marketplace_only_evaluation_without_writes(tmp_path
     assert report['artifactWritten'] is False
     assert set(tmp_path.rglob('*')) == before
     assert report['evaluationBySource']['marketplace']['testInteractions'] == 3
+    assert report['evaluationBySource']['marketplace']['trainMeanBaseline']['mae'] is not None
     assert report['evaluationBySource']['demo_seed']['testInteractions'] == 3
     assert report['evaluationBySource']['synthetic']['status'] == 'no_holdout'
+    assert report['evaluationBySource']['synthetic']['trainMeanBaseline'] is None
     assert report['marketplaceOnly']['trainingSources'] == ['marketplace']
     assert report['marketplaceOnly']['interactions'] == 15
     assert report['marketplaceOnly']['rmse'] is not None
