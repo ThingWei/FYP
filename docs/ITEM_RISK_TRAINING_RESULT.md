@@ -1,7 +1,9 @@
 # Item-photo risk candidate: actual training results
 
 Completed 22 October 2026 after the user's explicit instruction to train.
-**Trained and benchmark-evaluated; not deployed.** No source images were edited,
+**Training snapshot: trained and benchmark-evaluated; initially not deployed.**
+The user subsequently requested advisory activation; see the activation section
+below. No source images were edited,
 generated, copied, deleted or committed. No existing model, metric, environment
 setting, database record or running-service configuration was changed.
 
@@ -159,6 +161,48 @@ Do not reuse the held-out benchmark for tuning and still describe it as untouche
 Administrator review stays mandatory. No environment setting or deployment has
 been changed, so the app does **not** automatically start using this candidate.
 
+## Subsequent user-authorized advisory activation — 22 October
+
+After reviewing the results, the user explicitly requested enabling the candidate.
+Copied the verified artifact to the previously absent configured runtime path:
+`services/ai/models/image_risk_efficientnet.pt`. Its SHA-256 matches round1 above;
+the isolated candidate is unchanged. Existing `IMAGE_RISK_MODEL_PATH` already uses
+this location, so no `.env`, launcher or Auth0 change was necessary. No existing
+artifact was overwritten. The model file remains Git-ignored.
+
+Embedded `deployed=false` describes the immutable training-time candidate snapshot,
+not the current activation configuration. Likewise, the before/after inventory
+equality reported in the training section applies to that earlier training run;
+activation intentionally adds this one runtime model.
+
+Item-only runtime preprocessing now matches the trainer's PIL bilinear resize,
+RGB conversion and ImageNet normalization. Previously the shared document-risk
+helper used OpenCV's different resizing filter. Document/KYC inference is unchanged.
+A regression verifies exact tensor equality with the training image path, including
+BGR-to-RGB conversion on a non-square downsampled image.
+
+In-process FastAPI `/health` reports `image_risk_model=true` and
+`riskEvaluationScope=synthetic_only`. `/verify/item` was exercised with three
+generated noise images solely to check wiring (not detection or manipulation
+accuracy): all three received finite risk scores, the response retained
+`advisory=true`, `adminReviewRequired=true`, `authenticityVerified=false`,
+`syntheticRiskOnly=true`, and could not become an approved candidate. Regression
+tests cover both low and high synthetic-trained risk scores.
+
+Activation verification: **full AI suite 512 passed**, with the same four existing
+warnings noted above; `git diff --check` passed. No Flutter presentation, payload
+or API endpoint changed, so their builds/tests were not rerun for this activation.
+
+The local port-8001 service was not reachable during activation; no existing
+service was stopped and no persistent background service was created. Start or
+restart the usual `run-renthub.ps1` launcher to load the updated code/model in
+the app. New listing-photo checks use the classifier; old saved analyses are
+not silently recalculated. The real-photo and rights limitations above remain.
+
+Ultralytics emitted non-fatal sandbox permission warnings while attempting to
+write its user-profile settings/cache; the in-process health and verification
+checks nevertheless succeeded. No permissions were broadened to suppress them.
+
 ## Commit message
 
 ```text
@@ -171,3 +215,6 @@ feat(ai): train isolated CASIA and AutoSplice item-risk candidate
 - document caller acknowledgement, CASIA licence uncertainty and real-data gaps
 - preserve source photos, deployed models and synthetic-only advisory limits
 ```
+
+Activation commit message:
+`feat(ai): enable advisory item-risk inference with training-aligned preprocessing`.

@@ -15,6 +15,32 @@ from app.services import item_verification as items
 from app.services.image_intelligence import _risk_probability
 
 
+def test_item_risk_preprocessing_matches_training_rgb_resize_and_normalization(tmp_path):
+    import torch
+    from PIL import Image
+    from torchvision import transforms
+    from app.training.train_image_risk import ManifestImages
+
+    rgb = np.random.default_rng(42).integers(0, 256, (317, 539, 3), dtype=np.uint8)
+    path = tmp_path / 'fixture.png'
+    Image.fromarray(rgb).save(path)
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)), transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+    expected, _ = ManifestImages([{'path': path, 'label': 'normal'}], transform)[0]
+
+    class Capture(torch.nn.Module):
+        def forward(self, inputs):
+            self.inputs = inputs.clone()
+            return torch.tensor([[0., 1.]])
+
+    model = Capture()
+    probability = items.risk_probability(model, rgb[:, :, ::-1])
+    assert torch.equal(model.inputs[0], expected)
+    assert probability == pytest.approx(float(torch.softmax(torch.tensor([0., 1.]), dim=0)[1]))
+
+
 class Scalar:
     def __init__(self, value):
         self.value = value
@@ -303,7 +329,7 @@ def test_local_supplement_preserves_primary_and_is_never_downloaded(monkeypatch,
     assert coverage['allProductsCovered'] is False
     detections, attempts, failures = items.detect_photo(np.zeros((10, 10, 3)), {'sports ball'}, detectors)
     assert detections[0]['source'] == 'general_pretrained'
-    assert attempts == 1 and failures == 0
+    assert attempts == 2 and failures == 0  # Remaining model supplies context, not a forced target.
     monkeypatch.setenv('ITEM_ALLOW_PRETRAINED_DETECTOR', 'false')
     assert len(items.verification_detectors(primary, status)) == 1
     assert items.verification_detectors(None, status) == []
@@ -315,7 +341,7 @@ def test_rotation_and_supplement_work_are_bounded_and_never_lower_threshold():
             assert kwargs['conf'] == 0.55
             assert kwargs['max_det'] == 20
             return super().predict(image, **kwargs)
-    detectors = [(NoMatch(['book', 'person'], ['person']), 'fixture', 'v1')] * 2
+    detectors = [(NoMatch(['book', 'person'], ['person']), 'fixture', 'v1') for _ in range(2)]
     detections, attempts, failures = items.detect_photo(np.zeros((10, 10, 3)), {'book'}, detectors)
     assert attempts == 8 and failures == 0
     assert len(detections) == 1

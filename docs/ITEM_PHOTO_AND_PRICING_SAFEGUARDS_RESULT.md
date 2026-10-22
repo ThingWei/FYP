@@ -1,5 +1,101 @@
 # Photo previews, item-check disclosure and pricing safeguards
 
+## 22 October follow-up: false category matches and photo context
+
+The reported 76% was an object-detector score, not a measured probability that
+an upload is a relevant physical listing photo. A screenshot/photo containing a
+phone can produce a valid phone-object detection without validating the upload
+as product evidence. The item-risk classifier addresses labelled photo edits,
+not semantic category relevance; enabling it does not resolve this distinction.
+
+Two code-level problems were confirmed: `detect_photo` returned after its first
+expected-label guess, bypassing other models' competing context; Flutter then
+described raw/legacy label matches as "Item type looks consistent", including
+partial-view counts. No submitted listing or private attachment was modified.
+
+Changes:
+
+- A positive guess now triggers one same-orientation pass through the remaining
+  already-loaded local detectors, including the fixed-vocabulary YOLO-World
+  context classes. No prompts, model download, threshold reduction or training.
+  Ordinary orientation retries still precede fallback detection; calls are
+  deduplicated and remain bounded by three models/four orientations.
+- Preserve source-specific guesses and scores rather than hiding competing
+  paper, poster, illustration, screen, credit-card or page regions. If such a
+  region covers at least 80% of a candidate object box, flag context review and
+  exclude that guess from category-match counts/aggregate detection scores.
+  A nearby non-overlapping screen/paper does not invalidate another object.
+- Add a bounded OpenCV layout diagnostic for strongly flat, almost monochrome
+  images containing multiple boxes and long straight lines. All signals must be
+  present; grayscale, text or a single rectangle alone is insufficient. This
+  can flag flowchart/document-like uploads for review. It is a heuristic, **not**
+  a trained screenshot classifier or a declaration that an image is fake.
+- Return `photoContext`, `photoContextReviewRequired`, `context_needs_review`,
+  `listingRelevanceVerified=false` and `physicalItemVerified=false`. Context
+  concerns yield a warning/manual review, not an authenticity rejection or a
+  fabricated focus/lighting failure. Book pages and other legitimate supporting
+  detail views remain submit-able under the existing advisory/admin workflow.
+- Ordinary Flutter copy now says "Possible item type detected … Admin review is
+  needed", "Item type could not be identified", or "Photo content needs review".
+  Even old saved label matches no longer say "looks consistent". Context warnings
+  override contradictory older match flags. Per-photo copy says a detection is
+  not a confirmed match. Numeric object scores remain only in opt-in admin
+  diagnostics, with an explicit listing-relevance limitation.
+
+Actual verification:
+
+- Full AI suite: **542 passed**, four existing warnings (two third-party
+  deprecations and two expected sparse-pricing fixture warnings).
+- Controlled policies cover all 22 subcategories, 99%-score false-match fixtures,
+  dominant versus nearby screen/paper boxes, retained raw scores, invalid boxes,
+  multiple layout signals and positive-first detector context passes.
+- Real local-model `/verify/item` smoke check with three **generated flowchart
+  fixtures** returned `warning`, `context_needs_review`, zero matching views and
+  aggregate detection score 0. The enabled risk classifier returned normally.
+  These generated fixtures are wiring/diagnostic checks, not real-photo accuracy.
+- Flutter photo-panel suite: **30 passed**, including 360/390/1024-pixel widths,
+  1.5× text, legacy high-score flags, zero matches and context warnings.
+- Full Flutter suite: **420 passed, three skipped**. Full Dart analysis and
+  focused analysis: **no issues**. Default Flutter web build passed. Existing
+  non-fatal web warnings remain for the dependency's Wasm interop check and a
+  missing Cupertino font declaration; no Wasm/Android build was claimed.
+- Flutter initially could not open its SDK cache lock in the sandbox. Tests/build
+  succeeded with approved SDK-cache access. Local AI smoke inference emitted
+  non-fatal Ultralytics user-profile settings/cache permission warnings.
+- No Express endpoint, request payload, authorization, booking, KYC or model
+  artifact was changed by this follow-up. API evidence storage was inspected and
+  already preserves the structured AI result; its suite was not rerun.
+
+Limits and device handoff:
+
+The exact two attached images were visually inspected in the conversation but
+were **not** replayed through local inference or committed as fixtures/training
+data. No fix is claimed for every screenshot, wallpaper, photographed display or
+wrong image. A photograph of a real phone with its screen on can itself trigger
+context review; that is deliberately inconclusive, not automatic rejection.
+The heuristics and YOLO context classes are not independent real-photo evaluation
+and do not improve the trained detector's measured accuracy. Subcategory coverage
+and the risk model's modest benchmark performance remain separate limitations.
+
+Restart/relaunch `run-renthub.ps1` so Flutter and the AI code are current. Re-submit
+the draft photos to obtain new context evidence; existing saved analyses are not
+silently recalculated. On Android, retest the actual chart/screenshot, an ordinary
+physical phone, a nearby unrelated screen, and legitimate book/detail photos.
+Administrators must still inspect all images. No unrelated module was changed.
+
+Commit message:
+
+```text
+fix(verification): avoid treating object guesses as confirmed listing matches
+
+- inspect competing local-model context after a positive item prediction
+- flag dominant document, illustration and on-screen regions for human review
+- add conservative multi-signal line-art layout diagnostics
+- retain raw scores without counting context-conflicted guesses as item matches
+- replace consistent-type claims with tentative, legacy-safe photo summaries
+- test all-domain context policy, nearby objects and responsive review messages
+```
+
 Updated: 9 October 2026.
 
 ## Photo input coverage

@@ -832,9 +832,9 @@ class ImageIntelligenceService:
         )
 
     def verify_item(self, request: VerificationRequest) -> VerificationResponse:
-        from .item_verification import verify
+        from .item_verification import verify, risk_probability
 
         decoded, errors = _decode_images(request)
         return verify(
-            request, decoded, errors, _quality, _perceptual_hash, _risk_probability,
+            request, decoded, errors, _quality, _perceptual_hash, risk_probability,
         )

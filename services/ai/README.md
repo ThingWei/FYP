@@ -13,6 +13,8 @@ stay in RAM; the exported candidate remains a complete image-input model.
 Progress is printed during extraction and after every epoch. This does not
 authorize downloads, acknowledge source rights or deploy the resulting artifact.
 See [the completed candidate's results and limitations](../../docs/ITEM_RISK_TRAINING_RESULT.md).
+The user-authorized local deployment now uses `models/image_risk_efficientnet.pt`;
+synthetic-trained risk remains advisory with administrator review required.
 
 This service uses real, artifact-backed pipelines. It never substitutes random or
 hard-coded confidence values when a model is missing.

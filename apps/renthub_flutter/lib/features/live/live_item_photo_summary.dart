@@ -49,8 +49,20 @@ class ItemPhotoSummary {
   bool _qualityFlag(String flag) =>
       images.any((image) => map(image['quality'])[flag] == true);
 
+  bool get _contextNeedsReview =>
+      fields['photoContextReviewRequired'] == true ||
+      fields['categoryMatchStatus'] == 'context_needs_review' ||
+      images.any((image) =>
+          map(image['photoContext'])['status'] == 'needs_review' ||
+          image['objectEvidenceStatus'] == 'context_needs_review');
+
   List<String> get notes {
     final result = <String>[];
+    if (_contextNeedsReview) {
+      result.add(
+          'Some photos may show a document, illustration or screen. Include clear photos of the actual item.');
+      result.add(photoGuidance(listing.category));
+    }
     if (_signals.contains('at least three')) {
       result.add('Add at least three clear photos from different angles.');
     }
@@ -104,6 +116,7 @@ class ItemPhotoSummary {
   }
 
   String get typeSummary {
+    if (_contextNeedsReview) return 'Photo content needs review.';
     if (fields['categoryMatchStatus'] == 'unsupported' ||
         models['detectorAvailable'] == false) {
       return 'Item type needs a manual check.';
@@ -119,11 +132,13 @@ class ItemPhotoSummary {
         total > 0 &&
         matched >= 0 &&
         matched <= total) {
-      return 'Item type looks consistent in ${matched.toInt()} of ${total.toInt()} photos.';
+      return matched == 0
+          ? 'Item type could not be identified.'
+          : 'Possible item type detected in ${matched.toInt()} of ${total.toInt()} photos. Admin review is needed.';
     }
     return fields['categoryMatched'] == true &&
             fields['categoryMatchStatus'] != 'analysis_incomplete'
-        ? 'Item type looks consistent.'
+        ? 'Possible item type detected. Admin review is needed.'
         : 'Item type needs review.';
   }
 
@@ -141,8 +156,11 @@ class ItemPhotoSummary {
         image['riskClassifierUnavailable'] == true) {
       notes.add('Checks incomplete');
     }
-    if (image['categoryMatched'] == true) {
-      notes.add('Item type looks consistent');
+    if (map(image['photoContext'])['status'] == 'needs_review' ||
+        image['objectEvidenceStatus'] == 'context_needs_review') {
+      notes.add('Document or on-screen content needs review');
+    } else if (image['categoryMatched'] == true) {
+      notes.add('Possible item type detected; not a confirmed match');
     } else if (image['categoryMatched'] == false) {
       notes.add('Item type needs manual review');
     } else if (image['objectEvidenceStatus'] == 'not_detected' ||

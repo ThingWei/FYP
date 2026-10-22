@@ -94,11 +94,13 @@ void main() {
       expect(find.textContaining('classifier'), findsNothing);
       expect(find.textContaining('General pretrained'), findsNothing);
       expect(find.textContaining('Photos alone cannot prove'), findsOneWidget);
-      expect(find.text('Item type looks consistent.'), findsNothing);
+      expect(find.textContaining('Possible item type detected.'), findsNothing);
       await tester.ensureVisible(find.text('Photo details'));
       await tester.tap(find.text('Photo details'));
       await tester.pumpAndSettle();
-      expect(find.text('Item type looks consistent.'), findsOneWidget);
+      expect(find.text('Possible item type detected. Admin review is needed.'),
+          findsOneWidget);
+      expect(find.textContaining('looks consistent'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }
@@ -220,7 +222,8 @@ void main() {
         warning.notes,
         contains(
             'Some views could not be identified automatically. An admin will review them.'));
-    expect(warning.typeSummary, 'Item type looks consistent in 1 of 3 photos.');
+    expect(warning.typeSummary,
+        'Possible item type detected in 1 of 3 photos. Admin review is needed.');
     expect(warning.notes.join(' '), isNot(contains('YOLO')));
     final unavailable = ItemPhotoSummary(sample('unavailable', {
       'extracted_fields': {
@@ -247,6 +250,78 @@ void main() {
     expect(malformed.images, isEmpty);
     expect(malformed.typeSummary, 'Item type needs review.');
     expect(malformed.notes, isEmpty);
+  });
+
+  for (final width in [360.0, 390.0, 1024.0]) {
+    testWidgets('document context cannot display a matching claim at $width',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      const item = Listing(
+          id: 'document-context',
+          title: 'Smartphone',
+          category: 'Devices',
+          subcategory: 'Smartphones',
+          dailyPrice: 10,
+          itemVerificationOutcome: 'warning',
+          itemVerification: {
+            'confidence': .99,
+            'extracted_fields': {
+              // Also guard older/conflicting cached category flags.
+              'categoryMatched': true,
+              'matchingViewCount': 3,
+              'submittedViewCount': 3,
+              'photoContextReviewRequired': true,
+              'images': [
+                {
+                  'categoryMatched': true,
+                  'photoContext': {'status': 'needs_review'}
+                }
+              ]
+            }
+          });
+      final summary = ItemPhotoSummary(item);
+      expect(summary.typeSummary, 'Photo content needs review.');
+      expect(summary.photoNote(summary.images.first),
+          'Document or on-screen content needs review');
+      await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!),
+          home: const Scaffold(
+              body: SingleChildScrollView(
+                  child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: ItemVerificationPanel(listing: item))))));
+      expect(find.textContaining('Some photos may show a document'),
+          findsOneWidget);
+      expect(find.textContaining('99%'), findsNothing);
+      await tester.ensureVisible(find.text('Photo details'));
+      await tester.tap(find.text('Photo details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo content needs review.'), findsOneWidget);
+      expect(find.textContaining('looks consistent'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  test('zero and legacy detections never imply a confirmed category', () {
+    ItemPhotoSummary sample(Map<String, dynamic> fields) =>
+        ItemPhotoSummary(Listing(
+            id: 'summary',
+            title: 'Item',
+            category: 'Devices',
+            dailyPrice: 10,
+            itemVerification: {'extracted_fields': fields}));
+    expect(
+        sample({'matchingViewCount': 0, 'submittedViewCount': 3}).typeSummary,
+        'Item type could not be identified.');
+    expect(sample({'categoryMatched': true}).typeSummary,
+        'Possible item type detected. Admin review is needed.');
   });
 
   for (final category in [

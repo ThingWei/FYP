@@ -56,7 +56,7 @@ def test_prompted_matches_cannot_become_automatic_candidates(monkeypatch, catego
     assert result.extracted_fields['matchingViewCount'] == 3
 
 
-def test_ordinary_rotations_precede_world_and_target_is_never_forced():
+def test_ordinary_rotations_precede_world_then_context_is_checked_without_forcing_target():
     class Sideways(Detector):
         def predict(self, image, **kwargs):
             self.detected = 'book' if self.calls else ''
@@ -64,9 +64,9 @@ def test_ordinary_rotations_precede_world_and_target_is_never_forced():
     primary, fallback = Sideways('book'), Detector('book')
     ds, attempts, failures = items.detect_photo(np.zeros((10, 10, 3)), {'book'},
         [(primary, 'configured_item_model', 'a.pt'), (fallback, world.SOURCE, 'b.pt')])
-    assert attempts == 2 and failures == 0
+    assert attempts == 3 and failures == 0
     assert ds[0]['source'] == 'configured_item_model'
-    assert fallback.calls == 0
+    assert fallback.calls == 1
 
 
 def test_world_runs_only_after_fixed_model_misses_and_unrelated_is_not_a_match():
@@ -130,7 +130,8 @@ def test_optional_prepared_artifact_predicts_without_network_or_clip(monkeypatch
     assert not len(result[0].boxes)
 
 
-def test_low_synthetic_only_risk_cannot_claim_a_candidate_pass(monkeypatch):
+@pytest.mark.parametrize('score', [.01, .99])
+def test_synthetic_only_risk_cannot_claim_a_candidate_pass(monkeypatch, score):
     detector = Detector('car')
     monkeypatch.setattr(items, 'models_status', lambda: (detector, object(), {
         'detectorSource': 'configured_item_model', 'detectorVersion': 'fixture.pt',
@@ -140,9 +141,12 @@ def test_low_synthetic_only_risk_cannot_claim_a_candidate_pass(monkeypatch):
     result = items.verify(VerificationRequest(expected_category='Vehicles', expected_subcategory='Cars'),
                           images, [], lambda _: dict(isBlurry=False, isTooDark=False,
                           isTooBright=False, hasUsableResolution=True),
-                          lambda image: str(image[0, 0, 0]), lambda *_: .01)
-    assert not result.accepted and result.outcome == 'manual_review'
+                          lambda image: str(image[0, 0, 0]), lambda *_: score)
+    assert not result.accepted
+    assert result.outcome == ('warning' if score >= .65 else 'manual_review')
     assert result.extracted_fields['syntheticRiskOnly'] is True
+    assert result.extracted_fields['adminReviewRequired'] is True
+    assert result.extracted_fields['authenticityVerified'] is False
 
 
 def test_preparation_cannot_overwrite_an_existing_detector(monkeypatch):

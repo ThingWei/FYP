@@ -1,5 +1,11 @@
 # RentHub item-photo verification — implementation result
 
+22 October follow-up: [false-match/context safeguards](ITEM_PHOTO_AND_PRICING_SAFEGUARDS_RESULT.md)
+replace consistent-type claims with tentative detection wording and flag dominant
+document/screen context for administrator review. [Item-risk training and advisory
+activation](ITEM_RISK_TRAINING_RESULT.md) are complete; neither establishes
+physical-item relevance or authenticity.
+
 20 October follow-up: [YOLO-World and item-risk preparation](ITEM_WORLD_AND_RISK_PREPARATION_RESULT.md)
 records the prepared optional model, v4 contract, actual bounded evaluation and
 separate preview-only risk dataset workflow. Prompt availability is not complete

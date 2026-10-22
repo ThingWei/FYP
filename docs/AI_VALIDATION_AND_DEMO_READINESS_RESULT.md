@@ -4,7 +4,9 @@
 and [actual eight-epoch candidate training](ITEM_RISK_TRAINING_RESULT.md) are complete.
 The user acknowledged proceeding after the attribution discussion; CASIA's unclear
 licence remains documented rather than independently verified. Held-out benchmark
-accuracy is 68.64%; reviewed-real evaluation and deployment remain **not done**.
+accuracy is 68.64%; reviewed-real evaluation remains **not done**. The user later
+authorized advisory activation at `models/image_risk_efficientnet.pt`; see the
+training report's activation section for runtime checks and restart instructions.
 The readiness snapshot below is historical (21 October), not a claim that the
 subsequent candidate has already met its external validation gates.
 

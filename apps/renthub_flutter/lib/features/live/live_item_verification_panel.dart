@@ -109,15 +109,17 @@ class _ItemTechnicalDetails extends StatelessWidget {
           Text('Item type: ${listing.category}'
               '${listing.subcategory.isEmpty ? '' : ' → ${listing.subcategory}'}'),
           Text(
-              'Category check: ${matched == true ? 'Expected type detected' : matched == false ? 'Expected type not detected clearly' : 'Not assessed / unsupported'}'),
+              'Category check: ${matched == true ? 'Possible expected type detected, not verified' : matched == false ? 'Expected type not detected clearly' : 'Not established / unsupported'}'),
           if (fields['matchingViewCount'] is num)
             Text(
-                'Expected type detected in ${fields['matchingViewCount']} of ${fields['submittedViewCount']} submitted views.'),
+                'Possible expected type detected in ${fields['matchingViewCount']} of ${fields['submittedViewCount']} submitted views.'),
           if (fields['categoryMatchStatus'] == 'partial_views')
             const Text(
                 'Partial match only. A high score in one view does not clear the other photos.'),
           const Text(
               'Detection scores are not authenticity probabilities. Check every photo and highlighted box.'),
+          const Text(
+              'A matching object label does not establish that this is a photo of the listed physical item.'),
           Text(
               'Object detector: ${models['detectorAvailable'] == true ? models['detectorSource'] == 'general_pretrained' ? 'General pretrained model (limited coverage)' : 'Configured item model' : 'Unavailable'}'),
           for (final detector in ItemPhotoSummary.maps(models['detectors']))

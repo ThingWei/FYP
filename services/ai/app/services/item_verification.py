@@ -161,8 +161,9 @@ def original_box(box, image, turns):
 def detect_photo(image, allowed, detectors):
     """At most three local models x four orientations; no threshold reduction.
 
-    Stop on positive object evidence. Repeated predictions never become extra
-    views or corroboration. A miss remains inconclusive, not a category mismatch.
+    A positive fixed-model guess receives one same-orientation context pass from
+    remaining local models before stopping. Repeated predictions never become
+    extra views or independent proof. A miss remains inconclusive.
     """
     import numpy as np
     detections, attempts, failures = [], 0, 0
@@ -175,7 +176,15 @@ def detect_photo(image, allowed, detectors):
               [entry for entry in candidates if entry[1] == 'yolo_world_pretrained'])
     plan = [(turns, entry) for phase in phases
             for turns in ((0, 1, 3, 2) if eligible else (0,)) for entry in phase]
-    for turns, (model, source, version) in plan:
+    visited = set()
+
+    def run(turns, entry):
+        nonlocal attempts, failures
+        model, source, version = entry
+        key = (turns, id(model), source, version)
+        if key in visited:
+            return
+        visited.add(key)
         attempts += 1
         try:
             with DETECTOR_LOCK:
@@ -196,15 +205,22 @@ def detect_photo(image, allowed, detectors):
                         detection['boundingBox'] = bounds
                 except (AttributeError, TypeError, ValueError, IndexError):
                     pass
-                previous = next((d for d in detections if d['label'] == label), None)
+                previous = next((d for d in detections if d['label'] == label and d['source'] == source), None)
                 if previous is None:
                     detections.append(detection)
                 elif score > previous['confidence']:
                     detections[detections.index(previous)] = detection
-            if any(d['matchesCategory'] for d in detections):
-                return detections, attempts, failures
         except Exception:
             failures += 1
+
+    for turns, entry in plan:
+        run(turns, entry)
+        if any(d['matchesCategory'] for d in detections):
+            # Keep competing paper/screen/illustration predictions even when
+            # the first model guessed the requested object class.
+            for other in detectors:
+                run(turns, other)
+            return detections, attempts, failures
     return detections, attempts, failures
 
 
@@ -234,6 +250,27 @@ def valid_risk_metadata(metadata):
         and metadata.get('preprocessing') == 'rgb-224-imagenet-v1'
         and metadata.get('purpose') == 'item_photo_risk_assistance'
     )
+
+
+def risk_probability(model, image):
+    """Match the item trainer's rgb-224-imagenet-v1 preprocessing exactly.
+
+    Decoded uploads are OpenCV BGR arrays. PIL bilinear resize includes the same
+    downsampling filter as the trainer's torchvision PIL Resize; OpenCV's default
+    resize is not interchangeable. Keep document-model preprocessing unchanged.
+    """
+    import numpy as np
+    import torch
+    from PIL import Image
+    from torchvision import transforms
+
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)), transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+    tensor = transform(Image.fromarray(np.ascontiguousarray(image[:, :, ::-1]))).unsqueeze(0)
+    with torch.inference_mode():
+        return float(torch.softmax(model(tensor), dim=1)[0, 1])
 
 
 @lru_cache(maxsize=4)
@@ -301,6 +338,8 @@ def models_status():
 
 
 def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
+    from .item_photo_context import document_layout, annotate_context
+
     fields = {
         'advisory': True, 'authenticityVerified': False, 'adminReviewRequired': True,
         'expectedCategory': request.expected_category,
@@ -309,6 +348,8 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         'conditionAssessment': 'not_assessed',
         'matchGranularity': 'object_type_only',
         'categoryMatched': None,
+        'listingRelevanceVerified': False,
+        'physicalItemVerified': False,
         'confidenceMeaning': 'view_coverage_weighted_detection_score_not_authenticity_probability',
     }
     if len(decoded) < 3 or len(decoded) > 10 or len(request.images) > 10:
@@ -347,13 +388,17 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
                     'quality': qualities[index],
                     'detections': [], 'categoryMatched': None}
         detections, attempts, failed = detect_photo(image, allowed, detectors)
+        context = annotate_context(detections, document_layout(image))
         evidence.update({'detections': detections, 'detectionAttempts': attempts,
-                         'failedDetectionAttempts': failed})
+                         'failedDetectionAttempts': failed, 'photoContext': context})
+        if context['status'] == 'needs_review':
+            indicators.append(f'Photo {index + 1} may show a document, illustration or on-screen content; review the actual item')
         labels.update(d['label'] for d in detections)
         matched = any(d['matchesCategory'] for d in detections)
         # Missing whole-object evidence is not bad quality or a wrong-item verdict.
         evidence['categoryMatched'] = True if matched else None
         evidence['objectEvidenceStatus'] = (
+            'context_needs_review' if context['status'] == 'needs_review' else
             'expected_type_detected' if matched else 'analysis_incomplete' if failed or not detectors
             else 'not_detected' if supported else 'category_not_covered')
         if failed:
@@ -372,6 +417,8 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
                 evidence['riskClassifierUnavailable'] = True
         per_image.append(evidence)
     fields['images'] = per_image
+    context_review = any(e['photoContext']['status'] == 'needs_review' for e in per_image)
+    fields['photoContextReviewRequired'] = context_review
     if detector is None:
         reasons.append('Item detector is unavailable; manual photo review is needed')
     elif any(source == 'general_pretrained' for _, source, _ in detectors):
@@ -411,7 +458,8 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         'analysedViewCount': len(per_image),
         'unconfirmedViewCount': len(per_image) - matched_views,
         'detailViewsVerified': False,
-        'categoryMatchStatus': ('unsupported' if not supported else 'analysis_incomplete' if failures or errors
+        'categoryMatchStatus': ('context_needs_review' if context_review else
+                                'unsupported' if not supported else 'analysis_incomplete' if failures or errors
                                 else 'all_views_detected' if all_views_match else 'partial_views' if matched_views
                                 else 'not_detected'),
     })
