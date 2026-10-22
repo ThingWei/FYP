@@ -173,6 +173,14 @@ def train_candidate(dataset, output, *, epochs=8, seed=42,
         positions = [i for i, row in enumerate(test_rows) if row['source_type'] == source]
         observed, inferred = [actual[i] for i in positions], [predicted[i] for i in positions]
         metadata['testMetricsBySourceType'][source] = classification_metrics(observed, inferred)
+    metadata['datasetNames'] = sorted({row.get('dataset_name') or 'unspecified'
+                                       for rows in splits.values() for row in rows})
+    metadata['testMetricsByDataset'] = {}
+    for dataset_name in metadata['datasetNames']:
+        positions = [i for i, row in enumerate(test_rows)
+                     if (row.get('dataset_name') or 'unspecified') == dataset_name]
+        metadata['testMetricsByDataset'][dataset_name] = classification_metrics(
+            [actual[i] for i in positions], [predicted[i] for i in positions])
     output.mkdir(parents=True, exist_ok=False)
     model.eval()
     scripted = torch.jit.script(model)

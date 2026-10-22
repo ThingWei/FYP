@@ -1,5 +1,9 @@
 # AI validation and demonstration readiness
 
+22 October: [CASIA/AutoSplice metadata importer and actual preparation results](PUBLIC_ITEM_RISK_DATASET_RESULT.md).
+Public benchmark manifests are now prepared with usage review still pending;
+no image generation, risk training or deployment has occurred.
+
 Updated 21 October 2026. Scope: AI-assisted item-risk assessment with mandatory
 administrator review, not counterfeit certification. Image permissions and iRent
 access/reuse review remain pending, as selected by the user.

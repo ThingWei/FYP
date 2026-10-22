@@ -42,6 +42,8 @@ def test_candidate_training_is_permissioned_isolated_and_source_separated(tmp_pa
     assert len(report['datasetFingerprintSha256']) == 64
     assert report['testMetricsBySourceType']['reviewed_real']['status'] == 'not_evaluated'
     assert report['testMetricsBySourceType']['synthetic_manipulation']['status'] == 'evaluated'
+    assert report['datasetNames'] == ['unspecified']
+    assert report['testMetricsByDataset']['unspecified']['samples'] == report['testMetrics']['samples']
     assert (candidate / 'configuration.json').is_file()
     assert (candidate / 'image_risk_efficientnet.pt').is_file()
     with pytest.raises(ValueError, match='never overwrite'):

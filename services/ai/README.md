@@ -1,5 +1,10 @@
 # RentHub AI and image-processing service
 
+22 October: CASIA and AutoSplice can be prepared with
+`python -m app.training.prepare_public_item_risk --casia ROOT --autosplice ROOT --output .data/datasets/NEW`.
+The importer writes metadata only and keeps pending usage review blocked from training.
+See [actual preparation results and commands](../../docs/PUBLIC_ITEM_RISK_DATASET_RESULT.md).
+
 This service uses real, artifact-backed pipelines. It never substitutes random or
 hard-coded confidence values when a model is missing.
 

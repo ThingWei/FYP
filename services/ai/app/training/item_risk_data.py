@@ -12,6 +12,8 @@ def load_manifest(path):
     if len(rows) < 40:
         raise ValueError('At least 40 reviewed images are required (not an accuracy guarantee)')
     for row in rows:
+        if row.get('usage_review') and row['usage_review'] != 'acknowledged_by_caller':
+            raise ValueError('Dataset usage review is pending; complete rights review before training')
         group = row.get('item_id', '').strip()
         split = row.get('split', '').strip()
         if not group or split not in splits or row.get('label') not in ('normal', 'risky'):
@@ -25,6 +27,8 @@ def load_manifest(path):
         if not image.is_file():
             raise ValueError('A manifest image is missing')
         digest = hashlib.sha256(image.read_bytes()).hexdigest()
+        if row.get('sha256') and row['sha256'] != digest:
+            raise ValueError('A manifest source image changed since preparation; import again')
         if digest in hashes:
             raise ValueError('Duplicate image content in the manifest')
         hashes.add(digest)
