@@ -5,6 +5,15 @@
 The importer writes metadata only and keeps pending usage review blocked from training.
 See [actual preparation results and commands](../../docs/PUBLIC_ITEM_RISK_DATASET_RESULT.md).
 
+For CPU-only candidate training, `train_image_risk` additionally accepts
+`--cache-frozen-features --cpu-threads 4`. This computes the deterministic,
+frozen EfficientNet features once per image, retaining the same two-class head,
+eight-epoch default, validation-loss selection and held-out test split. Features
+stay in RAM; the exported candidate remains a complete image-input model.
+Progress is printed during extraction and after every epoch. This does not
+authorize downloads, acknowledge source rights or deploy the resulting artifact.
+See [the completed candidate's results and limitations](../../docs/ITEM_RISK_TRAINING_RESULT.md).
+
 This service uses real, artifact-backed pipelines. It never substitutes random or
 hard-coded confidence values when a model is missing.
 

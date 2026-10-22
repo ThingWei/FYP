@@ -1,5 +1,10 @@
 # CASIA and AutoSplice item-risk preparation
 
+Follow-up on 22 October: the user subsequently instructed training. A **new**
+acknowledged manifest and isolated eight-epoch candidate were created; the v1
+pending-review pack described below remains untouched. See [actual training,
+benchmark results and rights limitations](ITEM_RISK_TRAINING_RESULT.md).
+
 Prepared 22 October 2026. This imports **metadata only**, not training or deployment.
 Usage review remains pending; downloading public data is not treated as a permission
 acknowledgement. No source photos, masks, models, KYC data or live records were modified.

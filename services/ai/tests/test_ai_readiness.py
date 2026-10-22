@@ -26,7 +26,8 @@ class TinyRiskModel(nn.Module):
         return self.classifier(self.features(x).mean(dim=(2, 3)))
 
 
-def test_candidate_training_is_permissioned_isolated_and_source_separated(tmp_path, monkeypatch):
+@pytest.mark.parametrize('cached', [False, True])
+def test_candidate_training_is_permissioned_isolated_and_source_separated(tmp_path, monkeypatch, cached):
     manifest = write_manifest(tmp_path)
     # Generated fixture pixels only; permission flag is not supplied for user data.
     for index, path in enumerate(sorted(tmp_path.glob('photo-*.png'))):
@@ -37,18 +38,36 @@ def test_candidate_training_is_permissioned_isolated_and_source_separated(tmp_pa
     with pytest.raises(ValueError, match='permission'):
         risk.train_candidate(manifest, candidate)
     assert not candidate.exists()
-    report = risk.train_candidate(manifest, candidate, epochs=1, acknowledge_source_permission=True)
+    report = risk.train_candidate(manifest, candidate, epochs=1, acknowledge_source_permission=True,
+                                  cache_frozen_features=cached)
     assert report['deployed'] is False and report['artifactWritten'] == 'candidate_only'
     assert len(report['datasetFingerprintSha256']) == 64
     assert report['testMetricsBySourceType']['reviewed_real']['status'] == 'not_evaluated'
     assert report['testMetricsBySourceType']['synthetic_manipulation']['status'] == 'evaluated'
     assert report['datasetNames'] == ['unspecified']
+    assert report['cachedFrozenFeatures'] is cached
     assert report['testMetricsByDataset']['unspecified']['samples'] == report['testMetrics']['samples']
     assert (candidate / 'configuration.json').is_file()
     assert (candidate / 'image_risk_efficientnet.pt').is_file()
     with pytest.raises(ValueError, match='never overwrite'):
         risk.train_candidate(manifest, candidate, acknowledge_source_permission=True)
     assert not (tmp_path / 'models').exists()
+
+
+def test_frozen_feature_cache_matches_full_model_and_preserves_test_order():
+    torch.manual_seed(42)
+    model = TinyRiskModel().eval()
+    images = torch.randn(7, 3, 16, 16)
+    labels = torch.tensor([0, 1, 0, 1, 1, 0, 1])
+    image_loader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(images, labels), batch_size=3, shuffle=True)
+    cached = risk.frozen_feature_loader(model, image_loader, phase='test')
+    features, ordered_labels = cached.dataset.tensors
+    with torch.no_grad():
+        assert torch.allclose(model.classifier(features), model(images), atol=1e-6)
+    assert torch.equal(labels, ordered_labels)
+    assert not features.requires_grad
+    assert model.training is False
 
 
 def test_risk_initialization_cannot_download_without_explicit_permission(tmp_path, monkeypatch):

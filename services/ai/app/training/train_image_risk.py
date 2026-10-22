@@ -10,12 +10,13 @@ import argparse
 import copy
 import hashlib
 import json
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torchvision import models, transforms
 from PIL import Image
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
@@ -85,13 +86,41 @@ def candidate_directory(output):
     return output
 
 
+def frozen_feature_loader(model, image_loader, *, phase):
+    """Cache deterministic frozen features in RAM, never labels/predictions across splits.
+
+    EfficientNet uses global average pooling before its classifier. No stochastic
+    augmentation is configured here and frozen BatchNorm stays in evaluation mode.
+    Keep the original image loaders for full-model export verification.
+    """
+    model.eval()
+    features, targets = [], []
+    # Preserve manifest order, including test-cohort alignment, regardless of the
+    # original train loader's shuffled sampler.
+    ordered = DataLoader(image_loader.dataset, batch_size=image_loader.batch_size)
+    with torch.no_grad():
+        for batch, (inputs, labels) in enumerate(ordered, 1):
+            pooled = model.features(inputs).mean(dim=(2, 3))
+            if not torch.isfinite(pooled).all():
+                raise ValueError('Non-finite frozen image features; candidate not written')
+            features.append(pooled.detach().clone())
+            targets.append(labels)
+            if batch == 1 or batch % 50 == 0 or batch == len(ordered):
+                print(f'Features {phase}: {sum(len(t) for t in targets)}/{len(ordered.dataset)}', flush=True)
+    return DataLoader(TensorDataset(torch.cat(features), torch.cat(targets)),
+                      batch_size=image_loader.batch_size, shuffle=phase == 'train')
+
+
 def train_candidate(dataset, output, *, epochs=8, seed=42,
-                    acknowledge_source_permission=False, allow_download=False):
+                    acknowledge_source_permission=False, allow_download=False,
+                    cache_frozen_features=False):
+    started = time.monotonic()
     if not acknowledge_source_permission:
         raise ValueError('Acknowledge permission to use the reviewed source images')
     if not 1 <= epochs <= 1000:
         raise ValueError('epochs must be 1-1000')
     output = candidate_directory(output)
+    print('Checking manifest, permission acknowledgement and source hashes...', flush=True)
     splits = load_manifest(dataset)
     fingerprint = hashlib.sha256()
     fingerprint.update(dataset.read_bytes())
@@ -111,6 +140,10 @@ def train_candidate(dataset, output, *, epochs=8, seed=42,
     for parameter in model.features.parameters():
         parameter.requires_grad = False
     model.classifier[1] = nn.Linear(model.classifier[1].in_features, 2)
+    image_loaders = loaders
+    if cache_frozen_features:
+        loaders = {phase: frozen_feature_loader(model, image_loaders[phase], phase=phase)
+                   for phase in ('train', 'validation')}
     optimizer = torch.optim.AdamW(model.classifier.parameters(), lr=1e-3)
     loss_function = nn.CrossEntropyLoss()
     metrics, best_loss, best_state = [], float('inf'), None
@@ -124,7 +157,7 @@ def train_candidate(dataset, output, *, epochs=8, seed=42,
             for inputs, labels in loaders[phase]:
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
-                    outputs = model(inputs)
+                    outputs = model.classifier(inputs) if cache_frozen_features else model(inputs)
                     loss = loss_function(outputs, labels)
                     if phase == 'train':
                         loss.backward()
@@ -135,20 +168,25 @@ def train_candidate(dataset, output, *, epochs=8, seed=42,
             epoch_result[f'{phase}Loss'] = loss_total / count
             epoch_result[f'{phase}Accuracy'] = correct / count
         metrics.append(epoch_result)
+        print(json.dumps(epoch_result), flush=True)
         if epoch_result['validationLoss'] < best_loss:
             best_loss = epoch_result['validationLoss']
             best_state = copy.deepcopy(model.state_dict())
     model.load_state_dict(best_state)
     model.eval()
     actual, predicted = [], []
+    test_loader = (frozen_feature_loader(model, image_loaders['test'], phase='test')
+                   if cache_frozen_features else image_loaders['test'])
     with torch.inference_mode():
-        for inputs, labels in loaders['test']:
+        for inputs, labels in test_loader:
             actual.extend(labels.tolist())
-            predicted.extend(model(inputs).argmax(1).tolist())
+            logits = model.classifier(inputs) if cache_frozen_features else model(inputs)
+            predicted.extend(logits.argmax(1).tolist())
     metadata = {
         'contract': RISK_CONTRACT, 'architecture': 'efficientnet_b0',
         'purpose': 'item_photo_risk_assistance', 'classes': ManifestImages.classes,
         'preprocessing': 'rgb-224-imagenet-v1',
+        'cachedFrozenFeatures': cache_frozen_features,
         'seed': seed, 'datasetFingerprintSha256': fingerprint.hexdigest(),
         'artifactWritten': 'candidate_only', 'deployed': False,
         'sourceTypes': sorted({r['source_type'] for rows in splits.values() for r in rows}),
@@ -190,7 +228,7 @@ def train_candidate(dataset, output, *, epochs=8, seed=42,
     extra = {'metadata.json': ''}
     loaded = torch.jit.load(str(temporary), map_location='cpu', _extra_files=extra).eval()
     with torch.inference_mode():
-        sample = next(iter(loaders['test']))[0][:1]
+        sample = next(iter(image_loaders['test']))[0][:1]
         inferred = loaded(sample)
         if inferred.shape != (1, 2) or not torch.isfinite(inferred).all() or not torch.allclose(inferred, model(sample), atol=1e-5):
             raise ValueError('Export smoke test failed; previous artifact preserved')
@@ -201,6 +239,9 @@ def train_candidate(dataset, output, *, epochs=8, seed=42,
     )
     configuration = {'architecture': 'efficientnet_b0', 'seed': seed, 'epochs': epochs,
                      'batchSize': 16, 'learningRate': .001, 'frozenFeatures': True,
+                     'cachedFrozenFeatures': cache_frozen_features,
+                     'cpuThreads': torch.get_num_threads(),
+                     'elapsedSeconds': round(time.monotonic() - started, 2),
                      'allowDownload': allow_download, 'sourcePermissionAcknowledgedByCaller': True,
                      'datasetFingerprintSha256': fingerprint.hexdigest(), 'deployed': False}
     (output / 'configuration.json').write_text(json.dumps(configuration, indent=2), encoding='utf-8')
@@ -215,13 +256,21 @@ def main():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--acknowledge-source-permission', action='store_true')
     parser.add_argument('--allow-download', action='store_true')
+    parser.add_argument('--cache-frozen-features', action='store_true',
+                        help='Cache deterministic frozen-backbone features in RAM (CPU optimization)')
+    parser.add_argument('--cpu-threads', type=int, default=None, help='Optional CPU thread limit (1-64)')
     args = parser.parse_args()
+    if args.cpu_threads is not None:
+        if not 1 <= args.cpu_threads <= 64:
+            parser.error('cpu-threads must be 1-64')
+        torch.set_num_threads(args.cpu_threads)
     if not args.output.resolve().is_relative_to((ROOT / '.data').resolve()):
         parser.error('Candidate output must stay under services/ai/.data')
     try:
         report = train_candidate(args.dataset, args.output, epochs=args.epochs, seed=args.seed,
                                  acknowledge_source_permission=args.acknowledge_source_permission,
-                                 allow_download=args.allow_download)
+                                 allow_download=args.allow_download,
+                                 cache_frozen_features=args.cache_frozen_features)
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps(report, indent=2))
