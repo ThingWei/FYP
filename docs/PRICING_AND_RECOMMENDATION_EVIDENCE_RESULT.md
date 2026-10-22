@@ -1,5 +1,10 @@
 # Pricing evidence and safe recommendation evaluation
 
+22 October follow-up: [fresh staged exports, all-22 coverage and measured offline
+evaluations](PRICING_RECOMMENDATION_EVIDENCE_ROUND1_RESULT.md). The user identified
+current activity as theirs/dedicated demo accounts; no commercial rental evidence
+or independent tester participation was inferred. Deployed models are unchanged.
+
 21 October follow-up: [AI validation/readiness](AI_VALIDATION_AND_DEMO_READINESS_RESULT.md)
 adds global forward-time pricing evaluation with training-only comparable features,
 bounded native recommendation summaries, non-overwriting exports and explicit

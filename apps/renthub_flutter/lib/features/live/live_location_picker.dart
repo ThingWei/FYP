@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../../core/location/current_location.dart';
@@ -100,7 +101,9 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
   bool locating = false;
   bool resolving = false;
   int addressGeneration = 0;
-  ListingLocationSelection? suggestedAddress;
+  bool privatePin = false, addressLookupFailed = false;
+  Timer? addressLookupTimer;
+  bool mapReady = false;
   String? addressMessage;
   int gpsGeneration = 0;
   CurrentLocationFailure? gpsFailure;
@@ -130,6 +133,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
     generation++;
     gpsGeneration++;
     addressGeneration++;
+    addressLookupTimer?.cancel();
     city.dispose();
     state.dispose();
     postcode.dispose();
@@ -235,9 +239,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
         gpsMessage =
             'Device accuracy: about ${reading.accuracy.round()} m. ${reading.approximate || reading.accuracy > 50 ? 'Accuracy is limited. Adjust the pin to the actual entrance or pickup point.' : 'Check the entrance or pickup point before confirming.'}';
       });
-      if (widget.mapBuilder == null && tileUrl != null) {
-        controller.move(point, 18);
-      }
+      _moveMap(point);
     } catch (exception) {
       if (mounted && request == gpsGeneration) {
         setState(() {
@@ -269,15 +271,33 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
       gpsMessage = null;
       gpsFailure = null;
     });
-    if (result != null && widget.mapBuilder == null && tileUrl != null) {
-      controller.move(point, 18);
+    if (result != null) _moveMap(point);
+    if (result == null && !privatePin && !widget.searchAreaOnly) {
+      _scheduleAddressLookup();
     }
+  }
+
+  void _scheduleAddressLookup() {
+    // Coalesce rapid map taps; don't queue a provider request for every tap.
+    addressLookupTimer?.cancel();
+    setState(() => resolving = true);
+    addressLookupTimer = Timer(const Duration(milliseconds: 650), () {
+      addressLookupTimer = null;
+      if (mounted) _resolveAddress();
+    });
+  }
+
+  void _moveMap(LatLng point) {
+    if (widget.mapBuilder != null || tileUrl == null || !mapReady) return;
+    controller.move(point, 18);
   }
 
   void _discardAddressLookup() {
     addressGeneration++;
+    addressLookupTimer?.cancel();
+    addressLookupTimer = null;
     resolving = false;
-    suggestedAddress = null;
+    addressLookupFailed = false;
     addressMessage = null;
   }
 
@@ -286,68 +306,47 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
     state.clear();
     postcode.clear();
     addressMessage =
-        'The pin changed. Your address draft is kept, but it has not been checked for this pin. Find the mapped address or check the address and city below.';
+        'The pin changed. Check the mapped address or enter it below. Your draft is kept.';
   }
 
   Future<void> _resolveAddress() async {
     final point = selected?.point;
     if (point == null) return;
     final request = ++addressGeneration;
-    final share = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-              title: const Text('Find the mapped address?'),
-              content: const Text(
-                  'This sends the selected coordinates to OpenStreetMap\u2019s address service. Only look up a public street, building or pickup point\u2014not a private home or confidential location. The nearest mapped address may differ from your exact entrance. You can enter the address manually instead.'),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Keep private / enter manually')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Look up public place')),
-              ],
-            ));
-    if (!mounted || request != addressGeneration || share != true) return;
     setState(() {
       resolving = true;
-      suggestedAddress = null;
+      addressLookupFailed = false;
       addressMessage = null;
     });
     try {
       final address = await widget.api.resolvePin(point);
       if (!mounted || request != addressGeneration) return;
       setState(() {
-        suggestedAddress = address;
+        if (address != null) {
+          label.text = address.label;
+          city.text = address.city;
+          state.text = address.state;
+          postcode.text = address.postcode;
+          labelError = null;
+        }
+        addressLookupFailed = address == null;
         addressMessage = address == null
             ? 'No street or local address is mapped here. Your pin and draft are kept. Enter the address and city manually.'
-            : 'Nearest mapped address\u2014check the street and entrance before using it. Your pin will stay where you placed it.';
+            : 'Nearest mapped address filled in. Check the street and entrance below. Your exact pin has not moved.';
       });
     } catch (_) {
       if (mounted && request == addressGeneration) {
-        setState(() => addressMessage =
-            'Address lookup is unavailable. Your pin and draft are kept. Retry or enter the address manually.');
+        setState(() {
+          addressLookupFailed = true;
+          addressMessage =
+              'Address lookup is unavailable. Your pin and draft are kept. Retry or enter the address manually.';
+        });
       }
     } finally {
       if (mounted && request == addressGeneration) {
         setState(() => resolving = false);
       }
     }
-  }
-
-  void _useMappedAddress() {
-    final address = suggestedAddress;
-    if (address == null || selected == null) return;
-    setState(() {
-      label.text = address.label;
-      city.text = address.city;
-      state.text = address.state;
-      postcode.text = address.postcode;
-      suggestedAddress = null;
-      addressMessage =
-          'Mapped address filled in. Add any missing entrance or unit details yourself, then confirm.';
-      labelError = null;
-    });
   }
 
   void _confirm() {
@@ -392,6 +391,10 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
             initialZoom: 12,
             minZoom: 4,
             maxZoom: 18,
+            onMapReady: () {
+              mapReady = true;
+              if (selected != null) _moveMap(selected!.point);
+            },
             onTap: (_, point) => _select(point)),
         children: [
           TileLayer(
@@ -440,7 +443,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                   constraints: const BoxConstraints(maxWidth: 800),
                   child: ListView(padding: const EdgeInsets.all(16), children: [
                     const Text(
-                        'Search a public street, building or landmark. Move the pin to the actual entrance or pickup point, then confirm. Keep private house/unit details out of the search box.'),
+                        'Search or use GPS, adjust the pin, then choose Use this location. Search public places only; enter private address details below.'),
                     const SizedBox(height: 16),
                     TextField(
                         controller: query,
@@ -511,6 +514,25 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                                   .toSet()
                                   .join(', ')),
                           onTap: () => _select(result.point, result: result)),
+                    if (!widget.searchAreaOnly) ...[
+                      const Text(
+                          'Placing a public pin sends its coordinates to OpenStreetMap to fill the mapped address. Your exact pin stays unchanged.'),
+                      SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Private pin'),
+                          subtitle: const Text(
+                              'Optional: skip address lookup and enter the address yourself.'),
+                          value: privatePin,
+                          onChanged: (value) {
+                            setState(() {
+                              privatePin = value;
+                              _discardAddressLookup();
+                            });
+                            if (!value && selected?.source == 'map') {
+                              _scheduleAddressLookup();
+                            }
+                          }),
+                    ],
                     const SizedBox(height: 12),
                     if (configuring) const LinearProgressIndicator(),
                     if (tileUrl != null || widget.mapBuilder != null)
@@ -550,26 +572,14 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                     if (selected != null) ...[
                       Text(
                           'Selected pin: ${selected!.point.latitude.toStringAsFixed(6)}, ${selected!.point.longitude.toStringAsFixed(6)}'),
-                      OutlinedButton.icon(
-                          onPressed:
-                              resolving || locating ? null : _resolveAddress,
-                          icon: const Icon(Icons.location_searching),
-                          label: Text(resolving
-                              ? 'Finding address\u2026'
-                              : 'Find address for this pin')),
                       if (resolving) const LinearProgressIndicator(),
+                      if (resolving) const Text('Finding address\u2026'),
                       if (addressMessage != null) Text(addressMessage!),
-                      if (suggestedAddress != null) ...[
-                        Text(suggestedAddress!.label),
-                        Text([
-                          suggestedAddress!.city,
-                          suggestedAddress!.state,
-                          suggestedAddress!.postcode
-                        ].where((v) => v.isNotEmpty).toSet().join(', ')),
+                      if (addressLookupFailed)
                         TextButton(
-                            onPressed: _useMappedAddress,
-                            child: const Text('Use this mapped address')),
-                      ],
+                            onPressed:
+                                resolving || locating ? null : _resolveAddress,
+                            child: const Text('Retry address lookup')),
                     ],
                     const SizedBox(height: 12),
                     TextField(
@@ -585,38 +595,38 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                                 : 'Exact address or pickup point',
                             errorText: labelError,
                             counterText: '')),
-                    const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text(
-                            'Keep unit/house details in the exact address above. For listings, only the city/town, state and approximate area are public.')),
-                    TextField(
-                        controller: city,
-                        onChanged: (_) => setState(_discardAddressLookup),
-                        maxLength: 80,
-                        decoration: const InputDecoration(
-                            labelText: 'City / town', counterText: '')),
-                    TextField(
-                        controller: state,
-                        onChanged: (_) => setState(_discardAddressLookup),
-                        maxLength: 80,
-                        decoration: const InputDecoration(
-                            labelText: 'State', counterText: '')),
-                    TextField(
-                        controller: postcode,
-                        onChanged: (_) => setState(_discardAddressLookup),
-                        inputFormatters: InputValidation.formatters(
-                            const InputRule('Postcode',
-                                kind: InputKind.digits,
-                                maxLength: 5,
-                                optional: true),
-                            postcode),
-                        maxLength: 5,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                            labelText: 'Postcode (if known)', counterText: '')),
+                    if (!widget.searchAreaOnly) ...[
+                      const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                              'Keep unit/house details in the exact address above. For listings, only the city/town, state and approximate area are public.')),
+                      TextField(
+                          controller: city,
+                          onChanged: (_) => setState(_discardAddressLookup),
+                          maxLength: 80,
+                          decoration: const InputDecoration(
+                              labelText: 'City / town', counterText: '')),
+                      TextField(
+                          controller: state,
+                          onChanged: (_) => setState(_discardAddressLookup),
+                          maxLength: 80,
+                          decoration: const InputDecoration(
+                              labelText: 'State', counterText: '')),
+                      TextField(
+                          controller: postcode,
+                          onChanged: (_) => setState(_discardAddressLookup),
+                          inputFormatters: InputValidation.formatters(
+                              const InputRule('Postcode',
+                                  kind: InputKind.digits,
+                                  maxLength: 5,
+                                  optional: true),
+                              postcode),
+                          maxLength: 5,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                              labelText: 'Postcode (if known)',
+                              counterText: '')),
+                    ],
                     const SizedBox(height: 16),
-                    TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel and keep existing location')),
                   ])))));
 }

@@ -12,6 +12,7 @@ class AddressApi extends ApiClient {
   Object? submitted;
   bool fail = false, empty = false;
   Completer<dynamic>? held;
+  final pending = <Completer<dynamic>>[];
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     if (path == '/maps/config') {
@@ -23,6 +24,7 @@ class AddressApi extends ApiClient {
     if (path == '/maps/resolve-pin') {
       lookups++;
       submitted = body;
+      if (pending.isNotEmpty) return pending.removeAt(0).future;
       if (held != null) return held!.future;
       if (fail) throw ApiException(503, 'private server address');
       return {'provider': 'openstreetmap', 'item': empty ? null : mapped};
@@ -60,25 +62,24 @@ Widget canvas(
         BuildContext context, LatLng? point, ValueChanged<LatLng> select) =>
     Center(
         child: TextButton(
-            onPressed: () => select(const LatLng(3.16, 101.72)),
+            onPressed: () => select(point?.latitude == 3.16
+                ? const LatLng(3.17, 101.73)
+                : const LatLng(3.16, 101.72)),
             child: const Text('Move test pin')));
 Future<void> press(WidgetTester tester, String label,
-    {double scroll = 200, bool settle = true}) async {
+    {bool settle = true}) async {
   final target = find.text(label);
   if (target.evaluate().isEmpty) {
-    await tester.scrollUntilVisible(target, scroll,
-        scrollable: find
-            .descendant(
-                of: find.byType(ListView).last,
-                matching: find.byType(Scrollable))
-            .first);
+    final scrollable = find
+        .descendant(
+            of: find.byType(ListView).last, matching: find.byType(Scrollable))
+        .first;
+    tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+    await tester.pump();
+    await tester.scrollUntilVisible(target, 180, scrollable: scrollable);
   }
   await tester.ensureVisible(target.last);
-  if (settle) {
-    await tester.pumpAndSettle();
-  } else {
-    await tester.pump();
-  }
+  await tester.pump();
   await tester.tap(target.last);
   if (settle) {
     await tester.pumpAndSettle();
@@ -88,26 +89,60 @@ Future<void> press(WidgetTester tester, String label,
 }
 
 Finder field(String label) => find.widgetWithText(TextField, label);
-Future<void> open(WidgetTester tester, AddressApi api,
-    {CurrentLocationClient? gps,
-    ListingLocationSelection? selection = initial}) async {
-  await tester.pumpWidget(MaterialApp(
-      home: LiveLocationPicker(
-          api: ListingLocationApi(api),
-          initialSelection: selection,
-          mapBuilder: canvas,
-          positionClient: gps)));
-  await tester.pumpAndSettle();
+Future<void> revealField(WidgetTester tester, String label) async {
+  final target = field(label);
+  if (target.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(target, 160,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView).last,
+                matching: find.byType(Scrollable))
+            .first);
+  }
+  await tester.ensureVisible(target);
+  await tester.pump();
 }
 
+Future<void> open(WidgetTester tester, AddressApi api,
+    {CurrentLocationClient? gps,
+    ListingLocationSelection? selection = initial,
+    ValueChanged<ListingLocationSelection?>? returned,
+    bool searchAreaOnly = false,
+    double textScale = 1}) async {
+  await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!),
+      home: Builder(
+          builder: (context) => Scaffold(
+              body: TextButton(
+                  onPressed: () async {
+                    final value =
+                        await Navigator.push<ListingLocationSelection>(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => LiveLocationPicker(
+                                    api: ListingLocationApi(api),
+                                    initialSelection: selection,
+                                    searchAreaOnly: searchAreaOnly,
+                                    mapBuilder: canvas,
+                                    positionClient: gps)));
+                    returned?.call(value);
+                  },
+                  child: const Text('Open location'))))));
+  await press(tester, 'Open location');
+}
+
+String text(WidgetTester tester, String label) =>
+    tester.widget<TextField>(field(label)).controller!.text;
+
 void main() {
-  test(
-      'pin adapter retains requested coordinates and rejects malformed results',
+  test('pin adapter preserves coordinates and rejects malformed results',
       () async {
     final api = AddressApi();
-    final result = await ListingLocationApi(api).resolvePin(initial.point);
-    expect(result!.point.latitude, initial.point.latitude);
-    expect(result.point.longitude, initial.point.longitude);
+    final value = await ListingLocationApi(api).resolvePin(initial.point);
+    expect(value!.coordinates, initial.coordinates);
     expect(api.submitted,
         {'coordinates': initial.coordinates, 'publicPointConfirmed': true});
     api.held = Completer()
@@ -119,144 +154,175 @@ void main() {
         throwsFormatException);
   });
   for (final width in [360.0, 390.0, 1024.0]) {
-    testWidgets('explicit address preview preserves draft/pin at width $width',
+    testWidgets(
+        'public pin automatically fills address with one confirmation at $width',
         (tester) async {
       tester.view.physicalSize = Size(width, 1000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final api = AddressApi();
-      await tester.pumpWidget(MaterialApp(
-          builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: const TextScaler.linear(1.3)),
-              child: child!),
-          home: LiveLocationPicker(
-              api: ListingLocationApi(api),
-              initialSelection: initial,
-              mapBuilder: canvas)));
-      await tester.pumpAndSettle();
+      ListingLocationSelection? returned;
+      await open(tester, api,
+          returned: (value) => returned = value, textScale: 1.5);
       expect(api.lookups, 0);
-      await press(tester, 'Find address for this pin');
-      expect(api.lookups, 0);
-      await press(tester, 'Keep private / enter manually');
-      expect(api.lookups, 0);
-      await press(tester, 'Find address for this pin');
-      await press(tester, 'Look up public place');
+      expect(find.byType(AlertDialog), findsNothing);
+      await press(tester, 'Move test pin');
       expect(api.lookups, 1);
-      expect(find.textContaining('Nearest mapped address'), findsOneWidget);
-      await press(tester, 'Use this mapped address');
-      await tester.ensureVisible(field('Exact address or pickup point'));
-      expect(
-          tester
-              .widget<TextField>(field('Exact address or pickup point'))
-              .controller!
-              .text,
-          mapped['label']);
-      await tester.ensureVisible(field('City / town'));
-      expect(tester.widget<TextField>(field('City / town')).controller!.text,
-          'City B');
-      await tester.ensureVisible(field('Postcode (if known)'));
-      expect(
-          tester
-              .widget<TextField>(field('Postcode (if known)'))
-              .controller!
-              .text,
-          '05000');
-      await press(tester, 'Find address for this pin', scroll: -200);
-      await press(tester, 'Keep private / enter manually');
-      await tester.scrollUntilVisible(
-          find.textContaining('3.141592, 101.712345'), -100,
-          scrollable: find.byType(Scrollable).first);
-      expect(find.textContaining('3.141592, 101.712345'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('Use this mapped address'), findsNothing);
+      expect(find.text('Find address for this pin'), findsNothing);
+      expect(find.byType(CheckboxListTile), findsNothing);
+      await revealField(tester, 'Exact address or pickup point');
+      expect(text(tester, 'Exact address or pickup point'), mapped['label']);
+      await revealField(tester, 'City / town');
+      expect(text(tester, 'City / town'), 'City B');
+      await revealField(tester, 'Postcode (if known)');
+      expect(text(tester, 'Postcode (if known)'), '05000');
+      expect(returned, isNull);
+      expect(find.text('Use this location').hitTestable(), findsOneWidget);
+      await press(tester, 'Use this location');
+      expect(returned!.coordinates, {'latitude': 3.16, 'longitude': 101.72});
+      expect(returned!.label, mapped['label']);
+      expect(returned!.postcode, '05000');
       expect(tester.takeException(), isNull);
     });
   }
-  testWidgets(
-      'moving a pin clears stale locality but preserves private address draft',
+  testWidgets('private pin confirms without lookup or a second dialog',
+      (tester) async {
+    final api = AddressApi();
+    ListingLocationSelection? returned;
+    await open(tester, api, returned: (value) => returned = value);
+    await press(tester, 'Private pin');
+    await press(tester, 'Move test pin');
+    await press(tester, 'Use this location');
+    expect(returned!.label, initial.label);
+    expect(api.lookups, 0);
+  });
+  testWidgets('rapid pin changes debounce and only resolve the latest point',
       (tester) async {
     final api = AddressApi();
     await open(tester, api);
-    await press(tester, 'Move test pin');
+    await press(tester, 'Move test pin', settle: false);
     expect(api.lookups, 0);
-    expect(find.textContaining('The pin changed'), findsOneWidget);
-    await tester.ensureVisible(field('Exact address or pickup point'));
     expect(
         tester
-            .widget<TextField>(field('Exact address or pickup point'))
-            .controller!
-            .text,
-        initial.label);
-    await tester.scrollUntilVisible(field('City / town'), 200,
-        scrollable: find
-            .descendant(
-                of: find.byType(ListView), matching: find.byType(Scrollable))
-            .first);
-    await tester.ensureVisible(field('City / town'));
-    expect(tester.widget<TextField>(field('City / town')).controller!.text, '');
-    await tester.scrollUntilVisible(field('State'), 200,
-        scrollable: find
-            .descendant(
-                of: find.byType(ListView), matching: find.byType(Scrollable))
-            .first);
-    await tester.ensureVisible(field('State'));
-    expect(tester.widget<TextField>(field('State')).controller!.text, '');
-    await press(tester,
-        'Use this location'); // Explicit confirmation remains available for manually checked locations.
-    expect(api.lookups, 0);
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Use this location'))
+            .onPressed,
+        isNull);
+    await press(tester, 'Move test pin');
+    expect(api.lookups, 1);
+    expect(api.submitted, {
+      'coordinates': {'latitude': 3.17, 'longitude': 101.73},
+      'publicPointConfirmed': true
+    });
+    await revealField(tester, 'Exact address or pickup point');
+    expect(text(tester, 'Exact address or pickup point'), mapped['label']);
   });
-  testWidgets('GPS does not automatically send position for reverse lookup',
+  testWidgets('GPS does not automatically reverse-geocode a private position',
       (tester) async {
     final api = AddressApi();
     await open(tester, api, gps: Gps());
     await press(tester, 'Use my current location');
     expect(api.lookups, 0);
     expect(find.textContaining('Device accuracy'), findsOneWidget);
-    await press(tester, 'Find address for this pin');
-    await press(tester, 'Keep private / enter manually');
+    await revealField(tester, 'Exact address or pickup point');
+    await tester.enterText(
+        field('Exact address or pickup point'), 'Private entrance');
+    await press(tester, 'Use this location');
     expect(api.lookups, 0);
   });
   for (final empty in [false, true]) {
     testWidgets(
-        'unavailable/unmapped address keeps draft and allows retry ($empty)',
+        'failed/unmapped lookup keeps draft and retry fills without apply ($empty)',
         (tester) async {
       final api = AddressApi()
         ..empty = empty
         ..fail = !empty;
       await open(tester, api);
-      await press(tester, 'Find address for this pin');
-      await press(tester, 'Look up public place');
+      await press(tester, 'Move test pin');
       expect(
           find.textContaining(empty
               ? 'No street or local address'
               : 'Address lookup is unavailable'),
           findsOneWidget);
       expect(find.textContaining('private server'), findsNothing);
-      await tester.ensureVisible(field('Exact address or pickup point'));
-      expect(
-          tester
-              .widget<TextField>(field('Exact address or pickup point'))
-              .controller!
-              .text,
-          initial.label);
+      await revealField(tester, 'Exact address or pickup point');
+      expect(text(tester, 'Exact address or pickup point'), initial.label);
       api.empty = false;
       api.fail = false;
-      await press(tester, 'Find address for this pin', scroll: -200);
-      await press(tester, 'Look up public place');
+      await press(tester, 'Retry address lookup');
       expect(api.lookups, 2);
-      expect(find.text('Use this mapped address'), findsOneWidget);
+      expect(text(tester, 'Exact address or pickup point'), mapped['label']);
+      expect(find.text('Use this mapped address'), findsNothing);
     });
   }
-  testWidgets('old pin lookup cannot replace a newer pin', (tester) async {
-    final api = AddressApi()..held = Completer<dynamic>();
+  for (final change in ['private pin', 'address', 'cancel']) {
+    testWidgets('late lookup cannot replace $change or save automatically',
+        (tester) async {
+      final api = AddressApi()..held = Completer<dynamic>();
+      ListingLocationSelection? returned;
+      await open(tester, api, returned: (value) => returned = value);
+      await press(tester, 'Move test pin', settle: false);
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(api.lookups, 1);
+      expect(find.text('Finding address\u2026'), findsOneWidget);
+      expect(
+          tester
+              .widget<FilledButton>(
+                  find.widgetWithText(FilledButton, 'Use this location'))
+              .onPressed,
+          isNull);
+      if (change == 'private pin') {
+        await press(tester, 'Private pin', settle: false);
+      } else if (change == 'address') {
+        await revealField(tester, 'Exact address or pickup point');
+        await tester.enterText(
+            field('Exact address or pickup point'), 'New private draft');
+        await tester.pump();
+      } else {
+        await tester.pageBack();
+        await tester.pump();
+      }
+      api.held!.complete({'provider': 'openstreetmap', 'item': mapped});
+      await tester.pumpAndSettle();
+      expect(returned, isNull);
+      if (change != 'cancel') {
+        await revealField(tester, 'Exact address or pickup point');
+        expect(text(tester, 'Exact address or pickup point'),
+            change == 'address' ? 'New private draft' : initial.label);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+  testWidgets('superseded lookup cannot replace the latest pin address',
+      (tester) async {
+    final older = Completer<dynamic>();
+    final newer = Completer<dynamic>();
+    final api = AddressApi()..pending.addAll([older, newer]);
     await open(tester, api);
-    await press(tester, 'Find address for this pin');
-    await press(tester, 'Look up public place', settle: false);
-    expect(find.text('Finding address\u2026'), findsOneWidget);
-    await press(tester, 'Move test pin', scroll: -200, settle: false);
-    api.held!.complete({'provider': 'openstreetmap', 'item': mapped});
+    await press(tester, 'Move test pin', settle: false);
+    await tester.pump(const Duration(milliseconds: 700));
+    await press(tester, 'Move test pin', settle: false);
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(api.lookups, 2);
+    newer.complete({'provider': 'openstreetmap', 'item': mapped});
     await tester.pumpAndSettle();
-    expect(find.text('Use this mapped address'), findsNothing);
-    expect(find.textContaining('3.160000, 101.720000'), findsOneWidget);
+    older.complete({
+      'provider': 'openstreetmap',
+      'item': {...mapped, 'label': 'Stale address'}
+    });
+    await tester.pumpAndSettle();
+    await revealField(tester, 'Exact address or pickup point');
+    expect(text(tester, 'Exact address or pickup point'), mapped['label']);
+  });
+  testWidgets('area-only pin does not request a postal address',
+      (tester) async {
+    final api = AddressApi();
+    await open(tester, api, searchAreaOnly: true);
+    await press(tester, 'Move test pin');
+    expect(api.lookups, 0);
+    expect(find.byType(SwitchListTile), findsNothing);
   });
 }

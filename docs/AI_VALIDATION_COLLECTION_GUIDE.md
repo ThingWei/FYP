@@ -1,5 +1,12 @@
 # RentHub real-data collection kit
 
+22 October: [a shorter tester session guide](PRICING_RECOMMENDATION_TEST_SESSION.md)
+and [fresh measured evidence round](PRICING_RECOMMENDATION_EVIDENCE_ROUND1_RESULT.md)
+are available. Both existing export CLIs now support explicit `--all-staged` when
+all platform activity is one's own/consenting dedicated staged accounts. External
+asking references retain their source. This does not establish consent, filter out
+non-consenting users, change database history or permit mixed-database blanket export.
+
 21 October 2026. Preparation only: no participant consent or publisher permission
 is inferred, no activity is generated, and no real evaluation is claimed.
 

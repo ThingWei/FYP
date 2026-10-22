@@ -284,6 +284,8 @@ class _LiveRecommendationHomeContentState
             builder: (_) => LiveLocationPicker(
                 api: ListingLocationApi(c.api),
                 initialSelection: c.recommendationCentre,
+                positionClient: widget.positionClient,
+                searchAreaOnly: true,
                 title: 'Choose your search area')));
     if (!mounted ||
         generation != locationGeneration ||

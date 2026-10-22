@@ -26,6 +26,9 @@ class LocationApi extends ApiClient {
         'tileUrl': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
       };
     }
+    if (path == '/maps/resolve-pin') {
+      return {'provider': 'openstreetmap', 'item': null};
+    }
     if (path.endsWith('/availability')) {
       return {
         'available': true,
@@ -108,15 +111,17 @@ Future<void> confirm(WidgetTester tester) async {
           ? 'Search area name'
           : 'Exact address or pickup point',
       'Entrance 12');
-  await enter(tester, 'City / town', 'Alor Setar');
-  await enter(tester, 'State', 'Kedah');
-  await enter(tester, 'Postcode (if known)', '05000');
+  if (find.widgetWithText(TextField, 'Search area name').evaluate().isEmpty) {
+    await enter(tester, 'City / town', 'Alor Setar');
+    await enter(tester, 'State', 'Kedah');
+    await enter(tester, 'Postcode (if known)', '05000');
+  }
   await tap(tester, 'Use this location');
 }
 
 void main() {
   testWidgets(
-      'current-location shortcut starts GPS on opening, requires confirmation and never reverse-geocodes',
+      'single location entry keeps GPS explicit and needs only one final confirmation',
       (tester) async {
     final api = LocationApi();
     final text = TextEditingController(text: 'Keep my draft');
@@ -134,7 +139,11 @@ void main() {
                 mapBuilder: canvas,
                 searchAreaOnly: true))));
     expect(gps.calls, 0);
-    await tap(tester, 'Use current location');
+    expect(find.text('Choose location'), findsOneWidget);
+    expect(find.text('Use current location'), findsNothing);
+    await tap(tester, 'Choose location');
+    expect(gps.calls, 0);
+    await tap(tester, 'Use my current location');
     expect(gps.calls, 1);
     expect(selection, isNull);
     expect(text.text, 'Keep my draft');
@@ -261,8 +270,9 @@ void main() {
                           mapBuilder: canvas,
                           onChanged: (value) => refresh(() => selected = value))
                     ]))))));
-    await tap(tester, 'Choose on map');
-    await tap(tester, 'Cancel and keep existing location');
+    await tap(tester, 'Choose location');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     expect(text.text, 'Existing entrance');
     expect(selected, isNotNull);
     await tester.enterText(field('Location'), 'Changed entrance');
@@ -289,11 +299,11 @@ void main() {
         await tester.enterText(fee, 'abc123');
         expect(tester.widget<TextFormField>(fee).controller!.text, '12.50');
       }
-      await tap(tester, 'Choose on map');
+      await tap(tester, 'Choose location');
       await confirm(tester);
       expect(tester.widget<TextFormField>(field('Location')).controller!.text,
           'Entrance 12');
-      expect(find.textContaining('Pin confirmed'), findsOneWidget);
+      expect(find.textContaining('Location selected'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -314,7 +324,7 @@ void main() {
         controller));
     await tap(tester, 'Saved addresses');
     await tap(tester, 'Add Address');
-    await tap(tester, 'Choose on map');
+    await tap(tester, 'Choose location');
     await confirm(tester);
     expect(tester.widget<TextFormField>(field('Postcode')).controller!.text,
         '05000');
@@ -338,7 +348,7 @@ void main() {
             locationMapBuilder: canvas),
         controller));
     await tester.pumpAndSettle();
-    await tap(tester, 'Choose on map');
+    await tap(tester, 'Choose location');
     await confirm(tester);
     expect(find.text('10 km'), findsOneWidget);
     expect(find.textContaining('approximate public locations'), findsOneWidget);
@@ -378,7 +388,7 @@ void main() {
           controller));
       await tester.pumpAndSettle();
       if (['renter_location', 'flexible', 'delivery'].contains(mode)) {
-        await tap(tester, 'Choose on map');
+        await tap(tester, 'Choose location');
         await confirm(tester);
         expect(
             tester

@@ -5,10 +5,20 @@ import os from 'node:os';
 import path from 'node:path';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { readRecommendationTrainingExport } from '../src/scripts/exportRecommendationData.js';
-import { readPricingTrainingExport } from '../src/scripts/exportPricingData.js';
+import { readRecommendationTrainingExport, main as recommendationExport } from '../src/scripts/exportRecommendationData.js';
+import { readPricingTrainingExport, main as pricingExport } from '../src/scripts/exportPricingData.js';
 import { writeNewExport } from '../src/scripts/writeNewExport.js';
 import { trainingComparableFeatures } from '../src/modules/listing/pricingTrainingExport.js';
+
+test('CLI staging conflicts and missing paths fail before opening a database', async () => {
+  for (const command of [pricingExport, recommendationExport]) {
+    await assert.rejects(command(['--all-staged', '--staged-users', 'not-read.json']), /not both/);
+    await assert.rejects(command(['--staged-users']), /requires/);
+    await assert.rejects(command(['--staged-users', '--summary-only']), /requires/);
+    await assert.rejects(command(['--output']), /requires/);
+    await assert.rejects(command(['--output', '--all-staged']), /requires/);
+  }
+});
 
 test('native recommendation export is bounded/read-only/private and explicitly separates staged users', async () => {
   const server = await MongoMemoryServer.create();
@@ -40,6 +50,11 @@ test('native recommendation export is bounded/read-only/private and explicitly s
     assert.deepEqual(await db.listCollections().toArray(), collections);
     assert.deepEqual(await db.collection('users').indexes(), indexes);
     assert.equal((await db.collection('bookings').findOne({ publicId: 'b1' })).sourceType, 'marketplace');
+    const allStaged = await readRecommendationTrainingExport(db, { now, allStaged: true });
+    assert.deepEqual(allStaged.summary.sourceTypes, { demo_seed: 3 });
+    assert.equal(allStaged.activityClassification, 'all_platform_activity_staged_by_caller');
+    await assert.rejects(readRecommendationTrainingExport(db, { allStaged: true, stagedUserIds: ['private-user'] }), /not both/);
+    await assert.rejects(readRecommendationTrainingExport(db, { allStaged: 'yes' }), /Choose/);
     await assert.rejects(readRecommendationTrainingExport(db, { limit: 1, now }), /limit exceeded/);
     await assert.rejects(readRecommendationTrainingExport(db, { limit: 0, now }), /Limit/);
     await assert.rejects(readRecommendationTrainingExport(db, { stagedUserIds: [null] }), /Staged users/);
@@ -51,6 +66,11 @@ test('native recommendation export is bounded/read-only/private and explicitly s
     const prices = await readPricingTrainingExport(db, { now, stagedUserIds: ['private-user'] });
     assert.equal(prices.summary.targetSources.demo_seed_completed_rental, 1);
     assert.equal(prices.summary.targetSources.completed_rental, undefined);
+    const allStagedPrices = await readPricingTrainingExport(db, { now, allStaged: true });
+    assert.equal(allStagedPrices.summary.targetSources.demo_seed_completed_rental, 1);
+    assert.equal(allStagedPrices.summary.targetSources.completed_rental, undefined);
+    await assert.rejects(readPricingTrainingExport(db, { allStaged: true, stagedUserIds: ['private-user'] }), /not both/);
+    await assert.rejects(readPricingTrainingExport(db, { allStaged: 'yes' }), /Choose/);
   } finally { await client.close(); await server.stop(); }
 });
 

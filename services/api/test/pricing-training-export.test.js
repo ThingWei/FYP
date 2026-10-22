@@ -123,6 +123,22 @@ test('marketplace interaction cannot be relabelled demo by a stronger demo signa
   assert.equal(rows[0].interactionType, 'viewed');
 });
 
+test('explicit staging applies before action precedence without promoting synthetic signals', () => {
+  const input = { includeDemoSeed: true,
+    views: [{ userId: 'u', listingId: 'l', lastViewedAt: now }],
+    bookings: [{ publicId: 'b', renterId: 'u', listingId: 'l', status: 'completed',
+      sourceType: 'demo_seed', completedAt: now },
+    { publicId: 's', renterId: 'synthetic-u', listingId: 'synthetic-l', status: 'completed',
+      sourceType: 'synthetic', completedAt: now }] };
+  for (const classification of [{ allStaged: true }, { stagedUserIds: ['u'] }]) {
+    const rows = buildRecommendationInteractions({ ...input, ...classification });
+    const staged = rows.find((row) => row.userId === 'u');
+    assert.equal(staged.sourceType, 'demo_seed');
+    assert.equal(staged.interactionType, 'completed_rental');
+    assert.equal(rows.find((row) => row.userId === 'synthetic-u').sourceType, 'synthetic');
+  }
+});
+
 test('bounded native database export is read-only and does not create indexes or collections', async () => {
   const server = await MongoMemoryServer.create();
   const client = new mongoose.mongo.MongoClient(server.getUri());
@@ -139,6 +155,11 @@ test('bounded native database export is read-only and does not create indexes or
     assert.equal(await db.collection('pricing_references').countDocuments(), 2);
     assert.deepEqual(await db.listCollections().toArray(), before);
     assert.deepEqual(await db.collection('listings').indexes(), indexes);
+    const staged = await readPricingTrainingExport(db, { now, allStaged: true });
+    assert.deepEqual(staged.summary.sourceTypes, { external_asking_price: 2, demo_seed: 1 });
+    assert.equal(staged.summary.targetSources.demo_seed_active_asking, 1);
+    assert.equal(staged.summary.targetSources.active_asking, undefined);
+    assert.equal((await db.collection('listings').findOne({ publicId: 'subject' })).sourceType, undefined);
     await assert.rejects(readPricingTrainingExport(db, { now, limit: 1 }), /limit exceeded/);
     await assert.rejects(readPricingTrainingExport(db, { now, limit: 0 }), /Limit/);
     await db.collection('pricing_references').insertOne(automatic('auto'));

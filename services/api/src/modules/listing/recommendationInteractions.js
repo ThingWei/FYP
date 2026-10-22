@@ -63,12 +63,19 @@ export function buildRecommendationInteractions({
   bookings = [],
   reviews = [],
   includeDemoSeed = false,
+  stagedUserIds = [],
+  allStaged = false,
 } = {}) {
   const interactions = new Map();
   const bookingSourceById = new Map();
+  const staged = new Set(stagedUserIds);
+  // Apply explicit export-only classification BEFORE stronger-signal selection.
+  // Otherwise an old marketplace-labelled view can hide a staged completion.
+  const sourceFor = (userId, original = 'marketplace') => original === 'synthetic' ? original :
+    allStaged || staged.has(userId) ? 'demo_seed' : original;
   for (const view of views) retainHigherConfidence(interactions, {
     userId: view.userId, listingId: view.listingId, interactionType: 'viewed',
-    rating: 2, observedAt: validDate(view.lastViewedAt), sourceType: 'marketplace',
+    rating: 2, observedAt: validDate(view.lastViewedAt), sourceType: sourceFor(view.userId),
   });
 
   for (const user of users) {
@@ -79,15 +86,15 @@ export function buildRecommendationInteractions({
         interactionType: 'saved',
         rating: RECOMMENDATION_INTERACTION_RULES.saved.rating,
         observedAt: validDate(user.updatedAt, user.createdAt),
-        sourceType: 'marketplace',
+        sourceType: sourceFor(user.authId),
       });
     }
   }
 
   for (const booking of bookings) {
-    bookingSourceById.set(booking.publicId, booking.sourceType ?? 'marketplace');
+    bookingSourceById.set(booking.publicId, sourceFor(booking.renterId, booking.sourceType));
     if (!ELIGIBLE_BOOKING_STATUSES.has(booking.status)) continue;
-    const sourceType = booking.sourceType ?? 'marketplace';
+    const sourceType = sourceFor(booking.renterId, booking.sourceType);
     if (!includeDemoSeed && sourceType === 'demo_seed') continue;
     const completed = booking.status === 'completed';
     const interactionType = completed ? 'completed_rental' : 'booking';
@@ -107,7 +114,7 @@ export function buildRecommendationInteractions({
 
   for (const review of reviews) {
     if (review.authorRole !== 'renter' || review.status !== 'published') continue;
-    const sourceType = bookingSourceById.get(review.bookingId) ?? 'marketplace';
+    const sourceType = sourceFor(review.authorId, bookingSourceById.get(review.bookingId));
     if (!includeDemoSeed && sourceType === 'demo_seed') continue;
     retainHigherConfidence(interactions, {
       userId: review.authorId,

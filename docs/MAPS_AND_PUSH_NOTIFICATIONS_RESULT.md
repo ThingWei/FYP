@@ -1,5 +1,114 @@
 # Precise live locations and Android push notifications
 
+## 22 October follow-up: automatic public-pin address lookup
+
+This supersedes the checkbox behaviour described in the earlier handoff below.
+The user requested public map pins to fill the address without ticking anything.
+
+- Tapping a physical-address map places the exact pin and automatically fills
+  the nearest mapped address. There is no public-place checkbox or separate
+  apply-address action; **Use this location** remains the sole final confirmation.
+- A disclosure above the map explains coordinate sharing with OpenStreetMap.
+  Optional **Private pin** mode skips lookup for manual entry. New raw GPS
+  readings are not automatically reverse-geocoded; check/tap the public entrance
+  after locating. Area-only discovery pins do not request postal addresses.
+- Rapid taps are debounced for 650 ms. Final confirmation is disabled during
+  that delay and the request. Changed pins, manual address edits, private mode
+  and cancellation invalidate outstanding responses. Provider coordinates never
+  replace the user's chosen coordinates.
+- Failures/unmapped locations preserve the pin and address draft, reset loading
+  and offer retry/manual entry. Missing house numbers/postcodes are not invented.
+- This changes address entry, not public disclosure: exact listing coordinates
+  and private address details remain protected by existing server privacy rules.
+  OpenStreetMap may supply a nearby mapped feature, not the actual entrance;
+  review the filled street/address before confirming.
+
+Verification: 14 address-resolution tests passed, including 360/390/1024-pixel
+layouts at 1.5x text, debounce, stale responses, private mode, GPS, area-only
+mode, failure/retry and exact-coordinate retention. Full Flutter suite:
+**425 passed, three existing skips**. Full Dart analysis: **no issues**.
+Web and Android debug builds passed; existing non-fatal Socket.IO Wasm/font
+and plugin Kotlin migration warnings remain. Formatting and diff checks passed.
+API/AI suites were not rerun because this follow-up changes only Flutter.
+Real-device address accuracy and external provider availability still require
+manual Android verification; widget tests use controlled responses.
+
+Commit message: `feat(maps): automatically fill addresses for public map pins`
+
+## 22 October: one picker screen, one final confirmation
+
+The user selected **one Choose location button → one map screen → one Use this
+location confirmation**. This supersedes the multi-step reverse-lookup UI below.
+
+- The shared live location field has one **Choose location** entry action instead
+  of separate map/GPS entry buttons. Search, Android GPS and pin adjustment remain
+  within the same picker. GPS permission is still requested only after tapping
+  **Use my current location**, not merely opening a form/picker.
+- Removed the separate **Find address for this pin** action, privacy modal and
+  **Use this mapped address** apply step. Optional **Fill address for a public
+  place** is an inline, initially unchecked choice. Its disclosure identifies
+  OpenStreetMap coordinate sharing and nearest-address limitations. Selecting it
+  explicitly requests and fills the editable draft, without a modal or applying
+  a second time. The user can review/edit before the sole final confirmation.
+- Private positions are not automatically reverse-geocoded. Map movement, new
+  GPS readings and draft edits invalidate pending lookups and reset the public
+  lookup choice. Failed/unmapped responses preserve the pin/draft and offer a
+  read-only retry or manual address entry. Late results cannot overwrite edits,
+  a new pin or a cancelled picker. No full address is guessed from GPS alone.
+- **Use this location** remains visible in the bottom safe area, disabled while
+  GPS/address lookup is running. App-bar/system Back cancels and retains the
+  caller's existing location; the extra bottom cancel button is removed.
+- Area-only discovery pickers omit unnecessary city/state/postcode/private-address
+  and lookup controls. Home's Choose area route now explicitly uses area-only
+  mode and the injected/shared GPS client. Its existing direct search-centre GPS
+  shortcut is unchanged; it is not a physical booking-destination confirmation.
+- Address lookup never moves the selected pin. Existing GPS high-accuracy reading,
+  15-second timeout, reported-accuracy/coarse warnings, missing-map guards, exact
+  private coordinates, approximate public coordinates and booking privacy persist.
+  Map movement also waits until the map controller is attached, so an early GPS
+  reading can centre the map once ready instead of throwing during initialization.
+
+Coverage: physical/service listing locations (online-only services remain exempt),
+saved addresses, renter/flexible service venues, delivery destinations, Explore
+centre selection and the shared Home area picker. Required-field validation and
+the existing saved-address/booking payloads are unchanged. No API route, backend
+privacy rule, package, Auth0 setting, source state or database record was changed.
+Existing uncommitted evidence/export work was preserved.
+
+Verification:
+
+- Focused location/maps/recommendation widget suites: **60 passed**.
+- Full Flutter suite: **423 passed, three existing skips**; full Dart analysis:
+  **no issues**. The initially reported test-only brace lint was corrected.
+- Widget coverage includes 360/390/1024 widths with 1.5× text, public lookup with
+  one final confirmation, exact pin/leading-zero postcode retention, private
+  no-lookup confirmation, denial/offline/coarse/timeout recovery, cancellation,
+  stale pin/address/disposal results and all live form/booking modes.
+- Web build and Android debug APK build passed. Existing non-fatal Socket.IO
+  Wasm dry-run, Cupertino font and plugin Kotlin migration warnings remain.
+- Formatting and `git diff --check` pass. API/AI suites were not rerun for this
+  Flutter-only change; their interfaces and behaviour were not modified.
+
+Restart/relaunch the Flutter app using the normal `run-renthub.ps1` configuration
+to see the change. The generated debug APK is a compile check, not a separately
+configured demonstration release. On the Android device verify real GPS accuracy,
+actual map tiles/search, a public entrance and a private destination; automated
+tests use a controlled map/provider and do not prove entrance-level accuracy.
+
+Commit message:
+
+```text
+feat(maps): simplify location selection to one picker confirmation
+
+- consolidate shared location entry into one Choose location action
+- keep search, explicit GPS and pin adjustment on one screen
+- replace address confirmation/apply dialogs with disclosed inline public lookup
+- autofill editable address drafts without moving the selected coordinates
+- retain private GPS, stale-response, cancellation and retry safeguards
+- simplify area-only pickers and defer camera movement until map readiness
+- cover responsive location flows and verify Flutter tests, analysis and builds
+```
+
 Verified: 12 October 2026.
 
 ## Delivered

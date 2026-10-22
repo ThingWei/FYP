@@ -15,6 +15,8 @@ class MapApi extends ListingLocationApi {
   bool fail = false, empty = false;
   Completer<List<ListingLocationSelection>>? held;
   @override
+  Future<ListingLocationSelection?> resolvePin(LatLng point) async => null;
+  @override
   Future<Map<String, dynamic>> configuration() async => {
         'enabled': true,
         'tileUrl': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
