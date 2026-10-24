@@ -7,6 +7,17 @@ import '../../core/network/api_client.dart';
 import '../../core/network/user_facing_error.dart';
 import 'live_price_sources.dart';
 
+String _identityDetails(Map row) => [
+      for (final entry in const {
+        'isbn': 'ISBN',
+        'edition': 'Edition',
+        'variant': 'Variant',
+        'packageType': 'Package'
+      }.entries)
+        if (row[entry.key] is String && (row[entry.key] as String).isNotEmpty)
+          '${entry.value}: ${row[entry.key]}',
+    ].join(' · ');
+
 class PricingReferenceApi {
   PricingReferenceApi(this.client);
   final ApiClient client;
@@ -375,6 +386,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                                                     '${row['category']} / ${row['subcategory']} · ${row['brand']} ${row['productModel']}\n'
                                                     'RM ${row['quotedAmount']} for ${row['rentalDurationDays']} day(s) · ${row['sourceName']} · ${row['sourceUrl']}\n'
                                                     'Observed ${row['observedAt'].toString().split('T').first} · ${row['packageNotes']}\n'
+                                                    '${_identityDetails(row)}'
                                                     '${row['canonicalProductId'] == null ? 'No catalogue match; original product text will be kept.' : 'Matched a catalogue entry.'}')),
                                           if (preview!['valid'] == true) ...[
                                             CheckboxListTile(
@@ -425,6 +437,8 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                                 SelectableText('${item['sourceUrl']}'),
                                 Text(
                                     'Observed ${item['observedAt'].toString().split('T').first} · ${item['packageNotes']}'),
+                                if (_identityDetails(item).isNotEmpty)
+                                  Text(_identityDetails(item)),
                                 Text(item['collectionMethod'] == 'automatic'
                                     ? 'Automatically collected advertised price'
                                     : 'Administrator-reviewed advertised price'),
@@ -514,7 +528,7 @@ class _CsvPreparationGuide extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             const Text(
-                'location, state, condition, itemAgeYears, packageNotes\n'
+                'location, state, condition, itemAgeYears, packageNotes, isbn, edition, variant, packageType\n'
                 'Leave unknown details empty. Use package notes to explain what is included or excluded, such as “Body only; lens not included”.'),
             const SizedBox(height: 12),
             const Text(

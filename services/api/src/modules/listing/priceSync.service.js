@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { validRentalPrice } from './priceLimits.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../core/errors.js';
 import { normalizeCatalogText } from '../catalog/catalog.service.js';
@@ -9,6 +10,8 @@ import { PriceSourceModel } from './priceSource.model.js';
 import { PRICE_SOURCES, PRICE_SOURCE_COVERAGE, FUTURE_PRICE_DOMAINS, priceSource, productTypeFor, isAllowedSourceUrl } from './priceSources.registry.js';
 import { parsePriceSource } from './priceSource.parsers.js';
 import { checkSourceAccess, fetchSourceText, robotsAllows } from './priceSource.transport.js';
+import { compatibleProductReference, referencePeriodMatches, referenceOfferKey, referenceIdentityUncertain } from './priceProductDomains.js';
+import { buildPriceCoverage, PRICE_COVERAGE_SCAN_LIMIT } from './priceCoverage.js';
 
 const DAY = 86_400_000, LEASE_MS = 10 * 60_000;
 const pending = new Set();
@@ -32,15 +35,21 @@ function sourceFailure(error) {
 
 export async function priceSourcesStatus() {
   const records = await PriceSourceModel.find().select('-_id -__v -leaseToken').lean();
+  const references = await PricingReferenceModel.find().sort({ observedAt: -1, publicId: 1 })
+    .limit(PRICE_COVERAGE_SCAN_LIMIT + 1).maxTimeMS(10000).lean();
+  const coverageReport = buildPriceCoverage(references.slice(0, PRICE_COVERAGE_SCAN_LIMIT), records
+    .filter((row) => row.enabled && approved(priceSource(row.sourceId) ?? {})).map((row) => row.sourceId),
+  { truncated: references.length > PRICE_COVERAGE_SCAN_LIMIT });
   return { sources: PRICE_SOURCES.map((entry) => {
     const record = records.find((row) => row.sourceId === entry.id) ?? {};
     return { sourceId: entry.id, name: entry.name, urls: entry.urls, domains: entry.domains,
-      limitation: entry.limitation, adapterAvailable: Boolean(entry.adapter), accessApproved: approved(entry),
+      limitation: entry.limitation, requiresWrittenPermission: entry.requiresWrittenPermission === true,
+      adapterAvailable: Boolean(entry.adapter), accessApproved: approved(entry),
       accessStatus: !entry.adapter ? 'adapter_pending' : approved(entry) ? 'approved_by_maintainer' : 'review_required',
       ...record, enabled: record.enabled === true && approved(entry),
       running: Boolean(record.leaseUntil && record.leaseUntil > new Date()),
     };
-  }), coverage: PRICE_SOURCE_COVERAGE, futureDomains: FUTURE_PRICE_DOMAINS,
+  }), coverage: PRICE_SOURCE_COVERAGE, coverageReport, futureDomains: FUTURE_PRICE_DOMAINS,
   schedulerEnabled: env.priceSyncJobsEnabled, intervalHours: 24 };
 }
 
@@ -50,7 +59,7 @@ function normalizeQuote(row, entry, url, now) {
   if (row.productType !== productTypeFor(row.category, row.subcategory, `${row.brand ?? ''} ${row.productModel}`)) throw new Error('product_type_mismatch');
   const amount = row.quotedAmount, days = row.rentalDurationDays;
   if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6 ||
-    !Number.isInteger(days) || days < 1 || days > 365 || amount / days < 1 || amount / days > 1_000_000) throw new Error('invalid_amount_or_period');
+    !Number.isInteger(days) || days < 1 || days > 365 || !validRentalPrice(amount / days, row.category)) throw new Error('invalid_amount_or_period');
   const min = row.durationMinDays ?? days, max = row.durationMaxDays ?? days;
   if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max > 365 || min > max) throw new Error('invalid_duration_band');
   if (/\bfrom\b|starting|chauffeur|crew included|operator included|setup included|service bundle|\$|USD|SGD/i.test(row.packageNotes ?? '')) throw new Error('ambiguous_or_service_quote');
@@ -70,6 +79,9 @@ function normalizeQuote(row, entry, url, now) {
 }
 
 export async function collectSourceQuotes(entry, { fetchText = fetchSourceText, now = new Date(), signal } = {}) {
+  // Unlike generic onboarding probes, this publisher explicitly requires prior
+  // written reuse permission. Even diagnostics cannot collect without approval.
+  if (entry.requiresWrittenPermission && !approved(entry)) reject('PRICE_SOURCE_REVIEW_REQUIRED', 409);
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), 5 * 60_000);
   const stop = () => controller.abort();
@@ -208,20 +220,25 @@ export async function requestPriceSourceSync(id, identity) {
 }
 export async function drainPriceSyncJobs() { await Promise.allSettled([...pending]); }
 
-// Only automatic records need these gates. Legacy CSV references retain their existing contract.
+// CSV review is not permission to mix incompatible products or rental periods.
 export function compatiblePriceReferences(records, profile, enabledSourceIds) {
-  const selected = new Map(), type = productTypeFor(profile.category, profile.subcategory, `${profile.brand ?? ''} ${profile.product_model ?? ''}`);
+  const selected = new Map(), conflicts = new Set();
   const duration = profile.rental_duration_days ?? 1;
-  for (const row of records) {
-    if (row.collectionMethod !== 'automatic') { selected.set(row.publicId, row); continue; }
-    if (!enabledSourceIds.includes(row.sourceId) || row.validationStatus !== 'accepted' || !row.validatedAt ||
-      row.category !== profile.category || row.subcategory !== profile.subcategory || !type || row.productType !== type ||
-      duration < row.durationMinDays || duration > row.durationMaxDays) continue;
-    const key = `${row.sourceId}:${row.sourceProductKey}`;
+  for (const row of [...records].sort((a, b) => +new Date(b.observedAt) - +new Date(a.observedAt))) {
+    if (!validRentalPrice(row.dailyPrice, row.category)) continue;
+    if (!compatibleProductReference(row, profile) || !referencePeriodMatches(row, duration)) continue;
+    const automatic = row.collectionMethod === 'automatic';
+    if (automatic && (!enabledSourceIds.includes(row.sourceId) || row.validationStatus !== 'accepted' || !row.validatedAt ||
+      !row.productType)) continue;
+    let key;
+    try { key = automatic ? `${row.sourceId}:${row.sourceProductKey}` : referenceOfferKey(row); }
+    catch { continue; }
+    const previous = selected.get(key);
+    if (previous && +new Date(previous.observedAt) === +new Date(row.observedAt) && previous.dailyPrice !== row.dailyPrice) conflicts.add(key);
     // One source product contributes once even when multiple periods overlap.
-    if (!selected.has(key)) selected.set(key, row);
+    if (!selected.has(key)) selected.set(key, { ...row, identityMatchUncertain: referenceIdentityUncertain(row, profile) });
   }
-  return [...selected.values()];
+  return [...selected].filter(([key]) => !conflicts.has(key)).map(([, row]) => row);
 }
 export async function enabledPriceSourceIds() {
   const records = await PriceSourceModel.find({ enabled: true }).select('sourceId').lean();

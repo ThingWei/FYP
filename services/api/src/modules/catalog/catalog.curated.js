@@ -13,7 +13,13 @@ function slug(value) {
 export const CURATED_CATALOG = Object.freeze([
   ['Devices', 'Smartphones', 'Apple', ['Apple Inc.'], ['iPhone 15 Pro', 'iPhone 14'], 'https://www.apple.com/my/'],
   ['Devices', 'Cameras', 'Canon', [], ['EOS R6 Mark II', 'EOS R50'], 'https://my.canon/en/consumer'],
-  ['Devices', 'Computers', 'Dell', ['Dell Technologies'], ['XPS 13', 'Latitude 5440'], 'https://www.dell.com/en-my'],
+  ['Devices', 'Computers', 'Dell', ['Dell Technologies'], ['XPS 13', 'Latitude 5440', 'U2723QE'], 'https://www.dell.com/en-my', {
+    U2723QE: { productType: 'monitor', identitySourceUrl: 'https://www.delltechnologies.com/asset/en-my/products/electronics-and-accessories/technical-support/dell-u2723qe-monitor-pcf-datasheet.pdf' },
+  }],
+  ['Devices', 'Computers', 'Logitech', [], ['MX Master 3S', 'MX Keys S'], 'https://www.logitech.com/', {
+    'MX Master 3S': { productType: 'mouse', identitySourceUrl: 'https://hub.sync.logitech.com/mx-master-3s' },
+    'MX Keys S': { productType: 'keyboard', identitySourceUrl: 'https://www.logi.com/en-us/shop/p/mx-keys-s.920-011406' },
+  }],
   ['Devices', 'Audio', 'Sony', ['Sony Group'], ['WH-1000XM5', 'SRS-XG300'], 'https://www.sony.com.my/'],
   ['Devices', 'Audio', 'JBL', ['JBL Professional'], ['Charge 5', 'Flip 6', 'PartyBox 310', 'Tune 770NC', 'Live 660NC'], 'https://www.jbl.com.my/'],
   ['Devices', 'Gaming', 'Nintendo', [], ['Switch OLED', 'Switch Lite'], 'https://www.nintendo.com/'],
@@ -41,7 +47,9 @@ export const CURATED_CATALOG = Object.freeze([
   ['Devices', 'Computers', 'Apple', ['Apple Inc.'], ['MacBook Air M2', 'MacBook Pro M3'], 'https://www.apple.com/my/mac/'],
   ['Devices', 'Computers', 'Lenovo', [], ['ThinkPad X1 Carbon', 'ThinkPad T14'], 'https://www.lenovo.com/my/en/c/laptops/thinkpad/'],
   ['Devices', 'Audio', 'Bose', [], ['QuietComfort Ultra Headphones', 'SoundLink Flex'], 'https://www.bose.com/'],
-  ['Devices', 'Gaming', 'Sony', ['Sony Interactive Entertainment', 'PlayStation'], ['PlayStation 5', 'PlayStation 4'], 'https://www.playstation.com/en-my/'],
+  ['Devices', 'Gaming', 'Sony', ['Sony Interactive Entertainment', 'PlayStation'], ['PlayStation 5', 'PlayStation 4', 'DualSense'], 'https://www.playstation.com/en-my/', {
+    DualSense: { productType: 'controller', identitySourceUrl: 'https://www.playstation.com/content/dam/global_pdc/en/corporate/support/manuals/accessories/ps5-accessories/dualsense-wireless-controller-cfi-zct1w/EN_FR_AMER_DualSense_Wireless_Controller_Instruction_Man_Web.pdf' },
+  }],
   ['Devices', 'Gaming', 'Microsoft', ['Xbox'], ['Xbox Series X', 'Xbox Series S'], 'https://www.xbox.com/en-MY/consoles'],
   ['Devices', 'Other devices', 'Apple', [], ['Apple Watch Series 9', 'iPad Air M2'], 'https://www.apple.com/my/'],
   ['Devices', 'Other devices', 'Samsung', [], ['Galaxy Watch6', 'Galaxy Tab S9'], 'https://www.samsung.com/my/'],
@@ -79,13 +87,14 @@ export const CURATED_CATALOG = Object.freeze([
   ['Clothing', 'Traditional wear', 'Rizman Ruzaini', [], [], 'https://rizmanruzaini.com/'],
   ['Clothing', 'Other clothing', 'The North Face', [], ['Nuptse Jacket', 'Antora Jacket'], 'https://www.thenorthface.com/'],
   ['Clothing', 'Other clothing', 'Columbia', [], ['Watertight II Jacket', 'Powder Lite Jacket'], 'https://www.columbia.com/'],
-].map(([category, subcategory, brand, aliases, models, identitySourceUrl]) => ({
+].map(([category, subcategory, brand, aliases, models, identitySourceUrl, modelSpecifications = {}]) => ({
   category,
   subcategory,
   brand,
   aliases,
   models,
   identitySourceUrl,
+  modelSpecifications,
 })));
 
 export function searchCuratedCatalog(input) {
@@ -125,7 +134,8 @@ export function searchCuratedCatalog(input) {
       aliases: [],
       description: `${entry.brand} ${entry.subcategory} model in the curated RentHub identity catalog`,
       specifications: { domain: entry.subcategory, curated: true,
-        ...(entry.identitySourceUrl && { identitySourceUrl: entry.identitySourceUrl }) },
+        ...(entry.identitySourceUrl && { identitySourceUrl: entry.identitySourceUrl }),
+        ...entry.modelSpecifications[model] },
       source: 'renthub-curated',
     })));
 }

@@ -227,10 +227,11 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
       }
       final point = LatLng(reading.latitude, reading.longitude);
       setState(() {
+        _discardAddressLookup();
         _clearLocality();
-        // A search centre is not a postal address. Do not reverse-geocode GPS
-        // automatically or invent address details for physical destinations.
-        label.text = widget.searchAreaOnly ? 'Current area' : '';
+        // Preserve a typed draft while finding the mapped address. A nearby
+        // search centre is not a physical destination and needs no lookup.
+        if (widget.searchAreaOnly) label.text = 'Current area';
         selected = ListingLocationSelection(
             label: label.text,
             point: point,
@@ -240,6 +241,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
             'Device accuracy: about ${reading.accuracy.round()} m. ${reading.approximate || reading.accuracy > 50 ? 'Accuracy is limited. Adjust the pin to the actual entrance or pickup point.' : 'Check the entrance or pickup point before confirming.'}';
       });
       _moveMap(point);
+      if (!privatePin && !widget.searchAreaOnly) _scheduleAddressLookup();
     } catch (exception) {
       if (mounted && request == gpsGeneration) {
         setState(() {
@@ -299,6 +301,15 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
     resolving = false;
     addressLookupFailed = false;
     addressMessage = null;
+  }
+
+  void _manualAddressEdit() {
+    // Neither a pending GPS reading nor its address lookup may overwrite a
+    // newer manual edit. The selected pin/accuracy stay available for review.
+    gpsGeneration++;
+    locating = false;
+    labelError = null;
+    _discardAddressLookup();
   }
 
   void _clearLocality() {
@@ -442,8 +453,9 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
               child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 800),
                   child: ListView(padding: const EdgeInsets.all(16), children: [
-                    const Text(
-                        'Search or use GPS, adjust the pin, then choose Use this location. Search public places only; enter private address details below.'),
+                    Text(widget.searchAreaOnly
+                        ? 'Search or use GPS to choose a nearby search centre, then tap Use this location. This is not a delivery address.'
+                        : 'Search or use GPS, check the pin, then tap Use this location. GPS and public pins ask OpenStreetMap for the nearest mapped address. Private pin skips that lookup.'),
                     const SizedBox(height: 16),
                     TextField(
                         controller: query,
@@ -516,7 +528,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                           onTap: () => _select(result.point, result: result)),
                     if (!widget.searchAreaOnly) ...[
                       const Text(
-                          'Placing a public pin sends its coordinates to OpenStreetMap to fill the mapped address. Your exact pin stays unchanged.'),
+                          'GPS and public pins send their coordinates to OpenStreetMap to fill the mapped address. Check the street and entrance; your exact pin stays unchanged.'),
                       SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Private pin'),
@@ -528,7 +540,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                               privatePin = value;
                               _discardAddressLookup();
                             });
-                            if (!value && selected?.source == 'map') {
+                            if (!value && selected != null) {
                               _scheduleAddressLookup();
                             }
                           }),
@@ -585,10 +597,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                     TextField(
                         controller: label,
                         maxLength: 240,
-                        onChanged: (_) => setState(() {
-                              labelError = null;
-                              _discardAddressLookup();
-                            }),
+                        onChanged: (_) => setState(_manualAddressEdit),
                         decoration: InputDecoration(
                             labelText: widget.searchAreaOnly
                                 ? 'Search area name'
@@ -602,19 +611,19 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                               'Keep unit/house details in the exact address above. For listings, only the city/town, state and approximate area are public.')),
                       TextField(
                           controller: city,
-                          onChanged: (_) => setState(_discardAddressLookup),
+                          onChanged: (_) => setState(_manualAddressEdit),
                           maxLength: 80,
                           decoration: const InputDecoration(
                               labelText: 'City / town', counterText: '')),
                       TextField(
                           controller: state,
-                          onChanged: (_) => setState(_discardAddressLookup),
+                          onChanged: (_) => setState(_manualAddressEdit),
                           maxLength: 80,
                           decoration: const InputDecoration(
                               labelText: 'State', counterText: '')),
                       TextField(
                           controller: postcode,
-                          onChanged: (_) => setState(_discardAddressLookup),
+                          onChanged: (_) => setState(_manualAddressEdit),
                           inputFormatters: InputValidation.formatters(
                               const InputRule('Postcode',
                                   kind: InputKind.digits,

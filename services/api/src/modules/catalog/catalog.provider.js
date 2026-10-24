@@ -1,6 +1,7 @@
 import { env } from '../../config/env.js';
 import { catalogCoverageFor } from './catalog.coverage.js';
 import { searchCuratedCatalog } from './catalog.curated.js';
+import { deviceCatalogTypes } from './catalog.deviceDomains.js';
 
 let nextRequestAt = 0;
 let requestQueue = Promise.resolve();
@@ -118,6 +119,7 @@ export function catalogSourcesFor(input) {
   const byStrategy = {
     'nhtsa-vpic': ['nhtsa-vpic'],
     'wikidata-smartphones': ['wikidata-smartphones'],
+    'wikidata-devices': ['wikidata-devices'],
     openlibrary: ['openlibrary'],
     'renthub-curated': ['renthub-curated'],
     'wikidata-validated': ['wikidata'],
@@ -196,6 +198,84 @@ function sparqlUrl(query) {
 
 function sparqlString(value) {
   return JSON.stringify(normalized(value));
+}
+
+async function deviceSearchCandidates(query) {
+  const url = new URL(env.catalogProviderUrl);
+  url.search = new URLSearchParams({
+    action: 'wbsearchentities', search: query, language: 'en', uselang: 'en',
+    format: 'json', limit: String(Math.min(env.catalogMaxResults * 2, 24)),
+  });
+  const payload = await getJson(url);
+  if (!Array.isArray(payload.search)) throw new Error('Invalid Wikidata search response');
+  return payload.search.filter((item) => /^Q\d+$/.test(item.id));
+}
+
+async function searchDevices(input) {
+  const types = deviceCatalogTypes(input);
+  if (!types) return [];
+  const isBrand = input.entityType === 'brand';
+  // Initial browsing comes from the reviewed catalogue/cache, not a global graph scan.
+  if (isBrand && !normalized(input.query)) return [];
+  const selectedBrand = searchCuratedCatalog({ ...input, entityType: 'brand', query: input.brand })
+    .find((item) => [item.label, ...item.aliases].some((name) => normalized(name) === normalized(input.brand)));
+  const brandNames = [...new Set([input.brand, selectedBrand?.label, ...(selectedBrand?.aliases ?? [])]
+    .filter(Boolean).flatMap((name) => [normalized(name), normalized(canonicalOrganizationName(name))]))];
+  const selectedId = /^wikidata-devices:Q\d+$/.test(input.catalogBrandId ?? '')
+    ? rawCanonicalId(input.catalogBrandId, 'wikidata-devices') : null;
+  const hasModelQuery = !isBrand && Boolean(normalized(input.query));
+  let candidates;
+  if (!isBrand && !hasModelQuery && selectedId) {
+    candidates = [{ id: selectedId }];
+  } else {
+    candidates = await deviceSearchCandidates(isBrand ? input.query : hasModelQuery ? input.query : input.brand);
+  }
+  if (!candidates.length) return [];
+  const values = candidates.map((item) => `wd:${item.id}`).join(' ');
+  const brandFilter = isBrand ? '' : `
+    FILTER(REPLACE(REPLACE(LCASE(STR(?manufacturerLabel)), "[^a-z0-9]+", " "), "^ +| +$", "") IN (${brandNames.map((name) => JSON.stringify(name)).join(', ')}))
+    ${selectedId ? `FILTER(?manufacturer = wd:${selectedId})` : ''}`;
+  const query = `
+PREFIX hint: <http://www.bigdata.com/queryHints#>
+SELECT DISTINCT ${isBrand ? '' : '?model ?modelLabel'} ?manufacturer ?manufacturerLabel ?domainType WHERE {
+  VALUES ?${hasModelQuery ? 'model' : 'manufacturer'} { ${values} }
+  VALUES ?domainType { ${Object.keys(types).map((id) => `wd:${id}`).join(' ')} }
+  ?model (wdt:P176|wdt:P1716) ?manufacturer; rdfs:label ?modelLabel.
+  ?manufacturer rdfs:label ?manufacturerLabel.
+  FILTER(LANG(?modelLabel) = "en" && LANG(?manufacturerLabel) = "en")
+  ${brandFilter}
+  ?model (wdt:P31/wdt:P279*|wdt:P279+) ?domainType.
+  hint:Prior hint:gearing "forward".
+} LIMIT ${env.catalogMaxResults * 2}`;
+  const payload = await getJson(sparqlUrl(query), 'application/sparql-results+json');
+  if (!Array.isArray(payload.results?.bindings)) throw new Error('Invalid Wikidata device response');
+  const candidateIds = new Set(candidates.map((item) => item.id));
+  return unique(payload.results.bindings.flatMap((binding) => {
+    const modelId = entityId(binding.model?.value);
+    const manufacturerId = entityId(binding.manufacturer?.value);
+    const typeId = entityId(binding.domainType?.value);
+    const manufacturer = String(binding.manufacturerLabel?.value ?? '').trim();
+    const model = String(binding.modelLabel?.value ?? '').trim();
+    if ((!isBrand && !/^Q\d+$/.test(modelId)) || !/^Q\d+$/.test(manufacturerId) || !types[typeId] ||
+        !candidateIds.has(hasModelQuery ? modelId : manufacturerId) || !manufacturer || (!isBrand && !model) ||
+        manufacturer.length > 100 || model.length > 160 ||
+        (!isBrand && (!brandNames.includes(normalized(manufacturer)) &&
+          !brandNames.includes(normalized(canonicalOrganizationName(manufacturer))))) ||
+        (selectedId && !isBrand && manufacturerId !== selectedId)) return [];
+    return [{
+      id: isBrand ? manufacturerId : modelId,
+      ...(isBrand ? {} : { brandId: manufacturerId }),
+      label: isBrand ? canonicalOrganizationName(manufacturer) : model,
+      aliases: isBrand ? [manufacturer] : [],
+      description: isBrand ? `Manufacturer/brand with ${input.subcategory} products in Wikidata`
+        : `${manufacturer} ${types[typeId]} model in Wikidata`,
+      specifications: { domain: input.subcategory, productType: types[typeId],
+        wikidataTypeId: typeId, manufacturerEntityId: manufacturerId,
+        validation: 'structured_type_and_manufacturer',
+        identitySourceUrl: `https://www.wikidata.org/wiki/${isBrand ? manufacturerId : modelId}` },
+      source: 'wikidata-devices',
+    }];
+  })).slice(0, env.catalogMaxResults);
 }
 
 async function searchSmartphones(input) {
@@ -384,6 +464,7 @@ async function search(input) {
   const providers = {
     'nhtsa-vpic': searchVehicles,
     'wikidata-smartphones': searchSmartphones,
+    'wikidata-devices': searchDevices,
     openlibrary: searchBooks,
     'renthub-curated': searchCuratedCatalog,
     'wikidata-validated': searchValidatedWikidata,

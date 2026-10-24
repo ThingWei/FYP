@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:renthub_flutter/core/location/current_location.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
 import 'package:renthub_flutter/features/live/live_location_picker.dart';
+import 'package:renthub_flutter/features/live/live_location_field.dart';
 
 class AddressApi extends ApiClient {
   AddressApi() : super('https://example.invalid');
@@ -51,9 +52,11 @@ const initial = ListingLocationSelection(
     postcode: '12345');
 
 class Gps extends CurrentLocationClient {
+  Completer<CurrentLocationReading>? held;
   @override
-  Future<CurrentLocationReading> current() async =>
-      const CurrentLocationReading(3.15, 101.71, 8);
+  Future<CurrentLocationReading> current() async => held == null
+      ? const CurrentLocationReading(3.15, 101.71, 8)
+      : await held!.future;
   @override
   Future<void> settings({required bool app}) async {}
 }
@@ -155,6 +158,43 @@ void main() {
   });
   for (final width in [360.0, 390.0, 1024.0]) {
     testWidgets(
+        'current-location tap fills address and retains GPS pin/accuracy at $width',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final api = AddressApi();
+      ListingLocationSelection? returned;
+      await open(tester, api,
+          gps: Gps(),
+          selection: null,
+          returned: (value) => returned = value,
+          textScale: 1.5);
+      expect(api.lookups, 0);
+      await press(tester, 'Use my current location');
+      expect(api.lookups, 1);
+      expect(api.submitted, {
+        'coordinates': {'latitude': 3.15, 'longitude': 101.71},
+        'publicPointConfirmed': true,
+      });
+      await revealField(tester, 'Exact address or pickup point');
+      expect(text(tester, 'Exact address or pickup point'), mapped['label']);
+      await revealField(tester, 'City / town');
+      expect(text(tester, 'City / town'), mapped['city']);
+      await revealField(tester, 'State');
+      expect(text(tester, 'State'), mapped['state']);
+      await revealField(tester, 'Postcode (if known)');
+      expect(text(tester, 'Postcode (if known)'), '05000');
+      expect(find.byType(CheckboxListTile), findsNothing);
+      await press(tester, 'Use this location');
+      expect(returned!.label, mapped['label']);
+      expect(returned!.coordinates, {'latitude': 3.15, 'longitude': 101.71});
+      expect(returned!.source, 'gps');
+      expect(returned!.accuracyMeters, 8);
+      expect(tester.takeException(), isNull);
+    });
+    testWidgets(
         'public pin automatically fills address with one confirmation at $width',
         (tester) async {
       tester.view.physicalSize = Size(width, 1000);
@@ -220,10 +260,38 @@ void main() {
     await revealField(tester, 'Exact address or pickup point');
     expect(text(tester, 'Exact address or pickup point'), mapped['label']);
   });
-  testWidgets('GPS does not automatically reverse-geocode a private position',
+  testWidgets(
+      'GPS confirmation fills the calling location field without manual address typing',
       (tester) async {
     final api = AddressApi();
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    ListingLocationSelection? returned;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: LiveLocationField(
+      api: ListingLocationApi(api),
+      controller: controller,
+      value: null,
+      onChanged: (value) => returned = value,
+      positionClient: Gps(),
+      mapBuilder: canvas,
+    ))));
+    await press(tester, 'Choose location');
+    await press(tester, 'Use my current location');
+    expect(controller.text, '');
+    await press(tester, 'Use this location');
+    expect(controller.text, mapped['label']);
+    expect(returned!.city, mapped['city']);
+    expect(returned!.postcode, '05000');
+    expect(returned!.accuracyMeters, 8);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('explicit Private pin skips GPS address lookup', (tester) async {
+    final api = AddressApi();
     await open(tester, api, gps: Gps());
+    await press(tester, 'Private pin');
     await press(tester, 'Use my current location');
     expect(api.lookups, 0);
     expect(find.textContaining('Device accuracy'), findsOneWidget);
@@ -232,6 +300,56 @@ void main() {
         field('Exact address or pickup point'), 'Private entrance');
     await press(tester, 'Use this location');
     expect(api.lookups, 0);
+  });
+  testWidgets(
+      'GPS address failure keeps the draft and pin, then retries without another confirmation step',
+      (tester) async {
+    final api = AddressApi()..fail = true;
+    ListingLocationSelection? returned;
+    await open(tester, api, gps: Gps(), returned: (value) => returned = value);
+    await press(tester, 'Use my current location');
+    await revealField(tester, 'Exact address or pickup point');
+    expect(text(tester, 'Exact address or pickup point'), initial.label);
+    expect(
+        find.textContaining('Address lookup is unavailable'), findsOneWidget);
+    api.fail = false;
+    await press(tester, 'Retry address lookup');
+    expect(api.lookups, 2);
+    expect(text(tester, 'Exact address or pickup point'), mapped['label']);
+    await press(tester, 'Use this location');
+    expect(returned!.coordinates, {'latitude': 3.15, 'longitude': 101.71});
+  });
+  testWidgets('late GPS reading cannot overwrite a manual address edit',
+      (tester) async {
+    final held = Completer<CurrentLocationReading>();
+    final api = AddressApi();
+    await open(tester, api, gps: Gps()..held = held);
+    await press(tester, 'Use my current location', settle: false);
+    await revealField(tester, 'Exact address or pickup point');
+    await tester.enterText(
+        field('Exact address or pickup point'), 'New manual entrance');
+    held.complete(const CurrentLocationReading(3.15, 101.71, 8));
+    await tester.pumpAndSettle();
+    expect(api.lookups, 0);
+    expect(
+        text(tester, 'Exact address or pickup point'), 'New manual entrance');
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('late GPS address response cannot overwrite a manual edit',
+      (tester) async {
+    final api = AddressApi()..held = Completer<dynamic>();
+    await open(tester, api, gps: Gps());
+    await press(tester, 'Use my current location', settle: false);
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(api.lookups, 1);
+    await revealField(tester, 'Exact address or pickup point');
+    await tester.enterText(
+        field('Exact address or pickup point'), 'New manual entrance');
+    api.held!.complete({'provider': 'openstreetmap', 'item': mapped});
+    await tester.pumpAndSettle();
+    expect(
+        text(tester, 'Exact address or pickup point'), 'New manual entrance');
+    expect(tester.takeException(), isNull);
   });
   for (final empty in [false, true]) {
     testWidgets(

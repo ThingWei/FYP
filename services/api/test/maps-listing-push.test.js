@@ -27,7 +27,7 @@ test('map search requires authentication, validates queries and safely exposes o
   assert.equal(config.body.data.searchMode, 'explicit');
   assert.ok(!JSON.stringify(config.body).includes('private_key'));
 });
-test('listing pins persist and location changes require reconfirmed coordinates', async () => {
+test('listing pins persist; clearing or changing an unfinished draft location removes the old point', async () => {
   const input = { title: 'Camera with pickup point', category: 'Devices', listingType: 'physical', condition: 'Good',
     fulfilmentMethods: ['pickup'], dailyPrice: 65, location: 'KLCC, Kuala Lumpur', coordinates: { latitude: 3.1579, longitude: 101.7116 } };
   const created = await request(app).post('/api/v1/listings').set(owner).send(input).expect(201);
@@ -35,8 +35,10 @@ test('listing pins persist and location changes require reconfirmed coordinates'
   assert.deepEqual(created.body.data.coordinates, input.coordinates);
   let response = await request(app).patch(`/api/v1/listings/${id}`).set(owner).send({ dailyPrice: 70 }).expect(200);
   assert.deepEqual(response.body.data.coordinates, input.coordinates);
-  await request(app).patch(`/api/v1/listings/${id}`).set(owner).send({ coordinates: null }).expect(422);
-  await request(app).patch(`/api/v1/listings/${id}`).set(owner).send({ location: 'Shah Alam' }).expect(422);
+  response = await request(app).patch(`/api/v1/listings/${id}`).set(owner).send({ coordinates: null }).expect(200);
+  assert.equal(response.body.data.coordinates, null);
+  response = await request(app).patch(`/api/v1/listings/${id}`).set(owner).send({ location: 'Shah Alam' }).expect(200);
+  assert.equal(response.body.data.coordinates, null);
   response = await request(app).patch(`/api/v1/listings/${id}`).set(owner).send({ location: 'Shah Alam', coordinates: input.coordinates }).expect(200);
   assert.deepEqual(response.body.data.coordinates, input.coordinates);
   const read = await request(app).get('/api/v1/listings/owner/mine').set(owner).expect(200);

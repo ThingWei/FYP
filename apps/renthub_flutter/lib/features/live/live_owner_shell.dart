@@ -1,4 +1,5 @@
 import 'live_price_suggestion.dart';
+import '../../core/validation/product_identity_validation.dart';
 import 'live_catalog_picker.dart';
 import 'live_location_picker.dart';
 import 'live_location_field.dart';
@@ -434,9 +435,11 @@ class LiveOwnerListingsPage extends StatelessWidget {
                             ? Icons.design_services_outlined
                             : Icons.inventory_2_outlined),
                       ),
-                      title: Text(listing.title),
+                      title: Text(listing.title.trim().isEmpty
+                          ? 'Untitled listing'
+                          : listing.title),
                       subtitle: Text(
-                        '${formatMoney(listing.dailyPrice)} · ${listing.status.replaceAll('_', ' ')}'
+                        '${listing.dailyPrice > 0 ? formatMoney(listing.dailyPrice) : 'Price not set'} · ${listing.status.replaceAll('_', ' ')}'
                         '${listing.promotionActive ? '\n${listing.promotionLabel} · ${listing.promotionDiscountPercent.toStringAsFixed(0)}% off' : ''}'
                         '${listing.bundleActive ? '\n${listing.bundleTitle}' : ''}'
                         '${listing.itemVerificationOutcome.isNotEmpty && !listing.isService ? '\n${listing.itemPhotoCheckLabel} · Tap to view' : ''}',
@@ -557,7 +560,9 @@ class _LiveListingFormState extends State<LiveListingForm> {
   late final description =
       TextEditingController(text: widget.listing?.description);
   late final price = TextEditingController(
-    text: widget.listing?.dailyPrice.toStringAsFixed(2),
+    text: (widget.listing?.dailyPrice ?? 0) > 0
+        ? widget.listing!.dailyPrice.toStringAsFixed(2)
+        : null,
   );
   late final location = TextEditingController(
     text: widget.listing?.locationDetails?.label ??
@@ -581,13 +586,19 @@ class _LiveListingFormState extends State<LiveListingForm> {
   late final deliveryFee = TextEditingController(
       text: widget.listing?.deliveryFee.toStringAsFixed(2) ?? '0');
   late final duration = TextEditingController(
-    text: widget.listing?.serviceDurationMinutes?.toString() ?? '60',
+    text: widget.listing?.serviceDurationMinutes?.toString() ??
+        (widget.listing?.status == 'draft' ? '' : '60'),
   );
   late final brand = TextEditingController(text: widget.listing?.brand);
   late final productModel =
       TextEditingController(text: widget.listing?.productModel);
+  late final isbn = TextEditingController(text: widget.listing?.isbn);
+  late final edition = TextEditingController(text: widget.listing?.edition);
+  late final variant = TextEditingController(text: widget.listing?.variant);
+  late String packageType = widget.listing?.packageType ?? '';
   late final itemAge = TextEditingController(
-    text: widget.listing?.itemAgeYears?.toString() ?? '1',
+    text: widget.listing?.itemAgeYears?.toString() ??
+        (widget.listing?.status == 'draft' ? '' : '1'),
   );
   final expectedRentalDays = TextEditingController(text: '1');
   String category = RentHubCategories.devices;
@@ -656,6 +667,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
         condition,
         brand.text,
         productModel.text,
+        isbn.text,
+        edition.text,
+        variant.text,
+        packageType,
         itemAge.text,
         expectedRentalDays.text,
         location.text,
@@ -672,7 +687,90 @@ class _LiveListingFormState extends State<LiveListingForm> {
     return 'manual_entry';
   }
 
+  void _clearComparisonDetails() {
+    isbn.clear();
+    edition.clear();
+    variant.clear();
+    packageType = '';
+  }
+
+  Widget _comparisonDetails() => ExpansionTile(
+        maintainState: true,
+        tilePadding: EdgeInsets.zero,
+        title: const Text('Product details for price comparisons'),
+        subtitle: const Text(
+            'Optional: help avoid comparing different versions or packages.'),
+        children: [
+          if (category == RentHubCategories.books) ...[
+            TextFormField(
+                controller: isbn,
+                maxLength: 32,
+                decoration: const InputDecoration(
+                    labelText: 'ISBN (optional)',
+                    helperText:
+                        'Printed near the barcode. Leave empty if unknown.',
+                    helperMaxLines: 3,
+                    errorMaxLines: 3),
+                validator: validateOptionalIsbn,
+                onChanged: (_) => _clearPriceRecommendation(),
+                autovalidateMode: AutovalidateMode.onUserInteraction),
+            const SizedBox(height: 12),
+            TextFormField(
+                controller: edition,
+                maxLength: 80,
+                decoration: const InputDecoration(
+                    labelText: 'Edition (optional)',
+                    hintText: 'For example, 2nd edition',
+                    errorMaxLines: 3),
+                validator:
+                    const InputRule('Edition', optional: true, maxLength: 80)
+                        .validate,
+                onChanged: (_) => _clearPriceRecommendation()),
+          ] else ...[
+            TextFormField(
+                controller: variant,
+                maxLength: 80,
+                decoration: const InputDecoration(
+                    labelText: 'Version or capacity (optional)',
+                    hintText: 'For example, 256GB',
+                    errorMaxLines: 3),
+                validator: const InputRule('Version or capacity',
+                        optional: true, maxLength: 80)
+                    .validate,
+                onChanged: (_) => _clearPriceRecommendation()),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+                initialValue: packageType,
+                key: ValueKey(
+                    'price-package-$category-$subcategory-${brand.text}-${productModel.text}-$packageType'),
+                isExpanded: true,
+                decoration:
+                    const InputDecoration(labelText: 'What is included?'),
+                items: [
+                  const DropdownMenuItem(
+                      value: '', child: Text('Not specified')),
+                  const DropdownMenuItem(
+                      value: 'item_only', child: Text('Item only')),
+                  const DropdownMenuItem(
+                      value: 'equipment_set', child: Text('Equipment set')),
+                  if (subcategory == 'Cameras' || packageType == 'body_only')
+                    const DropdownMenuItem(
+                        value: 'body_only', child: Text('Camera body only')),
+                  if (subcategory == 'Cameras' || packageType == 'with_lens')
+                    const DropdownMenuItem(
+                        value: 'with_lens', child: Text('Camera with lens')),
+                ],
+                onChanged: (value) => setState(() {
+                      packageType = value ?? '';
+                      priceRecommendation = null;
+                    })),
+          ],
+          const SizedBox(height: 16),
+        ],
+      );
+
   void _clearCatalogIdentity() {
+    _clearComparisonDetails();
     brand.clear();
     productModel.clear();
     catalogBrandId = null;
@@ -685,6 +783,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   void _manualBrandChanged(String value) {
     setState(() {
+      _clearComparisonDetails();
       priceRecommendation = null;
       catalogBrandId = null;
       canonicalProductId = null;
@@ -695,6 +794,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   void _manualModelChanged(String value) {
     setState(() {
+      _clearComparisonDetails();
       priceRecommendation = null;
       canonicalProductId = null;
       selectedCatalogMatchType = 'manual_entry';
@@ -756,6 +856,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       manualBrand = false;
       manualModel = false;
       if (changed) {
+        _clearComparisonDetails();
         productModel.clear();
         canonicalProductId = null;
       }
@@ -800,6 +901,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       return;
     }
     setState(() {
+      if (productModel.text != result['model']) _clearComparisonDetails();
       productModel.text = result['model'] as String? ?? '';
       canonicalProductId = result['canonicalProductId'] as String?;
       catalogSource = result['catalogSource'] as String?;
@@ -840,6 +942,19 @@ class _LiveListingFormState extends State<LiveListingForm> {
   }
 
   Future<void> _suggestPrice() async {
+    final identityError = category == RentHubCategories.books
+        ? validateOptionalIsbn(isbn.text)
+        : const InputRule('Version or capacity', optional: true, maxLength: 80)
+            .validate(variant.text);
+    final editionError = category == RentHubCategories.books
+        ? const InputRule('Edition', optional: true, maxLength: 80)
+            .validate(edition.text)
+        : null;
+    if (identityError != null || editionError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(identityError ?? editionError!)));
+      return;
+    }
     var valid = true;
     validatingPricing = true;
     for (final key in [
@@ -889,23 +1004,28 @@ class _LiveListingFormState extends State<LiveListingForm> {
     final inputSnapshot = _pricingInputSnapshot;
     setState(() => suggestingPrice = true);
     try {
-      final suggestion =
-          await context.read<LiveRentHubController>().getPriceRecommendation(
-                category: category,
-                subcategory: subcategory,
-                condition: condition,
-                brand: brand.text,
-                productModel: productModel.text,
-                itemAgeYears: age,
-                rentalDurationDays: rentalDays,
-                state: _listingState(),
-                excludeListingId: widget.listing?.id,
-                canonicalProductId: canonicalProductId,
-                catalogBrandId: catalogBrandId,
-                productMatchType: _productMatchType,
-                catalogSource: catalogSource,
-                location: location.text.trim(),
-              );
+      final suggestion = await context
+          .read<LiveRentHubController>()
+          .getPriceRecommendation(
+            category: category,
+            subcategory: subcategory,
+            condition: condition,
+            brand: brand.text,
+            productModel: productModel.text,
+            isbn: category == RentHubCategories.books ? isbn.text : '',
+            edition: category == RentHubCategories.books ? edition.text : '',
+            variant: variant.text,
+            packageType: packageType,
+            itemAgeYears: age,
+            rentalDurationDays: rentalDays,
+            state: _listingState(),
+            excludeListingId: widget.listing?.id,
+            canonicalProductId: canonicalProductId,
+            catalogBrandId: catalogBrandId,
+            productMatchType: _productMatchType,
+            catalogSource: catalogSource,
+            location: location.text.trim(),
+          );
       if (mounted && inputSnapshot == _pricingInputSnapshot) {
         setState(() => priceRecommendation = suggestion);
       }
@@ -1001,18 +1121,77 @@ class _LiveListingFormState extends State<LiveListingForm> {
     duration.dispose();
     brand.dispose();
     productModel.dispose();
+    isbn.dispose();
+    edition.dispose();
+    variant.dispose();
     itemAge.dispose();
     expectedRentalDays.dispose();
     super.dispose();
   }
 
+  String? _draftError() {
+    // Empty fields are deliberately allowed; supplied values still keep their
+    // format/range limits. Never parse a malformed numeric value as zero.
+    final fields = <(TextEditingController, InputRule)>[
+      (
+        title,
+        const InputRule('Title', optional: true, minLength: 0, maxLength: 120)
+      ),
+      (description, InputRules.description),
+      (
+        price,
+        !widget.isService && category == RentHubCategories.books
+            ? InputRules.bookPriceRm
+            : InputRules.priceRm
+      ),
+      if (!(widget.isService && venueMode == 'online'))
+        (
+          location,
+          InputRule('Location', maxLength: selectedLocation == null ? 160 : 240)
+        ),
+      if (widget.isService) (duration, InputRules.durationMinutes),
+      if (!widget.isService) ...[
+        (brand, InputRules.brandMaker),
+        (productModel, InputRules.productModel),
+        (itemAge, InputRules.itemAgeYears),
+        (expectedRentalDays, InputRules.typicalRentalDays),
+        (deposit, InputRules.securityDepositRm),
+        (
+          deliveryFee,
+          const InputRule('Delivery fee',
+              kind: InputKind.money, max: 100000, maxLength: 30)
+        ),
+        (edition, const InputRule('Edition', optional: true, maxLength: 80)),
+        (
+          variant,
+          const InputRule('Version or capacity', optional: true, maxLength: 80)
+        ),
+      ],
+    ];
+    for (final (controller, rule) in fields) {
+      if (controller.text.trim().isEmpty) continue;
+      final error = rule.validate(controller.text);
+      if (error != null) return error;
+    }
+    return !widget.isService && category == RentHubCategories.books
+        ? validateOptionalIsbn(isbn.text)
+        : null;
+  }
+
   Future<void> _save({bool submitForReview = true}) async {
-    if (!InputValidation.validate(context)) return;
-    if (!formKey.currentState!.validate() ||
-        saving ||
-        checkingIdentity ||
-        addingImages) {
-      return;
+    if (saving || checkingIdentity || addingImages) return;
+    if (submitForReview) {
+      if (!InputValidation.validate(context) ||
+          !formKey.currentState!.validate()) {
+        return;
+      }
+    } else {
+      final error = _draftError();
+      if (error != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error)));
+        return;
+      }
     }
     if (submitForReview) {
       setState(() => checkingIdentity = true);
@@ -1034,7 +1213,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
         location.text ==
             (widget.listing!.locationDetails?.label ??
                 widget.listing!.location);
-    if (!(widget.isService && venueMode == 'online') &&
+    if (submitForReview &&
+        !(widget.isService && venueMode == 'online') &&
         selectedLocation == null &&
         !locationUnchanged) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1050,14 +1230,16 @@ class _LiveListingFormState extends State<LiveListingForm> {
       'description': description.text.trim(),
       'category': category,
       'listingType': widget.isService ? 'service' : 'physical',
-      'dailyPrice': double.parse(price.text),
-      'location': selectedLocation == null
-          ? location.text.trim()
-          : area.isEmpty
-              ? 'Pinned location'
-              : area.length <= 160
-                  ? area
-                  : selectedLocation!.city,
+      'dailyPrice': price.text.trim().isEmpty ? null : double.parse(price.text),
+      'location': widget.isService && venueMode == 'online'
+          ? 'Online'
+          : selectedLocation == null
+              ? location.text.trim()
+              : area.isEmpty
+                  ? 'Pinned location'
+                  : area.length <= 160
+                      ? area
+                      : selectedLocation!.city,
       if (selectedLocation != null)
         'coordinates': selectedLocation!.coordinates,
       if (selectedLocation != null)
@@ -1069,7 +1251,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
         'priceUnit': 'package',
         'serviceDetails': {
           'packageName': title.text.trim(),
-          'durationMinutes': int.parse(duration.text),
+          if (duration.text.trim().isNotEmpty)
+            'durationMinutes': int.parse(duration.text),
           'venueMode': venueMode,
           'inclusions': ['Service package as described'],
         },
@@ -1079,15 +1262,23 @@ class _LiveListingFormState extends State<LiveListingForm> {
             category == RentHubCategories.vehicles ? requiredLicenceClass : '',
         'brand': brand.text.trim(),
         'productModel': productModel.text.trim(),
+        'isbn': category == RentHubCategories.books ? isbn.text.trim() : '',
+        'edition':
+            category == RentHubCategories.books ? edition.text.trim() : '',
+        'variant': variant.text.trim(),
+        'packageType': packageType,
         'canonicalProductId': canonicalProductId,
         'catalogBrandId': catalogBrandId,
         'productMatchType': _productMatchType,
         'catalogSource': catalogSource,
-        'itemAgeYears': double.parse(itemAge.text),
+        'itemAgeYears':
+            itemAge.text.trim().isEmpty ? null : double.parse(itemAge.text),
         'priceUnit': 'day',
         'condition': condition,
-        'securityDeposit': double.parse(deposit.text),
-        'deliveryFee': double.parse(deliveryFee.text),
+        if (deposit.text.trim().isNotEmpty)
+          'securityDeposit': double.parse(deposit.text),
+        if (deliveryFee.text.trim().isNotEmpty)
+          'deliveryFee': double.parse(deliveryFee.text),
         'damageWaiverAvailable': false,
         'damageWaiverFee': 0,
         'fulfilmentMethods': ['pickup', 'owner_delivery'],
@@ -1408,6 +1599,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                           maxLengthEnforcement:
                               InputValidation.lengthEnforcement,
                         ),
+                        _comparisonDetails(),
                         if (catalogBrandId != null)
                           Align(
                               alignment: Alignment.centerLeft,
@@ -1508,7 +1700,11 @@ class _LiveListingFormState extends State<LiveListingForm> {
                               : 'Daily price (RM)',
                         )).copyWith(counterText: '', errorMaxLines: 3),
                         validator: InputValidation.compose(
-                            InputRules.priceRm.validate,
+                            (!widget.isService &&
+                                        category == RentHubCategories.books
+                                    ? InputRules.bookPriceRm
+                                    : InputRules.priceRm)
+                                .validate,
                             (value) => (double.tryParse(value ?? '') ?? 0) > 0
                                 ? null
                                 : 'Enter a valid price'),
@@ -1589,19 +1785,26 @@ class _LiveListingFormState extends State<LiveListingForm> {
                           'Tell renters where your listing is offered. Manage dates after saving.'),
                       if (widget.isService)
                         DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: venueMode,
                             decoration: const InputDecoration(
                                 labelText: 'Service location type'),
                             items: const [
                               DropdownMenuItem(
                                   value: 'owner_location',
-                                  child: Text('At my location')),
+                                  child: Text('At my location',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis)),
                               DropdownMenuItem(
                                   value: 'renter_location',
-                                  child: Text('At the renter location')),
+                                  child: Text('At the renter location',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis)),
                               DropdownMenuItem(
                                   value: 'flexible',
-                                  child: Text('Chosen when booking')),
+                                  child: Text('Chosen when booking',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis)),
                               DropdownMenuItem(
                                   value: 'online', child: Text('Online'))
                             ],
@@ -1647,7 +1850,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                         ),
                       const SizedBox(height: 20),
                       const Text(
-                          'Approved MyKad verification is required to submit or publish. Saving a draft does not require verification.'),
+                          'You can save an unfinished draft and complete it later. All required details and approved MyKad verification are needed only when submitting for review.'),
                       const SizedBox(height: 12),
                       OutlinedButton(
                         onPressed: saving || checkingIdentity

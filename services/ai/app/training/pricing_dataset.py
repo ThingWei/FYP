@@ -49,6 +49,7 @@ REQUIRED_COLUMNS = FEATURES + [
     'daily_price', 'source_type', 'target_source', 'observed_at', 'group_id',
 ]
 PROVENANCE_COLUMNS = [
+    'isbn', 'edition', 'variant', 'packageType',
     'canonicalProductId', 'productMatchType', 'identity_level', 'product_type',
     'collection_method', 'source_name', 'source_url', 'package_notes',
     'quoted_rental_days', 'duration_feature_basis', 'duration_min_days', 'duration_max_days',

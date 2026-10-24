@@ -6,10 +6,12 @@ import { searchCuratedCatalog } from '../catalog/catalog.curated.js';
 import { ProductCatalogModel } from '../catalog/productCatalog.model.js';
 import { normalizeCatalogText } from '../catalog/catalog.service.js';
 import { PricingReferenceModel } from './pricingReference.model.js';
+import { normalizeIsbn, productTypeFor } from './priceProductDomains.js';
+import { minimumRentalPrice, validRentalPrice } from './priceLimits.js';
 
 export const REFERENCE_COLUMNS = ['category', 'subcategory', 'brand', 'model',
   'quotedAmount', 'rentalDays', 'currency', 'sourceName', 'sourceUrl', 'observedDate',
-  'location', 'state', 'condition', 'itemAgeYears', 'packageNotes'];
+  'location', 'state', 'condition', 'itemAgeYears', 'packageNotes', 'isbn', 'edition', 'variant', 'packageType'];
 export const REFERENCE_TEMPLATE = REFERENCE_COLUMNS.join(',') + '\r\n';
 const requiredColumns = REFERENCE_COLUMNS.slice(0, 10);
 const fail = (message, details) => { throw new AppError(message, 400, 'INVALID_PRICE_CSV', details); };
@@ -79,8 +81,8 @@ function validatedRow(row) {
   wholeInput(row.rentalDays);
   const quotedAmount = Number(row.quotedAmount), rentalDurationDays = Number(row.rentalDays);
   const dailyPrice = quotedAmount / rentalDurationDays;
-  if (rentalDurationDays < 1 || rentalDurationDays > 365 || dailyPrice < 1 || dailyPrice > 1_000_000) {
-    throw new Error('Rental days must be 1–365 and the equivalent daily price RM 1–1,000,000');
+  if (rentalDurationDays < 1 || rentalDurationDays > 365 || !validRentalPrice(dailyPrice, category)) {
+    throw new Error(`Rental days must be 1–365 and the equivalent daily price RM ${minimumRentalPrice(category).toFixed(2)}–1,000,000`);
   }
   if (row.currency !== 'MYR') throw new Error('Only Malaysian MYR observations are supported');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(row.observedDate)) throw new Error('Use YYYY-MM-DD for the observation date');
@@ -106,6 +108,14 @@ function validatedRow(row) {
     sourceName: cleanText(row.sourceName, 160, true), sourceUrl: sourceUrl.href, observedAt,
     location: cleanText(row.location, 160), state: cleanText(row.state, 80), condition, itemAgeYears,
     packageNotes: cleanText(row.packageNotes, 500) };
+  result.isbn = cleanText(row.isbn, 32);
+  if (result.isbn && (category !== 'Books' || !normalizeIsbn(result.isbn))) throw new Error('ISBN must be a valid ISBN-10 or ISBN-13 for a book');
+  if (result.isbn) result.isbn = normalizeIsbn(result.isbn);
+  result.edition = cleanText(row.edition, 80);
+  result.variant = cleanText(row.variant, 80);
+  result.packageType = cleanText(row.packageType, 40);
+  if (result.packageType && !['body_only', 'with_lens', 'item_only', 'equipment_set'].includes(result.packageType)) throw new Error('Package type must be body_only, with_lens, item_only or equipment_set');
+  result.productType = productTypeFor(category, subcategory, `${result.brand} ${result.productModel}`);
   // Reviews must reject minimum/ambiguous quotes and inseparable event services.
   if (/\b(from|starting|chauffeur|crew|operator|setup included|service bundle)\b/i.test(result.packageNotes)) {
     throw new Error('Exclude minimum prices or inseparable service bundles; enter an explicit equipment rental quote');
@@ -120,7 +130,8 @@ function validatedRow(row) {
 
 function sameObservation(a, b) {
   return ['quotedAmount', 'location', 'state', 'condition', 'itemAgeYears', 'packageNotes']
-    .every((key) => a[key] === b[key]);
+    .every((key) => a[key] === b[key]) && ['isbn', 'edition', 'variant', 'packageType']
+    .every((key) => (a[key] ?? '') === (b[key] ?? ''));
 }
 
 export async function previewPricingReferences(csv) {

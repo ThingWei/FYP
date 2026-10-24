@@ -9,6 +9,7 @@ import {
   LISTING_TYPES,
 } from './listing.model.js';
 import { isUploadReference } from '../../core/uploadReference.js';
+import { normalizeIsbn } from './priceProductDomains.js';
 
 const editableFields = new Set([
   'title',
@@ -18,6 +19,7 @@ const editableFields = new Set([
   'requiredLicenceClass',
   'brand',
   'productModel',
+  'isbn', 'edition', 'variant', 'packageType',
   'canonicalProductId',
   'catalogBrandId',
   'productMatchType',
@@ -51,13 +53,16 @@ const listingId = param('id').custom(textInput).bail().trim()
   .withMessage('Invalid listing identifier');
 
 const listingFields = [
-  body('title').optional().custom(textInput).bail().trim().isLength({ min: 3, max: 120 }),
+  body('title').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
   body('description').optional().custom(textInput).bail().trim().isLength({ max: 3000 }),
   body('category').optional().isIn(LISTING_CATEGORIES),
   body('subcategory').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   body('requiredLicenceClass').optional().isIn(['', ...LICENCE_CLASSES]),
   body('brand').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   body('productModel').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
+  ...['edition', 'variant'].map((field) => body(field).optional().custom(textInput).bail().trim().isLength({ max: 80 })),
+  body('packageType').optional().isIn(['', 'body_only', 'with_lens', 'item_only', 'equipment_set']),
+  body('isbn').optional().custom((value) => value === '' || typeof value === 'string' && Boolean(normalizeIsbn(value))),
   body('canonicalProductId')
     .optional({ nullable: true }).custom(textInput).bail().trim()
     .isLength({ min: 3, max: 160 }),
@@ -73,9 +78,10 @@ const listingFields = [
       'catalog_brand_match_model_manual',
     ]),
   body('catalogSource').optional({ nullable: true }).custom(textInput).bail().trim().isLength({ max: 80 }),
-  body('itemAgeYears').optional().custom(numericInput).bail().isFloat({ min: 0, max: 100 }).toFloat(),
+  body('itemAgeYears').optional({ nullable: true }).custom(numericInput).bail().isFloat({ min: 0, max: 100 }).toFloat(),
   body('listingType').optional().isIn(LISTING_TYPES),
-  body('dailyPrice').optional().custom(moneyInput).bail().isFloat({ min: 1, max: 1_000_000 }).toFloat(),
+  // The service validates against the effective category on partial updates.
+  body('dailyPrice').optional({ nullable: true }).custom(moneyInput).bail().isFloat({ min: 0.01, max: 1_000_000 }).toFloat(),
   body('priceUnit').optional().isIn(['day', 'hour', 'session', 'package']),
   body('condition')
     .optional()
@@ -95,7 +101,7 @@ const listingFields = [
   body('serviceDetails').optional().isObject(),
   body('serviceDetails.packageName')
     .optional().custom(textInput).bail().trim()
-    .isLength({ min: 2, max: 100 }),
+    .isLength({ max: 100 }),
   body('serviceDetails.durationMinutes')
     .optional()
     .custom(wholeInput).bail().isInt({ min: 15, max: 10_080 })
@@ -108,7 +114,7 @@ const listingFields = [
     .optional().custom(textInput).bail().trim()
     .isLength({ min: 1, max: 160 }),
   body('locationDetails').optional().custom(validateLocation),
-  body('location').optional().custom(textInput).bail().trim().isLength({ min: 2, max: 160 }),
+  body('location').optional().custom(textInput).bail().trim().isLength({ max: 160 }),
   body('coordinates').optional().custom((value) => {
     if (value === null) return true;
     if (!value || Array.isArray(value) || typeof value !== 'object' ||
@@ -129,22 +135,7 @@ const listingFields = [
 
 export const createListingValidation = [
   body().custom(onlyEditableFields),
-  body('title').exists(),
   body('category').exists(),
-  body('dailyPrice').exists(),
-  body('location').exists(),
-  body().custom((value) => {
-    const type = value.listingType ?? (value.category === 'Services' ? 'service' : 'physical');
-    if (type === 'physical') {
-      if (!value.condition) throw new Error('Condition is required for physical items');
-      if (!value.fulfilmentMethods?.length) {
-        throw new Error('A fulfilment method is required for physical items');
-      }
-    } else if (!value.serviceDetails?.packageName || !value.serviceDetails?.durationMinutes) {
-      throw new Error('Package name and duration are required for services');
-    }
-    return true;
-  }),
   ...listingFields,
 ];
 
@@ -236,6 +227,10 @@ export const priceRecommendationValidation = [
     .isIn(['Fair', 'Good', 'Very good', 'Excellent', 'Like New']),
   body('itemProfile.brand').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
   body('itemProfile.product_model').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
+  ...['edition', 'variant'].map((field) => body(`itemProfile.${field}`).optional().custom(textInput).bail().trim().isLength({ max: 80 })),
+  body('itemProfile.packageType').optional().isIn(['', 'body_only', 'with_lens', 'item_only', 'equipment_set']),
+  body('itemProfile.isbn').optional().custom((value, { req }) => value === '' ||
+    typeof value === 'string' && req.body.itemProfile.category === 'Books' && Boolean(normalizeIsbn(value))),
   body('itemProfile.canonicalProductId')
     .optional({ nullable: true }).custom(textInput).bail().trim()
     .isLength({ min: 3, max: 160 }),

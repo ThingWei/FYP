@@ -1,5 +1,45 @@
 # Precise live locations and Android push notifications
 
+## 24 October follow-up: current-location address autofill
+
+The user reported that GPS moved the pin but did not fill the location fields.
+The prior implementation intentionally skipped lookup for every GPS reading;
+the latest explicit request supersedes that behaviour for physical destinations.
+
+- Tapping **Use my current location** now gets GPS, places the pin and requests
+  the nearest mapped address through the existing Express maps API. Address,
+  city/town, state and postcode fill when returned; **Use this location** remains
+  the only final confirmation and updates the calling form. No checkbox or
+  second address-lookup/apply button is required.
+- The screen explains before the GPS action that GPS/public-pin coordinates go
+  to OpenStreetMap for lookup. **Private pin** remains an explicit opt-out.
+  Area-only nearby-search centres still do not request postal addresses.
+- Provider coordinates never replace the GPS point. The source and reported
+  accuracy survive autofill and confirmation; coarse-accuracy warnings remain.
+  A mapped street is not a guarantee of an exact house/unit or entrance.
+- An unavailable/unmapped address retains the selected point and typed address
+  draft, shows retry/manual-entry guidance and never invents missing fields.
+  Moving to a new pin clears stale locality fields for review, as before.
+- Pending GPS readings and address responses are ignored after manual edits,
+  newer pin selections or cancellation. Buttons reset after failures. No
+  background tracking, extra positioning dependency or server-privacy change.
+- Android device checks remain necessary: allow foreground GPS when asked,
+  confirm the mapped street and entrance, test Private pin/no lookup, denial,
+  coarse permission and offline retry. Desktop GPS support is unchanged.
+
+Verification: full Flutter **453 passed, three existing skips**; full API **463
+passed, three optional skips**; full AI **549 passed**. Analysis is clean; web and
+Android debug builds passed. Existing nonfatal Socket.IO Wasm/font, Kotlin plugin
+migration and Python dependency/imputer warnings remain. No unrelated Auth0
+analysis errors occurred in this run. Device behaviour still needs Android UAT.
+Widget coverage includes
+360/390/1024px at 1.5x text, autofill through the parent location field, preserved
+coordinates/accuracy/leading-zero postcodes, private mode, retries, manual edits
+and stale responses. Existing shared listing/address/booking/filter flow tests
+remain in scope. The older no-GPS-lookup policy below is historical, not current.
+
+Commit message: `fix(maps): fill the mapped address after an explicit GPS action`
+
 ## 22 October follow-up: automatic public-pin address lookup
 
 This supersedes the checkbox behaviour described in the earlier handoff below.

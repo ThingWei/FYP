@@ -1960,6 +1960,10 @@ class LiveRentHubController extends ChangeNotifier {
     String productMatchType = 'manual_entry',
     String? catalogSource,
     String? location,
+    String isbn = '',
+    String edition = '',
+    String variant = '',
+    String packageType = '',
   }) =>
       _perform(() async => await api.request(
             'POST',
@@ -1971,6 +1975,10 @@ class LiveRentHubController extends ChangeNotifier {
                 'condition': condition,
                 'brand': brand.trim().isEmpty ? 'Unknown' : brand.trim(),
                 'product_model': productModel.trim(),
+                if (isbn.isNotEmpty) 'isbn': isbn.trim(),
+                if (edition.isNotEmpty) 'edition': edition.trim(),
+                if (variant.isNotEmpty) 'variant': variant.trim(),
+                if (packageType.isNotEmpty) 'packageType': packageType,
                 'state': state,
                 'item_age_years': itemAgeYears,
                 'productMatchType': productMatchType,

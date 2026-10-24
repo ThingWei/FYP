@@ -59,6 +59,24 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
         throw const FormatException('Invalid source response');
       }
       if (!mounted) return;
+      final report = result['coverageReport'];
+      if (report != null &&
+          (report is! Map ||
+              report['rows'] is! List ||
+              (report['rows'] as List).any((row) =>
+                  row is! Map ||
+                  row['category'] is! String ||
+                  row['subcategory'] is! String ||
+                  [
+                    'eligibleObservations',
+                    'uniqueOfferCount',
+                    'sourceWebsiteCount'
+                  ].any((key) =>
+                      row[key] is! num ||
+                      !(row[key] as num).isFinite ||
+                      (row[key] as num) < 0)))) {
+        throw const FormatException('Invalid coverage response');
+      }
       setState(
           () => data = {...result, 'sources': sources, 'coverage': coverage});
       poll?.cancel();
@@ -195,6 +213,36 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh source status')),
           if (data != null) ...[
+            if (data!['coverageReport'] case final Map report)
+              ExpansionTile(
+                title: const Text('Price evidence by category'),
+                subtitle: Text(
+                    '${report['categoriesWithReferences']} of ${report['totalSubcategories']} specific categories have eligible references'),
+                children: [
+                  const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Text(
+                          'These are advertised rental prices, not completed rentals. Having references does not establish accurate predictions. Website counts may include related businesses.')),
+                  if (report['truncated'] == true)
+                    const Text(
+                        'Only the newest 10,000 observations were checked. Counts are incomplete.'),
+                  for (final value in report['rows'] as List)
+                    Builder(builder: (context) {
+                      final row = value as Map;
+                      final count =
+                          (row['eligibleObservations'] as num).toInt();
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title:
+                            Text('${row['category']} / ${row['subcategory']}'),
+                        subtitle: Text(count == 0
+                            ? 'No eligible rental-price references. Manual pricing remains available.'
+                            : '$count observations · ${row['uniqueOfferCount']} distinct offers · ${row['sourceWebsiteCount']} source websites\n'
+                                'Latest observation: ${row['freshestObservationAt']?.toString().split('T').first ?? 'Not available'}. Accuracy is not established by these counts.'),
+                      );
+                    }),
+                ],
+              ),
             ExpansionTile(
               title: Text('Sources (${(data!['sources'] as List).length})'),
               subtitle: const Text(

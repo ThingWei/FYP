@@ -1,5 +1,30 @@
 # RentHub product catalog coverage result
 
+## 24 October 2026: structured device/peripheral coverage
+
+Computers and Gaming now use `wikidata-devices -> renthub-curated -> manual-entry`.
+Computers includes mice, keyboards and monitors as product types; Gaming includes
+controllers. Other 20 strategy rows are unchanged. The all-22 browsing/model
+regressions pass, but starter coverage is not exhaustive external coverage.
+
+Live type/manufacturer-validated examples: Logitech MX Master 3S and MX Keys S,
+Sony DualSense, Apple Thunderbolt Display and Apple Studio Display. Dell U2723QE
+has a manufacturer-sourced curated fallback. Logitech is added to initial
+Computer brand browsing. Provider failures preserve manual entry and reviewed
+suggestions; generic old Computer/Gaming cache cannot bypass the new validation.
+
+See [implementation, live responses, sources and test results](CATALOG_PERIPHERAL_COVERAGE_RESULT.md).
+No extra vendor API, prices, training or production database changes were added.
+The dated matrices below retain their historical baseline information.
+
+## 23 October 2026: price-domain foundation (separate from identity coverage)
+
+The existing identity catalogue/providers are retained. A separate all-22
+price-domain registry adds book edition/ISBN, broader equipment/device types and
+external-reference compatibility. Optional listing details support these checks.
+See [matrix, tests and remaining real-data gaps](PRICING_CATEGORY_FOUNDATION_RESULT.md).
+Passing identity/type fixtures is not evidence that every product has a real price.
+
 ## 10 October 2026: searchable selection and expanded starter identities
 
 Brand opens a searchable sheet with an initial list. Choosing a brand immediately

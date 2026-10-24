@@ -19,6 +19,7 @@ export async function readPricingTrainingExport(db, { limit = 10000, now = new D
   const [listings, bookings, reviews, references, sources] = await Promise.all([
     read('listings', { listingType: 'physical' }, { publicId: 1, ownerId: 1, title: 1, listingType: 1,
       category: 1, subcategory: 1, brand: 1, productModel: 1, canonicalProductId: 1, condition: 1,
+      isbn: 1, edition: 1, variant: 1, packageType: 1,
       itemAgeYears: 1, 'locationDetails.city': 1, state: 1, dailyPrice: 1, status: 1, sourceType: 1, createdAt: 1, updatedAt: 1 }),
     read('bookings', { listingType: 'physical', status: { $in: ['completed', 'active', 'approved'] } },
       { listingId: 1, renterId: 1, status: 1, startDate: 1, endDate: 1, 'pricing.baseAmount': 1, paymentStatus: 1,
@@ -26,6 +27,7 @@ export async function readPricingTrainingExport(db, { limit = 10000, now = new D
     read('reviews', { subjectRole: 'owner', status: 'published' }, { subjectId: 1, overallRating: 1, createdAt: 1 }),
     read('pricing_references', { active: true }, { publicId: 1, observationKey: 1, sourceType: 1,
       category: 1, subcategory: 1, brand: 1, productModel: 1, canonicalProductId: 1, condition: 1, itemAgeYears: 1,
+      isbn: 1, edition: 1, variant: 1, packageType: 1,
       state: 1, quotedAmount: 1, rentalDurationDays: 1, dailyPrice: 1, currency: 1, country: 1, sourceName: 1,
       sourceUrl: 1, observedAt: 1, createdAt: 1, packageNotes: 1, active: 1, collectionMethod: 1, sourceId: 1,
       sourceProductKey: 1, productType: 1, identityLevel: 1, validationStatus: 1, validatedAt: 1,

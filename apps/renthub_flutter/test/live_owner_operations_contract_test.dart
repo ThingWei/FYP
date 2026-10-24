@@ -118,6 +118,8 @@ void main() {
       state: 'Kuala Lumpur',
       brand: 'Sony',
       productModel: 'Alpha a7S III',
+      variant: '256GB',
+      packageType: 'body_only',
       itemAgeYears: 2.5,
       rentalDurationDays: 3,
       excludeListingId: 'l-camera',
@@ -137,6 +139,8 @@ void main() {
     expect((body['itemProfile'] as Map)['brand'], 'Sony');
     expect((body['itemProfile'] as Map)['subcategory'], 'Cameras');
     expect((body['itemProfile'] as Map)['product_model'], 'Alpha a7S III');
+    expect((body['itemProfile'] as Map)['variant'], '256GB');
+    expect((body['itemProfile'] as Map)['packageType'], 'body_only');
     expect((body['itemProfile'] as Map)['item_age_years'], 2.5);
     expect((body['itemProfile'] as Map)['canonicalProductId'], 'wikidata:Q123');
     expect((body['itemProfile'] as Map)['catalogBrandId'], 'wikidata:Q41187');

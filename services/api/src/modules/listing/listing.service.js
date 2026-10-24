@@ -2,6 +2,7 @@ import { requireListingPin, approximatePoint, nearbyFilter } from '../../core/lo
 import { AppError } from '../../core/errors.js';
 import { physicalRentalDate } from '../../core/calendarDate.js';
 import { env } from '../../config/env.js';
+import { minimumRentalPrice, validRentalPrice, validPricePrecision } from './priceLimits.js';
 import { aiClient } from '../../integrations/aiClient.js';
 import { PlatformSettingModel } from '../admin/platformSetting.model.js';
 import { BookingModel } from '../booking/booking.model.js';
@@ -99,6 +100,7 @@ function listingInput(input) {
     ...(input.requiredLicenceClass !== undefined && { requiredLicenceClass: input.requiredLicenceClass }),
     ...(input.brand !== undefined && { brand: input.brand }),
     ...(input.productModel !== undefined && { productModel: input.productModel }),
+    ...Object.fromEntries(['isbn', 'edition', 'variant', 'packageType'].filter((key) => input[key] !== undefined).map((key) => [key, input[key]])),
     ...(input.canonicalProductId !== undefined && {
       canonicalProductId: input.canonicalProductId,
     }),
@@ -139,7 +141,15 @@ function listingInput(input) {
 async function withResolvedProductIdentity(input, existing = {}) {
   const listingType = input.listingType ?? existing.listingType ??
     (input.category === 'Services' ? 'service' : 'physical');
+  const category = input.category ?? existing.category;
+  const price = input.dailyPrice !== undefined ? input.dailyPrice : existing.dailyPrice;
+  if (price != null && (!validRentalPrice(price, category, listingType) || !validPricePrecision(price))) {
+    throw new AppError(`Enter a price from RM ${minimumRentalPrice(category, listingType).toFixed(2)} to RM 1,000,000 with at most two decimal places`, 400, 'VALIDATION_ERROR');
+  }
   if (listingType !== 'physical') return input;
+  if ((input.isbn ?? existing.isbn) && (input.category ?? existing.category) !== 'Books') {
+    throw new AppError('ISBN applies to books only', 400, 'VALIDATION_ERROR');
+  }
   const requestedMatchType = input.productMatchType ?? existing.productMatchType;
   const manualProduct = requestedMatchType === 'manual_entry';
   const manualModel = requestedMatchType === 'catalog_brand_match_model_manual';
@@ -181,6 +191,28 @@ async function requireOwner(identity) {
     throw new AppError('Owner role is required', 403, 'FORBIDDEN');
   }
   return user;
+}
+
+// Drafts can be incomplete. Mandatory publication checks run before any AI work
+// or status transition, including direct API calls that bypass Flutter.
+function assertListingReadyToSubmit(listing) {
+  const details = [];
+  const require = (valid, field, message) => { if (!valid) details.push({ field, message }); };
+  require(listing.title?.trim().length >= 3, 'title', 'Enter a title with at least 3 characters');
+  require(validRentalPrice(listing.dailyPrice, listing.category, listing.listingType), 'dailyPrice', 'Enter a valid price');
+  const online = listing.listingType === 'service' && listing.serviceDetails?.venueMode === 'online';
+  if (online && !listing.location?.trim()) listing.location = 'Online';
+  require(listing.location?.trim().length >= 2, 'location', 'Choose a location');
+  if (listing.listingType === 'physical') {
+    require(Boolean(listing.condition), 'condition', 'Choose the item condition');
+    require(listing.fulfilmentMethods.length > 0, 'fulfilmentMethods', 'Choose collection or delivery');
+  } else {
+    require(listing.serviceDetails?.packageName?.trim().length >= 2, 'serviceDetails.packageName', 'Enter a service package name');
+    require(Number.isInteger(listing.serviceDetails?.durationMinutes) && listing.serviceDetails.durationMinutes >= 15,
+      'serviceDetails.durationMinutes', 'Enter a valid service duration');
+  }
+  if (details.length) throw new AppError('Complete the listing before submitting it for review', 422, 'VALIDATION_ERROR', details);
+  requireListingPin(listing.toObject());
 }
 
 async function requireOwnedListing(id, identity, { verifiedIdentity = false } = {}) {
@@ -380,7 +412,7 @@ export const listingService = {
           }),
         })
           .select(
-            'publicId subcategory brand productModel canonicalProductId condition itemAgeYears location state dailyPrice updatedAt',
+            'publicId subcategory brand productModel canonicalProductId isbn edition variant packageType condition itemAgeYears location state dailyPrice updatedAt',
           )
           .sort({ updatedAt: -1 })
           .limit(PRICING_EVIDENCE_QUERY_LIMIT)
@@ -445,7 +477,7 @@ export const listingService = {
       category: profile.category,
       listingType: 'physical',
     })
-      .select('publicId subcategory brand productModel canonicalProductId condition itemAgeYears location state')
+      .select('publicId subcategory brand productModel canonicalProductId isbn edition variant packageType condition itemAgeYears location state')
       .lean();
     const activeTier = selectComparableTier(activeCandidates, profile);
     const completedById = new Map(
@@ -528,7 +560,7 @@ export const listingService = {
     if (recommendation.available) {
       return { ...recommendation, ...disclosure, product_match: productMatch };
     }
-    const fallback = statisticalFallback(activeStats, historicalStats);
+    const fallback = statisticalFallback(activeStats, historicalStats, profile.category);
     if (!fallback) {
       return {
         ...recommendation,
@@ -651,7 +683,7 @@ export const listingService = {
 
   async create(input, identity) {
     const owner = await requireOwner(identity);
-    requireListingPin(input);
+    if (input.coordinates || input.locationDetails) requireListingPin(input);
     await uploadService.assertOwnedReferences(identity, input.images, ['listing_image']);
     const normalizedInput = await withResolvedProductIdentity(input);
     return listingRepository.create({
@@ -698,7 +730,7 @@ export const listingService = {
         'INVALID_LISTING_STATE',
       );
     }
-    requireListingPin(input, listing);
+    if (input.coordinates || input.locationDetails) requireListingPin(input, listing);
     const normalizedInput = await withResolvedProductIdentity(input, listing);
     if (input.coordinates !== undefined && input.locationDetails === undefined && listing.locationDetails) {
       // Compatibility clients may send only a pin. Never retain mismatched
@@ -737,6 +769,7 @@ export const listingService = {
         'INVALID_LISTING_STATE',
       );
     }
+    assertListingReadyToSubmit(listing);
     if (listing.listingType === 'physical' && listing.images.length < 3) {
       throw new AppError(
         'At least three item images are required before submission',

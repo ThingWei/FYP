@@ -106,6 +106,37 @@ function rentalGuy(root) {
   });
 }
 
+function goritta(root) {
+  const rows = [];
+  // A section-local rental period and item-local amount are both mandatory.
+  // Retail product links are never followed or treated as rental-price evidence.
+  for (const section of classed(root, 'advc-carousel-images-with-text')) {
+    const heads = classed(section, 'advc-carousel-images-with-text__head');
+    if (heads.length !== 1 || !/^Tents\s+Fee covers up to 4 days of usage$/i.test(textOf(heads[0]))) continue;
+    for (const card of classed(section, 'advc-carousel-images-with-text__item')) {
+      if (/\b(?:maintenance|unavailable|sold out|out of stock|reserved|from|starting|bundle|setup|operator|crew|installation)\b/i.test(textOf(card))) continue;
+      const titles = classed(card, 'advc-carousel-images-with-text__item-title');
+      const descriptions = classed(card, 'advc-carousel-images-with-text__item-description');
+      if (titles.length !== 1 || descriptions.length !== 1) continue;
+      const label = textOf(titles[0]), description = textOf(descriptions[0]);
+      if (!label || label.length > 120 || (description.match(/\bRM\s*\d/gi) ?? []).length !== 1 ||
+          /\b(?:USD|SGD|MYR)|\$|\b(?:deposit|retail|buy|sale|delivery included|service included)\b/i.test(description)) continue;
+      const price = description.match(/^(.*?)\b(RM\s*\d+(?:,\d{3})*(?:\.\d{1,2})?)$/i);
+      if (!price || /[~–—-]\s*$/.test(price[1])) continue;
+      const brand = ['Mobi Garden', 'DOD', 'KZM'].find((name) => keyText(label).startsWith(keyText(name) + ' '));
+      if (!brand || productTypeFor('Equipment', 'Sports equipment', label) !== 'camping_tent') continue;
+      rows.push(quote(label, 'Equipment', 'Sports equipment', money(price[2]), 4, {
+        brand, productType: 'camping_tent',
+        // Preserve the colour/version in the source's title, rather than making
+        // a retail URL or inferred model into a canonical catalogue ID.
+        sourceProductKey: keyText(label),
+        packageNotes: `Tent only; advertised package covers up to 4 days. Compared at the full four-day period only. Pickup/return at Goritta, Tebrau City Junction. ${price[1].trim().slice(0, 180)} Other charges not established.`,
+      }));
+    }
+  }
+  return rows;
+}
+
 function pcRent(root) {
   return tagged(root, 'tr').filter((row) => /^Daily\b/.test(textOf(row))).flatMap((row) => tagged(row, 'td').flatMap((cell) => {
     const match = textOf(cell).match(/^RM\s*(\d+(?:\.\d{1,2})?)\s+(\d+) ANSI Lumens$/i);
@@ -271,7 +302,7 @@ function twelveRent(root) {
   });
 }
 
-const parsers = { rentism, itpa, cilt, drivor, ecocana, 'rental-guy': rentalGuy,
+const parsers = { rentism, itpa, cilt, drivor, ecocana, goritta, 'rental-guy': rentalGuy,
   'pc-rent': pcRent, jomrent, partymix, futago, irent, '12rent': twelveRent };
 
 export function parsePriceSource(entry, content, url = entry.urls[0]) {

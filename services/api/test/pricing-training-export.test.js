@@ -139,6 +139,33 @@ test('explicit staging applies before action precedence without promoting synthe
   }
 });
 
+test('native export retains ISBN/edition/variant/package metadata needed for inference parity', async () => {
+  const server = await MongoMemoryServer.create();
+  const client = new mongoose.mongo.MongoClient(server.getUri());
+  try {
+    await client.connect();
+    const db = client.db('metadata-test');
+    await db.collection('listings').insertMany([
+      item('book', { category: 'Books', subcategory: 'Textbooks', brand: 'Author', productModel: 'Calculus',
+        isbn: '9780306406157', edition: '2', dailyPrice: 0.5 }),
+      item('phone', { subcategory: 'Smartphones', brand: 'Apple', productModel: 'iPhone 15', variant: '256GB' }),
+      item('camera', { packageType: 'with_lens' }),
+    ]);
+    await db.collection('pricing_references').insertOne(reference('other-edition', {
+      category: 'Books', subcategory: 'Textbooks', brand: 'Author', productModel: 'Calculus',
+      isbn: '9780306406157', edition: '3', quotedAmount: 5, rentalDurationDays: 14, dailyPrice: 5 / 14,
+    }));
+    const result = await readPricingTrainingExport(db, { now });
+    const book = result.rows.find((row) => row.target_source === 'active_asking' && row.category === 'Books');
+    assert.equal(book.isbn, '9780306406157');
+    assert.equal(book.edition, '2');
+    assert.equal(book.external_asking_price_count, 0);
+    assert.equal(result.rows.find((row) => row.target_source === 'external_asking_price').edition, '3');
+    assert.equal(result.rows.find((row) => row.subcategory === 'Smartphones').variant, '256GB');
+    assert.equal(result.rows.find((row) => row.subcategory === 'Cameras').packageType, 'with_lens');
+  } finally { await client.close(); await server.stop(); }
+});
+
 test('bounded native database export is read-only and does not create indexes or collections', async () => {
   const server = await MongoMemoryServer.create();
   const client = new mongoose.mongo.MongoClient(server.getUri());

@@ -210,6 +210,10 @@ class Listing {
     this.requiredLicenceClass = '',
     this.brand = '',
     this.productModel = '',
+    this.isbn = '',
+    this.edition = '',
+    this.variant = '',
+    this.packageType = '',
     this.canonicalProductId = '',
     this.catalogBrandId = '',
     this.productMatchType = 'manual_entry',
@@ -267,6 +271,7 @@ class Listing {
   final String state, locationPrecision, venueMode;
   final ListingLocationSelection? locationDetails;
   final String subcategory, brand, productModel;
+  final String isbn, edition, variant, packageType;
   final String requiredLicenceClass;
   final String canonicalProductId,
       catalogBrandId,
@@ -320,22 +325,26 @@ class Listing {
         j['itemVerification'] as Map<String, dynamic>? ?? const {};
     return Listing(
       id: j['publicId'] ?? j['id'] ?? j['_id'],
-      title: j['title'],
+      title: j['title'] as String? ?? '',
       requiredLicenceClass: j['requiredLicenceClass'] as String? ?? '',
       category: j['category'],
       subcategory: j['subcategory'] as String? ?? '',
       brand: j['brand'] as String? ?? '',
       productModel: j['productModel'] as String? ?? '',
+      isbn: j['isbn'] as String? ?? '',
+      edition: j['edition'] as String? ?? '',
+      variant: j['variant'] as String? ?? '',
+      packageType: j['packageType'] as String? ?? '',
       canonicalProductId: j['canonicalProductId'] as String? ?? '',
       catalogBrandId: j['catalogBrandId'] as String? ?? '',
       productMatchType: j['productMatchType'] as String? ?? 'manual_entry',
       catalogSource: j['catalogSource'] as String? ?? '',
       itemAgeYears: (j['itemAgeYears'] as num?)?.toDouble(),
-      dailyPrice: (j['dailyPrice'] as num).toDouble(),
+      dailyPrice: (j['dailyPrice'] as num?)?.toDouble() ?? 0,
       condition: j['condition'] ?? 'Good',
       ownerName: j['ownerName'] ?? 'RentHub Owner',
       ownerTrustScore: (j['ownerTrustScore'] as num?)?.toDouble() ?? 50,
-      location: j['location'] ?? 'Kuala Lumpur',
+      location: j['location'] ?? '',
       latitude: (j['coordinates']?['latitude'] as num?)?.toDouble(),
       longitude: (j['coordinates']?['longitude'] as num?)?.toDouble(),
       state: j['state'] as String? ?? '',

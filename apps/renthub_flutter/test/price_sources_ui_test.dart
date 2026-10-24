@@ -18,6 +18,7 @@ class SourcesApi extends PricingReferenceApi {
   String sourceId = 'rental-guy', sourceName = 'The Rental Guy';
   int syncs = 0, changes = 0, reads = 0;
   int precedingSources = 0;
+  bool coverageReport = false, malformedCoverage = false;
   @override
   Future<Map<String, dynamic>> list(int page) async =>
       {'items': [], 'total': 0};
@@ -26,6 +27,29 @@ class SourcesApi extends PricingReferenceApi {
     reads++;
     if (failLoad) throw ApiException(503, 'private source path');
     return {
+      if (coverageReport)
+        'coverageReport': {
+          'categoriesWithReferences': 1,
+          'totalSubcategories': 22,
+          'truncated': false,
+          'rows': [
+            {
+              'category': 'Books',
+              'subcategory': 'Fiction',
+              'eligibleObservations': 0,
+              'uniqueOfferCount': 0,
+              'sourceWebsiteCount': 0
+            },
+            {
+              'category': 'Equipment',
+              'subcategory': 'Event equipment',
+              'eligibleObservations': malformedCoverage ? 'bad' : 7,
+              'uniqueOfferCount': 3,
+              'sourceWebsiteCount': 2,
+              'freshestObservationAt': '2026-10-23T00:00:00Z'
+            },
+          ],
+        },
       'sources': [
         for (var index = 0; index < precedingSources; index++)
           {
@@ -100,6 +124,47 @@ Future<void> press(WidgetTester tester, String label) async {
 }
 
 void main() {
+  for (final width in [360.0, 390.0, 1024.0, 1440.0]) {
+    testWidgets('evidence counts show gaps without claiming accuracy at $width',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final api = SourcesApi()..coverageReport = true;
+      await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!),
+          home: LivePricingReferencesPage(api: api)));
+      await tester.pumpAndSettle();
+      await press(tester, 'Price evidence by category');
+      expect(find.textContaining('1 of 22'), findsOneWidget);
+      expect(find.textContaining('No eligible rental-price references'),
+          findsOneWidget);
+      expect(find.textContaining('7 observations'), findsOneWidget);
+      expect(
+          find.textContaining('Accuracy is not established'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(api.changes, 0);
+      expect(api.syncs, 0);
+    });
+  }
+  testWidgets('malformed evidence counts fail safely without enabling sources',
+      (tester) async {
+    final api = SourcesApi()
+      ..coverageReport = true
+      ..malformedCoverage = true;
+    await tester
+        .pumpWidget(MaterialApp(home: LivePricingReferencesPage(api: api)));
+    await tester.pumpAndSettle();
+    expect(find.text('Price evidence by category'), findsNothing);
+    expect(find.textContaining('bad'), findsNothing);
+    expect(api.changes, 0);
+    expect(tester.takeException(), isNull);
+  });
   for (final width in [360.0, 390.0, 1024.0, 1440.0]) {
     testWidgets('source status, confirmations and CSV fallback at width $width',
         (tester) async {

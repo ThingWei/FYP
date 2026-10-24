@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { validRentalPrice, validPricePrecision } from './priceLimits.js';
 import { coordinatesSchema, locationSchema, publicListing } from '../../core/location.js';
 import { LICENCE_CLASSES } from '../user/drivingEligibility.js';
 
@@ -75,13 +76,17 @@ const listingSchema = new mongoose.Schema(
     ownerId: { type: String, required: true, trim: true, index: true },
     ownerName: { type: String, required: true, trim: true, maxlength: 80 },
     ownerTrustScore: { type: Number, min: 0, max: 100, default: 50 },
-    title: { type: String, required: true, trim: true, minlength: 3, maxlength: 120 },
+    title: { type: String, required: function () { return this.status !== 'draft'; }, trim: true, maxlength: 120, default: '' },
     description: { type: String, trim: true, maxlength: 3000, default: '' },
     category: { type: String, required: true, enum: LISTING_CATEGORIES, index: true },
     subcategory: { type: String, trim: true, maxlength: 100, default: '' },
     requiredLicenceClass: { type: String, enum: ['', ...LICENCE_CLASSES], default: '' },
     brand: { type: String, trim: true, maxlength: 100, default: '' },
     productModel: { type: String, trim: true, maxlength: 120, default: '' },
+    isbn: { type: String, trim: true, maxlength: 32, default: '' },
+    edition: { type: String, trim: true, maxlength: 80, default: '' },
+    variant: { type: String, trim: true, maxlength: 80, default: '' },
+    packageType: { type: String, enum: ['', 'body_only', 'with_lens', 'item_only', 'equipment_set'], default: '' },
     canonicalProductId: { type: String, trim: true, maxlength: 160, default: null },
     catalogBrandId: { type: String, trim: true, maxlength: 160, default: null },
     productMatchType: {
@@ -103,7 +108,13 @@ const listingSchema = new mongoose.Schema(
       default: 'marketplace',
       index: true,
     },
-    dailyPrice: { type: Number, required: true, min: 1, max: 1_000_000 },
+    dailyPrice: { type: Number, required: function () { return this.status !== 'draft'; }, validate: {
+      validator(value) {
+        if (this.status === 'draft' && value == null) return true;
+        return validRentalPrice(value, this.category, this.listingType) && validPricePrecision(value);
+      },
+      message: 'Price must be RM 0.01 or more for physical books, otherwise RM 1 or more; maximum RM 1,000,000 and two decimal places',
+    } },
     priceUnit: {
       type: String,
       enum: ['day', 'hour', 'session', 'package'],
@@ -122,7 +133,7 @@ const listingSchema = new mongoose.Schema(
       default: [],
     },
     serviceDetails: { type: serviceDetailsSchema },
-    location: { type: String, required: true, trim: true, maxlength: 160 },
+    location: { type: String, required: function () { return this.status !== 'draft'; }, trim: true, maxlength: 160, default: '' },
     coordinates: { type: coordinatesSchema, default: undefined },
     locationDetails: { type: locationSchema, default: undefined },
     publicGeoPoint: { type: new mongoose.Schema({ type: { type: String, enum: ['Point'], default: 'Point' }, coordinates: { type: [Number], required: true } }, { _id: false }), default: undefined },
@@ -175,6 +186,13 @@ const listingSchema = new mongoose.Schema(
   },
 );
 
+// Do not allow a cent-priced book promotion to create a zero-cost booking.
+listingSchema.pre('validate', function () {
+  if (this.dailyPrice != null && this.promotion?.enabled && Math.round(this.dailyPrice * (1 - this.promotion.discountPercent / 100) * 100) < 1) {
+    this.invalidate('promotion.discountPercent', 'The discounted price must be at least RM 0.01');
+  }
+});
+
 listingSchema.index({ publicGeoPoint: '2dsphere' });
 listingSchema.index(
   { canonicalProductId: 1, status: 1, state: 1 },
@@ -185,6 +203,8 @@ listingSchema.index(
 );
 
 listingSchema.pre('validate', function validateListingType() {
+  const complete = this.status !== 'draft';
+  if (complete && (this.title?.length ?? 0) < 3) this.invalidate('title', 'Enter at least 3 characters');
   if (this.category === 'Services' && this.listingType !== 'service') {
     this.invalidate('listingType', 'Services category requires a service listing');
   }
@@ -192,8 +212,8 @@ listingSchema.pre('validate', function validateListingType() {
     this.invalidate('listingType', 'Only the Services category can be a service');
   }
   if (this.listingType === 'physical') {
-    if (!this.condition) this.invalidate('condition', 'Condition is required');
-    if (!this.fulfilmentMethods.length) {
+    if (complete && !this.condition) this.invalidate('condition', 'Condition is required');
+    if (complete && !this.fulfilmentMethods.length) {
       this.invalidate('fulfilmentMethods', 'A fulfilment method is required');
     }
     this.serviceDetails = undefined;
@@ -201,10 +221,10 @@ listingSchema.pre('validate', function validateListingType() {
       this.invalidate('priceUnit', 'Physical items must be priced per day');
     }
   } else {
-    if (!this.serviceDetails?.packageName) {
+    if (complete && (this.serviceDetails?.packageName?.length ?? 0) < 2) {
       this.invalidate('serviceDetails.packageName', 'Package name is required');
     }
-    if (!this.serviceDetails?.durationMinutes) {
+    if (complete && !this.serviceDetails?.durationMinutes) {
       this.invalidate('serviceDetails.durationMinutes', 'Duration is required');
     }
     this.condition = undefined;

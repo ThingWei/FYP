@@ -56,6 +56,76 @@ const cameraInput = {
   ],
 };
 
+test('incomplete drafts persist privately, reject malformed supplied values and cannot enter review', async () => {
+  await startOwner();
+  const created = await request(app).post('/api/v1/listings').set(ownerHeaders).send({ category: 'Devices' }).expect(201);
+  const id = created.body.data.id;
+  assert.equal(created.body.data.status, 'draft');
+  assert.equal(created.body.data.title, '');
+  assert.equal(created.body.data.dailyPrice, undefined);
+  await request(app).get(`/api/v1/listings/${id}`).expect(404);
+  await request(app).get('/api/v1/listings/owner/mine').set(ownerHeaders).expect(200);
+  await request(app).patch(`/api/v1/listings/${id}`).set(ownerHeaders)
+    .send({ title: 'A', location: 'Unfinished location', dailyPrice: null }).expect(200);
+  for (const payload of [{ dailyPrice: 'abc' }, { dailyPrice: '0' }, { title: 'x'.repeat(121) },
+    { serviceDetails: { durationMinutes: 'bad' } }, { coordinates: { latitude: 91, longitude: 0 } }]) {
+    await request(app).patch(`/api/v1/listings/${id}`).set(ownerHeaders).send(payload).expect(422);
+  }
+  await UserModel.updateOne({ authId: 'u-owner' }, { $set: { 'verification.status': 'approved',
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }] } });
+  const blocked = await request(app).post(`/api/v1/listings/${id}/submit`).set(ownerHeaders).expect(422);
+  assert.ok(blocked.body.error.details.some((detail) => detail.field === 'dailyPrice'));
+  const saved = await ListingModel.findOne({ publicId: id });
+  assert.equal(saved.status, 'draft');
+  assert.equal(saved.title, 'A');
+  assert.equal(saved.itemVerification, undefined);
+  const service = await request(app).post('/api/v1/listings').set(ownerHeaders)
+    .send({ category: 'Services', listingType: 'service', priceUnit: 'package' }).expect(201);
+  await request(app).post(`/api/v1/listings/${service.body.data.id}/submit`).set(ownerHeaders).expect(422);
+  const physical = await request(app).patch(`/api/v1/listings/${id}`).set(ownerHeaders)
+    .send({ ...cameraInput, images: [] }).expect(200);
+  assert.equal(physical.body.data.dailyPrice, 85);
+  await request(app).post(`/api/v1/listings/${id}/submit`).set(ownerHeaders).expect(400);
+  assert.equal((await ListingModel.findOne({ publicId: id })).status, 'draft');
+});
+
+test('physical books allow cent prices, category changes and services retain their own minimum', async () => {
+  await startOwner();
+  const book = await activeListing({ category: 'Books', subcategory: 'Fiction', dailyPrice: 0.01 });
+  for (const dailyPrice of ['0.01', '0.35', '0.99', '1', '1000000.00']) {
+    const response = await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders).send({ dailyPrice }).expect(200);
+    assert.equal(response.body.data.dailyPrice, Number(dailyPrice));
+  }
+  for (const dailyPrice of ['0', '-0.01', '0.001', '1e-2', 'abc', 'Infinity', 1000000.01]) {
+    await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders).send({ dailyPrice }).expect(422);
+  }
+  await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders).send({ dailyPrice: '0.35' }).expect(200);
+  await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders).send({ description: 'Unrelated edit still works.' }).expect(200);
+  await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders).send({ category: 'Devices' }).expect(400);
+  assert.equal((await ListingModel.findOne({ publicId: book.publicId })).category, 'Books');
+  const camera = await activeListing();
+  await request(app).patch(`/api/v1/listings/${camera.publicId}`).set(ownerHeaders).send({ dailyPrice: '0.35' }).expect(400);
+  await assert.rejects(activeListing({ category: 'Services', listingType: 'service', dailyPrice: 0.35 }), /Price must/);
+  const created = await request(app).post('/api/v1/listings').set(ownerHeaders).send({ ...cameraInput,
+    category: 'Books', subcategory: 'Fiction', dailyPrice: '0.01', images: [] }).expect(201);
+  assert.equal(created.body.data.dailyPrice, 0.01);
+});
+
+test('cent-priced book discounts cannot create a zero-cost booking', async () => {
+  const book = await activeListing({ category: 'Books', subcategory: 'Fiction', dailyPrice: 0.01 });
+  book.promotion = { enabled: true, label: 'Book offer', discountPercent: 80,
+    startsAt: new Date(), endsAt: new Date(Date.now() + 86400000) };
+  await assert.rejects(book.save(), /discounted price must be at least RM 0.01/);
+  assert.equal((await ListingModel.findOne({ publicId: book.publicId })).promotion, undefined);
+  book.promotion.discountPercent = 5;
+  await book.save();
+  assert.equal(book.toJSON().effectiveDailyPrice, 0.01);
+  book.status = 'draft';
+  book.dailyPrice = null;
+  await book.save();
+  assert.equal(book.dailyPrice, null);
+});
+
 test('listing delivery fees use existing money validation and preserve legacy/service defaults', async () => {
   await startOwner();
   const listing = await activeListing();
@@ -91,6 +161,22 @@ async function activeListing(overrides = {}) {
     ...overrides,
   });
 }
+
+test('optional price-comparison identity persists through edits and rejects malformed ISBN/variants', async () => {
+  await startOwner();
+  const book = await activeListing({ category: 'Books', subcategory: 'Textbooks', brand: 'Test author', productModel: 'Calculus' });
+  const saved = await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders)
+    .send({ isbn: '0-306-40615-2', edition: '2' }).expect(200);
+  assert.equal(saved.body.data.isbn, '0-306-40615-2');
+  assert.equal(saved.body.data.edition, '2');
+  await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders).send({ dailyPrice: 7 }).expect(200);
+  assert.equal((await ListingModel.findOne({ publicId: book.publicId })).edition, '2');
+  await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders).send({ isbn: '9780306406158' }).expect(422);
+  await request(app).patch(`/api/v1/listings/${book.publicId}`).set(ownerHeaders).send({ variant: 'x'.repeat(81) }).expect(422);
+  const camera = await activeListing({ subcategory: 'Cameras' });
+  await request(app).patch(`/api/v1/listings/${camera.publicId}`).set(ownerHeaders).send({ packageType: 'with_lens', variant: 'V2' }).expect(200);
+  await request(app).patch(`/api/v1/listings/${camera.publicId}`).set(ownerHeaders).send({ isbn: '9780306406157' }).expect(400);
+});
 
 before(async () => {
   mongodb = await MongoMemoryServer.create();
@@ -156,7 +242,7 @@ after(async () => {
   await mongodb.stop();
 });
 
-test('only an Owner can create strict physical and service drafts', async () => {
+test('only an Owner can create physical and service drafts, including incomplete services', async () => {
   await startOwner();
 
   const forbidden = await request(app)
@@ -187,7 +273,8 @@ test('only an Owner can create strict physical and service drafts', async () => 
       location: 'Kuala Lumpur',
       coordinates: { latitude: 3.139, longitude: 101.6869 },
     });
-  assert.equal(invalidService.status, 422);
+  assert.equal(invalidService.status, 201);
+  assert.equal(invalidService.body.data.status, 'draft');
 
   const service = await request(app)
     .post('/api/v1/listings')

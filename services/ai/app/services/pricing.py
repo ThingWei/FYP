@@ -39,7 +39,7 @@ def _confidence(prediction, half_width, evidence, row, supported, match_type):
     active = int(evidence.get('comparable_active_count') or 0)
     historical = int(evidence.get('historical_rental_count') or 0)
     evidence_score = min(1.0, math.log1p(active + historical) / math.log1p(40))
-    reliability = max(0.0, 1 - half_width / max(prediction, 1))
+    reliability = max(0.0, 1 - half_width / max(prediction, 0.01))
     freshness_value = evidence.get('market_freshness_days')
     freshness_days = max(0.0, float(365 if freshness_value is None else freshness_value))
     freshness = math.exp(-freshness_days / 180)
@@ -183,14 +183,23 @@ class XGBoostPriceService:
                 error='Pricing model returned a non-finite value',
                 evidence=evidence,
             )
-        prediction = max(1.0, prediction)
+        minimum_price = 0.01 if row['category'] == 'Books' else 1.0
+        if row['category'] == 'Books' and prediction < minimum_price:
+            return PriceRecommendationResponse(
+                available=False, **disclosure, confidence=0, confidence_label='low',
+                adapter='xgboost-v2', model_source='insufficient_data',
+                model_version=bundle['model_version'], evidence=evidence,
+                warnings=['The book prediction is below the supported RM 0.01 daily minimum. '
+                          'Enter your own supported price; the prediction was not rounded up.'],
+            )
+        prediction = max(minimum_price, prediction)
         calibration = bundle['calibration']
         half_width = float(
             calibration.get('categories', {}).get(
                 row['category'], calibration['globalAbsoluteResidual'],
             ),
         )
-        lower = max(1.0, prediction - half_width)
+        lower = max(minimum_price, prediction - half_width)
         upper = max(prediction, prediction + half_width)
         supported = set(bundle.get('supported_categories', []))
         confidence, confidence_label = _confidence(

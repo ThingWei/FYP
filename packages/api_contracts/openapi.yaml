@@ -2,6 +2,22 @@ openapi: 3.0.3
 info: { title: RentHub API, version: 1.0.0 }
 servers: [{ url: http://localhost:3000/api/v1 }]
 paths:
+  /admin/pricing-references/sources:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: 'Admin-only read-only source status plus coverageReport for all 22 physical subcategories. Counts are bounded to 10000 observations with an explicit truncation flag. Website counts do not establish independent businesses or pricing accuracy. No source is enabled or fetched by this request.'
+      responses:
+        '200':
+          description: Source configuration, fallback matrix and measured advertised-reference counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data: { type: object, additionalProperties: true }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
   /health:
     get:
       responses: { '200': { description: Healthy } }
@@ -187,7 +203,26 @@ paths:
       responses: { '200': { description: Paginated listings } }
     post:
       security: [{ bearerAuth: [] }]
-      responses: { '201': { description: Listing created } }
+      description: Saves an Owner draft. Category is required; title, price, location, photos and service details may remain incomplete. Supplied values are validated. Mandatory fields, identity, photos and physical pins are checked when submitting for review.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category]
+              properties:
+                category: { type: string, enum: [Devices, Vehicles, Equipment, Books, Clothing, Services] }
+                title: { type: string, maxLength: 120 }
+                dailyPrice:
+                  type: number
+                  nullable: true
+                  minimum: 0.01
+                  maximum: 1000000
+                  multipleOf: 0.01
+                  description: Null or omitted for an unfinished draft. Physical Books minimum RM0.01; other categories/services minimum RM1. Two decimal places maximum.
+                location: { type: string, maxLength: 160 }
+      responses: { '201': { description: Private draft saved; not published or submitted for review } }
   /listings/recommended:
     get:
       security: [{ bearerAuth: [] }]
@@ -546,6 +581,10 @@ components:
             condition: { type: string, enum: [Fair, Good, Very good, Excellent, Like New] }
             brand: { type: string, maxLength: 100 }
             product_model: { type: string, maxLength: 120 }
+            isbn: { type: string, maxLength: 32, description: 'Optional Books ISBN-10 or ISBN-13; checksum validated. Leading zeros are retained.' }
+            edition: { type: string, maxLength: 80 }
+            variant: { type: string, maxLength: 80 }
+            packageType: { type: string, enum: ['', body_only, with_lens, item_only, equipment_set] }
             canonicalProductId: { type: string, nullable: true, maxLength: 160 }
             catalogBrandId: { type: string, nullable: true, maxLength: 160 }
             productMatchType:

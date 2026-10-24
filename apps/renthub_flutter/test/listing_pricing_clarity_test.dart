@@ -13,6 +13,8 @@ import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
 import 'package:renthub_flutter/core/network/user_facing_error.dart';
 import 'package:renthub_flutter/core/theme/app_theme.dart';
+import 'package:renthub_flutter/core/validation/product_identity_validation.dart';
+import 'package:renthub_flutter/core/validation/input_rules.dart';
 import 'package:renthub_flutter/features/live/live_owner_shell.dart';
 import 'package:renthub_flutter/features/live/live_photo_widgets.dart';
 import 'package:renthub_flutter/features/live/live_price_suggestion.dart';
@@ -106,7 +108,7 @@ Future<void> press(WidgetTester tester, String label) async {
 }
 
 Widget form(LiveRentHubController controller,
-        {double scale = 1, bool service = false}) =>
+        {double scale = 1, bool service = false, Listing? item}) =>
     ChangeNotifierProvider<LiveRentHubController>.value(
         value: controller,
         child: MaterialApp(
@@ -116,7 +118,8 @@ Widget form(LiveRentHubController controller,
                     .copyWith(textScaler: TextScaler.linear(scale)),
                 child: child!),
             home: LiveListingForm(
-                isService: service, listing: service ? null : listing())));
+                isService: service,
+                listing: service ? null : item ?? listing())));
 void viewport(WidgetTester tester, double width) {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1;
@@ -125,6 +128,146 @@ void viewport(WidgetTester tester, double width) {
 }
 
 void main() {
+  test('book prices accept cents without changing other listing minimums', () {
+    for (final value in ['0.01', '0.35', '0.99', '1', '1000000.00']) {
+      expect(InputRules.bookPriceRm.validate(value), isNull, reason: value);
+    }
+    for (final value in [
+      '',
+      '0',
+      '-1',
+      '0.001',
+      '1e-2',
+      'abc',
+      'Infinity',
+      '1000000.01'
+    ]) {
+      expect(InputRules.bookPriceRm.validate(value), isNotNull, reason: value);
+    }
+    expect(InputRules.priceRm.validate('0.35'), isNotNull);
+    expect(InputRules.priceRm.validate('1'), isNull);
+  });
+  test(
+      'optional ISBN validates checksums, leading zeros, X and formatting without numeric conversion',
+      () {
+    for (final value in [
+      '',
+      '0-306-40615-2',
+      '9780306406157',
+      '0-8044-2957-X'
+    ]) {
+      expect(validateOptionalIsbn(value), isNull, reason: value);
+    }
+    for (final value in ['9780306406158', 'abc123', '1e12', '0000000000001']) {
+      expect(validateOptionalIsbn(value), isNotNull, reason: value);
+    }
+  });
+  for (final width in [360.0, 390.0, 1024.0]) {
+    testWidgets('low-cost book suggestion applies only on request at $width',
+        (tester) async {
+      viewport(tester, width);
+      final api = PricingApi()..pending = Completer<Map<String, dynamic>>();
+      api.pending!.complete({
+        ...suggestion(synthetic: true),
+        'suggested_daily_price': 0.35,
+        'lower_bound': 0.01,
+        'upper_bound': 0.5
+      });
+      final controller = LiveRentHubController(api);
+      addTearDown(controller.dispose);
+      const book = Listing(
+          id: 'l-book',
+          title: 'Book',
+          category: 'Books',
+          subcategory: 'Fiction',
+          brand: 'Author',
+          productModel: 'Title',
+          dailyPrice: 0.99,
+          location: 'Kuala Lumpur');
+      await tester.pumpWidget(form(controller, item: book, scale: 1.4));
+      await tester.ensureVisible(field('Daily price (RM)'));
+      final input = tester.widget<TextFormField>(field('Daily price (RM)'));
+      expect(input.validator!('0.01'), isNull);
+      await tester.enterText(field('Daily price (RM)'), '');
+      await press(tester, 'Suggest a daily price');
+      expect(api.calls, hasLength(1));
+      expect(input.controller!.text, '');
+      await press(tester, 'Use this price');
+      expect(input.controller!.text, '0.35');
+      expect(input.validator!(input.controller!.text), isNull);
+      expect(tester.takeException(), isNull);
+    });
+    testWidgets(
+        'book details reach pricing independently of daily price at $width',
+        (tester) async {
+      viewport(tester, width);
+      final api = PricingApi();
+      final controller = LiveRentHubController(api);
+      addTearDown(controller.dispose);
+      final book = Listing(
+          id: 'l-book',
+          title: 'Calculus textbook',
+          category: 'Books',
+          subcategory: 'Textbooks',
+          brand: 'Test author',
+          productModel: 'Calculus',
+          dailyPrice: 5,
+          isbn: '0-306-40615-2',
+          edition: '2',
+          location: 'Kuala Lumpur');
+      await tester.pumpWidget(form(controller, item: book, scale: 1.4));
+      await press(tester, 'Product details for price comparisons');
+      expect(
+          tester
+              .widget<TextFormField>(field('ISBN (optional)'))
+              .controller!
+              .text,
+          book.isbn);
+      await tester.ensureVisible(field('ISBN (optional)'));
+      await tester.enterText(field('ISBN (optional)'), 'bad');
+      await press(tester, 'Suggest a daily price');
+      expect(api.calls, isEmpty);
+      await tester.ensureVisible(field('ISBN (optional)'));
+      await tester.enterText(field('ISBN (optional)'), book.isbn);
+      await tester.ensureVisible(field('Daily price (RM)'));
+      await tester.enterText(field('Daily price (RM)'), '');
+      await press(tester, 'Suggest a daily price');
+      expect((api.calls.single as Map)['itemProfile']['isbn'], book.isbn);
+      expect((api.calls.single as Map)['itemProfile']['edition'], '2');
+      await tester.ensureVisible(field('Edition (optional)'));
+      await tester.enterText(field('Edition (optional)'), '3');
+      await tester.pumpAndSettle();
+      expect(find.text('Use this price'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  testWidgets('edition changes discard an in-flight price response',
+      (tester) async {
+    final api = PricingApi()..pending = Completer<Map<String, dynamic>>();
+    final controller = LiveRentHubController(api);
+    addTearDown(controller.dispose);
+    const book = Listing(
+        id: 'l-book',
+        title: 'Textbook',
+        category: 'Books',
+        subcategory: 'Textbooks',
+        brand: 'Test author',
+        productModel: 'Calculus',
+        dailyPrice: 5,
+        edition: '2',
+        location: 'Kuala Lumpur');
+    await tester.pumpWidget(form(controller, item: book));
+    await press(tester, 'Product details for price comparisons');
+    await tester.ensureVisible(find.text('Suggest a daily price'));
+    await tester.tap(find.text('Suggest a daily price'));
+    await tester.pump();
+    await tester.ensureVisible(field('Edition (optional)'));
+    await tester.enterText(field('Edition (optional)'), '3');
+    api.pending!.complete(suggestion());
+    await tester.pumpAndSettle();
+    expect(find.text('Use this price'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('capture listing and pricing previews', (tester) async {
     const fontPath = String.fromEnvironment('CAPTURE_FONT_PATH');
     if (fontPath.isNotEmpty) {

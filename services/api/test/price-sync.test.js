@@ -49,6 +49,8 @@ test('source status and all source mutations are admin only; strict payload and 
   }
   const status = await request(app).get(endpoint).set(admin).expect(200);
   assert.equal(status.body.data.coverage.length, 22);
+  assert.equal(status.body.data.coverageReport.rows.length, 22);
+  assert.equal(status.body.data.coverageReport.categoriesWithReferences, 0);
   assert.equal(await PriceSourceModel.countDocuments(), 0); // GET is read-only.
   await request(app).patch(endpoint + '/rentism').set(admin).send({ enabled: 'true', confirmed: true }).expect(400);
   await request(app).post(endpoint + '/rentism/sync').set(admin).send({ confirmed: true, url: 'https://evil.test/' }).expect(400);
@@ -86,6 +88,21 @@ test('refresh is idempotent, scheduled jobs respect 24 hours, deactivation survi
   assert.equal(refreshed.deactivatedBy, 'source-admin');
   const state = await PriceSourceModel.findOne().lean();
   assert.equal(state.nextRunAt.getTime() - state.lastSuccessAt.getTime(), 86_400_000);
+});
+
+test('coverage is read-only, admin-only and counts only currently enabled eligible references', async () => {
+  await enable(); await runPriceSourceSync('rentism', { fetchText });
+  const before = await PricingReferenceModel.find().sort({ publicId: 1 }).lean();
+  const response = await request(app).get(endpoint).set(admin).expect(200);
+  const report = response.body.data.coverageReport;
+  assert.equal(report.categoriesWithReferences, 2);
+  assert.equal(report.rows.find((row) => row.subcategory === 'Cameras').uniqueOfferCount, 1);
+  assert.equal(report.rows.find((row) => row.subcategory === 'Fiction').eligibleObservations, 0);
+  assert.deepEqual(await PricingReferenceModel.find().sort({ publicId: 1 }).lean(), before);
+  await setPriceSourceEnabled('rentism', false, identity);
+  const disabled = await request(app).get(endpoint).set(admin).expect(200);
+  assert.equal(disabled.body.data.coverageReport.categoriesWithReferences, 0);
+  assert.equal(await BookingModel.countDocuments(), 0);
 });
 
 test('PC Rent can enable after approval and missing robots; probes do not import quotes', async () => {
@@ -180,6 +197,41 @@ test('specification-only automated quotes can be stored without fabricated brand
   assert.equal(reference.brand, ''); assert.equal(reference.identityLevel, 'specification_only');
   assert.equal(reference.canonicalProductId, null); assert.equal(reference.reviewedBy, undefined);
 });
+test('Goritta stays gated until review; permitted four-day fixtures reach inference without becoming history', async () => {
+  let fetches = 0;
+  const gorittaHtml = '<div class="advc-carousel-images-with-text"><div class="advc-carousel-images-with-text__head">Tents Fee covers up to 4 days of usage</div><li class="advc-carousel-images-with-text__item"><div class="advc-carousel-images-with-text__item-title">Mobi Garden QR Tent - Black Coated</div><div class="advc-carousel-images-with-text__item-description">2-3 person RM112</div></li></div>';
+  const fixture = async (url) => { fetches++; return url.endsWith('/robots.txt') ? 'User-agent: *\nAllow: /' : gorittaHtml; };
+  await assert.rejects(setPriceSourceEnabled('goritta', true, identity, { fetchText: fixture }), { code: 'PRICE_SOURCE_REVIEW_REQUIRED' });
+  assert.equal(fetches, 0);
+  assert.equal(await PriceSourceModel.countDocuments(), 0);
+  assert.equal(await PricingReferenceModel.countDocuments(), 0);
+  env.priceSyncApprovedSources = ['goritta']; // Test-only permission configuration, not a publisher-rights claim.
+  await setPriceSourceEnabled('goritta', true, identity, { fetchText: fixture });
+  assert.equal(await PricingReferenceModel.countDocuments(), 0);
+  await runPriceSourceSync('goritta', { fetchText: fixture, force: true });
+  const row = await PricingReferenceModel.findOne().lean();
+  assert.equal(row.quotedAmount, 112);
+  assert.equal(row.rentalDurationDays, 4);
+  assert.equal(row.dailyPrice, 28);
+  assert.equal(row.productModel, 'QR Tent - Black Coated');
+  assert.equal(row.reviewedBy, undefined);
+  await request(app).post('/api/v1/users/session').set(owner).expect(201);
+  let evidence;
+  aiClient.recommendPrice = async (input) => { evidence = input.market_evidence; return { available: true, suggested_daily_price: 28 }; };
+  const input = { itemProfile: { category: 'Equipment', subcategory: 'Sports equipment', brand: 'Mobi Garden',
+    product_model: 'QR Tent - Black Coated', condition: 'Good', item_age_years: 2 }, rentalDurationDays: 4 };
+  await request(app).post('/api/v1/listings/price-recommendation').set(owner).send(input).expect(200);
+  assert.equal(evidence.external_asking_price_count, 1);
+  assert.equal(evidence.historical_rental_count, 0);
+  await request(app).post('/api/v1/listings/price-recommendation').set(owner).send({ ...input, rentalDurationDays: 1 }).expect(200);
+  assert.equal(evidence.external_asking_price_count, 0);
+  assert.equal(await BookingModel.countDocuments(), 0);
+  await PricingReferenceModel.updateOne({ _id: row._id }, { $set: { active: false } });
+  await runPriceSourceSync('goritta', { fetchText: fixture, force: true });
+  assert.equal((await PricingReferenceModel.findById(row._id)).active, false);
+  assert.equal(await PricingReferenceModel.countDocuments(), 1);
+});
+
 test('automatic evidence reaches inference, source disable and stale dates exclude it; history unchanged', async () => {
   await request(app).post('/api/v1/users/session').set(owner).expect(201);
   await enable(); await runPriceSourceSync('rentism', { fetchText });

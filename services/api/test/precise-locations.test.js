@@ -72,14 +72,19 @@ test('strict location and nearby validation rejects malformed inputs and retains
   assert.equal(approximatePoint({ latitude: NaN, longitude: 100 }), undefined);
 });
 
-test('new physical locations require pins; legacy unrelated edits remain allowed; online mode is conditional', async () => {
+test('draft locations may be unfinished; submission requires physical pins and respects online mode', async () => {
+  await UserModel.updateOne({ authId: 'u-map-owner' }, { $set: { 'verification.status': 'approved',
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }] } });
   const { coordinates, locationDetails, ...unpinned } = listingInput;
-  await request(app).post('/api/v1/listings').set(owner).send(unpinned).expect(422);
+  const draft = await request(app).post('/api/v1/listings').set(owner).send(unpinned).expect(201);
+  await request(app).post(`/api/v1/listings/${draft.body.data.publicId}/submit`).set(owner).expect(422);
   const legacy = await seedListing({ coordinates: undefined, locationDetails: undefined, publicGeoPoint: undefined });
   await request(app).patch(`/api/v1/listings/${legacy.publicId}`).set(owner).send({ dailyPrice: 65 }).expect(200);
-  await request(app).patch(`/api/v1/listings/${legacy.publicId}`).set(owner).send({ location: 'New town' }).expect(422);
+  await request(app).patch(`/api/v1/listings/${legacy.publicId}`).set(owner).send({ location: 'New town' }).expect(200);
+  await request(app).post(`/api/v1/listings/${legacy.publicId}/submit`).set(owner).expect(422);
   const online = await request(app).post('/api/v1/listings').set(owner).send({ title: 'Online tutoring', category: 'Services', listingType: 'service', dailyPrice: 50, location: 'Online', serviceDetails: { packageName: 'Lesson', durationMinutes: 60, venueMode: 'online' } }).expect(201);
-  await request(app).patch(`/api/v1/listings/${online.body.data.publicId}`).set(owner).send({ serviceDetails: { packageName: 'Lesson', durationMinutes: 60, venueMode: 'owner_location' } }).expect(422);
+  await request(app).patch(`/api/v1/listings/${online.body.data.publicId}`).set(owner).send({ serviceDetails: { packageName: 'Lesson', durationMinutes: 60, venueMode: 'owner_location' } }).expect(200);
+  await request(app).post(`/api/v1/listings/${online.body.data.publicId}/submit`).set(owner).expect(422);
 });
 
 test('public feeds, recommendations, wishlist, comparison and profiles never return private location details', async () => {

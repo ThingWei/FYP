@@ -1,4 +1,5 @@
 import { CATALOG_COVERAGE } from '../catalog/catalog.coverage.js';
+export { productTypeFor } from './priceProductDomains.js';
 
 const source = (id, name, urls, domains, options = {}) => Object.freeze({
   id, name, urls, domains, parserVersion: '1', adapter: id,
@@ -28,6 +29,9 @@ export const PRICE_SOURCES = Object.freeze([
     { limitation: 'Uses the publicly published AI-readable catalogue; never calls disallowed booking/private APIs.' }),
   source('ecocana', 'Ecocana Sports', ['https://ecocanasports.com/rent'], ['Bicycles'],
     { limitation: 'Only catalogue products explicitly labelled daily rental; retail entries excluded.' }),
+  source('goritta', 'Goritta', ['https://goritta.com/pages/camp-like-a-pro-goritta-camping-equipment-rental'], ['Sports equipment'],
+    { requiresWrittenPermission: true,
+      limitation: 'Written reuse permission required before collection. Named tents only; fixed four-day packages, not advertised one-day rates. Maintenance items and unsupported camping gear excluded.' }),
   source('rental-guy', 'The Rental Guy', ['https://therentalguy.com.my/av-solution/'], ['Event equipment'],
     { limitation: 'Specification-only one-day reference prices; before tax; delivery/setup quoted separately.' }),
   source('pc-rent', 'PC Rent', ['https://www.pcrent.com.my/home/rental_rates'], ['Event equipment'],
@@ -68,45 +72,4 @@ export function isAllowedSourceUrl(entry, value) {
     return entry.urls.includes(url.href) || Boolean(entry.discovery &&
       url.origin === new URL(entry.urls[0]).origin && entry.discovery.test(url.pathname));
   } catch { return false; }
-}
-
-// Product types are semantic guards, never price rules. Unknown types fail closed.
-export function productTypeFor(category, subcategory, text) {
-  const value = String(text ?? '').toLowerCase();
-  if (category === 'Vehicles') return ({ Cars: 'car', Motorcycles: 'motorcycle', Bicycles: 'bicycle', 'Other vehicles': /scooter/.test(value) ? 'electric_scooter' : null })[subcategory] ?? null;
-  if (subcategory === 'Smartphones') return 'smartphone';
-  if (subcategory === 'Cameras') return /\blens\b|\b(?:ef|rf|fe|af-s|af-p)\b.*\d.*mm/.test(value) ? 'camera_lens' : 'camera';
-  if (subcategory === 'Computers') return /desktop|\bpc\b/.test(value) ? 'desktop' : /laptop|notebook|macbook|latitude|thinkpad|\bxps\b|ideapad/.test(value) ? 'laptop' : null;
-  if (subcategory === 'Gaming') return /playstation|ps[345]|xbox|switch/.test(value) ? 'console' : null;
-  if (subcategory === 'Audio') {
-    if (/microphone|microfone|\bmic\b|by-m|by-wm|ecm-|wm820/.test(value)) return 'microphone';
-    if (/headphone|earphone|earbud|wh-|wf-|tune |quietcomfort/.test(value)) return 'headphones';
-    if (/speaker|partybox|srs-|charge \d|flip \d|soundlink|xtreme/.test(value)) return 'speaker';
-    return null;
-  }
-  if (subcategory === 'Other devices') {
-    if (/walkie|motorola t[68]/.test(value)) return 'walkie_talkie';
-    if (/video capture|atem|mars 400|transmitter/.test(value)) return 'video_capture';
-    return null;
-  }
-  if (subcategory === 'Event equipment') {
-    if (/projector|\beb-[a-z0-9]|\bth575\b|\btk700\b/.test(value)) return 'projector';
-    if (/\btv\b|television/.test(value)) return 'television';
-    if (/speaker.*mic|pa system|stagepas/.test(value)) return 'pa_set';
-    if (/light|godox|sk[34]00/.test(value)) return 'lighting';
-    return null;
-  }
-  if (subcategory === 'Tools') return /drill|\bgsb\b|\bgsr\b/.test(value) ? 'drill' : /hammer|\bgbh\b/.test(value) ? 'hammer' : /saw|\bgks\b/.test(value) ? 'saw' : /ladder/.test(value) ? 'ladder' : null;
-  if (subcategory === 'Sports equipment') return /racket|racquet|blade 98|pro staff|astrox|nanoflare|speed mp|radical mp/.test(value) ? 'racket' : null;
-  if (subcategory === 'Other equipment') {
-    if (/puzzi|fabric cleaner|carpet extractor/.test(value)) return 'fabric_cleaner';
-    if (/pressure washer|\bk[2-7]\b|c 110|c 120/.test(value)) return 'pressure_washer';
-    if (/vacuum|wet.*dry|\bwd \d|\bv(?:8|15)\b|nt30/.test(value)) return 'vacuum';
-    return null;
-  }
-  if (subcategory === 'Formal wear') return /suit|tuxedo|huge.*genius/.test(value) ? 'suit' : /blazer|jacket/.test(value) ? 'formal_jacket' : /gown|dress/.test(value) ? 'formal_dress' : null;
-  if (subcategory === 'Traditional wear') return /hanfu/.test(value) ? 'hanfu' : /baju|kurung|melayu|nikah/.test(value) ? 'malay_traditional' : /kurta|sherwani/.test(value) ? 'kurta' : /traditional/.test(value) ? 'traditional_costume' : null;
-  if (subcategory === 'Costumes') return /costume|jedi|joker|egyptian/.test(value) ? 'costume' : null;
-  if (subcategory === 'Other clothing') return /winter|coat|jacket|nuptse|powder lite/.test(value) ? 'winter_garment' : null;
-  return null;
 }

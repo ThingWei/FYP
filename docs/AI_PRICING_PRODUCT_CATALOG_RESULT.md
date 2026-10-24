@@ -1,5 +1,53 @@
 # RentHub AI pricing and product catalog result
 
+## 24 October 2026: device catalogue matching (not pricing retraining)
+
+[Peripheral coverage result](CATALOG_PERIPHERAL_COVERAGE_RESULT.md) documents the
+new structured Wikidata type/manufacturer checks for Computers/Gaming, plus
+reviewed mouse, keyboard, monitor and controller fallbacks. Actual live matches
+were retrieved for all four product types; not every brand/model is covered.
+No catalogue identity supplies a rental price or authenticity verdict. External
+price references, completed history, fitted features and deployed artifacts
+were not modified by this increment. Unknown peripheral pricing domains/data
+gaps are not solved merely by finding a catalogue entry.
+
+## 24 October 2026: Sports source prepared behind permission gate
+
+[Goritta onboarding preparation](GORITTA_PRICE_SOURCE_ONBOARDING_RESULT.md) adds
+an offline-tested tent parser and source registration for Sports equipment.
+Collection/diagnostics remain gated on recorded written permission. Four-day
+packages cannot become advertised one-day rates. No live quotes were imported,
+no completed history changed and no model retrained; book/scooter blockers remain.
+
+## 24 October 2026: measured evidence gaps
+
+[Read-only audit and collection handoff](PRICE_EVIDENCE_GAP_AUDIT_RESULT.md): 334
+eligible asking observations across 16/22 subcategories, with no observed item
+age/condition. The new audit CLI exposes missing types/source gates. Offline
+exports now retain ISBN/edition/variant/package metadata from MongoDB, preventing
+those attributes from disappearing before evaluation. No new observations,
+source enablement, inference changes or retraining were performed.
+
+## 24 October 2026: low-cost Books and draft compatibility
+
+Physical Books now support RM0.01 daily prices, while other categories/services
+retain RM1 minimums. Explicit multi-day amounts/periods remain intact; the model
+and statistical fallback no longer impose RM1 on book estimates. This is a
+pricing-contract fix, not improved real-market accuracy or new source coverage.
+Unfinished drafts can be saved without publishing. See
+[implementation, limits and verification](LOW_COST_BOOK_PRICING_AND_DRAFT_RESULT.md).
+
+## 23 October 2026: all-category matching and evidence reporting
+
+See [the first-stage implementation and verification](PRICING_CATEGORY_FOUNDATION_RESULT.md).
+All 22 physical subcategories now have centralized semantic type strategies;
+CSV and automatic references share type/edition/variant/package/period checks.
+Optional ISBN and comparison details persist in listings and pricing requests.
+Admin source status includes bounded measured reference coverage, separate from
+the configured-source matrix. Missing corresponding attributes cannot manufacture
+exact-product evidence. The running model and inference priority are unchanged.
+No live source or data was changed; complete market coverage/accuracy remains open.
+
 ## 12 October 2026: Automatic asking-price sync
 
 Implemented a centralized 22-domain source registry, eleven source-specific parsers,

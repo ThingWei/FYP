@@ -574,3 +574,94 @@ test('book works are constrained to their selected subject domain, with reviewed
   assert.equal(bookMatchesDomain({ title: 'Unknown novel', subjects: ['Fantasy fiction'] }, { ...context, subcategory: 'Textbooks' }), false);
   assert.equal(bookMatchesDomain({ title: 'Unknown dictionary', subjects: ['Dictionaries'] }, { ...context, subcategory: 'Reference books' }), true);
 });
+
+test('Express browses and caches peripheral models with structured canonical identities', async () => {
+  const originalFetch = global.fetch;
+  const uri = (id) => ({ value: `http://www.wikidata.org/entity/${id}` });
+  const literal = (value) => ({ value });
+  let requests = 0;
+  global.fetch = async (raw) => {
+    requests++;
+    const url = new URL(raw);
+    if (url.searchParams.has('action')) return { ok: true, json: async () => ({ search: [
+      { id: 'Q223127', label: 'Logitech' },
+    ] }) };
+    return { ok: true, json: async () => ({ results: { bindings: [
+      { model: uri('Q125697788'), modelLabel: literal('Logitech MX Master 3S'),
+        manufacturer: uri('Q223127'), manufacturerLabel: literal('Logitech'), domainType: uri('Q7987') },
+      { model: uri('Q125697771'), modelLabel: literal('Logitech MX Keys S'),
+        manufacturer: uri('Q223127'), manufacturerLabel: literal('Logitech'), domainType: uri('Q250') },
+    ] } }) };
+  };
+  try {
+    const brands = await request(app).get('/api/v1/catalog/brands')
+      .query({ category: 'Devices', subcategory: 'Computers', query: 'logi' }).set(ownerHeaders);
+    assert.equal(brands.status, 200);
+    const brand = brands.body.data.find((item) => item.brand === 'Logitech');
+    assert.equal(brand.catalogBrandId, 'wikidata-devices:Q223127');
+    const query = { category: 'Devices', subcategory: 'Computers', brand: brand.brand,
+      catalogBrandId: brand.catalogBrandId };
+    const models = await request(app).get('/api/v1/catalog/models').query(query).set(ownerHeaders);
+    assert.equal(models.status, 200);
+    assert.deepEqual(new Set(models.body.data.map((item) => item.specifications.productType)),
+      new Set(['mouse', 'keyboard']));
+    assert.equal(models.body.data.length, 2); // Provider and curated entries deduplicate.
+    assert.ok(models.body.data.every((item) => item.canonicalProductId.startsWith('wikidata-devices:Q')));
+    const count = requests;
+    const cached = await request(app).get('/api/v1/catalog/models').query(query).set(ownerHeaders);
+    assert.equal(cached.body.meta.provider, 'mongodb-cache');
+    assert.equal(requests, count);
+    const mouse = models.body.data.find((item) => item.specifications.productType === 'mouse');
+    const identity = await resolveProductIdentity({ ...query, productModel: mouse.model,
+      canonicalProductId: mouse.canonicalProductId });
+    assert.equal(identity.canonicalProductId, 'wikidata-devices:Q125697788');
+    assert.equal(identity.catalogSource, 'wikidata-devices');
+    assert.equal(await ProductCatalogModel.countDocuments({ source: 'wikidata-devices',
+      entityType: 'product', category: 'Devices', subcategory: 'Computers' }), 2);
+  } finally { global.fetch = originalFetch; }
+});
+
+test('Express exposes reviewed peripherals on first-page models despite provider failure', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => { throw new Error('provider offline'); };
+  try {
+    for (const [subcategory, brand, model, type] of [
+      ['Computers', 'Logitech', 'MX Master 3S', 'mouse'],
+      ['Computers', 'Logitech', 'MX Keys S', 'keyboard'],
+      ['Computers', 'Dell', 'U2723QE', 'monitor'],
+      ['Gaming', 'Sony', 'DualSense', 'controller'],
+    ]) {
+      const r = await request(app).get('/api/v1/catalog/models')
+        .query({ category: 'Devices', subcategory, brand }).set(ownerHeaders);
+      assert.equal(r.status, 200);
+      const item = r.body.data.find((value) => value.model === model);
+      assert.equal(item.specifications.productType, type);
+      assert.equal(item.catalogSource, 'renthub-curated');
+      assert.equal(r.body.meta.providerAvailable, false);
+      assert.ok(await ProductCatalogModel.findOne({ canonicalProductId: item.canonicalProductId }));
+    }
+  } finally { global.fetch = originalFetch; }
+});
+
+test('catalog endpoints reject invalid category pairs and do not reuse old generic device cache', async () => {
+  for (const path of ['brands', 'models', 'search']) {
+    const r = await request(app).get(`/api/v1/catalog/${path}`)
+      .query({ category: 'Vehicles', subcategory: 'Computers', brand: 'Logitech', query: 'MX' }).set(ownerHeaders);
+    assert.equal(r.status, 422);
+  }
+  await ProductCatalogModel.create({
+    entityType: 'product', catalogEntityId: 'wikidata:QOLDDEVICE', canonicalProductId: 'wikidata:QOLDDEVICE',
+    category: 'Devices', subcategory: 'Computers', brand: 'Logitech', model: 'Unverified software',
+    normalizedBrand: 'logitech', normalizedModel: 'unverified software', source: 'wikidata',
+    description: 'Logitech computer software model', lastSyncedAt: new Date(),
+  });
+  const originalFetch = global.fetch;
+  global.fetch = async () => { throw new Error('provider offline'); };
+  try {
+    const r = await request(app).get('/api/v1/catalog/models')
+      .query({ category: 'Devices', subcategory: 'Computers', brand: 'Logitech' }).set(ownerHeaders);
+    assert.equal(r.status, 200);
+    assert.ok(r.body.data.every((item) => item.catalogSource !== 'wikidata'));
+    assert.ok(await ProductCatalogModel.exists({ canonicalProductId: 'wikidata:QOLDDEVICE' }));
+  } finally { global.fetch = originalFetch; }
+});

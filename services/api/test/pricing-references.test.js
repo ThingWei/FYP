@@ -91,6 +91,34 @@ test('quoted UTF-8, comma, newline and escaped quote fields survive parsing', ()
   assert.throws(() => parseReferenceCsv(csv(...Array(501).fill(observation))));
 });
 
+test('reviewed book ISBN/edition and package metadata survive preview/import; invalid ISBN and periods do not price an item', async () => {
+  const book = { ...observation, category: 'Books', subcategory: 'Textbooks', brand: 'Test author', model: 'Calculus',
+    isbn: '0-306-40615-2', edition: '2', packageNotes: 'Book only', rentalDays: '7', quotedAmount: '35' };
+  const preview = await request(app).post(endpoint + '/preview').set(admin).send({ csv: csv(book) }).expect(200);
+  assert.equal(preview.body.data.valid, true);
+  assert.equal(preview.body.data.rows[0].isbn, '9780306406157');
+  assert.equal(await PricingReferenceModel.countDocuments(), 0);
+  await request(app).post(endpoint + '/import').set(admin).send({ csv: csv(book), confirmed: true }).expect(200);
+  assert.equal((await PricingReferenceModel.findOne()).edition, '2');
+  const bad = await request(app).post(endpoint + '/preview').set(admin).send({ csv: csv({ ...book, isbn: '9780306406158' }) }).expect(200);
+  assert.equal(bad.body.data.valid, false);
+  let evidence;
+  aiClient.recommendPrice = async (input) => { evidence = input.market_evidence; return { available: false }; };
+  const payload = { itemProfile: { category: 'Books', subcategory: 'Textbooks', brand: book.brand,
+    product_model: book.model, condition: 'Good', isbn: book.isbn, edition: '2' }, rentalDurationDays: 7 };
+  await request(app).post('/api/v1/listings/price-recommendation').set(owner).send(payload).expect(200);
+  assert.equal(evidence.external_asking_price_count, 1);
+  assert.equal(evidence.comparable_active_median, 5);
+  await request(app).post('/api/v1/listings/price-recommendation').set(owner).send({ ...payload, rentalDurationDays: 1 }).expect(200);
+  assert.equal(evidence.external_asking_price_count, 0);
+  await request(app).post('/api/v1/listings/price-recommendation').set(owner)
+    .send({ ...payload, itemProfile: { ...payload.itemProfile, edition: '3' } }).expect(200);
+  assert.equal(evidence.external_asking_price_count, 0);
+  await request(app).post('/api/v1/listings/price-recommendation').set(owner)
+    .send({ ...payload, itemProfile: { ...payload.itemProfile, isbn: 'bad' } }).expect(422);
+  assert.equal(await BookingModel.countDocuments(), 0);
+});
+
 test('preview resolves cached identity but writes nothing; confirmation is explicit and idempotent', async () => {
   await ProductCatalogModel.create({ entityType: 'product', category: 'Devices', subcategory: 'Cameras', brand: 'Canon', model: 'EOS R50',
     normalizedBrand: 'canon', normalizedModel: 'eos r50', canonicalProductId: 'curated:canon:r50', catalogEntityId: 'curated:canon:r50',
@@ -112,6 +140,40 @@ test('preview resolves cached identity but writes nothing; confirmation is expli
   assert.equal(saved.reviewedBy, admin['x-user-id']);
   assert.equal(await BookingModel.countDocuments(), 0);
   assert.equal(await adminModule.Model.countDocuments({ action: 'pricing_references.imported' }), 2);
+});
+
+test('low-cost book quotes preserve the original multi-day amount through inference and export eligibility', async () => {
+  const book = { ...observation, category: 'Books', subcategory: 'Fiction', brand: 'J. R. R. Tolkien',
+    model: 'The Hobbit', quotedAmount: '5.00', rentalDays: '14', packageNotes: 'Fourteen-day book rental',
+    sourceUrl: 'https://example.com/book' };
+  const preview = await request(app).post(endpoint + '/preview').set(admin).send({ csv: csv(book) }).expect(200);
+  assert.equal(preview.body.data.valid, true);
+  assert.equal(await PricingReferenceModel.countDocuments(), 0);
+  await request(app).post(endpoint + '/import').set(admin).send({ csv: csv(book), confirmed: true }).expect(200);
+  const saved = await PricingReferenceModel.findOne().lean();
+  assert.equal(saved.quotedAmount, 5);
+  assert.equal(saved.rentalDurationDays, 14);
+  assert.equal(saved.dailyPrice, 5 / 14);
+  let received;
+  aiClient.recommendPrice = async (input) => { received = input; return { available: true, suggested_daily_price: 0.36 }; };
+  const payload = { itemProfile: { category: 'Books', subcategory: 'Fiction', brand: book.brand,
+    product_model: book.model, condition: 'Good', item_age_years: 1 }, rentalDurationDays: 14 };
+  await request(app).post('/api/v1/listings/price-recommendation').set(owner).send(payload).expect(200);
+  assert.equal(received.market_evidence.comparable_active_median, 5 / 14);
+  assert.equal(received.market_evidence.external_asking_price_count, 1);
+  assert.equal(received.market_evidence.historical_rental_count, 0);
+  await request(app).post('/api/v1/listings/price-recommendation').set(owner).send({ ...payload, rentalDurationDays: 1 }).expect(200);
+  assert.equal(received.market_evidence.external_asking_price_count, 0);
+  for (const patch of [{ quotedAmount: '0' }, { quotedAmount: '0.01' }, { quotedAmount: '5.001' },
+    { quotedAmount: '5e-2' }, { category: 'Devices', subcategory: 'Cameras' }]) {
+    const response = await request(app).post(endpoint + '/preview').set(admin).send({ csv: csv({ ...book, ...patch }) }).expect(200);
+    assert.equal(response.body.data.valid, false, JSON.stringify(patch));
+  }
+  const min = await request(app).post(endpoint + '/preview').set(admin)
+    .send({ csv: csv({ ...book, quotedAmount: '0.14', sourceUrl: 'https://example.com/cent-book' }) }).expect(200);
+  assert.equal(min.body.data.valid, true);
+  assert.equal(await PricingReferenceModel.countDocuments(), 1);
+  assert.equal(await BookingModel.countDocuments(), 0);
 });
 
 test('invalid rows and conflicting observations prevent the entire file from being imported', async () => {

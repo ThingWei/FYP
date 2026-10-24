@@ -1,9 +1,9 @@
 export const CATALOG_COVERAGE = Object.freeze([
   { category: 'Devices', subcategory: 'Smartphones', strategies: ['wikidata-smartphones', 'renthub-curated', 'wikidata-validated', 'manual-entry'] },
   { category: 'Devices', subcategory: 'Cameras', strategies: ['renthub-curated', 'wikidata-validated', 'manual-entry'] },
-  { category: 'Devices', subcategory: 'Computers', strategies: ['renthub-curated', 'wikidata-validated', 'manual-entry'] },
+  { category: 'Devices', subcategory: 'Computers', strategies: ['wikidata-devices', 'renthub-curated', 'manual-entry'] },
   { category: 'Devices', subcategory: 'Audio', strategies: ['renthub-curated', 'wikidata-validated', 'manual-entry'] },
-  { category: 'Devices', subcategory: 'Gaming', strategies: ['renthub-curated', 'wikidata-validated', 'manual-entry'] },
+  { category: 'Devices', subcategory: 'Gaming', strategies: ['wikidata-devices', 'renthub-curated', 'manual-entry'] },
   { category: 'Devices', subcategory: 'Other devices', strategies: ['renthub-curated', 'wikidata-validated', 'manual-entry'] },
   { category: 'Vehicles', subcategory: 'Cars', strategies: ['nhtsa-vpic', 'renthub-curated', 'wikidata-validated', 'manual-entry'] },
   { category: 'Vehicles', subcategory: 'Motorcycles', strategies: ['nhtsa-vpic', 'renthub-curated', 'wikidata-validated', 'manual-entry'] },

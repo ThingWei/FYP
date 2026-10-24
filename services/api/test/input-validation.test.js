@@ -44,10 +44,12 @@ test('Malaysian mobile formats match Flutter; empty optional phone is allowed', 
 
 test('listing money boundaries, Unicode text and optional fields', async () => {
   assert.equal((await errors(createListingValidation, listing)).status, 200);
-  for (const dailyPrice of ['abc123', '1e2', '1.001', 0, 1000000.01, null]) {
+  for (const dailyPrice of ['abc123', '1e2', '1.001', 0, 1000000.01]) {
     const res = await errors(createListingValidation, { ...listing, dailyPrice });
     assert.equal(res.status, 400, String(dailyPrice));
   }
+  // Null explicitly clears an unfinished draft price; submission rejects it.
+  assert.equal((await errors(createListingValidation, { category: 'Devices', dailyPrice: null })).status, 200);
   assert.equal((await errors(createListingValidation, { ...listing, dailyPrice: '1000000.00', itemAgeYears: 100 })).status, 200);
   assert.equal((await errors(createListingValidation, { ...listing, serviceDetails: { durationMinutes: 15.5 } })).status, 400);
 });

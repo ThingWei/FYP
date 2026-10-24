@@ -1,3 +1,5 @@
+import { minimumRentalPrice, validRentalPrice } from './priceLimits.js';
+
 export const PRICING_EVIDENCE_WINDOW_DAYS = 365;
 export const PRICING_EVIDENCE_QUERY_LIMIT = 1000;
 export const PRICING_FALLBACK_MIN_OBSERVATIONS = 3;
@@ -12,12 +14,12 @@ function same(value, expected) {
 }
 
 function canonicalSame(item, profile) {
-  return item.identityLevel !== 'specification_only' && Boolean(profile.canonicalProductId) &&
+  return !item.identityMatchUncertain && item.identityLevel !== 'specification_only' && Boolean(profile.canonicalProductId) &&
     item.canonicalProductId === profile.canonicalProductId;
 }
 
 function sameProductText(item, profile) {
-  return item.identityLevel !== 'specification_only' && same(item.subcategory, profile.subcategory) &&
+  return !item.identityMatchUncertain && item.identityLevel !== 'specification_only' && same(item.subcategory, profile.subcategory) &&
     same(item.brand, profile.brand) &&
     same(item.productModel, profile.product_model);
 }
@@ -183,13 +185,13 @@ export function robustPriceStats(values) {
   };
 }
 
-export function statisticalFallback(activeStats, historicalStats) {
+export function statisticalFallback(activeStats, historicalStats, category) {
   const preferred = historicalStats.count >= PRICING_FALLBACK_MIN_OBSERVATIONS
     ? historicalStats
     : activeStats.count >= PRICING_FALLBACK_MIN_OBSERVATIONS
       ? activeStats
       : null;
-  if (!preferred) return null;
+  if (!preferred || !validRentalPrice(preferred.median, category)) return null;
   const spread = preferred.iqr > 0
     ? preferred.iqr / 2
     : preferred.mad > 0
@@ -198,7 +200,7 @@ export function statisticalFallback(activeStats, historicalStats) {
   if (!spread) return null;
   return {
     suggested_daily_price: Math.round(preferred.median * 100) / 100,
-    lower_bound: Math.round(Math.max(1, preferred.median - spread) * 100) / 100,
+    lower_bound: Math.round(Math.max(minimumRentalPrice(category), preferred.median - spread) * 100) / 100,
     upper_bound: Math.round((preferred.median + spread) * 100) / 100,
     source: historicalStats.count >= PRICING_FALLBACK_MIN_OBSERVATIONS
       ? 'completed_rental_median'
@@ -219,7 +221,7 @@ export function statisticalFallbackConfidence(
   const freshnessScore = Number.isFinite(parsedFreshness)
     ? Math.exp(-Math.max(0, parsedFreshness) / 180)
     : 0;
-  const relativeSpread = (stats.iqr ?? 0) / Math.max(stats.median, 1);
+  const relativeSpread = (stats.iqr ?? 0) / Math.max(stats.median, 0.01);
   const consistencyScore = Math.max(0, 1 - Math.min(1, relativeSpread));
   const matchQuality = {
     exact_catalog_match: 1,

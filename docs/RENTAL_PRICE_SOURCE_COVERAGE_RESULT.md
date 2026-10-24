@@ -1,5 +1,25 @@
 # Automatic rental-price sources — implementation result
 
+24 October onboarding preparation: [Goritta tent parser and strict permission gate](GORITTA_PRICE_SOURCE_ONBOARDING_RESULT.md).
+There are now 16 registered sources; Goritta is not enabled and adds no live
+observations yet. Its four-day quote parser was tested offline. Books still lack
+reliable accessible product-price evidence; scooter model association is unresolved.
+
+24 October coverage audit: [334 observations, 16/22 subcategories and collection priorities](PRICE_EVIDENCE_GAP_AUDIT_RESULT.md).
+New Sports/Books/mobility-source research leads are not approved/enabled adapters.
+No new source data was imported. Use `npm.cmd run audit:price-coverage` for a fresh,
+bounded, read-only aggregate audit rather than assuming configured coverage is data.
+
+24 October: [low-cost book quote support](LOW_COST_BOOK_PRICING_AND_DRAFT_RESULT.md)
+retains original multi-day amounts and periods. No book source was added or
+enabled, and no live data was imported.
+
+23 October foundation: [all-category matching and measured coverage report](PRICING_CATEGORY_FOUNDATION_RESULT.md).
+The 15 source registrations and permission gates remain unchanged. Admin source
+status now reports actual eligible reference counts separately from configured
+category mappings. All 22 types have software strategies, not a claim of complete
+source availability. No source was enabled, fetched or imported in this change.
+
 21 October recheck: [AI validation/readiness handoff](AI_VALIDATION_AND_DEMO_READINESS_RESULT.md).
 iRent still yields six bounded quotes but is not permission-approved/enabled here;
 12RENT remains access-restricted; RentSmart's three allowlisted pages have not

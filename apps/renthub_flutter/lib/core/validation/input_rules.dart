@@ -90,6 +90,8 @@ class InputRules {
       max: 10080);
   static const securityDepositRm2 = InputRule('Security deposit (RM)',
       kind: InputKind.money, optional: true, maxLength: 30, max: 1000000);
+  static const bookPriceRm = InputRule('Daily price (RM)',
+      kind: InputKind.money, maxLength: 30, min: 0.01, max: 1000000);
   static const dailyPriceRm = InputRule('Daily price (RM)',
       kind: InputKind.money,
       optional: true,

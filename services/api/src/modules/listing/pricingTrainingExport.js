@@ -1,7 +1,9 @@
 // Read-only, provenance-aware training preparation. Never creates transactions.
 import { createHash } from 'node:crypto';
+import { validRentalPrice } from './priceLimits.js';
 import { CATALOG_COVERAGE } from '../catalog/catalog.coverage.js';
 import { productTypeFor } from './priceSources.registry.js';
+import { compatibleProductReference, referencePeriodMatches, referenceIdentityUncertain } from './priceProductDomains.js';
 import { PRICING_COMPLETED_PAYMENT_STATUSES, PRICING_EVIDENCE_WINDOW_DAYS,
   robustPriceStats, selectComparableTier } from './pricingEvidence.js';
 
@@ -40,6 +42,7 @@ function base(item, observed, dailyPrice, target, source) {
     observed_at: observed.toISOString(), group_id: trainingProductGroup(item),
     identity_level: item.identityLevel ?? 'named_product',
     product_type: item.productType ?? null,
+    isbn: item.isbn || '', edition: item.edition || '', variant: item.variant || '', packageType: item.packageType || '',
     _ownerId: item.ownerId ?? null, _knownAt: observed,
   };
 }
@@ -51,7 +54,7 @@ export function eligibleTrainingReference(row, enabledSourceIds, now = new Date(
       !CATALOG_COVERAGE.some((c) => c.category === row.category && c.subcategory === row.subcategory) ||
       !row.productModel || !row.sourceName || !row.sourceUrl ||
       !Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6 ||
-      !Number.isInteger(days) || days < 1 || days > 365 || amount / days < 1 || amount / days > 1_000_000 ||
+      !Number.isInteger(days) || days < 1 || days > 365 || !validRentalPrice(amount / days, row.category) ||
       (row.itemAgeYears != null && (!Number.isFinite(row.itemAgeYears) || row.itemAgeYears < 0 || row.itemAgeYears > 100)) ||
       !Number.isFinite(row.dailyPrice) || Math.abs(row.dailyPrice - amount / days) > 1e-6 ||
       /\bfrom\b|starting|chauffeur|crew included|operator included|setup included|service bundle|\$|USD|SGD/i.test(row.packageNotes ?? '')) return false;
@@ -86,11 +89,13 @@ export function trainingComparableFeatures(row, history, reviews = []) {
       (row.source_type === 'demo_seed' || candidate.source_type !== 'demo_seed');
   });
   const asCandidate = (r) => ({ ...r, productModel: r.product_model, dailyPrice: r.daily_price,
+    identityMatchUncertain: r.source_type === 'external_asking_price' && referenceIdentityUncertain({ ...r, packageNotes: r.package_notes }, row),
     identityLevel: r.identity_level, observedAt: r.observed_at });
-  const externalCompatible = (r) => r.category === row.category && r.subcategory === row.subcategory &&
-    (r.collection_method !== 'automatic' || r.product_type === productTypeFor(row.category, row.subcategory,
-      `${row.brand ?? ''} ${row.product_model}`) && row.rental_duration_days >= r.duration_min_days &&
-      row.rental_duration_days <= r.duration_max_days);
+  const externalCompatible = (r) => compatibleProductReference({ ...r,
+    productType: r.product_type, packageNotes: r.package_notes }, row) && referencePeriodMatches({
+    durationMinDays: r.duration_min_days, durationMaxDays: r.duration_max_days,
+    rentalDurationDays: r.quoted_rental_days ?? r.rental_duration_days,
+  }, row.rental_duration_days);
   const activeTier = selectComparableTier(prior.filter((r) => asking.has(r.target_source) &&
     (r.source_type !== 'external_asking_price' || externalCompatible(r))).map(asCandidate), row);
   const historyTier = selectComparableTier(prior.filter((r) => completed.has(r.target_source)).map(asCandidate), row);

@@ -1,10 +1,14 @@
 import { textInput } from '../../core/inputValidation.js';
 import { query } from 'express-validator';
 import { LISTING_CATEGORIES } from '../listing/listing.model.js';
+import { CATALOG_COVERAGE } from './catalog.coverage.js';
 
 const context = [
   query('category').isIn(LISTING_CATEGORIES.filter((item) => item !== 'Services')),
-  query('subcategory').custom(textInput).bail().trim().isLength({ min: 2, max: 100 }),
+  query('subcategory').custom(textInput).bail().trim().isLength({ min: 2, max: 100 }).bail()
+    .custom((value, { req }) => CATALOG_COVERAGE.some((entry) =>
+      entry.category === req.query.category && entry.subcategory === value))
+    .withMessage('Choose a specific category that belongs to the selected category.'),
 ];
 
 const common = [
