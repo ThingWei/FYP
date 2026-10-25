@@ -583,6 +583,20 @@ test('Express browses and caches peripheral models with structured canonical ide
   global.fetch = async (raw) => {
     requests++;
     const url = new URL(raw);
+    if (url.searchParams.get('action') === 'query') return { ok: true, json: async () => ({
+      query: { search: [{ title: 'Q125697788' }, { title: 'Q125697771' }] },
+    }) };
+    if (url.searchParams.get('action') === 'wbgetentities') {
+      const entity = (label, type) => ({ labels: { en: { value: label } }, claims: type ? {
+        P176: [{ mainsnak: { datavalue: { value: { id: 'Q223127' } } } }],
+        P31: [{ mainsnak: { datavalue: { value: { id: type } } } }],
+      } : {} });
+      return { ok: true, json: async () => ({ entities: {
+        Q223127: entity('Logitech'),
+        Q125697788: entity('Logitech MX Master 3S', 'Q7987'),
+        Q125697771: entity('Logitech MX Keys S', 'Q250'),
+      } }) };
+    }
     if (url.searchParams.has('action')) return { ok: true, json: async () => ({ search: [
       { id: 'Q223127', label: 'Logitech' },
     ] }) };
@@ -664,4 +678,108 @@ test('catalog endpoints reject invalid category pairs and do not reuse old gener
     assert.ok(r.body.data.every((item) => item.catalogSource !== 'wikidata'));
     assert.ok(await ProductCatalogModel.exists({ canonicalProductId: 'wikidata:QOLDDEVICE' }));
   } finally { global.fetch = originalFetch; }
+});
+
+const windowInput = { category: 'Vehicles', subcategory: 'Cars', brand: 'Window fixture make' };
+const windowFixtures = Array.from({ length: 35 }, (_, index) => ({
+  id: `fixture:${index}`, label: `Fixture model ${String(index).padStart(2, '0')}`,
+  source: 'nhtsa-vpic', description: 'Synthetic API-test identity, not a real product', aliases: [],
+}));
+
+test('bounded expanding windows retrieve beyond the original page and preserve canonical identities', async () => {
+  const limits = [];
+  catalogProvider.search = async (input) => {
+    limits.push(input.limit);
+    return { provider: 'nhtsa-vpic', items: windowFixtures.slice(0, input.limit) };
+  };
+  const first = await request(app).get('/api/v1/catalog/models')
+    .query({ ...windowInput, limit: 12 }).set(ownerHeaders);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.data.length, 12);
+  assert.equal(first.body.meta.hasMore, true);
+  assert.equal(first.body.meta.nextLimit, 24);
+  const more = await request(app).get('/api/v1/catalog/models')
+    .query({ ...windowInput, limit: 24 }).set(ownerHeaders);
+  assert.equal(more.body.data.length, 24);
+  assert.deepEqual(more.body.data.slice(0, 12).map((item) => item.canonicalProductId),
+    first.body.data.map((item) => item.canonicalProductId));
+  await request(app).get('/api/v1/catalog/models').query({ ...windowInput, limit: 24 }).set(ownerHeaders);
+  assert.deepEqual(limits, [13, 25]); // Lookahead and no repeated successful refresh.
+  const final = await request(app).get('/api/v1/catalog/models')
+    .query({ ...windowInput, limit: 120 }).set(ownerHeaders);
+  assert.equal(final.body.data.length, 35);
+  assert.equal(final.body.meta.hasMore, false);
+  assert.equal(final.body.meta.nextLimit, null);
+  assert.equal(await ProductCatalogModel.countDocuments({ brand: windowInput.brand }), 35);
+});
+
+test('cached preview is immediate; failed refresh preserves records, dates and retry backoff', async () => {
+  const oldDate = new Date('2020-01-01');
+  await ProductCatalogModel.create({ entityType: 'product', source: 'nhtsa-vpic',
+    catalogEntityId: 'nhtsa-vpic:old:1', canonicalProductId: 'nhtsa-vpic:old:1',
+    category: 'Vehicles', subcategory: 'Cars', brand: 'Stale fixture make',
+    normalizedBrand: 'stale fixture make', normalizedModel: 'saved model', model: 'Saved model',
+    lastSyncedAt: oldDate });
+  let calls = 0;
+  catalogProvider.search = async () => { calls++; throw new Error('private upstream URL'); };
+  const input = { category: 'Vehicles', subcategory: 'Cars', brand: 'Stale fixture make', limit: 12 };
+  const preview = await request(app).get('/api/v1/catalog/models')
+    .query({ ...input, preferCache: 'true' }).set(ownerHeaders);
+  assert.equal(calls, 0);
+  assert.equal(preview.body.meta.refreshNeeded, true);
+  assert.equal(preview.body.meta.stale, true);
+  assert.equal(preview.body.data[0].model, 'Saved model');
+  const failed = await request(app).get('/api/v1/catalog/models')
+    .query({ ...input, refresh: 'true' }).set(ownerHeaders);
+  assert.equal(failed.status, 200);
+  assert.equal(failed.body.meta.providerAvailable, false);
+  assert.equal(failed.body.meta.stale, true);
+  assert.equal(failed.body.meta.refreshNeeded, false);
+  assert.equal(JSON.stringify(failed.body).includes('private upstream'), false);
+  assert.equal(failed.body.data[0].canonicalProductId, preview.body.data[0].canonicalProductId);
+  await request(app).get('/api/v1/catalog/models').query({ ...input, refresh: 'true' }).set(ownerHeaders);
+  assert.equal(calls, 1);
+  assert.equal((await ProductCatalogModel.findOne({ brand: input.brand })).lastSyncedAt.getTime(), oldDate.getTime());
+});
+
+test('explicit refresh bypasses fresh cache without replacing existing selections', async () => {
+  let calls = 0;
+  catalogProvider.search = async () => ({ provider: 'nhtsa-vpic', items: ++calls === 1
+    ? [windowFixtures[0]] : [windowFixtures[0], windowFixtures[1]] });
+  const input = { ...windowInput, brand: 'Fresh fixture make', limit: 12 };
+  const first = await catalogService.models(input);
+  const cached = await catalogService.models(input);
+  assert.equal(calls, 1);
+  assert.equal(cached.provider, 'mongodb-cache');
+  const refreshed = await catalogService.models({ ...input, refresh: 'true' });
+  assert.equal(calls, 2);
+  assert.equal(refreshed.items.length, 2);
+  assert.equal(refreshed.items[0].canonicalProductId, first.items[0].canonicalProductId);
+});
+
+test('overlapping refresh requests share a provider call', async () => {
+  let calls = 0;
+  catalogProvider.search = async () => {
+    calls++;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    return { provider: 'nhtsa-vpic', items: [windowFixtures[0]] };
+  };
+  const input = { ...windowInput, brand: 'Concurrent fixture make', limit: 12, refresh: 'true' };
+  const results = await Promise.all([catalogService.models(input), catalogService.models(input)]);
+  assert.equal(calls, 1);
+  assert.deepEqual(results[0].items, results[1].items);
+  assert.equal(await ProductCatalogModel.countDocuments({ brand: input.brand }), 1);
+});
+
+test('browse controls reject malformed limits and booleans without provider calls', async () => {
+  let calls = 0;
+  catalogProvider.search = async () => { calls++; return []; };
+  for (const controls of [{ limit: 'abc12' }, { limit: '1e2' }, { limit: '1.5' },
+    { limit: '121' }, { limit: '0' }, { limit: ['12', '24'] }, { refresh: 'yes' },
+    { preferCache: '1' }]) {
+    const r = await request(app).get('/api/v1/catalog/models')
+      .query({ ...windowInput, ...controls }).set(ownerHeaders);
+    assert.equal(r.status, 422, JSON.stringify(controls));
+  }
+  assert.equal(calls, 0);
 });

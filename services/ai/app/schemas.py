@@ -16,6 +16,7 @@ class VerificationRequest(BaseModel):
     expected_type: str | None = None
     expected_category: str | None = None
     expected_subcategory: str | None = None
+    expected_product_type: str | None = Field(default=None, min_length=1, max_length=64)
     expected_condition: str | None = None
     profile_name: str | None = None
     review_threshold: float = Field(default=0.8, ge=0, le=1)

@@ -15,6 +15,7 @@ import { aiClient } from '../src/integrations/aiClient.js';
 import { uploadService } from '../src/modules/upload/upload.service.js';
 import { env } from '../src/config/env.js';
 import { CATALOG_COVERAGE } from '../src/modules/catalog/catalog.coverage.js';
+import { catalogItemType } from '../src/modules/catalog/catalog.itemType.js';
 
 let mongodb;
 
@@ -635,6 +636,42 @@ test('all 22 physical subcategories forward stored photos and retain inconclusiv
   } finally {
     env.aiEnforcementMode = originalMode;
     aiClient.verifyItem = originalVerify;
+    uploadService.readOwnedReferences = originalRead;
+  }
+});
+
+test('selected catalogue object type reaches item analysis and cannot be supplied through a listing payload', async () => {
+  await startOwner();
+  await UserModel.updateOne({ authId: 'u-owner' }, { $set: {
+    'verification.documents': [{ documentType: 'mykad', status: 'approved' }],
+  } });
+  const product = await ProductCatalogModel.create({ entityType: 'product', catalogEntityId: 'mouse-fixture',
+    canonicalProductId: 'renthub-curated:mouse-fixture', category: 'Devices', subcategory: 'Computers',
+    brand: 'Fixture Maker', model: 'Fixture Mouse', normalizedBrand: 'fixture maker', normalizedModel: 'fixture mouse',
+    source: 'renthub-curated', lastSyncedAt: new Date(), specifications: { productType: 'mouse' } });
+  const input = { ...cameraInput, subcategory: 'Computers', brand: product.brand,
+    productModel: product.model, canonicalProductId: product.canonicalProductId };
+  assert.equal(await catalogItemType({ ...input, productType: 'laptop' }), 'mouse');
+  assert.equal(await catalogItemType({ ...input, subcategory: 'Cameras' }), null);
+  assert.equal(await catalogItemType({ ...input, productModel: 'Different item' }), null);
+  assert.equal(await catalogItemType({ ...input, canonicalProductId: null, productType: 'mouse' }), null);
+  assert.equal(await catalogItemType({ ...input, listingType: 'service' }), null);
+  const original = aiClient.verifyItem, originalRead = uploadService.readOwnedReferences;
+  uploadService.readOwnedReferences = async () => [{ content_base64: 'fixture' }];
+  aiClient.verifyItem = async (payload) => {
+    assert.equal(payload.productType, 'mouse');
+    return { accepted: false, outcome: 'manual_review', extracted_fields: {
+      expectedProductType: 'mouse', productTypeCheckVersion: 'renthub-item-types-v1',
+      categoryMatched: null, adminReviewRequired: true, authenticityVerified: false } };
+  };
+  try {
+    const created = await request(app).post('/api/v1/listings').set(ownerHeaders).send(input).expect(201);
+    const submitted = await request(app).post(`/api/v1/listings/${created.body.data.id}/submit`)
+      .set(ownerHeaders).expect(200);
+    assert.equal(submitted.body.data.status, 'pending_review');
+    assert.equal(submitted.body.data.itemVerification.extracted_fields.expectedProductType, 'mouse');
+  } finally {
+    aiClient.verifyItem = original;
     uploadService.readOwnedReferences = originalRead;
   }
 });

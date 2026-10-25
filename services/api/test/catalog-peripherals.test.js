@@ -6,6 +6,9 @@ import { deviceCatalogTypes } from '../src/modules/catalog/catalog.deviceDomains
 
 const uri = (id) => ({ type: 'uri', value: `http://www.wikidata.org/entity/${id}` });
 const text = (value) => ({ type: 'literal', value });
+const entity = (label, properties = {}) => ({ labels: { en: { value: label } }, claims:
+  Object.fromEntries(Object.entries(properties).map(([property, ids]) => [property,
+    ids.map((id) => ({ mainsnak: { datavalue: { value: { id } } } }))])) });
 const examples = [
   ['Computers', 'Logitech', 'Q223127', 'MX Master 3S', 'Q125697788', 'Q7987', 'mouse'],
   ['Computers', 'Logitech', 'Q223127', 'MX Keys S', 'Q125697771', 'Q250', 'keyboard'],
@@ -104,15 +107,20 @@ test('first model page uses canonical manufacturer and rejects a conflicting sel
   let calls = 0;
   global.fetch = async (raw) => {
     calls++;
-    const query = new URL(raw).searchParams.get('query');
-    assert.ok(query.includes('VALUES ?manufacturer { wd:Q223127 }'));
-    assert.ok(query.includes('FILTER(?manufacturer = wd:Q223127)'));
-    return { ok: true, json: async () => ({ results: { bindings: [
-      { model: uri('Q125697788'), modelLabel: text('Logitech MX Master 3S'),
-        manufacturer: uri('Q223127'), manufacturerLabel: text('Logitech'), domainType: uri('Q7987') },
-      { model: uri('Q900002'), modelLabel: text('Unrelated mouse'),
-        manufacturer: uri('Q900001'), manufacturerLabel: text('Logitech'), domainType: uri('Q7987') },
-    ] } }) };
+    const params = new URL(raw).searchParams;
+    assert.equal(params.has('query'), false); // Never run the broad SPARQL scan.
+    if (params.get('action') === 'query') {
+      assert.equal(params.get('srsearch'), 'haswbstatement:P176=Q223127|P1716=Q223127');
+      return { ok: true, json: async () => ({ query: { search: [
+        { title: 'Q125697788' }, { title: 'Q900002' },
+      ] } }) };
+    }
+    assert.equal(params.get('action'), 'wbgetentities');
+    return { ok: true, json: async () => ({ entities: {
+      Q223127: entity('Logitech'),
+      Q125697788: entity('Logitech MX Master 3S', { P176: ['Q223127'], P31: ['Q7987'] }),
+      Q900002: entity('Unrelated mouse', { P176: ['Q900001'], P31: ['Q7987'] }),
+    } }) };
   };
   try {
     const r = await catalogProvider.search({ category: 'Devices', subcategory: 'Computers',
@@ -122,7 +130,7 @@ test('first model page uses canonical manufacturer and rejects a conflicting sel
     const conflict = await catalogProvider.search({ category: 'Devices', subcategory: 'Computers',
       entityType: 'product', query: '', brand: 'Unrelated maker', catalogBrandId: 'wikidata-devices:Q223127' });
     assert.deepEqual(conflict.items, []);
-    assert.equal(calls, 2);
+    assert.equal(calls, 4);
   } finally { global.fetch = original; }
 });
 

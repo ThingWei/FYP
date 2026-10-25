@@ -64,7 +64,7 @@ class Detector:
 
 
 def verify(monkeypatch, category='Vehicles', subcategory='Cars', detector=None,
-           risk=True, score=0.1, hashes=None, poor=False, errors=None):
+           risk=True, score=0.1, hashes=None, poor=False, errors=None, product_type=None):
     detector = detector or Detector(['car', 'person'])
     monkeypatch.setattr(items, 'models_status', lambda: (detector, object() if risk else None, {
         'detectorAvailable': True, 'detectorSource': 'general_pretrained',
@@ -72,7 +72,7 @@ def verify(monkeypatch, category='Vehicles', subcategory='Cars', detector=None,
         'riskClassifierVersion': 'fixture' if risk else None,
     }))
     request = VerificationRequest(expected_category=category, expected_subcategory=subcategory,
-                                  expected_condition='Good')
+                                  expected_condition='Good', expected_product_type=product_type)
     decoded = [(None, np.full((10, 10, 3), i, dtype=np.uint8)) for i in range(3)]
     quality = lambda _: dict(isBlurry=poor, isTooDark=False, isTooBright=False,
                             hasUsableResolution=True)

@@ -63,6 +63,11 @@ class ApiClient {
   Future<dynamic> request(String method, String path, {Object? body}) =>
       _request(method, path, body: body, authenticated: true);
 
+  Future<Map<String, dynamic>> requestEnvelope(String method, String path,
+          {Object? body}) async =>
+      Map<String, dynamic>.from(await _request(method, path,
+          body: body, authenticated: true, includeMeta: true) as Map);
+
   Future<dynamic> requestUnauthenticated(
     String method,
     String path, {
@@ -75,6 +80,7 @@ class ApiClient {
     String path, {
     Object? body,
     required bool authenticated,
+    bool includeMeta = false,
   }) async {
     final token = authenticated ? await tokenProvider?.call() : null;
     final additionalHeaders = authenticated
@@ -124,7 +130,7 @@ class ApiClient {
         details: errorDetails,
       );
     }
-    return decoded?['data'];
+    return includeMeta ? decoded : decoded?['data'];
   }
 
   Future<Map<String, dynamic>> uploadFile(

@@ -1,5 +1,10 @@
 # Item-photo checks: category coverage and detail views
 
+25 October follow-up: [object-type alignment and current inventory](ITEM_RECOGNITION_TYPE_ALIGNMENT_RESULT.md)
+adds type-scoped checks, mouse/keyboard routes and explicit unsupported types.
+It records all 22 subcategories, remaining per-type gaps and evaluation readiness;
+the historical matrix below does not describe current complete coverage.
+
 20 October follow-up: [offline YOLO-World and item-risk preparation](ITEM_WORLD_AND_RISK_PREPARATION_RESULT.md)
 adds the prepared optional fallback and v4 contract. All 22 domains now have
 configured prompts, but real-photo testing remains incomplete; the bounded local

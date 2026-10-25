@@ -10,6 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 from app.services.item_verification import DOMAINS, PHOTO_GUIDANCE
+from app.services.item_domains import PRODUCT_TYPES
 from app.training.evaluate_item_recognition import yolo_cases
 from app.training.prepare_item_risk import plan_dataset
 
@@ -27,13 +28,13 @@ def collection_template():
                     slots.append({'slot': f'{domain}/item-{item}/{view}',
                                   'category': category, 'subcategory': subcategory,
                                   'view': view, 'expectation': 'detail_only' if view == 'detail' else 'target_present',
-                                  'item_id': None, 'path': None, 'label': None, 'boxes': [],
+                                  'item_id': None, 'path': None, 'label': None, 'product_type': None, 'boxes': [],
                                   'reviewed': False, 'permissionConfirmed': False})
             for i in range(3):
                 slots.append({'slot': f'{domain}/unrelated-{i + 1}',
                               'category': category, 'subcategory': subcategory, 'view': 'unrelated',
                               'expectation': 'target_absent', 'item_id': None,
-                              'path': None, 'label': None, 'boxes': [],
+                              'path': None, 'label': None, 'product_type': None, 'boxes': [],
                               'reviewed': False, 'permissionConfirmed': False})
     return slots
 
@@ -57,6 +58,8 @@ def prepare(dataset, output, per_class=10):
             coverage.append({
                 'category': category, 'subcategory': subcategory,
                 'objectLabelsToReview': sorted(labels),
+                'productTypesToReview': {kind: sorted(aliases) for kind, aliases in
+                                         PRODUCT_TYPES[category][subcategory].items()},
                 'selectedRiskSourceGroups': selected[key],
                 'sourceAnnotatedTestCases': held_out[key],
                 'independentlyReviewedCases': 0,
@@ -107,6 +110,9 @@ def prepare(dataset, output, per_class=10):
         'Paths may be relative to reviewed_cases.json. Empty cases are not an evaluated pass.',
         'Target: two distinct items per subcategory, each with overview, alternate angle and',
         'detail photos, plus three unrelated images per subcategory (198 cases in total).',
+        'This small set is not coverage of every object type. Add cases for each relevant',
+        'productTypesToReview entry in coverage.json. Set product_type to the reviewed',
+        'type (for example mouse); do not infer a model/genre from a generic object label.',
         'Fill item_id with a stable physical-item group, reviewed=true and permissionConfirmed=true',
         'only after actual review; move completed slots to reviewed_cases.json.',
         'See docs/ITEM_WORLD_AND_RISK_PREPARATION_RESULT.md for the evaluator contract.', '',

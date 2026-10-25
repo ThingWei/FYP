@@ -1,5 +1,14 @@
 # RentHub AI pricing and product catalog result
 
+## 24 October 2026: catalogue refresh and bounded expansion
+
+[Browsing/freshness result](CATALOGUE_BROWSING_AND_FRESHNESS_RESULT.md) adds
+cache-first suggestions, explicit refresh, background update preservation and
+bounded **Load more** for available provider records. It does not add rental
+observations, retrain pricing, establish authenticity or guarantee source
+coverage for newly released models. Canonical identity and existing pricing
+interfaces are retained.
+
 ## 24 October 2026: device catalogue matching (not pricing retraining)
 
 [Peripheral coverage result](CATALOG_PERIPHERAL_COVERAGE_RESULT.md) documents the

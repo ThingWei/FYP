@@ -18,6 +18,7 @@ import {
 import { listingRepository } from './listing.repository.js';
 import { uploadService } from '../upload/upload.service.js';
 import { resolveProductIdentity } from '../catalog/catalog.service.js';
+import { catalogItemType } from '../catalog/catalog.itemType.js';
 import { PricingReferenceModel } from './pricingReference.model.js';
 import { compatiblePriceReferences, enabledPriceSourceIds } from './priceSync.service.js';
 import {
@@ -789,6 +790,7 @@ export const listingService = {
         subcategory: listing.subcategory,
         condition: listing.condition,
         listingType: listing.listingType,
+        productType: await catalogItemType(listing),
       });
       listing.itemVerificationHistory.push({
         checkedAt: new Date(),

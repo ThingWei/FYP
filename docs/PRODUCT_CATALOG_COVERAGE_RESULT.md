@@ -1,5 +1,24 @@
 # RentHub product catalog coverage result
 
+## 25 October 2026: catalogue/evidence/image alignment audit
+
+[Combined read-only gap report](AI_CATALOGUE_EVIDENCE_AND_RECOGNITION_GAP_REPORT.md)
+records 67 category-specific brand/author entries and 125 model/title entries,
+successful newer-model provider probes, current evidence counts and product-type
+mismatches between catalogue, pricing and image verification. Initial starter
+coverage is not exhaustive subtype coverage. No catalogue records were imported
+and no application/model changes were made during that audit.
+
+## 24 October 2026: browsing beyond the first page and refresh
+
+The Owner picker now supports **Load more** and **Refresh suggestions**, retaining
+saved choices during background updates and failures. Existing providers honor
+bounded expanding windows up to 120 suggestions; typed lookup remains necessary
+for missing/off-page models. A live isolated Apple check expanded 2 reviewed
+suggestions to 12 and then 24 provider-backed results. This is not a guarantee of
+complete/latest product coverage. No new provider or category was added.
+See [contract, live check, tests and limitations](CATALOGUE_BROWSING_AND_FRESHNESS_RESULT.md).
+
 ## 24 October 2026: structured device/peripheral coverage
 
 Computers and Gaming now use `wikidata-devices -> renthub-curated -> manual-entry`.
@@ -272,6 +291,10 @@ See `docs/AI_PRICING_PRODUCT_CATALOG_RESULT.md` for the pricing evidence,
 completed-rental cold start, and item-age sensitivity audit.
 
 ## Known limitations
+
+For the 25 October 2026 Logitech first-page timeout fix, indexed device-model
+preloading, live verification and current regression results, see
+[Catalogue browsing and freshness](CATALOGUE_BROWSING_AND_FRESHNESS_RESULT.md#logitech-initial-model-update-fix--25-october-2026).
 
 - The curated catalog is representative, not exhaustive. Owners may still need
   manual entry for local, new, rare, edition-specific, size, or storage variants.

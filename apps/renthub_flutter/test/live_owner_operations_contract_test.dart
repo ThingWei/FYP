@@ -13,6 +13,11 @@ class RecordingOwnerApiClient extends ApiClient {
   final List<(String, String, Object?)> calls = [];
 
   @override
+  Future<Map<String, dynamic>> requestEnvelope(String method, String path,
+          {Object? body}) async =>
+      {'data': await request(method, path, body: body)};
+
+  @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     calls.add((method, path, body));
     final response = responses.removeAt(0);

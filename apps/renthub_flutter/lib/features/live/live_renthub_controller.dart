@@ -14,6 +14,7 @@ import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
 import '../../core/recommendations/recommendation_models.dart';
 import '../../core/location/confirmed_location.dart';
+import 'live_catalog_page.dart';
 
 class BookingWorkspaceState {
   List<Booking> bookings = [];
@@ -2009,6 +2010,32 @@ class LiveRentHubController extends ChangeNotifier {
     return (await api.request('GET', '/catalog/brands?$parameters') as List)
         .map((item) => Map<String, dynamic>.from(item as Map))
         .toList();
+  }
+
+  Future<CatalogPage> loadCatalogPage({
+    required String category,
+    required String subcategory,
+    required String query,
+    String? brand,
+    String? catalogBrandId,
+    int limit = 12,
+    bool refresh = false,
+    bool preferCache = true,
+  }) async {
+    final parameters = Uri(queryParameters: {
+      'category': category,
+      'subcategory': subcategory,
+      'query': query,
+      'limit': '$limit',
+      'refresh': '$refresh',
+      'preferCache': '$preferCache',
+      if (brand != null) 'brand': brand,
+      if (catalogBrandId?.isNotEmpty ?? false)
+        'catalogBrandId': catalogBrandId!,
+    }).query;
+    final result = await api.requestEnvelope(
+        'GET', '/catalog/${brand == null ? 'brands' : 'models'}?$parameters');
+    return CatalogPage.fromEnvelope(result, requestedLimit: limit);
   }
 
   Future<List<Map<String, dynamic>>> searchCatalogModels({

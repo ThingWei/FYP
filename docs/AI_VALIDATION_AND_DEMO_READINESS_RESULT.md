@@ -1,5 +1,10 @@
 # AI validation and demonstration readiness
 
+25 October: [current combined gap audit](AI_CATALOGUE_EVIDENCE_AND_RECOGNITION_GAP_REPORT.md)
+confirms local model loadability, missing real-photo evaluation and cross-layer
+peripheral/type mismatches. It separates fresh aggregate counts from historical
+training/evaluation results; no retraining or activity generation was performed.
+
 22 October follow-up: [CASIA/AutoSplice preparation](PUBLIC_ITEM_RISK_DATASET_RESULT.md)
 and [actual eight-epoch candidate training](ITEM_RISK_TRAINING_RESULT.md) are complete.
 The user acknowledged proceeding after the attribution discussion; CASIA's unclear

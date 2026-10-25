@@ -3,6 +3,43 @@ import { AppError } from '../../core/errors.js';
 import { catalogProvider, isValidWikidataFallback } from './catalog.provider.js';
 import { searchCuratedCatalog } from './catalog.curated.js';
 import { ProductCatalogModel, PRODUCT_MATCH_TYPES } from './productCatalog.model.js';
+import { catalogResultLimit, MAX_CATALOG_RESULTS, CATALOG_LOOKAHEAD_LIMIT } from './catalog.limits.js';
+
+const refreshes = new Map();
+const updateIntervalMs = Math.min(env.catalogCacheTtlHours, 24) * 3_600_000;
+const retryDelayMs = 60_000;
+
+function queryKey(input) {
+  return JSON.stringify([input.entityType, input.category, input.subcategory,
+    normalizeCatalogText(input.brand), input.catalogBrandId ?? '', normalizeCatalogText(input.query),
+    catalogResultLimit(input)]);
+}
+
+async function refreshProvider(input, key) {
+  const prior = refreshes.get(key);
+  if (prior?.pending) return prior.pending;
+  const state = { ...prior };
+  const pending = Promise.resolve().then(async () => {
+    try {
+      const result = await catalogProvider.search(input);
+      const items = Array.isArray(result) ? result : result.items;
+      if (!Array.isArray(items)) throw new Error('Invalid catalogue response');
+      const stored = await storeProviderItems(input, items.slice(0, CATALOG_LOOKAHEAD_LIMIT));
+      const available = result.providerAvailable !== false;
+      if (available) state.successAt = Date.now();
+      else state.failedAt = Date.now();
+      return { stored, available, provider: Array.isArray(result) ? catalogProvider.strategy(input) : result.provider };
+    } catch (error) {
+      state.failedAt = Date.now();
+      throw error;
+    } finally { state.pending = null; }
+  });
+  state.pending = pending;
+  refreshes.delete(key);
+  refreshes.set(key, state);
+  if (refreshes.size > 256) refreshes.delete(refreshes.keys().next().value);
+  return pending;
+}
 
 export function normalizeCatalogText(value) {
   return String(value ?? '')
@@ -83,8 +120,8 @@ async function cached(input, freshOnly, primaryOnly = false) {
     freshOnly,
     primaryOnly,
   }))
-    .sort({ lastSyncedAt: -1 })
-    .limit(env.catalogMaxResults)
+    .sort({ lastSyncedAt: -1, catalogEntityId: 1 })
+    .limit(CATALOG_LOOKAHEAD_LIMIT)
     .lean();
 }
 
@@ -114,7 +151,7 @@ export function mergeCatalogRecords(records, input) {
       Number(browseLabels.has(compactCatalogText(left))) : 0) ||
       Number(matchesCatalogText(input.query, [right])) -
       Number(matchesCatalogText(input.query, [left])) || left.localeCompare(right);
-  }).slice(0, env.catalogMaxResults);
+  }).slice(0, catalogResultLimit(input));
 }
 
 async function storeProviderItems(input, items) {
@@ -167,37 +204,53 @@ async function storeProviderItems(input, items) {
 }
 
 async function search(input) {
-  // Only a fresh primary-provider record may short-circuit the provider chain.
-  // A prior general fallback must not prevent a domain provider from running.
+  const limit = Math.min(catalogResultLimit(input), MAX_CATALOG_RESULTS);
+  const lookup = { ...input, limit: limit + 1 };
+  const key = queryKey(lookup);
+  const state = refreshes.get(key);
+  const force = input.refresh === true || input.refresh === 'true';
+  const preferCache = input.preferCache === true || input.preferCache === 'true';
   const fresh = await cached(input, true, true);
+  const saved = await cached(input, false);
   const curated = await storeProviderItems(input, searchCuratedCatalog(input));
-  if (fresh.length) {
-    return {
-      items: mergeCatalogRecords([...fresh, ...curated, ...await cached(input, true)], input)
-        .map((item) => publicItem(item, input.query)),
-      provider: 'mongodb-cache',
-      providerAvailable: true,
-      stale: false,
-    };
+  const knownFresh = fresh.length > 0 && state?.successAt > Date.now() - updateIntervalMs &&
+    !(state.failedAt >= state.successAt);
+  const recentFailure = saved.length > 0 && state?.failedAt > Date.now() - retryDelayMs &&
+    !(state.successAt > state.failedAt);
+  const response = (records, meta) => {
+    const merged = mergeCatalogRecords(records, lookup);
+    const hasMore = merged.length > limit && limit < MAX_CATALOG_RESULTS;
+    const visible = merged.slice(0, limit);
+    const older = visible.some((record) => record.source !== 'renthub-curated' &&
+      new Date(record.lastSyncedAt).getTime() < Date.now() - updateIntervalMs);
+    return { ...meta, stale: meta.stale || older,
+      items: visible.map((item) => publicItem(item, input.query)),
+      limit, hasMore, nextLimit: hasMore ? Math.min(limit + env.catalogMaxResults, MAX_CATALOG_RESULTS) : null,
+      reachedLimit: limit === MAX_CATALOG_RESULTS && merged.length > limit };
+  };
+  if (preferCache && !force && (saved.length || curated.length)) {
+    const stale = saved.some((record) => record.source !== 'renthub-curated' &&
+      new Date(record.lastSyncedAt).getTime() < Date.now() - updateIntervalMs);
+    return response([...saved, ...curated], { provider: 'mongodb-cache',
+      providerAvailable: !recentFailure, stale: stale || recentFailure,
+      refreshNeeded: !knownFresh && !recentFailure });
+  }
+  if (!force && (knownFresh || input.limit === undefined && fresh.length)) {
+    return response([...fresh, ...curated, ...await cached(input, true)], {
+      provider: 'mongodb-cache', providerAvailable: true, stale: false, refreshNeeded: false });
+  }
+  if (recentFailure) {
+    return response([...saved, ...curated], { provider: 'mongodb-cache',
+      providerAvailable: false, stale: true, refreshNeeded: false,
+      warning: 'Updates are temporarily unavailable. Saved suggestions and manual entry remain available.' });
   }
   try {
-    const providerResult = await catalogProvider.search(input);
-    const providerItems = Array.isArray(providerResult)
-      ? providerResult
-      : providerResult.items;
-    const providerName = Array.isArray(providerResult)
-      ? catalogProvider.strategy(input)
-      : providerResult.provider;
-    const stored = await storeProviderItems(input, providerItems);
-    return {
-      items: mergeCatalogRecords([...stored, ...curated, ...await cached(input, true)], input)
-        .map((item) => publicItem(item, input.query)),
-      provider: providerName,
-      providerAvailable: providerResult.providerAvailable !== false,
-      stale: false,
-    };
+    const result = await refreshProvider(lookup, key);
+    return response([...result.stored, ...curated, ...saved], {
+      provider: result.provider, providerAvailable: result.available,
+      stale: !result.available, refreshNeeded: false });
   } catch {
-    const stale = mergeCatalogRecords([...await cached(input, false), ...curated], input);
+    const stale = mergeCatalogRecords([...saved, ...curated], lookup);
     if (!stale.length) {
       throw new AppError(
         'The product catalog is temporarily unavailable. Manual entry remains available.',
@@ -206,13 +259,9 @@ async function search(input) {
         { provider: catalogProvider.strategy(input), cacheHit: false },
       );
     }
-    return {
-      items: stale.map((item) => publicItem(item, input.query)),
-      provider: 'mongodb-cache',
-      providerAvailable: false,
-      stale: true,
-      warning: 'The product catalog is temporarily unavailable. Manual entry remains available.',
-    };
+    return response(stale, { provider: 'mongodb-cache', providerAvailable: false,
+      stale: true, refreshNeeded: false,
+      warning: 'The product catalog is temporarily unavailable. Manual entry remains available.' });
   }
 }
 

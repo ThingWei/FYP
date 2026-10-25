@@ -7,6 +7,11 @@ function respond(res, result) {
     provider: result.provider,
     providerAvailable: result.providerAvailable,
     stale: result.stale,
+    limit: result.limit,
+    hasMore: result.hasMore,
+    nextLimit: result.nextLimit,
+    reachedLimit: result.reachedLimit,
+    refreshNeeded: result.refreshNeeded,
     ...(result.warning && { warning: result.warning }),
   });
 }

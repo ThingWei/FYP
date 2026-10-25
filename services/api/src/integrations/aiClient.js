@@ -90,18 +90,25 @@ export const aiClient = {
     }, validateCapture ? { timeout: Math.max(env.aiTimeoutMs, 75000) } : {});
   },
 
-  async verifyItem({ images, category, subcategory, condition, listingType }) {
+  async verifyItem({ images, category, subcategory, condition, listingType, productType }) {
     if (!images?.length) {
       return unavailableVerification('No stored listing-image bytes were available for analysis');
     }
-    return request('/verify/item', {
+    const result = await request('/verify/item', {
       images,
       expected_category: category,
       expected_subcategory: subcategory,
       expected_condition: condition,
       expected_type: listingType,
+      ...(productType && { expected_product_type: productType }),
     }, unavailableVerification('AI service could not analyse the item images'),
     { timeout: Math.max(env.aiTimeoutMs, 45000) });
+    if (productType && result?.outcome !== 'unavailable' &&
+        (result?.extracted_fields?.productTypeCheckVersion !== 'renthub-item-types-v1' ||
+         result?.extracted_fields?.expectedProductType !== productType)) {
+      return unavailableVerification('Item-type checks need the current AI service; restart it and retry');
+    }
+    return result;
   },
 
   recommendItems(payload) {

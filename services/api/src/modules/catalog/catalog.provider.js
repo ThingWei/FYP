@@ -2,6 +2,8 @@ import { env } from '../../config/env.js';
 import { catalogCoverageFor } from './catalog.coverage.js';
 import { searchCuratedCatalog } from './catalog.curated.js';
 import { deviceCatalogTypes } from './catalog.deviceDomains.js';
+import { catalogResultLimit } from './catalog.limits.js';
+import { preloadDeviceBindings } from './catalog.devicePreload.js';
 
 let nextRequestAt = 0;
 let requestQueue = Promise.resolve();
@@ -128,9 +130,9 @@ export function catalogSourcesFor(input) {
     .flatMap((strategy) => byStrategy[strategy] ?? []))];
 }
 
-async function vehicleMakes(vehicleType) {
+async function vehicleMakes(vehicleType, refresh = false) {
   const cached = vehicleMakesCache.get(vehicleType);
-  if (cached?.expiresAt > Date.now()) return cached.items;
+  if (!refresh && cached?.expiresAt > Date.now()) return cached.items;
   const url = new URL(
     `/api/vehicles/GetMakesForVehicleType/${vehicleType}`,
     env.catalogVehicleProviderUrl,
@@ -152,21 +154,22 @@ async function vehicleMakes(vehicleType) {
 }
 
 async function searchVehicles(input) {
+  const refresh = input.refresh === true || input.refresh === 'true';
   const vehicleType = input.subcategory === 'Motorcycles' ? 'motorcycle' : 'car';
   if (input.entityType === 'brand') {
     const query = normalized(input.query);
-    return (await vehicleMakes(vehicleType))
+    return (await vehicleMakes(vehicleType, refresh))
       .filter((item) => normalized(item.label).includes(query))
       .sort((left, right) => {
         const leftExact = normalized(left.label) === query ? 1 : 0;
         const rightExact = normalized(right.label) === query ? 1 : 0;
         return rightExact - leftExact || left.label.localeCompare(right.label);
       })
-      .slice(0, env.catalogMaxResults);
+      .slice(0, catalogResultLimit(input));
   }
   let makeId = rawCanonicalId(input.catalogBrandId, 'nhtsa-vpic');
   if (!/^\d+$/.test(makeId)) {
-    makeId = (await vehicleMakes(vehicleType)).find((item) =>
+    makeId = (await vehicleMakes(vehicleType, refresh)).find((item) =>
       [item.label, ...(item.aliases ?? [])].some((name) => normalized(name) === normalized(input.brand)))?.id ?? '';
   }
   if (!/^\d+$/.test(makeId)) return [];
@@ -186,7 +189,7 @@ async function searchVehicles(input) {
   })))
     .filter((item) => !query || normalized(item.label).includes(query))
     .sort((left, right) => left.label.localeCompare(right.label))
-    .slice(0, env.catalogMaxResults);
+    .slice(0, catalogResultLimit(input));
 }
 
 function sparqlUrl(query) {
@@ -200,11 +203,11 @@ function sparqlString(value) {
   return JSON.stringify(normalized(value));
 }
 
-async function deviceSearchCandidates(query) {
+async function deviceSearchCandidates(query, input) {
   const url = new URL(env.catalogProviderUrl);
   url.search = new URLSearchParams({
     action: 'wbsearchentities', search: query, language: 'en', uselang: 'en',
-    format: 'json', limit: String(Math.min(env.catalogMaxResults * 2, 24)),
+    format: 'json', limit: String(Math.min(catalogResultLimit(input) * 2, 50)),
   });
   const payload = await getJson(url);
   if (!Array.isArray(payload.search)) throw new Error('Invalid Wikidata search response');
@@ -224,11 +227,16 @@ async function searchDevices(input) {
   const selectedId = /^wikidata-devices:Q\d+$/.test(input.catalogBrandId ?? '')
     ? rawCanonicalId(input.catalogBrandId, 'wikidata-devices') : null;
   const hasModelQuery = !isBrand && Boolean(normalized(input.query));
+  const matchesBrand = (name) => brandNames.includes(normalized(name)) ||
+    brandNames.includes(normalized(canonicalOrganizationName(name)));
   let candidates;
   if (!isBrand && !hasModelQuery && selectedId) {
     candidates = [{ id: selectedId }];
   } else {
-    candidates = await deviceSearchCandidates(isBrand ? input.query : hasModelQuery ? input.query : input.brand);
+    candidates = await deviceSearchCandidates(isBrand ? input.query : hasModelQuery ? input.query : input.brand, input);
+    if (!isBrand && !hasModelQuery) {
+      candidates = candidates.filter((item) => matchesBrand(item.label ?? '') || matchesBrand(item.match?.text ?? ''));
+    }
   }
   if (!candidates.length) return [];
   const values = candidates.map((item) => `wd:${item.id}`).join(' ');
@@ -246,8 +254,11 @@ SELECT DISTINCT ${isBrand ? '' : '?model ?modelLabel'} ?manufacturer ?manufactur
   ${brandFilter}
   ?model (wdt:P31/wdt:P279*|wdt:P279+) ?domainType.
   hint:Prior hint:gearing "forward".
-} LIMIT ${env.catalogMaxResults * 2}`;
-  const payload = await getJson(sparqlUrl(query), 'application/sparql-results+json');
+} ORDER BY ${isBrand ? '?manufacturerLabel ?manufacturer' : '?modelLabel ?model'} LIMIT ${catalogResultLimit(input) * 2}`;
+  const payload = !isBrand && !hasModelQuery
+    ? { results: { bindings: await preloadDeviceBindings({ manufacturers: candidates, types,
+      limit: catalogResultLimit(input), providerUrl: env.catalogProviderUrl, getJson, matchesBrand }) } }
+    : await getJson(sparqlUrl(query), 'application/sparql-results+json');
   if (!Array.isArray(payload.results?.bindings)) throw new Error('Invalid Wikidata device response');
   const candidateIds = new Set(candidates.map((item) => item.id));
   return unique(payload.results.bindings.flatMap((binding) => {
@@ -275,7 +286,7 @@ SELECT DISTINCT ${isBrand ? '' : '?model ?modelLabel'} ?manufacturer ?manufactur
         identitySourceUrl: `https://www.wikidata.org/wiki/${isBrand ? manufacturerId : modelId}` },
       source: 'wikidata-devices',
     }];
-  })).slice(0, env.catalogMaxResults);
+  })).slice(0, catalogResultLimit(input));
 }
 
 async function searchSmartphones(input) {
@@ -288,7 +299,7 @@ SELECT DISTINCT ?manufacturer ?manufacturerLabel WHERE {
   ?manufacturer rdfs:label ?manufacturerLabel.
   FILTER(LANG(?manufacturerLabel) = "en")
   FILTER(CONTAINS(LCASE(?manufacturerLabel), ${sparqlString(input.query)}))
-} LIMIT ${env.catalogMaxResults}`;
+} ORDER BY ?manufacturerLabel ?manufacturer LIMIT ${catalogResultLimit(input)}`;
     const payload = await getJson(
       sparqlUrl(query),
       'application/sparql-results+json',
@@ -317,7 +328,7 @@ SELECT DISTINCT ?model ?modelLabel WHERE {
   ?model wdt:P31 ?phoneType; wdt:P176 wd:${brandId}; rdfs:label ?modelLabel.
   FILTER(LANG(?modelLabel) = "en")
   ${queryFilter}
-} ORDER BY ?modelLabel LIMIT ${env.catalogMaxResults}`;
+} ORDER BY ?modelLabel ?model LIMIT ${catalogResultLimit(input)}`;
   const payload = await getJson(
     sparqlUrl(query),
     'application/sparql-results+json',
@@ -336,7 +347,7 @@ async function searchBooks(input) {
     if (!normalized(input.query)) return [];
     const url = new URL('/search/authors.json', env.catalogBookProviderUrl);
     url.searchParams.set('q', input.query);
-    url.searchParams.set('limit', String(env.catalogMaxResults));
+    url.searchParams.set('limit', String(Math.min(catalogResultLimit(input), 100)));
     const payload = await getJson(url);
     const authors = unique((payload.docs ?? []).map((author) => ({
       id: String(author.key ?? '').replace('/authors/', ''),
@@ -372,7 +383,7 @@ async function searchBooks(input) {
     `/authors/${encodeURIComponent(authorId)}/works.json`,
     env.catalogBookProviderUrl,
   );
-  url.searchParams.set('limit', String(Math.max(env.catalogMaxResults * 4, 40)));
+  url.searchParams.set('limit', String(Math.min(Math.max(catalogResultLimit(input) * 4, 40), 500)));
   const payload = await getJson(url);
   const query = normalized(input.query);
   return unique((payload.entries ?? []).filter((work) => bookMatchesDomain(work, input)).map((work) => ({
@@ -383,7 +394,7 @@ async function searchBooks(input) {
     source: 'openlibrary',
   })))
     .filter((item) => !query || normalized(item.label).includes(query))
-    .slice(0, env.catalogMaxResults);
+    .slice(0, catalogResultLimit(input));
 }
 
 export function bookMatchesDomain(work, input) {
@@ -446,7 +457,7 @@ async function searchValidatedWikidata(input) {
     uselang: 'en',
     format: 'json',
     origin: '*',
-    limit: String(Math.max(env.catalogMaxResults * 3, 20)),
+    limit: String(Math.min(Math.max(catalogResultLimit(input) * 3, 20), 50)),
   }).toString();
   const payload = await getJson(url);
   const items = (payload.search ?? []).map((item) => ({
@@ -456,7 +467,7 @@ async function searchValidatedWikidata(input) {
     aliases: [item.match?.text].filter(Boolean),
     source: 'wikidata',
   })).filter((item) => item.label && isValidWikidataFallback(item, input));
-  return rankCatalogProviderItems(items, input).slice(0, env.catalogMaxResults);
+  return rankCatalogProviderItems(items, input).slice(0, catalogResultLimit(input));
 }
 
 async function search(input) {

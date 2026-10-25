@@ -15,7 +15,14 @@ before(async () => {
       const payload = JSON.parse(body);
       response.setHeader('content-type', 'application/json');
       if (request.url === '/verify/item') {
-        response.end(JSON.stringify({ received: payload }));
+        if (payload.expected_product_type === 'null_fixture') {
+          response.end('null');
+          return;
+        }
+        response.end(JSON.stringify({ received: payload, ...(payload.expected_product_type && payload.expected_product_type !== 'legacy_fixture' && {
+          extracted_fields: { productTypeCheckVersion: 'renthub-item-types-v1',
+            expectedProductType: payload.expected_product_type },
+        }) }));
         return;
       }
       if (request.url === '/verify/document') {
@@ -93,6 +100,23 @@ test('returns an explicit unavailable result when no stored bytes exist', async 
   });
   assert.equal(result.outcome, 'unavailable');
   assert.equal(result.confidence, 0);
+});
+
+test('forwards server-resolved object type without requiring it from legacy callers', async () => {
+  const result = await aiClient.verifyItem({ images: [{ content_base64: 'fixture' }],
+    category: 'Devices', subcategory: 'Computers', listingType: 'physical', productType: 'mouse' });
+  assert.equal(result.received.expected_product_type, 'mouse');
+  assert.equal(result.extracted_fields.productTypeCheckVersion, 'renthub-item-types-v1');
+});
+
+test('older AI responses cannot silently ignore the selected object type', async () => {
+  for (const productType of ['legacy_fixture', 'null_fixture']) {
+    const result = await aiClient.verifyItem({ images: [{ content_base64: 'fixture' }],
+      category: 'Devices', subcategory: 'Computers', listingType: 'physical', productType });
+    assert.equal(result.outcome, 'unavailable');
+    assert.equal(result.accepted, false);
+    assert.match(result.reasons[0], /current AI service/);
+  }
 });
 
 test('forwards live scanner frames to the KYC-specific detector contract', async () => {

@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from ..schemas import VerificationResponse
+from .item_domains import DOMAINS, PRODUCT_TYPES, TYPE_CONTRACT
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = 'renthub-item-evidence-v4'
@@ -21,44 +22,10 @@ def normalize(value):
     return re.sub(r'[^a-z0-9]+', ' ', value.casefold()).strip()
 
 
-# Exact aliases only: never treat a text substring/background person as a match.
-# This is a label ontology, not a catalogue, authenticity test or price rule.
-DOMAINS = {
-    'devices': {
-        'smartphones': {'cell phone', 'mobile phone', 'smartphone', 'phone'},
-        'cameras': {'camera', 'cameras', 'digital camera', 'mirrorless camera', 'dslr'},
-        'computers': {'laptop', 'computer', 'desktop', 'desktop computer'},
-        'audio': {'speaker', 'headphones', 'headphone', 'microphone', 'amplifier'},
-        'gaming': {'game console', 'gaming console', 'console', 'game controller'},
-        'other devices': {'tv', 'television', 'projector', 'tablet', 'printer'},
-    },
-    'vehicles': {
-        'cars': {'car', 'cars', 'automobile', 'sedan', 'suv', 'hatchback'},
-        'motorcycles': {'motorcycle', 'motorbike', 'scooter'},
-        'bicycles': {'bicycle', 'cycle'},
-        'other vehicles': {'truck', 'bus', 'van', 'boat'},
-    },
-    'equipment': {
-        'tools': {'drill', 'hammer', 'saw', 'power tool', 'wrench', 'screwdriver'},
-        'sports equipment': {'sports ball', 'tennis racket', 'racket', 'baseball bat',
-                             'baseball glove', 'skateboard', 'surfboard', 'skis',
-                             'snowboard', 'bicycle', 'kayak', 'dumbbell'},
-        'event equipment': {'chair', 'dining table', 'table', 'tent', 'canopy',
-                            'projector', 'speaker', 'stage light'},
-        'other equipment': {'generator', 'ladder', 'pressure washer', 'vacuum cleaner'},
-    },
-    'books': {key: {'book', 'books'} for key in
-              ('textbooks', 'reference books', 'fiction', 'other books')},
-    'clothing': {
-        'formal wear': {'suit', 'tuxedo', 'dress', 'formal wear'},
-        'costumes': {'costume', 'costumes'},
-        'traditional wear': {'baju melayu', 'baju kurung', 'kebaya', 'sari'},
-        'other clothing': {'clothing', 'shirt', 'coat', 'jacket'},
-    },
-}
-
-
-def expected_labels(category, subcategory):
+def expected_labels(category, subcategory, product_type=None):
+    if product_type:
+        types = PRODUCT_TYPES.get(normalize(category or ''), {}).get(normalize(subcategory or ''), {})
+        return types.get(product_type, set()).copy()
     domains = DOMAINS.get(normalize(category or ''), {})
     if subcategory:
         key = normalize(subcategory)
@@ -83,8 +50,10 @@ def detector_vocabulary(detector):
     return {normalize(str(name)) for name in (names.values() if isinstance(names, dict) else names)}
 
 
-def category_coverage(category, subcategory, detectors):
-    allowed = expected_labels(category, subcategory)
+def category_coverage(category, subcategory, detectors, product_type=None):
+    allowed = expected_labels(category, subcategory, product_type)
+    vocabulary = set().union(*(detector_vocabulary(model) for model, _, _ in detectors)) if detectors else set()
+    types = PRODUCT_TYPES.get(normalize(category or ''), {}).get(normalize(subcategory or ''), {})
     sources = [{'source': source, 'version': version,
                 'labelScope': 'prompted_not_finetuned' if source == 'yolo_world_pretrained' else 'detector_vocabulary',
                 'matchingLabels': sorted(allowed & detector_vocabulary(model))}
@@ -100,6 +69,11 @@ def category_coverage(category, subcategory, detectors):
         'allProductsCovered': False,
         'evaluationStatus': 'subcategory_accuracy_not_established',
         'specificCategoryVerified': False,
+        'expectedProductType': product_type,
+        'productTypeCheckVersion': TYPE_CONTRACT,
+        'productTypes': [{'productType': kind, 'matchingLabels': sorted(labels & vocabulary),
+                          'status': 'limited_object_labels' if labels & vocabulary else 'manual_review'}
+                         for kind, labels in types.items()],
         'photoGuidance': PHOTO_GUIDANCE.get(normalize(category or ''),
                                           'Include the whole item and different detail views.'),
     }
@@ -344,6 +318,8 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         'advisory': True, 'authenticityVerified': False, 'adminReviewRequired': True,
         'expectedCategory': request.expected_category,
         'expectedSubcategory': request.expected_subcategory,
+        'expectedProductType': request.expected_product_type,
+        'productTypeCheckVersion': TYPE_CONTRACT,
         'submittedCondition': request.expected_condition,
         'conditionAssessment': 'not_assessed',
         'matchGranularity': 'object_type_only',
@@ -362,7 +338,8 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
     detectors = verification_detectors(detector, status)
     # The global matrix belongs in health/audit, not duplicated in each history row.
     fields['models'] = {key: value for key, value in status.items() if key != 'categoryCoverage'}
-    coverage = category_coverage(request.expected_category, request.expected_subcategory, detectors)
+    coverage = category_coverage(request.expected_category, request.expected_subcategory, detectors,
+                                 request.expected_product_type)
     fields['categoryCoverage'] = coverage
     fields['photoGuidance'] = coverage['photoGuidance']
     reasons = list(errors)
@@ -375,7 +352,7 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
     if any(q['isBlurry'] or q['isTooDark'] or q['isTooBright'] or
            not q['hasUsableResolution'] for q in qualities):
         indicators.append('One or more photos need better focus, lighting or resolution')
-    allowed = expected_labels(request.expected_category, request.expected_subcategory)
+    allowed = expected_labels(request.expected_category, request.expected_subcategory, request.expected_product_type)
     supported = bool(coverage['matchingLabels'])
     fields['categorySupport'] = 'limited_object_labels' if supported else 'unsupported'
     labels = set()
@@ -425,7 +402,9 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         reasons.append('General pretrained object detector; not trained to authenticate rental items')
     if not supported:
         reasons.append('The detector does not cover this specific category; this is not a mismatch')
-    elif not failures:
+    if request.expected_product_type:
+        reasons.append('Catalogue object type limits image matching; it does not verify the brand or model')
+    if supported and not failures:
         matched_views = sum(e['categoryMatched'] is True for e in per_image)
         fields['categoryMatched'] = True if matched_views == len(per_image) and not errors else None
         if not matched_views:

@@ -832,10 +832,15 @@ class _LiveListingFormState extends State<LiveListingForm> {
           : 'Choose a brand',
       labelKey: 'brand',
       currentValue: brand.text,
-      load: (query) => controller.searchCatalogBrands(
-          category: requestedCategory,
-          subcategory: requestedSubcategory,
-          query: query),
+      loadPage: (query,
+              {required limit, required refresh, required preferCache}) =>
+          controller.loadCatalogPage(
+              category: requestedCategory,
+              subcategory: requestedSubcategory,
+              query: query,
+              limit: limit,
+              refresh: refresh,
+              preferCache: preferCache),
     );
     if (!mounted ||
         result == null ||
@@ -880,12 +885,17 @@ class _LiveListingFormState extends State<LiveListingForm> {
           : 'Choose a model',
       labelKey: 'model',
       currentValue: productModel.text,
-      load: (query) => controller.searchCatalogModels(
-          category: requestedCategory,
-          subcategory: requestedSubcategory,
-          brand: requestedBrand,
-          catalogBrandId: requestedId,
-          query: query),
+      loadPage: (query,
+              {required limit, required refresh, required preferCache}) =>
+          controller.loadCatalogPage(
+              category: requestedCategory,
+              subcategory: requestedSubcategory,
+              brand: requestedBrand,
+              catalogBrandId: requestedId,
+              query: query,
+              limit: limit,
+              refresh: refresh,
+              preferCache: preferCache),
     );
     if (!mounted ||
         result == null ||

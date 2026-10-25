@@ -13,8 +13,8 @@ from app.training.prepare_open_images import fetch
 BASE_URL = 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8s-worldv2.pt'
 
 
-def output_path():
-    output = world.artifact_path()
+def output_path(candidate=None):
+    output = Path(candidate).resolve() if candidate is not None else world.artifact_path()
     protected = set()
     for key, default in (
         ('YOLO_MODEL_PATH', 'models/item_yolo.pt'),
@@ -28,6 +28,11 @@ def output_path():
         protected.add((path if path.is_absolute() else world.ROOT / path).resolve())
     if output.suffix != '.pt' or output.resolve() in protected:
         raise ValueError('Use a separate .pt output; existing trained detectors/risk models are protected')
+    if candidate is not None:
+        if not output.is_relative_to((world.ROOT / '.data/candidates').resolve()) or output == world.artifact_path().resolve():
+            raise ValueError('Candidate must use a separate output under .data/candidates')
+        if output.exists() or output.with_suffix('.report.json').exists() or output.with_name(output.stem + '.pending.pt').exists():
+            raise ValueError('Candidate output already exists; never overwrite prior work')
     return output
 
 
@@ -39,8 +44,11 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def prepare(download=False):
-    output = output_path()
+def prepare(download=False, profile=world.BASELINE_PROFILE, candidate=None):
+    prompts = world.prompts_for(profile)
+    if profile != world.BASELINE_PROFILE and candidate is None:
+        raise ValueError('Expanded profiles require an isolated candidate output')
+    output = output_path(candidate)
     import clip
     import torch
     from ultralytics import YOLOWorld
@@ -65,11 +73,11 @@ def prepare(download=False):
     # Supplying a local model avoids hidden CLIP package/weight downloads.
     model.model.clip_model = clip.load(str(clip_path), device='cpu', jit=False)[0].eval()
     with torch.inference_mode():
-        model.set_classes([text for text, _ in world.PROMPTS])
-    model.model.names = [label for _, label in world.PROMPTS]
+        model.set_classes([text for text, _ in prompts])
+    model.model.names = [label for _, label in prompts]
     model.model.clip_model = None  # Runtime contains embeddings, not the CLIP encoder.
     model.ckpt['renthub_item_world'] = {
-        'contract': world.CONTRACT, 'vocabularyHash': world.vocabulary_hash(),
+        'contract': world.CONTRACT, 'profile': profile, 'vocabularyHash': world.vocabulary_hash(profile),
         'baseSource': BASE_URL, 'baseSha256': sha256(base),
         'clipSource': clip_url, 'clipSha256': expected_clip_hash,
         'purpose': 'advisory_object_type_not_authenticity',
@@ -87,17 +95,25 @@ def prepare(download=False):
         raise ValueError('Export inference smoke test failed; previous artifact preserved')
     pending.replace(output)
     world.load_world.cache_clear()
-    return {'contract': world.CONTRACT, 'artifact': output.name,
-            'sha256': sha256(output), 'promptCount': len(world.PROMPTS),
+    report = {'contract': world.CONTRACT, 'profile': profile, 'artifact': output.name,
+            'sha256': sha256(output), 'promptCount': len(prompts),
             'prepared': True, 'realPhotoEvaluationPerformed': False,
-            'advisoryOnly': True}
+            'advisoryOnly': True, 'deployed': False if candidate is not None else None,
+            'vocabularyHash': world.vocabulary_hash(profile),
+            'baseSha256': sha256(base), 'clipSha256': expected_clip_hash}
+    if candidate is not None:
+        with output.with_suffix('.report.json').open('x', encoding='utf-8') as stream:
+            json.dump(report, stream, indent=2)
+    return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--download', action='store_true')
+    parser.add_argument('--profile', choices=(world.BASELINE_PROFILE, world.EXPANDED_PROFILE), default=world.BASELINE_PROFILE)
+    parser.add_argument('--candidate-output', type=Path, help='New separate .pt under .data/candidates; never activated automatically')
     args = parser.parse_args()
-    print(json.dumps(prepare(args.download), indent=2))
+    print(json.dumps(prepare(args.download, args.profile, args.candidate_output), indent=2))
 
 
 if __name__ == '__main__':

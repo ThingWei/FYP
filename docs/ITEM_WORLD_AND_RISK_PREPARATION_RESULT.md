@@ -1,5 +1,10 @@
 # YOLO-World fallback and separate item-risk preparation
 
+25 October follow-up: [expanded isolated recognition candidate](ITEM_WORLD_EXPANDED_CANDIDATE_RESULT.md)
+is prepared from cached weights and tested offline. It remains undeployed;
+expanded prompt coverage is not measured real-photo accuracy. The baseline
+vocabulary and active artifacts remain unchanged.
+
 21 October readiness tooling: [isolated candidate training, reviewed-case validation,
 collection kit and current blockers](AI_VALIDATION_AND_DEMO_READINESS_RESULT.md).
 The earlier training command now requires `--output`; it cannot deploy automatically.
