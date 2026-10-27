@@ -64,7 +64,8 @@ test('importing asking prices preserves an existing completed-rental count, medi
     brand: 'Canon', product_model: 'EOS R50', item_age_years: 3 }, rentalDurationDays: 1 };
   await request(app).post('/api/v1/listings/price-recommendation').set(owner).send(payload).expect(200);
   const beforeImport = { ...evidence };
-  assert.equal(beforeImport.historical_rental_count, 1);
+  assert.equal(beforeImport.historical_rental_count, 0); // Legacy status alone does not establish a real rental.
+  assert.equal(beforeImport.excluded_completed_rental_count, 1);
   await request(app).post(endpoint + '/import').set(admin).send({ csv: csv(observation), confirmed: true }).expect(200);
   await request(app).post('/api/v1/listings/price-recommendation').set(owner).send(payload).expect(200);
   for (const key of ['historical_rental_count', 'historical_rental_median', 'marketplace_completed_rental_count', 'demo_seed_completed_rental_count']) {

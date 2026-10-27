@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import os
 from pathlib import Path
 
 import numpy as np
@@ -107,7 +108,9 @@ def cohort_metrics(test, predicted, baseline):
     return report
 
 
-def evaluate(path, *, cutoff=None, seed=42, pipeline_factory=_pipeline):
+def evaluate(path, *, cutoff=None, seed=42, pipeline_factory=_pipeline, mode='deployed', artifact_path=None):
+    if mode not in ('deployed', 'candidate'):
+        raise ValueError('Choose deployed or candidate evaluation explicitly')
     frame = load_observations(path)
     report = {'mode': 'evaluation_only', 'artifactWritten': False, 'seed': seed,
               'inputSha256': hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -123,14 +126,22 @@ def evaluate(path, *, cutoff=None, seed=42, pipeline_factory=_pipeline):
                   'No live artifact comparison or automatic deployment is performed']}
     if frame.empty:
         return {**report, 'inputRows': 0, 'trainRows': 0, 'testRows': 0}
-    eligible = frame.loc[frame.source_type.isin(['real', 'external_asking_price'])].copy()
+    independent = frame.get('independent_evidence', pd.Series(False, index=frame.index)).eq(True)
+    origin = frame.get('price_origin', pd.Series('unknown', index=frame.index))
+    eligible = frame.loc[independent & ((frame.source_type.eq('external_asking_price') & origin.eq('external_reference')) |
+        (frame.source_type.eq('real') & origin.eq('owner_entered') &
+         ~frame.get('payment_simulated', pd.Series(False, index=frame.index)).eq(True)))].copy()
     report.update(inputRows=len(frame), excludedDemoSyntheticRows=len(frame) - len(eligible))
+    report.update(modelMode=mode, excludedProvenanceRows=len(frame) - len(eligible),
+                  excludedSourceCounts=frame.loc[~frame.index.isin(eligible.index)].source_type.value_counts().to_dict())
     train, test, split_at = forward_split(eligible, cutoff)
     report.update(trainRows=len(train), testRows=len(test), cutoff=split_at,
                   excludedLateOrUnknownRows=len(eligible) - len(train) - len(test),
                   trainingSources=train.source_type.value_counts().to_dict(),
                   holdoutTargets=test.target_source.value_counts().to_dict(),
                   seenHoldoutProductGroups=len(set(train.group_id) & set(test.group_id)))
+    if mode == 'deployed':
+        return frozen_evaluation(report, train, test, artifact_path)
     if len(train) < 20 or len(test) < 5:
         report['reason'] = 'Needs at least 20 earlier training rows and 5 later holdout rows; this is a technical minimum only'
         return report
@@ -149,17 +160,93 @@ def evaluate(path, *, cutoff=None, seed=42, pipeline_factory=_pipeline):
     return report
 
 
+def safe_metrics(actual, predicted):
+    if not len(actual):
+        return None
+    values = _metric_block(actual, predicted)
+    if len(actual) < 2 or np.var(actual) == 0:
+        values['r2'] = None
+    return values
+
+
+def frozen_evaluation(report, history, targets, artifact_path=None):
+    import joblib
+    artifact = Path(artifact_path or os.getenv('PRICE_MODEL_PATH', str(ROOT / 'models/price_xgboost.joblib')))
+    before = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    bundle = joblib.load(artifact)
+    if bundle.get('schema_version') != 'renthub-price-v2' or bundle.get('feature_schema', {}).get('ordered') != FEATURES:
+        raise ValueError('Deployed artifact feature schema mismatch')
+    trained = pd.to_datetime(bundle.get('trained_at'), utc=True, errors='coerce')
+    report.update(artifactSha256=before, modelVersion=bundle.get('model_version'),
+                  artifactUnchanged=hashlib.sha256(artifact.read_bytes()).hexdigest() == before, deployedModel=None,
+                  artifactWritten=False, candidate=None, trainingOverlapVerification='unknown_no_row_manifest',
+                  accuracyClaim='diagnostic_only_not_independently_validated',
+                  evaluationByCategory={}, evaluationBySubcategory={},
+                  predictionCoverage={'eligibleTargets': len(targets), 'predictedTargets': 0, 'abstainedTargets': len(targets)})
+    report['limitations'] = [note for note in report['limitations'] if 'No live artifact comparison' not in note]
+    report['limitations'].append('The deployed artifact lacks a row-level training manifest; training overlap is unverified')
+    if pd.isna(trained):
+        report['reason'] = 'Artifact training time is unknown; safe historical evaluation is unsupported'
+        return report
+    dates = pd.to_datetime(targets.observed_at, utc=True, format='mixed') if len(targets) else pd.Series(dtype='datetime64[ns, UTC]')
+    targets = targets.loc[dates > trained].copy()
+    report['excludedPreTrainingTargets'] = int(len(dates) - len(targets))
+    report['predictionCoverage'] = {'eligibleTargets': len(targets), 'predictedTargets': 0,
+                                    'abstainedTargets': len(targets)}
+    for field, key in [('target_source', 'evaluationByTargetSource'), ('category', 'evaluationByCategory'),
+                       ('subcategory', 'evaluationBySubcategory')]:
+        for value in targets[field].unique():
+            count = int((targets[field] == value).sum())
+            report[key][str(value)] = {'status': 'insufficient_data', 'samples': 0,
+                'holdoutSamples': count, 'predictedTargets': 0, 'abstainedTargets': count,
+                'deployedModel': None, 'categoryMedianBaseline': None}
+    if history.empty or targets.empty:
+        report['reason'] = 'No usable earlier history and post-training holdout; no candidate was fitted'
+        return report
+    features = forward_features(targets, history)
+    mask = (features.comparable_active_count.fillna(0) + features.historical_rental_count.fillna(0)) > 0
+    assessed = features.loc[mask].copy()
+    report['predictionCoverage'] = {'eligibleTargets': len(targets), 'predictedTargets': len(assessed),
+                                    'abstainedTargets': len(targets) - len(assessed)}
+    if assessed.empty:
+        report['reason'] = 'Holdout lacks compatible prior evidence; production would offer manual pricing'
+        return report
+    predicted = np.array([float(bundle.get('category_models', {}).get(row.category, bundle['global_model'])
+                         .predict(pd.DataFrame([row[FEATURES]], columns=FEATURES))[0])
+                          for _, row in assessed.iterrows()])
+    if not np.isfinite(predicted).all():
+        raise ValueError('Frozen artifact returned non-finite predictions')
+    baseline = _baseline_predict(history, assessed)
+    actual = assessed.daily_price.to_numpy()
+    report.update(status='diagnostic_evaluation', deployedModel=safe_metrics(actual, predicted),
+                  categoryMedianBaseline=safe_metrics(actual, baseline))
+    for field, key in [('target_source', 'evaluationByTargetSource'), ('category', 'evaluationByCategory'),
+                       ('subcategory', 'evaluationBySubcategory')]:
+        for value in assessed[field].unique():
+            select = (assessed[field] == value).to_numpy()
+            holdout_count = int((targets[field] == value).sum())
+            report[key][str(value)] = {'status': 'diagnostic_only', 'samples': int(select.sum()),
+                                      'holdoutSamples': holdout_count, 'predictedTargets': int(select.sum()),
+                                      'abstainedTargets': holdout_count - int(select.sum()),
+                                      'deployedModel': safe_metrics(actual[select], predicted[select]),
+                                      'categoryMedianBaseline': safe_metrics(actual[select], baseline[select])}
+    report['artifactUnchanged'] = hashlib.sha256(artifact.read_bytes()).hexdigest() == before
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--real-export', required=True, type=Path)
     parser.add_argument('--cutoff', help='Optional ISO timestamp; default is the 70%% timeline point')
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--mode', choices=('deployed', 'candidate'), default='deployed',
+                        help='Default evaluates the frozen artifact; candidate explicitly fits only in memory')
     parser.add_argument('--report', type=Path, help='Optional NEW report under .data; never production metrics')
     args = parser.parse_args()
     if args.report and (not args.report.resolve().is_relative_to((ROOT / '.data').resolve()) or args.report.exists()):
         parser.error('Use a new report path under services/ai/.data')
     try:
-        report = evaluate(args.real_export, cutoff=args.cutoff, seed=args.seed)
+        report = evaluate(args.real_export, cutoff=args.cutoff, seed=args.seed, mode=args.mode)
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             with args.report.open('x', encoding='utf-8') as stream:

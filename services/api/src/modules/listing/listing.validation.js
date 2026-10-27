@@ -10,6 +10,7 @@ import {
 } from './listing.model.js';
 import { isUploadReference } from '../../core/uploadReference.js';
 import { normalizeIsbn } from './priceProductDomains.js';
+import { DECLARED_PRICE_ORIGINS } from './priceProvenance.js';
 
 const editableFields = new Set([
   'title',
@@ -27,6 +28,7 @@ const editableFields = new Set([
   'itemAgeYears',
   'listingType',
   'dailyPrice',
+  'priceProvenance',
   'priceUnit',
   'condition',
   'securityDeposit',
@@ -53,6 +55,17 @@ const listingId = param('id').custom(textInput).bail().trim()
   .withMessage('Invalid listing identifier');
 
 const listingFields = [
+  body('priceProvenance').optional().custom((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value) ||
+        Object.keys(value).some((key) => !['origin', 'suggestedAmount', 'modelVersion'].includes(key)) ||
+        !DECLARED_PRICE_ORIGINS.includes(value.origin) ||
+        value.suggestedAmount !== undefined && (typeof value.suggestedAmount !== 'number' ||
+          !Number.isFinite(value.suggestedAmount) || value.suggestedAmount < 0 || value.suggestedAmount > 1000000) ||
+        value.modelVersion !== undefined && (typeof value.modelVersion !== 'string' || value.modelVersion.length > 160)) {
+      throw new Error('Invalid price-origin declaration');
+    }
+    return true;
+  }),
   body('title').optional().custom(textInput).bail().trim().isLength({ max: 120 }),
   body('description').optional().custom(textInput).bail().trim().isLength({ max: 3000 }),
   body('category').optional().isIn(LISTING_CATEGORIES),

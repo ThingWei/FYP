@@ -1,5 +1,12 @@
 # RentHub pricing/recommendation evidence: next test session
 
+27 October clarification: demo tester sessions remain staged evidence. They can
+evaluate usability and recommendation behaviour but cannot establish achieved
+rental-price accuracy. [The latest follow-up](PRICING_EVIDENCE_FOLLOWUP_RESULT.md)
+reports zero independently verified achieved rentals and the current frozen-model
+evaluation. Use `--mode deployed` explicitly when evaluating pricing; do not fit
+a candidate merely because a session generated more demo bookings.
+
 Prepared 22 October 2026. This is a collection guide, not completed participation
 or a claim of improved model accuracy. See [the measured first-round results](PRICING_RECOMMENDATION_EVIDENCE_ROUND1_RESULT.md).
 

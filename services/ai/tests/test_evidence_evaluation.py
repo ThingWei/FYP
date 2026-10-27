@@ -106,6 +106,7 @@ def test_external_pricing_provenance_preserved_without_model_feature_changes(tmp
     frame, _ = prepare_dataset(None, 1)
     row = frame.iloc[0].to_dict()
     row.update(source_type='external_asking_price', target_source='external_asking_price',
+        independent_evidence=True, price_origin='external_reference',
         group_id='public-product', source_url='https://example.com/rental', source_name='Reviewed source',
         collection_method='automatic', package_notes='Body only; tax excluded',
         quoted_rental_days=1, duration_min_days=7, duration_max_days=30,

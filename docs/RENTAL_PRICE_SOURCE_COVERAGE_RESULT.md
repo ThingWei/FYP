@@ -1,5 +1,14 @@
 # Automatic rental-price sources — implementation result
 
+27 October later checks: [iRent/ITPA/12RENT diagnostics and evidence evaluation](PRICING_EVIDENCE_FOLLOWUP_RESULT.md).
+No collection settings changed; access/parser success and reuse clearance remain separate.
+
+27 October follow-up: [independent evidence and reuse-review audit](AI_PRICING_REAL_WORLD_EVIDENCE_RESULT.md)
+adds a read-only review preview and an unregistered camping-page research parser.
+No source was enabled, no new quotes were imported, and the cleared preview is
+empty because explicit reuse-review evidence was not supplied. Existing adapter
+enablement, technical quote eligibility and reuse clearance remain separate.
+
 24 October onboarding preparation: [Goritta tent parser and strict permission gate](GORITTA_PRICE_SOURCE_ONBOARDING_RESULT.md).
 There are now 16 registered sources; Goritta is not enabled and adds no live
 observations yet. Its four-day quote parser was tested offline. Books still lack

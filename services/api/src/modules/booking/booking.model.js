@@ -71,6 +71,7 @@ const bookingSchema = new mongoose.Schema(
     pickupLocationSnapshot: { type: locationSchema, immutable: true },
     damageWaiverSelected: { type: Boolean, default: false },
     pricing: { type: pricingSchema, required: true },
+    pricingEvidenceSnapshot: { type: mongoose.Schema.Types.Mixed, immutable: true, default: undefined },
     extensionCharges: { type: [new mongoose.Schema({
       id: String, extraDays: Number, dailyRate: Number, amount: Number,
       requestedEndDate: Date, decidedAt: Date,
@@ -124,6 +125,7 @@ const bookingSchema = new mongoose.Schema(
         delete value.__v;
         delete value.idempotencyKey;
         delete value.idempotencyFingerprint;
+        delete value.pricingEvidenceSnapshot;
         if (value.serviceVenue) value.serviceVenue = 'Venue shared with booking participants';
         delete value.serviceLocation;
         delete value.deliveryLocation;

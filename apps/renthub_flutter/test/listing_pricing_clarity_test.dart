@@ -48,6 +48,7 @@ Map<String, dynamic> suggestion(
 class PricingApi extends ApiClient {
   PricingApi() : super('http://example.invalid');
   final calls = <Object?>[];
+  final writeCalls = <Object?>[];
   Completer<Map<String, dynamic>>? pending;
   bool failPrice = false;
   @override
@@ -60,6 +61,7 @@ class PricingApi extends ApiClient {
       return pending == null ? suggestion(synthetic: true) : pending!.future;
     }
     if (method == 'PATCH' || method == 'POST') {
+      writeCalls.add(body);
       throw http.ClientException('localhost:3000/private');
     }
     return <dynamic>[];
@@ -517,6 +519,8 @@ void main() {
               .text,
           '71.44');
       await press(tester, 'Save Draft');
+      expect((api.writeCalls.last as Map)['priceProvenance']['origin'],
+          'ai_suggested');
       expect(find.textContaining('couldn’t connect'), findsOneWidget);
       expect(tester.widget<TextFormField>(field('Title')).controller!.text,
           'Apple phone');
@@ -527,6 +531,20 @@ void main() {
               .text,
           '71.44');
       expect(find.text('Image 1', skipOffstage: false), findsOneWidget);
+      await tester.pump(const Duration(
+          seconds: 5)); // Let the first failure snackbar clear before retrying.
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(field('Daily price (RM)'));
+      await tester.enterText(field('Daily price (RM)'), '80.50');
+      await press(tester, 'Save Draft');
+      expect((api.writeCalls.last as Map)['priceProvenance']['origin'],
+          'ai_edited');
+      expect(
+          tester
+              .widget<TextFormField>(field('Daily price (RM)'))
+              .controller!
+              .text,
+          '80.50');
       expect(tester.takeException(), isNull);
     });
   }

@@ -6,6 +6,8 @@ import { minimumRentalPrice, validRentalPrice, validPricePrecision } from './pri
 import { aiClient } from '../../integrations/aiClient.js';
 import { PlatformSettingModel } from '../admin/platformSetting.model.js';
 import { BookingModel } from '../booking/booking.model.js';
+import { PaymentModel } from '../payment/payment.model.js';
+import { nextPriceProvenance, listingEvidenceReason, bookingEvidenceReason } from './priceProvenance.js';
 import { ReviewModel } from '../review/review.model.js';
 import { UserModel } from '../user/user.model.js';
 import { assertMarketplaceIdentity } from '../user/kycRequirements.js';
@@ -18,7 +20,7 @@ import {
 import { listingRepository } from './listing.repository.js';
 import { uploadService } from '../upload/upload.service.js';
 import { resolveProductIdentity } from '../catalog/catalog.service.js';
-import { catalogItemType } from '../catalog/catalog.itemType.js';
+import { catalogItemType, withCatalogTypes } from '../catalog/catalog.itemType.js';
 import { PricingReferenceModel } from './pricingReference.model.js';
 import { compatiblePriceReferences, enabledPriceSourceIds } from './priceSync.service.js';
 import {
@@ -54,6 +56,7 @@ function escapedPattern(value) {
 }
 
 function rentalDays(booking) {
+  if (Number.isInteger(booking.pricing?.originalRentalDays) && booking.pricing.originalRentalDays >= 1) return booking.pricing.originalRentalDays;
   const milliseconds = new Date(booking.endDate) - new Date(booking.startDate);
   return Math.max(1, Math.floor(milliseconds / 86_400_000) + 1);
 }
@@ -113,6 +116,7 @@ function listingInput(input) {
     ...(input.itemAgeYears !== undefined && { itemAgeYears: input.itemAgeYears }),
     listingType,
     ...(input.dailyPrice !== undefined && { dailyPrice: input.dailyPrice }),
+    ...(input.priceProvenance !== undefined && { priceProvenance: input.priceProvenance }),
     ...(input.priceUnit !== undefined && { priceUnit: input.priceUnit }),
     ...(input.condition !== undefined && { condition: input.condition }),
     ...(input.securityDeposit !== undefined && {
@@ -171,6 +175,8 @@ async function withResolvedProductIdentity(input, existing = {}) {
   });
   return {
     ...input,
+    priceProvenance: nextPriceProvenance({ ...input, brand: identity.brand,
+      productModel: identity.model, canonicalProductId: identity.canonicalProductId }, existing),
     brand: identity.brand,
     productModel: identity.model,
     canonicalProductId: identity.canonicalProductId,
@@ -389,6 +395,7 @@ export const listingService = {
       catalogSource: productIdentity.catalogSource,
       rental_duration_days: input.rentalDurationDays ?? 1,
     };
+    profile.productType = await catalogItemType({ ...profile, productModel: profile.product_model, listingType: 'physical' });
     const productMatch = {
       type: profile.productMatchType,
       brand: profile.brand,
@@ -399,7 +406,7 @@ export const listingService = {
     const evidenceStart = new Date(
       Date.now() - PRICING_EVIDENCE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
     );
-    const [platformCandidates, completedBookings, ownerRating, ownerCompletedRentals, externalReferences] =
+    const [platformCandidates, completedBookings, ownerRating, externalReferences] =
       await Promise.all([
         ListingModel.find({
           status: 'active',
@@ -413,7 +420,7 @@ export const listingService = {
           }),
         })
           .select(
-            'publicId subcategory brand productModel canonicalProductId isbn edition variant packageType condition itemAgeYears location state dailyPrice updatedAt',
+            'publicId category subcategory brand productModel canonicalProductId isbn edition variant packageType condition itemAgeYears location state dailyPrice updatedAt sourceType priceProvenance',
           )
           .sort({ updatedAt: -1 })
           .limit(PRICING_EVIDENCE_QUERY_LIMIT)
@@ -431,7 +438,7 @@ export const listingService = {
           { completedAt: { $exists: false }, createdAt: { $gte: evidenceStart } },
         ],
       })
-        .select('listingId startDate endDate pricing.baseAmount completedAt sourceType')
+        .select('publicId ownerId listingId startDate endDate pricing.baseAmount pricing.originalRentalDays completedAt sourceType status pricingEvidenceSnapshot')
         .sort({ completedAt: -1 })
         .limit(PRICING_EVIDENCE_QUERY_LIMIT)
         .lean(),
@@ -451,11 +458,6 @@ export const listingService = {
           },
         },
       ]),
-      BookingModel.countDocuments({
-        ownerId: owner.authId,
-        status: 'completed',
-        paymentStatus: { $in: PRICING_COMPLETED_PAYMENT_STATUSES },
-      }),
       PricingReferenceModel.find({ active: true, sourceType: 'external_asking_price',
         country: 'MY', currency: 'MYR', category: profile.category, subcategory: profile.subcategory,
         observedAt: { $gte: evidenceStart, $lte: new Date() }, dailyPrice: { $gt: 0 },
@@ -466,27 +468,18 @@ export const listingService = {
       }).sort({ observedAt: -1 }).limit(PRICING_EVIDENCE_QUERY_LIMIT).lean(),
     ]);
     const activeCandidates = [
-      ...platformCandidates.map((item) => ({ ...item, sourceType: 'marketplace_listing' })),
+      ...(await withCatalogTypes(platformCandidates.filter((item) => !listingEvidenceReason(item))))
+        .map((item) => ({ ...item, sourceType: 'marketplace_listing' })),
       ...compatiblePriceReferences(externalReferences, profile, await enabledPriceSourceIds()).map((item) => ({ ...item,
         itemAgeYears: item.itemAgeYears ?? undefined, updatedAt: item.observedAt })),
     ];
-    const completedListingIds = [
-      ...new Set(completedBookings.map((booking) => booking.listingId)),
-    ];
-    const completedListings = await ListingModel.find({
-      publicId: { $in: completedListingIds },
-      category: profile.category,
-      listingType: 'physical',
-    })
-      .select('publicId subcategory brand productModel canonicalProductId isbn edition variant packageType condition itemAgeYears location state')
-      .lean();
+    const paymentEvidence = completedBookings.length ? await PaymentModel.find({
+      bookingId: { $in: completedBookings.map((b) => b.publicId) }, type: { $in: ['authorization', 'capture'] },
+    }).select('bookingId simulated type status amount currency gatewayReference createdAt').limit(PRICING_EVIDENCE_QUERY_LIMIT * 4).lean() : [];
     const activeTier = selectComparableTier(activeCandidates, profile);
-    const completedById = new Map(
-      completedListings.map((listing) => [listing.publicId, listing]),
-    );
     const completedCandidates = completedBookings.flatMap((booking) => {
-      const listing = completedById.get(booking.listingId);
-      if (!listing) return [];
+      if (bookingEvidenceReason(booking, paymentEvidence)) return [];
+      const listing = booking.pricingEvidenceSnapshot;
       const dailyPrice = booking.pricing.baseAmount / rentalDays(booking);
       return Number.isFinite(dailyPrice) && dailyPrice > 0
         ? [{
@@ -521,6 +514,8 @@ export const listingService = {
       ? Math.max(...evidenceDates.map((date) => new Date(date).getTime()))
       : null;
     const marketEvidence = {
+      excluded_platform_listing_count: platformCandidates.filter((item) => listingEvidenceReason(item)).length,
+      excluded_completed_rental_count: completedBookings.filter((b) => bookingEvidenceReason(b, paymentEvidence)).length,
       comparable_active_count: activeStats.count,
       comparable_active_median: activeStats.median,
       comparable_active_mean: activeStats.mean,
@@ -554,7 +549,7 @@ export const listingService = {
       rental_duration_days: input.rentalDurationDays ?? 1,
       owner_trust_score: owner.trustScore,
       owner_average_rating: ownerRating[0]?.average ?? 0,
-      owner_completed_rentals: ownerCompletedRentals,
+      owner_completed_rentals: completedBookings.filter((b) => b.ownerId === owner.authId && !bookingEvidenceReason(b, paymentEvidence)).length,
       prediction_month: new Date().getUTCMonth() + 1,
     });
     const disclosure = pricingEvidenceDisclosure(marketEvidence);

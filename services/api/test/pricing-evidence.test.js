@@ -40,10 +40,12 @@ test('counts or catalog identity alone cannot support a precise product price', 
 
 test('uses the narrowest comparable tier with enough evidence', () => {
   const exact = Array.from({ length: 3 }, (_, index) => ({
+    category: 'Devices',
     subcategory: 'Cameras', brand: 'Sony', productModel: 'A7 III',
     state: 'Kuala Lumpur', condition: 'Excellent', dailyPrice: 80 + index,
   }));
   const wider = [{
+    category: 'Devices',
     subcategory: 'Cameras', brand: 'Canon', productModel: 'R6',
     state: 'Kuala Lumpur', condition: 'Good', dailyPrice: 70,
   }];
@@ -86,15 +88,16 @@ test('prefers an exact canonical product across Malaysia over local broad matche
   const items = [
     {
       canonicalProductId: 'wikidata:Q-talon-2',
-      subcategory: 'Bicycles',
-      brand: 'Giant',
-      productModel: 'Talon 2',
+      category: 'Devices', subcategory: 'Cameras',
+      brand: 'Sony',
+      productModel: 'A7 III',
       state: 'Johor',
       location: 'Johor Bahru',
       condition: 'Excellent',
       dailyPrice: 70,
     },
     {
+      category: 'Devices',
       subcategory: 'Cameras',
       brand: 'Canon',
       productModel: 'R6',
@@ -112,6 +115,7 @@ test('prefers an exact canonical product across Malaysia over local broad matche
 
 test('progressively falls back through brand, subcategory and category evidence', () => {
   const brandMatches = [1, 2].map((index) => ({
+    category: 'Devices',
     subcategory: 'Cameras',
     brand: 'Sony',
     productModel: `Other ${index}`,
@@ -124,6 +128,7 @@ test('progressively falls back through brand, subcategory and category evidence'
   );
 
   const subcategoryMatches = [1, 2, 3].map((index) => ({
+    category: 'Devices',
     subcategory: 'Cameras',
     brand: `Maker ${index}`,
     productModel: `Camera ${index}`,
@@ -135,16 +140,19 @@ test('progressively falls back through brand, subcategory and category evidence'
   );
 
   const broadMatches = [1, 2, 3].map((index) => ({
+    category: 'Devices',
     subcategory: 'Audio',
     brand: `Maker ${index}`,
     productModel: `Speaker ${index}`,
     state: 'Johor',
   }));
   assert.equal(selectComparableTier(broadMatches, profile).name, 'category_wide');
+  assert.equal(selectComparableTier(broadMatches, profile).items.length, 0);
 });
 
 test('completed-rental hierarchy separates exact, brand, subcategory and broad tiers', () => {
   const exact = [{
+    category: 'Devices',
     canonicalProductId: 'catalog:camera-a7',
     subcategory: 'Cameras', brand: 'Sony', productModel: 'A7 III', state: 'Johor',
   }];
@@ -153,6 +161,7 @@ test('completed-rental hierarchy separates exact, brand, subcategory and broad t
   }).name, 'exact_canonical_malaysia');
 
   const sameBrand = [1, 2].map((index) => ({
+    category: 'Devices',
     subcategory: 'Cameras', brand: 'Sony', productModel: `A7 sibling ${index}`,
     state: 'Johor', condition: 'Good',
   }));
@@ -160,15 +169,18 @@ test('completed-rental hierarchy separates exact, brand, subcategory and broad t
     'subcategory_brand_malaysia');
 
   const sameSubcategory = [1, 2, 3].map((index) => ({
+    category: 'Devices',
     subcategory: 'Cameras', brand: `Brand ${index}`, state: 'Johor',
   }));
   assert.equal(selectComparableTier(sameSubcategory, profile).name,
     'subcategory_malaysia');
 
   const broad = [1, 2, 3].map((index) => ({
+    category: 'Devices',
     subcategory: 'Audio', brand: `Brand ${index}`, state: 'Johor',
   }));
   assert.equal(selectComparableTier(broad, profile).name, 'category_wide');
+  assert.equal(selectComparableTier(broad, profile).items.length, 0);
 });
 
 test('condition, age, duration and recency improve evidence relevance without price rules', () => {

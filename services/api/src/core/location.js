@@ -46,6 +46,7 @@ export function publicArea(value) {
   return [details.city, details.state || value.state].filter(Boolean).join(', ') || 'Area available after confirmation';
 }
 export function publicListing(value) {
+  if (value.priceProvenance) value.priceProvenance = { origin: value.priceProvenance.origin ?? 'unknown' };
   value.location = publicArea(value);
   const point = value.publicGeoPoint ?? approximatePoint(value.coordinates);
   value.coordinates = point ? { latitude: point.coordinates[1], longitude: point.coordinates[0] } : null;

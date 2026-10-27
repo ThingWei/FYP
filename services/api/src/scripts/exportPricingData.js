@@ -6,6 +6,7 @@ import { env } from '../config/env.js';
 import { PRICE_SOURCES } from '../modules/listing/priceSources.registry.js';
 import { buildPricingTrainingExport } from '../modules/listing/pricingTrainingExport.js';
 import { writeNewExport } from './writeNewExport.js';
+import { catalogTypesFor } from '../modules/catalog/catalog.typeMetadata.js';
 
 export async function readPricingTrainingExport(db, { limit = 10000, now = new Date(), stagedUserIds = [], allStaged = false } = {}) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100000) throw new Error('Limit must be 1–100000');
@@ -16,13 +17,13 @@ export async function readPricingTrainingExport(db, { limit = 10000, now = new D
     if (rows.length > limit) throw new Error('Export limit exceeded; no partial export written. Increase --limit deliberately.');
     return rows;
   };
-  const [listings, bookings, reviews, references, sources] = await Promise.all([
+  const [listings, bookings, reviews, references, sources, payments, catalog] = await Promise.all([
     read('listings', { listingType: 'physical' }, { publicId: 1, ownerId: 1, title: 1, listingType: 1,
       category: 1, subcategory: 1, brand: 1, productModel: 1, canonicalProductId: 1, condition: 1,
       isbn: 1, edition: 1, variant: 1, packageType: 1,
-      itemAgeYears: 1, 'locationDetails.city': 1, state: 1, dailyPrice: 1, status: 1, sourceType: 1, createdAt: 1, updatedAt: 1 }),
+      itemAgeYears: 1, 'locationDetails.city': 1, state: 1, dailyPrice: 1, priceProvenance: 1, status: 1, sourceType: 1, createdAt: 1, updatedAt: 1 }),
     read('bookings', { listingType: 'physical', status: { $in: ['completed', 'active', 'approved'] } },
-      { listingId: 1, renterId: 1, status: 1, startDate: 1, endDate: 1, 'pricing.baseAmount': 1, paymentStatus: 1,
+      { publicId: 1, listingId: 1, renterId: 1, status: 1, startDate: 1, endDate: 1, 'pricing.baseAmount': 1, 'pricing.originalRentalDays': 1, paymentStatus: 1, pricingEvidenceSnapshot: 1,
         completedAt: 1, decidedAt: 1, sourceType: 1, createdAt: 1 }),
     read('reviews', { subjectRole: 'owner', status: 'published' }, { subjectId: 1, overallRating: 1, createdAt: 1 }),
     read('pricing_references', { active: true }, { publicId: 1, observationKey: 1, sourceType: 1,
@@ -30,16 +31,18 @@ export async function readPricingTrainingExport(db, { limit = 10000, now = new D
       isbn: 1, edition: 1, variant: 1, packageType: 1,
       state: 1, quotedAmount: 1, rentalDurationDays: 1, dailyPrice: 1, currency: 1, country: 1, sourceName: 1,
       sourceUrl: 1, observedAt: 1, createdAt: 1, packageNotes: 1, active: 1, collectionMethod: 1, sourceId: 1,
-      sourceProductKey: 1, productType: 1, identityLevel: 1, validationStatus: 1, validatedAt: 1,
+      sourceProductKey: 1, originatingOfferKey: 1, productType: 1, identityLevel: 1, validationStatus: 1, validatedAt: 1,
       durationMinDays: 1, durationMaxDays: 1, reviewedAt: 1, reviewedBy: 1 }),
     read('pricing_sources', { enabled: true }, { sourceId: 1 }),
+    read('payments', { type: { $in: ['authorization', 'capture'] } }, { bookingId: 1, simulated: 1, type: 1, status: 1, amount: 1, currency: 1, gatewayReference: 1, createdAt: 1 }),
+    read('productcatalogs', { entityType: 'product' }, { canonicalProductId: 1, category: 1, subcategory: 1, brand: 1, model: 1, specifications: 1 }),
   ]);
   const approved = new Set(PRICE_SOURCES.filter((s) => s.adapter && env.priceSyncApprovedSources.includes(s.id)).map((s) => s.id));
   const staged = new Set(stagedUserIds);
   const payload = buildPricingTrainingExport({
-    listings: listings.map((row) => allStaged || staged.has(row.ownerId) ? { ...row, sourceType: 'demo_seed' } : row),
+    listings: catalogTypesFor(listings, catalog).map((row) => allStaged || staged.has(row.ownerId) ? { ...row, sourceType: 'demo_seed' } : row),
     bookings: bookings.map((row) => allStaged || staged.has(row.renterId) ? { ...row, sourceType: 'demo_seed' } : row),
-    reviews, references, now,
+    reviews, references, now, payments, includeDemoDiagnostics: allStaged || stagedUserIds.length > 0,
     enabledSourceIds: sources.filter((s) => approved.has(s.sourceId)).map((s) => s.sourceId) });
   payload.activityClassification = allStaged ? 'all_platform_activity_staged_by_caller' : 'existing_markers_and_selected_staged_users';
   payload.summary.activityClassification = payload.activityClassification;

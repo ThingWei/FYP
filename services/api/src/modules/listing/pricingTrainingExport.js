@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { validRentalPrice } from './priceLimits.js';
 import { CATALOG_COVERAGE } from '../catalog/catalog.coverage.js';
 import { productTypeFor } from './priceSources.registry.js';
-import { compatibleProductReference, referencePeriodMatches, referenceIdentityUncertain } from './priceProductDomains.js';
+import { compatibleProductReference, referencePeriodMatches, referenceIdentityUncertain, referenceOfferKey } from './priceProductDomains.js';
+import { listingEvidenceReason, bookingEvidenceReason } from './priceProvenance.js';
 import { PRICING_COMPLETED_PAYMENT_STATUSES, PRICING_EVIDENCE_WINDOW_DAYS,
   robustPriceStats, selectComparableTier } from './pricingEvidence.js';
 
@@ -42,6 +43,8 @@ function base(item, observed, dailyPrice, target, source) {
     observed_at: observed.toISOString(), group_id: trainingProductGroup(item),
     identity_level: item.identityLevel ?? 'named_product',
     product_type: item.productType ?? null,
+    price_origin: item.priceProvenance?.origin ?? (source === 'external_asking_price' ? 'external_reference' : 'unknown'),
+    independent_evidence: source === 'external_asking_price' || !listingEvidenceReason(item),
     isbn: item.isbn || '', edition: item.edition || '', variant: item.variant || '', packageType: item.packageType || '',
     _ownerId: item.ownerId ?? null, _knownAt: observed,
   };
@@ -83,10 +86,11 @@ export function trainingComparableFeatures(row, history, reviews = []) {
     const observed = date(candidate.observed_at);
     const known = date(candidate._knownAt) || date(candidate.available_at) ||
       (candidate.source_type !== 'external_asking_price' ? observed : null);
-    return candidate.group_id !== row.group_id && candidate.category === row.category &&
+    return candidate.group_id !== row.group_id &&
+      !(candidate.origin_offer_key && candidate.origin_offer_key === row.origin_offer_key) && candidate.category === row.category &&
       observed && known && observed < at && known < at &&
       observed >= new Date(at - PRICING_EVIDENCE_WINDOW_DAYS * DAY) &&
-      (row.source_type === 'demo_seed' || candidate.source_type !== 'demo_seed');
+      (candidate.source_type === 'external_asking_price' || candidate.source_type === 'real' && candidate.independent_evidence === true);
   });
   const asCandidate = (r) => ({ ...r, productModel: r.product_model, dailyPrice: r.daily_price,
     identityMatchUncertain: r.source_type === 'external_asking_price' && referenceIdentityUncertain({ ...r, packageNotes: r.package_notes }, row),
@@ -121,16 +125,22 @@ export function trainingComparableFeatures(row, history, reviews = []) {
 }
 
 export function buildPricingTrainingExport({ listings = [], bookings = [], reviews = [], references = [],
-  enabledSourceIds = [], now = new Date() } = {}) {
+  payments = [], includeDemoDiagnostics = false, enabledSourceIds = [], now = new Date() } = {}) {
   const byId = new Map(listings.map((item) => [item.publicId, item]));
   const observations = [], seen = new Map();
+  const excludedPlatform = {};
+  const exclude = (reason) => { excludedPlatform[reason] = (excludedPlatform[reason] ?? 0) + 1; };
   for (const booking of bookings) {
-    const listing = byId.get(booking.listingId);
+    const reason = bookingEvidenceReason(booking, payments);
+    const demo = booking.sourceType === 'demo_seed' || byId.get(booking.listingId)?.sourceType === 'demo_seed';
+    if (reason && !(includeDemoDiagnostics && demo)) { exclude(reason); continue; }
+    const listing = booking.pricingEvidenceSnapshot ?? (demo ? byId.get(booking.listingId) : null);
     if (!listing || listing.listingType !== 'physical' || !['approved', 'active', 'completed'].includes(booking.status) ||
         !['authorized', ...PRICING_COMPLETED_PAYMENT_STATUSES].includes(booking.paymentStatus)) continue;
     const start = date(booking.startDate), end = date(booking.endDate);
     if (!start || !end || end < start) continue;
-    const days = Math.floor((end - start) / DAY) + 1;
+    const days = Number.isInteger(booking.pricing?.originalRentalDays) && booking.pricing.originalRentalDays >= 1
+      ? booking.pricing.originalRentalDays : Math.floor((end - start) / DAY) + 1;
     if (days > 365) continue;
     const price = booking.pricing?.baseAmount / days;
     if (!Number.isFinite(price) || price <= 0 || price > 1_000_000) continue;
@@ -138,29 +148,46 @@ export function buildPricingTrainingExport({ listings = [], bookings = [], revie
     if (isCompleted && !PRICING_COMPLETED_PAYMENT_STATUSES.includes(booking.paymentStatus)) continue;
     const at = date(isCompleted && booking.completedAt) || date(booking.decidedAt) || date(booking.createdAt);
     if (!at || at > now) continue;
-    const demo = booking.sourceType === 'demo_seed' || listing.sourceType === 'demo_seed';
+    const knownAt = new Date(Math.max(+at, +(date(listing.priceProvenance?.reviewedAt) || 0),
+      ...payments.filter((p) => p.bookingId === booking.publicId && p.simulated === false)
+        .map((p) => +(date(p.createdAt) || 0))));
+    if (knownAt > now) { exclude('future_payment_or_review'); continue; }
     observations.push({ ...base(listing, at, price,
       `${demo ? 'demo_seed_' : ''}${isCompleted ? 'completed_rental' : 'accepted_booking'}`, demo ? 'demo_seed' : 'real'),
-    rental_duration_days: days });
+    _knownAt: knownAt, available_at: knownAt.toISOString(),
+    rental_duration_days: days, independent_evidence: !reason,
+    payment_simulated: reason === 'simulated_payment' });
   }
   for (const item of listings) {
     const at = date(item.updatedAt) || date(item.createdAt);
     if (item.listingType !== 'physical' || item.status !== 'active' || !at || at > now ||
         !Number.isFinite(item.dailyPrice) || item.dailyPrice <= 0 || item.dailyPrice > 1_000_000) continue;
     const demo = item.sourceType === 'demo_seed';
+    const reason = listingEvidenceReason(item);
+    if (reason && !(includeDemoDiagnostics && demo)) { exclude(reason); continue; }
+    const knownAt = new Date(Math.max(+at, +(date(item.priceProvenance?.reviewedAt) || 0)));
+    if (knownAt > now) { exclude('future_review'); continue; }
     observations.push({ ...base(item, at, item.dailyPrice, demo ? 'demo_seed_active_asking' : 'active_asking',
-      demo ? 'demo_seed' : 'real'), rental_duration_days: 1 });
+      demo ? 'demo_seed' : 'real'), _knownAt: knownAt, available_at: knownAt.toISOString(),
+      rental_duration_days: 1, independent_evidence: !reason });
   }
   let excludedReferences = 0, duplicates = 0;
+  const quoteFingerprints = new Set();
   for (const reference of references) {
     if (!eligibleTrainingReference(reference, enabledSourceIds, now)) { excludedReferences++; continue; }
-    const key = reference.observationKey || reference.publicId;
+    const offer = reference.originatingOfferKey || referenceOfferKey(reference);
+    const period = [offer, reference.durationMinDays ?? reference.rentalDurationDays,
+      reference.durationMaxDays ?? reference.rentalDurationDays];
+    const key = JSON.stringify([...period, date(reference.observedAt)?.toISOString()]);
     if (!key) { excludedReferences++; continue; }
     if (seen.has(key)) {
       if (seen.get(key) !== reference.dailyPrice) throw new Error('Conflicting reference observations; no export written');
       duplicates++; continue;
     }
     seen.set(key, reference.dailyPrice);
+    const fingerprint = JSON.stringify([...period, reference.dailyPrice]);
+    if (quoteFingerprints.has(fingerprint)) { duplicates++; continue; }
+    quoteFingerprints.add(fingerprint);
     const row = base(reference, date(reference.observedAt), reference.dailyPrice, 'external_asking_price', 'external_asking_price');
     // A spec-only quote must never become a canonical or same-brand identity.
     if (reference.identityLevel === 'specification_only') row.brand = null;
@@ -176,6 +203,7 @@ export function buildPricingTrainingExport({ listings = [], bookings = [], revie
       duration_min_days: reference.durationMinDays ?? days, duration_max_days: reference.durationMaxDays ?? days,
       collection_method: reference.collectionMethod ?? 'manual_csv', source_name: reference.sourceName,
       source_url: reference.sourceUrl, package_notes: reference.packageNotes ?? '',
+      origin_offer_key: hash(offer),
       available_at: row._knownAt.toISOString() });
   }
   observations.sort((a, b) => new Date(a.observed_at) - new Date(b.observed_at) || a.group_id.localeCompare(b.group_id));
@@ -188,6 +216,7 @@ export function buildPricingTrainingExport({ listings = [], bookings = [], revie
   return { schemaVersion: 'renthub-pricing-observations-v2', generatedAt: now.toISOString(), rows,
     summary: { rows: rows.length, sourceTypes: counts('source_type'), targetSources: counts('target_source'),
       excludedReferences, duplicateReferences: duplicates,
+      excludedPlatform,
       limitations: ['Source markers do not independently verify real-world transactions',
         'Current listing metadata is not a historical product-profile snapshot',
         'Advertised asking prices are not completed rentals; no URLs were fetched'] } };

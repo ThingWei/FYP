@@ -1,4 +1,5 @@
 import 'live_price_suggestion.dart';
+import '../../core/pricing/price_origin_draft.dart';
 import '../../core/validation/product_identity_validation.dart';
 import 'live_catalog_picker.dart';
 import 'live_location_picker.dart';
@@ -618,6 +619,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
   String? catalogSource;
   String selectedCatalogMatchType = 'manual_entry';
   Map<String, dynamic>? priceRecommendation;
+  late final priceOrigin =
+      PriceOriginDraft(origin: widget.listing?.priceOrigin ?? 'unknown');
   late final List<String> images;
 
   static const subcategories = <String, List<String>>{
@@ -1087,6 +1090,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   void initState() {
     super.initState();
     images = [...?widget.listing?.images];
+    price.addListener(_priceEdited);
     catalogBrandId = widget.listing?.catalogBrandId.isEmpty == false
         ? widget.listing!.catalogBrandId
         : null;
@@ -1138,6 +1142,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
     expectedRentalDays.dispose();
     super.dispose();
   }
+
+  void _priceEdited() => priceOrigin.edited();
 
   String? _draftError() {
     // Empty fields are deliberately allowed; supplied values still keep their
@@ -1241,6 +1247,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       'category': category,
       'listingType': widget.isService ? 'service' : 'physical',
       'dailyPrice': price.text.trim().isEmpty ? null : double.parse(price.text),
+      if (!widget.isService) 'priceProvenance': priceOrigin.toJson(),
       'location': widget.isService && venueMode == 'online'
           ? 'Online'
           : selectedLocation == null
@@ -1744,6 +1751,12 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   PriceSuggestionView(priceRecommendation!)
                                       .amount!
                                       .toStringAsFixed(2);
+                              priceOrigin.useSuggestion(
+                                  PriceSuggestionView(priceRecommendation!)
+                                      .amount!
+                                      .toDouble(),
+                                  priceRecommendation!['model_version']
+                                      as String?);
                             }),
                           ),
                         ],

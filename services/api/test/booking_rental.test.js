@@ -219,6 +219,12 @@ test('calculates the authoritative camera total and exposes both participant vie
   assert.equal(response.body.data.pricing.damageWaiverFee, 15);
   assert.equal(response.body.data.pricing.total, 570);
   assert.equal(response.body.data.status, 'pending');
+  assert.equal(response.body.data.pricingEvidenceSnapshot, undefined);
+  const savedEvidence = await BookingModel.findOne({ publicId: response.body.data.id }).lean();
+  assert.equal(savedEvidence.pricingEvidenceSnapshot.dailyPrice, 85);
+  assert.equal(savedEvidence.pricingEvidenceSnapshot.priceProvenance.origin, 'unknown');
+  await ListingModel.updateOne({ publicId: 'l-camera' }, { $set: { dailyPrice: 120 } });
+  assert.equal((await BookingModel.findOne({ publicId: response.body.data.id }).lean()).pricingEvidenceSnapshot.dailyPrice, 85);
   assert.equal(
     response.body.data.agreement.version,
     'renthub-booking-v1',

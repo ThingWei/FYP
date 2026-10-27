@@ -1,5 +1,17 @@
 # RentHub AI pricing and product catalog result
 
+## 27 October 2026: independent price provenance and frozen evaluation
+
+[Real-world evidence audit and implementation](AI_PRICING_REAL_WORLD_EVIDENCE_RESULT.md)
+documents the confirmed AI-price feedback path, strict exclusion of unknown/AI/
+simulated platform evidence, future immutable booking profiles, compatible-type
+matching and frozen-model evaluation. The 334 stored asking observations cover
+16/22 subcategories, with no supplied age/condition. No independently cleared new
+preview rows or meaningful chronological prediction errors were established;
+all 24 holdout targets lacked compatible earlier history. No live records or
+deployed model were changed. Older marketplace-labelled counts below are
+historical labels, not proof of independently verified rental transactions.
+
 ## 24 October 2026: catalogue refresh and bounded expansion
 
 [Browsing/freshness result](CATALOGUE_BROWSING_AND_FRESHNESS_RESULT.md) adds

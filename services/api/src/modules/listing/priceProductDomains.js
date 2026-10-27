@@ -4,7 +4,9 @@ import { CATALOG_COVERAGE } from '../catalog/catalog.coverage.js';
 const rules = {
   Smartphones: [['smartphone', /./]],
   Cameras: [['camera_lens', /\blens\b|\b(?:ef|rf|fe|af-s|af-p)\b.*\d.*mm/], ['camera', /./]],
-  Computers: [['desktop', /desktop|\bpc\b|imac|mac mini/], ['laptop', /laptop|notebook|macbook|latitude|thinkpad|\bxps\b|ideapad/]],
+  Computers: [['mouse', /\bmouse\b|\bmx master\b/], ['keyboard', /\bkeyboard\b|\bmx keys\b/],
+    ['monitor', /\bmonitor\b|studio display|thunderbolt display|\bu\d{4}[a-z]+\b/],
+    ['desktop', /desktop|\bpc\b|imac|mac mini/], ['laptop', /laptop|notebook|macbook|latitude|thinkpad|\bxps\b|ideapad/]],
   Audio: [['microphone', /microphone|microfone|\bmic\b|by-m|by-wm|ecm-|wm820/],
     ['headphones', /headphone|earphone|earbud|wh-|wf-|tune |quietcomfort/],
     ['speaker', /speaker|partybox|srs-|charge \d|flip \d|soundlink|xtreme/],
@@ -47,8 +49,9 @@ export const PRICE_PRODUCT_DOMAINS = Object.freeze(CATALOG_COVERAGE.map(({ categ
 export const priceText = (value) => String(value ?? '').normalize('NFKC').toLowerCase()
   .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ');
 
-export function productTypeFor(category, subcategory, text) {
+export function productTypeFor(category, subcategory, text, declaredType) {
   if (!PRICE_PRODUCT_DOMAINS.some((row) => row.category === category && row.subcategory === subcategory)) return null;
+  if (declaredType && rules[subcategory].some(([type]) => type === declaredType)) return declaredType;
   const value = String(text ?? '').normalize('NFKC').toLowerCase().trim();
   if (!value) return null;
   // A mobility scooter must not inherit the generic electric-scooter type.
@@ -84,8 +87,8 @@ const bookTitle = (item) => priceText(model(item).replace(/\b\d+(?:st|nd|rd|th)?
 // catalogue identity cannot override an explicit edition/variant/package conflict.
 export function compatibleProductReference(item, profile) {
   if (item.category !== profile.category || item.subcategory !== profile.subcategory) return false;
-  const requestedType = productTypeFor(profile.category, profile.subcategory, `${profile.brand ?? ''} ${model(profile)}`);
-  const inferredType = productTypeFor(item.category, item.subcategory, `${item.brand ?? ''} ${model(item)}`);
+  const requestedType = productTypeFor(profile.category, profile.subcategory, `${profile.brand ?? ''} ${model(profile)}`, profile.productType ?? profile.product_type);
+  const inferredType = productTypeFor(item.category, item.subcategory, `${item.brand ?? ''} ${model(item)}`, item.productType ?? item.product_type);
   if (!requestedType || !inferredType || requestedType !== inferredType || item.productType && item.productType !== inferredType) return false;
   for (const attribute of [edition, variant]) {
     const offered = attribute(item), requested = attribute(profile);

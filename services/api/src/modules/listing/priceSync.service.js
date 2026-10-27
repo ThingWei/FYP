@@ -231,7 +231,7 @@ export function compatiblePriceReferences(records, profile, enabledSourceIds) {
     if (automatic && (!enabledSourceIds.includes(row.sourceId) || row.validationStatus !== 'accepted' || !row.validatedAt ||
       !row.productType)) continue;
     let key;
-    try { key = automatic ? `${row.sourceId}:${row.sourceProductKey}` : referenceOfferKey(row); }
+    try { key = row.originatingOfferKey || referenceOfferKey(row); }
     catch { continue; }
     const previous = selected.get(key);
     if (previous && +new Date(previous.observedAt) === +new Date(row.observedAt) && previous.dailyPrice !== row.dailyPrice) conflicts.add(key);

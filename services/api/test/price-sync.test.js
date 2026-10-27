@@ -250,11 +250,11 @@ test('automatic evidence reaches inference, source disable and stale dates exclu
   assert.equal(evidence.reviewed_asking_price_count, 0);
   assert.equal(evidence.external_asking_price_count, 1);
   assert.equal(evidence.comparable_active_median, 65);
-  assert.equal(evidence.historical_rental_count, 1);
+  assert.equal(evidence.historical_rental_count, 0); // Unverified legacy rental is preserved but excluded.
   await request(app).patch(endpoint + '/rentism').set(admin).send({ enabled: false, confirmed: true }).expect(200);
-  await price(); assert.equal(evidence.external_asking_price_count, 0); assert.equal(evidence.historical_rental_count, 1);
+  await price(); assert.equal(evidence.external_asking_price_count, 0); assert.equal(evidence.historical_rental_count, 0);
   await enable();
   await PricingReferenceModel.updateMany({}, { $set: { observedAt: new Date(Date.now() - 366 * 86_400_000) } });
-  await price(); assert.equal(evidence.external_asking_price_count, 0); assert.equal(evidence.historical_rental_count, 1);
+  await price(); assert.equal(evidence.external_asking_price_count, 0); assert.equal(evidence.historical_rental_count, 0);
   assert.equal(await BookingModel.countDocuments(), 1);
 });

@@ -305,6 +305,27 @@ function twelveRent(root) {
 const parsers = { rentism, itpa, cilt, drivor, ecocana, goritta, 'rental-guy': rentalGuy,
   'pc-rent': pcRent, jomrent, partymix, futago, irent, '12rent': twelveRent };
 
+// Research-only extension. Deliberately absent from the live registry/allowlist.
+// A source's event-equipment approval does not onboard a new camping page.
+export function parseCampingResearchPreview(content) {
+  const root = readHtml(content), rows = [];
+  let label = '';
+  for (const node of findNodes(root, (n) => ['h2', 'h3', 'p'].includes(n.tag))) {
+    const text = textOf(node);
+    if (node.tag === 'h2' || node.tag === 'h3') { label = node.tag === 'h3' ? text : ''; continue; }
+    if (!/\btent\b/i.test(label) || /bundle|canopy|marquee|\bwith\b|\+/i.test(label)) continue;
+    const rate = text.match(/^One.day reference:\s*RM\s*(\d+(?:\.\d{1,2})?)$/i);
+    if (!rate) continue;
+    rows.push(quote(label, 'Equipment', 'Sports equipment', Number(rate[1]), 1, {
+      specification: true, productType: 'camping_tent',
+      packageNotes: /before (?:applicable )?tax/i.test(textOf(root)) ? 'One-day reference before tax; date-specific final quote not collected.'
+        : 'One-day reference; additional charges unspecified.',
+    }));
+    label = '';
+  }
+  return { rows, diagnosticOnly: true, reusePermissionEstablished: false, enabled: false };
+}
+
 export function parsePriceSource(entry, content, url = entry.urls[0]) {
   if (!entry.adapter) return { rows: [], skipped: ['adapter_pending'], links: [] };
   const root = readHtml(content);

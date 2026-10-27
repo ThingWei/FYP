@@ -30,6 +30,7 @@ const schema = new mongoose.Schema({
   collectionMethod: { type: String, enum: ['manual_csv', 'automatic'], default: 'manual_csv' },
   sourceId: String,
   sourceProductKey: String,
+  originatingOfferKey: String,
   productType: String,
   identityLevel: { type: String, enum: ['named_product', 'specification_only'], default: 'named_product' },
   parserVersion: String,

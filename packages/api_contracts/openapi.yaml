@@ -222,6 +222,8 @@ paths:
                   multipleOf: 0.01
                   description: Null or omitted for an unfinished draft. Physical Books minimum RM0.01; other categories/services minimum RM1. Two decimal places maximum.
                 location: { type: string, maxLength: 160 }
+                priceProvenance:
+                  $ref: '#/components/schemas/PriceOriginDeclaration'
       responses: { '201': { description: Private draft saved; not published or submitted for review } }
   /listings/recommended:
     get:
@@ -447,6 +449,15 @@ components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   schemas:
+    PriceOriginDeclaration:
+      type: object
+      additionalProperties: false
+      required: [origin]
+      description: Optional declaration for listing creation/edits. Does not grant independent-evidence status. Legacy omissions remain unknown; AI lineage persists after edits.
+      properties:
+        origin: { type: string, enum: [unknown, owner_entered, ai_suggested, ai_edited] }
+        suggestedAmount: { type: number, minimum: 0, maximum: 1000000 }
+        modelVersion: { type: string, maxLength: 160 }
     CatalogSuggestions:
       type: object
       properties:

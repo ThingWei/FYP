@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { validRentalPrice, validPricePrecision } from './priceLimits.js';
 import { coordinatesSchema, locationSchema, publicListing } from '../../core/location.js';
 import { LICENCE_CLASSES } from '../user/drivingEligibility.js';
+import { priceProvenanceSchema } from './priceProvenance.schema.js';
 
 export const LISTING_CATEGORIES = [
   'Clothing',
@@ -115,6 +116,7 @@ const listingSchema = new mongoose.Schema(
       },
       message: 'Price must be RM 0.01 or more for physical books, otherwise RM 1 or more; maximum RM 1,000,000 and two decimal places',
     } },
+    priceProvenance: { type: priceProvenanceSchema, default: undefined },
     priceUnit: {
       type: String,
       enum: ['day', 'hour', 'session', 'package'],

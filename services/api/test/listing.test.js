@@ -16,6 +16,7 @@ import { uploadService } from '../src/modules/upload/upload.service.js';
 import { env } from '../src/config/env.js';
 import { CATALOG_COVERAGE } from '../src/modules/catalog/catalog.coverage.js';
 import { catalogItemType } from '../src/modules/catalog/catalog.itemType.js';
+import { reviewedPrice } from './helpers/pricingEvidence.js';
 
 let mongodb;
 
@@ -145,13 +146,14 @@ async function startOwner() {
 }
 
 async function activeListing(overrides = {}) {
-  return ListingModel.create({
+  return ListingModel.create(reviewedPrice({
     publicId: `l-${new ListingModel()._id}`,
     ownerId: 'u-owner',
     ownerName: 'Sarah J.',
     title: 'Sony Alpha Camera',
     category: 'Devices',
     listingType: 'physical',
+    subcategory: 'Cameras', brand: 'Sony', productModel: 'Alpha a7S III',
     dailyPrice: 85,
     condition: 'Excellent',
     securityDeposit: 300,
@@ -160,7 +162,7 @@ async function activeListing(overrides = {}) {
     verified: true,
     status: 'active',
     ...overrides,
-  });
+  }));
 }
 
 test('optional price-comparison identity persists through edits and rejects malformed ISBN/variants', async () => {
@@ -437,6 +439,7 @@ test('only excludes the requesting Owner listing from comparable evidence', asyn
   const requestBody = {
     itemProfile: {
       category: 'Devices',
+      subcategory: 'Cameras', brand: 'Sony', product_model: 'Alpha a7S III',
       condition: 'Excellent',
       state: 'Kuala Lumpur',
     },
@@ -674,6 +677,36 @@ test('selected catalogue object type reaches item analysis and cannot be supplie
     aiClient.verifyItem = original;
     uploadService.readOwnedReferences = originalRead;
   }
+});
+
+test('listing declarations cannot forge price independence and AI lineage survives price edits', async () => {
+  await startOwner();
+  const created = await request(app).post('/api/v1/listings').set(ownerHeaders).send({
+    ...cameraInput, priceProvenance: { origin: 'ai_suggested', suggestedAmount: 85, modelVersion: 'fixture-model' },
+  }).expect(201);
+  const id = created.body.data.id;
+  assert.deepEqual(created.body.data.priceProvenance, { origin: 'ai_suggested' });
+  assert.equal(created.body.data.status, 'draft');
+  const reopen = async () => {
+    const response = await request(app).get('/api/v1/listings/owner/mine').set(ownerHeaders).expect(200);
+    return response.body.data.find((listing) => listing.id === id);
+  };
+  assert.equal((await reopen()).priceProvenance.origin, 'ai_suggested');
+  await request(app).patch(`/api/v1/listings/${id}`).set(ownerHeaders).send({ dailyPrice: 95,
+    priceProvenance: { origin: 'owner_entered', independence: 'reviewed' } }).expect(422);
+  assert.equal((await ListingModel.findOne({ publicId: id })).dailyPrice, 85);
+  const edited = await request(app).patch(`/api/v1/listings/${id}`).set(ownerHeaders).send({ dailyPrice: 95,
+    priceProvenance: { origin: 'owner_entered' } }).expect(200);
+  assert.equal(edited.body.data.priceProvenance.origin, 'ai_edited');
+  const unrelated = await request(app).patch(`/api/v1/listings/${id}`).set(ownerHeaders).send({ description: 'Changed description' }).expect(200);
+  assert.equal(unrelated.body.data.priceProvenance.origin, 'ai_edited');
+  const reopened = await reopen();
+  assert.equal(reopened.dailyPrice, 95);
+  assert.equal(reopened.status, 'draft');
+  assert.equal(reopened.priceProvenance.origin, 'ai_edited');
+  const stored = await ListingModel.findOne({ publicId: id });
+  assert.equal(stored.priceProvenance.independence, 'unverified');
+  assert.equal(stored.priceProvenance.modelVersion, 'fixture-model');
 });
 
 test('services submit without physical item analysis', async () => {

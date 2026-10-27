@@ -49,6 +49,7 @@ REQUIRED_COLUMNS = FEATURES + [
     'daily_price', 'source_type', 'target_source', 'observed_at', 'group_id',
 ]
 PROVENANCE_COLUMNS = [
+    'price_origin', 'independent_evidence', 'payment_simulated', 'origin_offer_key',
     'isbn', 'edition', 'variant', 'packageType',
     'canonicalProductId', 'productMatchType', 'identity_level', 'product_type',
     'collection_method', 'source_name', 'source_url', 'package_notes',
@@ -168,6 +169,14 @@ def _real_rows(path: Path | None) -> pd.DataFrame:
     for column in REQUIRED_COLUMNS:
         if column not in frame:
             frame[column] = np.nan
+    # Older 'real' labels alone do not establish independent evidence. Preserve
+    # deployed artifacts; future training must use reviewed exports instead.
+    independent = frame.get('independent_evidence', pd.Series(False, index=frame.index)).eq(True)
+    origin = frame.get('price_origin', pd.Series('unknown', index=frame.index))
+    clean = independent & ((frame.source_type.eq('external_asking_price') & origin.eq('external_reference')) |
+        (frame.source_type.eq('real') & origin.eq('owner_entered') &
+         ~frame.get('payment_simulated', pd.Series(False, index=frame.index)).eq(True)))
+    frame = frame.loc[clean].copy()
     return frame[REQUIRED_COLUMNS + [c for c in PROVENANCE_COLUMNS if c in frame]]
 
 

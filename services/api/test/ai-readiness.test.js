@@ -88,6 +88,7 @@ test('export file creation never overwrites an earlier export, even concurrently
 
 test('forward-time features reject future, late-known, same-product and demo evidence', () => {
   const subject = { category: 'Devices', subcategory: 'Cameras', group_id: 'subject', brand: 'Canon',
+    independent_evidence: true, price_origin: 'owner_entered',
     product_model: 'R5', state: 'Selangor', rental_duration_days: 1, source_type: 'real',
     observed_at: '2026-10-20T00:00:00Z' };
   const prior = (i, patch = {}) => ({ ...subject, group_id: `prior-${i}`, product_model: `camera-${i}`,

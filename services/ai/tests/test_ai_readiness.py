@@ -127,6 +127,7 @@ def observations(count=40):
         row.update(category='Devices', subcategory='Cameras', brand='Canon', product_model=f'camera-{i}',
                    condition='Good', state='Selangor', item_age_years=1, rental_duration_days=1,
                    source_type='real', target_source='active_asking', daily_price=100 + i,
+                   independent_evidence=True, price_origin='owner_entered',
                    observed_at=f'2026-09-{i + 1:02d}T00:00:00Z' if i < 30 else f'2026-10-{i - 29:02d}T00:00:00Z',
                    group_id=f'group-{i}', comparable_active_median=999999,
                    owner_trust_score=999999, owner_average_rating=999999)
@@ -165,7 +166,7 @@ def test_pricing_evaluation_no_writes_separate_targets_and_baselines(tmp_path):
         def predict(self, frame):
             return np.full(len(frame), self.mean)
     before = {p: p.read_bytes() for p in tmp_path.iterdir()}
-    report = pricing.evaluate(path, cutoff='2026-10-01', pipeline_factory=lambda _: MeanModel())
+    report = pricing.evaluate(path, cutoff='2026-10-01', pipeline_factory=lambda _: MeanModel(), mode='candidate')
     assert report['status'] == 'evaluated' and report['artifactWritten'] is False
     assert report['excludedDemoSyntheticRows'] == 1
     assert report['evaluationByTargetSource']['completed_rental']['samples'] == 1
@@ -191,7 +192,7 @@ def test_pricing_unknown_quote_acquisition_time_and_malformed_data(tmp_path):
 def test_actual_pricing_pipeline_smoke_is_non_deploying(tmp_path):
     path = tmp_path / 'controlled-fixture.json'
     path.write_text(json.dumps({'rows': observations()}))
-    report = pricing.evaluate(path, cutoff='2026-10-01')
+    report = pricing.evaluate(path, cutoff='2026-10-01', mode='candidate')
     assert report['status'] == 'evaluated'
     assert np.isfinite(report['candidate']['mae'])
     assert list(tmp_path.iterdir()) == [path]

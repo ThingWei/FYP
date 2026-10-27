@@ -6,9 +6,10 @@ import { buildPricingTrainingExport, eligibleTrainingReference, trainingProductG
 import { readPricingTrainingExport } from '../src/scripts/exportPricingData.js';
 import { env } from '../src/config/env.js';
 import { buildRecommendationInteractions } from '../src/modules/listing/recommendationInteractions.js';
+import { reviewedPrice, reviewedBooking, realPayment } from './helpers/pricingEvidence.js';
 
 const now = new Date('2026-10-20T00:00:00Z');
-const item = (id, extra = {}) => ({ publicId: id, ownerId: 'private-owner', listingType: 'physical',
+const item = (id, extra = {}) => reviewedPrice({ publicId: id, ownerId: 'private-owner', listingType: 'physical',
   category: 'Devices', subcategory: 'Cameras', brand: 'Canon', productModel: id,
   condition: 'Good', state: 'Selangor', location: 'PRIVATE UNIT', coordinates: [101, 3],
   dailyPrice: 100, status: 'active', updatedAt: new Date('2026-10-19'), ...extra });
@@ -22,7 +23,7 @@ const reference = (id, extra = {}) => ({ publicId: id, observationKey: id,
 const automatic = (id, extra = {}) => reference(id, { collectionMethod: 'automatic', sourceId: 'rentism',
   validatedAt: new Date('2026-10-02'), validationStatus: 'accepted', productType: 'camera',
   durationMinDays: 1, durationMaxDays: 365, ...extra });
-const build = (options) => buildPricingTrainingExport({ now, ...options });
+const build = (options) => buildPricingTrainingExport({ now, includeDemoDiagnostics: true, ...options });
 
 test('reviewed/automated asking observations stay separate from completed rentals and private fields', () => {
   const result = build({ listings: [item('subject')], references: [reference('manual'), automatic('auto')],
@@ -101,8 +102,9 @@ test('completed evidence requires settled/captured payment; demos cannot contami
   const listings = [item('subject'), item('old', { status: 'inactive' }), item('demo', { sourceType: 'demo_seed', status: 'inactive' })];
   const booking = (id, paymentStatus, extra = {}) => ({ listingId: id, status: 'completed', paymentStatus,
     startDate: '2026-09-01', endDate: '2026-09-02', completedAt: '2026-09-03', pricing: { baseAmount: 200 }, ...extra });
-  const result = build({ listings, bookings: [booking('old', 'captured'), booking('old', 'authorized'),
-    booking('demo', 'captured'), booking('old', 'captured', { status: 'cancelled' })] });
+  const bookings = [booking('old', 'captured'), booking('old', 'authorized'), booking('demo', 'captured'),
+    booking('old', 'captured', { status: 'cancelled' })].map((b) => reviewedBooking(b, listings.find((l) => l.publicId === b.listingId)));
+  const result = build({ listings, bookings, payments: bookings.map(realPayment) });
   assert.equal(result.summary.targetSources.completed_rental, 1);
   assert.equal(result.summary.targetSources.demo_seed_completed_rental, 1);
   assert.equal(result.rows.find((r) => r.product_model === 'subject').historical_rental_count, 1);
@@ -186,7 +188,7 @@ test('bounded native database export is read-only and does not create indexes or
     assert.deepEqual(staged.summary.sourceTypes, { external_asking_price: 2, demo_seed: 1 });
     assert.equal(staged.summary.targetSources.demo_seed_active_asking, 1);
     assert.equal(staged.summary.targetSources.active_asking, undefined);
-    assert.equal((await db.collection('listings').findOne({ publicId: 'subject' })).sourceType, undefined);
+    assert.equal((await db.collection('listings').findOne({ publicId: 'subject' })).sourceType, 'marketplace');
     await assert.rejects(readPricingTrainingExport(db, { now, limit: 1 }), /limit exceeded/);
     await assert.rejects(readPricingTrainingExport(db, { now, limit: 0 }), /Limit/);
     await db.collection('pricing_references').insertOne(automatic('auto'));

@@ -6,6 +6,8 @@ import { physicalRentalDate } from '../../core/calendarDate.js';
 import { AppError } from '../../core/errors.js';
 import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { ListingModel } from '../listing/listing.model.js';
+import { pricingSnapshot } from '../listing/priceProvenance.js';
+import { catalogItemType } from '../catalog/catalog.itemType.js';
 import { RentalModel } from '../rental/rental.model.js';
 import {
   ensureBookingThread,
@@ -350,6 +352,9 @@ async function createBooking(input, identity, ensureLockOwned) {
             acceptedAt: new Date(),
           },
           pricing: pricing(listing, startDate, endDate, waiverSelected, input.fulfilmentMethod),
+          ...(listing.listingType === 'physical' && { pricingEvidenceSnapshot: {
+            ...pricingSnapshot(listing), productType: await catalogItemType(listing),
+          } }),
           status: 'pending',
           expiresAt: new Date(
             Date.now() + env.pendingBookingExpiryMinutes * 60 * 1000,

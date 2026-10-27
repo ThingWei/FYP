@@ -1,5 +1,12 @@
 # RentHub real-data collection kit
 
+27 October update: [pricing evidence follow-up](PRICING_EVIDENCE_FOLLOWUP_RESULT.md)
+records the current strict provenance checks, source diagnostics and frozen
+evaluation. The pricing evaluator now defaults to `--mode deployed`; candidate
+fitting requires an explicit separate mode. Current demo checkout cannot generate
+verified nonsimulated payment evidence, even when a booking reaches completed.
+The private transaction template is empty and does not authorize an import.
+
 22 October: [a shorter tester session guide](PRICING_RECOMMENDATION_TEST_SESSION.md)
 and [fresh measured evidence round](PRICING_RECOMMENDATION_EVIDENCE_ROUND1_RESULT.md)
 are available. Both existing export CLIs now support explicit `--all-staged` when

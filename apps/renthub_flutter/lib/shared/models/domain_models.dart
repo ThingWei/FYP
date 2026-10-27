@@ -218,6 +218,7 @@ class Listing {
     this.catalogBrandId = '',
     this.productMatchType = 'manual_entry',
     this.catalogSource = '',
+    this.priceOrigin = 'unknown',
     this.itemAgeYears,
     this.condition = 'Good',
     this.ownerName = 'RentHub Owner',
@@ -271,6 +272,7 @@ class Listing {
   final String state, locationPrecision, venueMode;
   final ListingLocationSelection? locationDetails;
   final String subcategory, brand, productModel;
+  final String priceOrigin;
   final String isbn, edition, variant, packageType;
   final String requiredLicenceClass;
   final String canonicalProductId,
@@ -339,6 +341,9 @@ class Listing {
       catalogBrandId: j['catalogBrandId'] as String? ?? '',
       productMatchType: j['productMatchType'] as String? ?? 'manual_entry',
       catalogSource: j['catalogSource'] as String? ?? '',
+      priceOrigin: j['priceProvenance'] is Map
+          ? (j['priceProvenance']['origin'] as String? ?? 'unknown')
+          : 'unknown',
       itemAgeYears: (j['itemAgeYears'] as num?)?.toDouble(),
       dailyPrice: (j['dailyPrice'] as num?)?.toDouble() ?? 0,
       condition: j['condition'] ?? 'Good',

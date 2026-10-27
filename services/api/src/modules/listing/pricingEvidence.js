@@ -1,4 +1,5 @@
 import { minimumRentalPrice, validRentalPrice } from './priceLimits.js';
+import { compatibleProductReference } from './priceProductDomains.js';
 
 export const PRICING_EVIDENCE_WINDOW_DAYS = 365;
 export const PRICING_EVIDENCE_QUERY_LIMIT = 1000;
@@ -90,15 +91,16 @@ export function evidenceRelevance(item, profile) {
   if (same(item.condition, profile.condition)) score += 8;
   if (same(item.location, profile.location)) score += 10;
   else if (same(item.state, profile.state)) score += 6;
-  const itemAge = Number(item.itemAgeYears ?? item.item_age_years);
-  const requestedAge = Number(profile.item_age_years);
+  const number = (value) => value == null || value === '' ? NaN : Number(value);
+  const itemAge = number(item.itemAgeYears ?? item.item_age_years);
+  const requestedAge = number(profile.item_age_years);
   if (Number.isFinite(itemAge) && Number.isFinite(requestedAge)) {
     score += Math.max(0, 5 - Math.abs(itemAge - requestedAge));
   }
-  const itemDuration = Number(
+  const itemDuration = number(
     item.rentalDurationDays ?? item.rental_duration_days,
   );
-  const requestedDuration = Number(profile.rental_duration_days);
+  const requestedDuration = number(profile.rental_duration_days);
   if (Number.isFinite(itemDuration) && Number.isFinite(requestedDuration)) {
     score += Math.max(0, 4 - Math.abs(itemDuration - requestedDuration));
   }
@@ -112,6 +114,7 @@ export function evidenceRelevance(item, profile) {
 }
 
 export function selectComparableTier(items, profile, minimum) {
+  items = items.filter((item) => compatibleProductReference(item, profile));
   let last = { name: 'category_wide', items: [] };
   for (const level of hierarchy) {
     const matches = items
@@ -125,6 +128,7 @@ export function selectComparableTier(items, profile, minimum) {
 }
 
 export function evidenceCounts(items, profile) {
+  items = items.filter((item) => compatibleProductReference(item, profile));
   const exact = items.filter((item) =>
     canonicalSame(item, profile) || sameProductText(item, profile));
   return {
