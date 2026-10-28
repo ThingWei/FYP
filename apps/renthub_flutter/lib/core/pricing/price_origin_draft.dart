@@ -19,7 +19,8 @@ class PriceOriginDraft {
   }
 
   Map<String, dynamic> toJson() => {
-        'origin': origin,
+        // External-reference origin is server-owned; preserve it on the server.
+        'origin': origin == 'external_reference' ? 'unknown' : origin,
         if (suggestedAmount != null) 'suggestedAmount': suggestedAmount,
         if (modelVersion != null) 'modelVersion': modelVersion,
       };

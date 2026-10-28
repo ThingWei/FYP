@@ -4,6 +4,7 @@ import { catalogProvider, isValidWikidataFallback } from './catalog.provider.js'
 import { searchCuratedCatalog } from './catalog.curated.js';
 import { ProductCatalogModel, PRODUCT_MATCH_TYPES } from './productCatalog.model.js';
 import { catalogResultLimit, MAX_CATALOG_RESULTS, CATALOG_LOOKAHEAD_LIMIT } from './catalog.limits.js';
+import { evidenceSuggestions } from './catalog.evidence.js';
 
 const refreshes = new Map();
 const updateIntervalMs = Math.min(env.catalogCacheTtlHours, 24) * 3_600_000;
@@ -45,7 +46,8 @@ export function normalizeCatalogText(value) {
   return String(value ?? '')
     .normalize('NFKD')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
     .replace(/\s+/g, ' ');
 }
@@ -204,6 +206,7 @@ async function storeProviderItems(input, items) {
 }
 
 async function search(input) {
+  if (input.mode === 'evidence') return evidenceSuggestions(input);
   const limit = Math.min(catalogResultLimit(input), MAX_CATALOG_RESULTS);
   const lookup = { ...input, limit: limit + 1 };
   const key = queryKey(lookup);

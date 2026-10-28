@@ -1,5 +1,44 @@
 # RentHub AI pricing and product catalog result
 
+## 28 October 2026: optional catalogue and evidence-led selection
+
+[Evidence-led selection](EVIDENCE_LED_PRODUCT_SELECTION_RESULT.md) now supplies
+local brand/model suggestions from eligible stored rental references and reviewed
+marketplace identities, with cached/curated fallback and explicit online lookup.
+The catalogue is an optional identity aid, not a rental-price source or a
+prerequisite ID. Selecting a suggestion grants no clean-price/verification status.
+XGBoost, fitted features, pricing calculation, deployed weights and existing
+evidence restrictions are unchanged. No new prices or transactions were imported;
+the comparison-led pricing calculation remains a separate follow-up.
+
+## 28 October 2026: comparison suitability, recovered references and frozen evaluation
+
+[Latest pricing quality result](AI_PRICING_QUALITY_AND_EVALUATION_RESULT.md)
+records the EOS R50 comparison fix, explicit kit/lens identity, reviewed
+manufacturer specifications and source previews. The new bounded audit finds
+313 eligible asking observations across 16/22 subcategories and no verified
+completed-rental evidence. Frozen evaluation abstained on all 24 holdout cases;
+no real-world accuracy claim, training or model replacement follows. Historical
+counts and earlier eligibility statements below must be read in their dated
+context. Current shared provenance restrictions remain authoritative.
+
+## 28 October 2026: rental-length baseline fix
+
+[Rental-length pricing results](PRICING_RENTAL_DURATION_RESULT.md) records the
+shared fix for daily quotes being discarded beyond one expected rental day.
+Daily-rate baselines are qualified; fixed packages, completed averages and
+duration bands keep their restrictions. This does not resolve the separate
+camera-class matching defect or establish pricing accuracy.
+
+## 28 October 2026: comparable-item selection and price explanations
+
+[Similar-item pricing results](SIMILAR_ITEM_PRICING_RESULT.md) documents the new
+bounded selector, unconfirmed matching-model tier, family/known-attribute ranking,
+period restrictions, shared offline feature preparation and clearer owner copy.
+The twelve-product read-only check found four exact, six named-but-unconfirmed
+and two broader reference selections. No sources, records or model weights were
+changed. Existing synthetic-training and real-data limitations remain.
+
 ## 27 October 2026: independent price provenance and frozen evaluation
 
 [Real-world evidence audit and implementation](AI_PRICING_REAL_WORLD_EVIDENCE_RESULT.md)

@@ -1,5 +1,18 @@
 # RentHub product catalog coverage result
 
+## 28 October 2026: evidence-led product selection
+
+[Evidence-led product selection results](EVIDENCE_LED_PRODUCT_SELECTION_RESULT.md)
+supersede the default type-first/provider-refresh workflow described below.
+The live Owner form now browses eligible named rental references/reviewed
+marketplace evidence, then saved catalogue/curated identities. Online catalogue
+search is explicit through **Find more products**. All 22 subcategories have
+local brand/model suggestions; nine currently have named evidence-derived models.
+Unbranded specification-only prices do not become invented manufacturers. The
+existing providers and manual fallback remain available without new enablement,
+bulk imports or fabricated catalogue IDs. See the result for current per-domain
+counts, privacy/provenance rules and test/build results.
+
 ## 25 October 2026: catalogue/evidence/image alignment audit
 
 [Combined read-only gap report](AI_CATALOGUE_EVIDENCE_AND_RECOGNITION_GAP_REPORT.md)

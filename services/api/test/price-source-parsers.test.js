@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { CATALOG_COVERAGE } from '../src/modules/catalog/catalog.coverage.js';
 import { PRICE_SOURCES, PRICE_SOURCE_COVERAGE, FUTURE_PRICE_DOMAINS, priceSource, isAllowedSourceUrl } from '../src/modules/listing/priceSources.registry.js';
 import { parsePriceSource, readHtml } from '../src/modules/listing/priceSource.parsers.js';
@@ -10,8 +9,6 @@ import { evidenceCounts, selectComparableTier } from '../src/modules/listing/pri
 
 // Minimal fixtures mirror inspected public markup; amounts are parser test inputs, not price rules.
 export const SOURCE_FIXTURES = {
-  irent: '<div class="summary entry-summary"><h1 class="product_title">Samsung Galaxy A35 5G phone Rental</h1><p class="price">From RM 22.50 / day</p><div class="product_meta">Category: Smartphone Rental Brand: Samsung</div><div class="irent-discount-table-wrapper"><h4>Rental Pricing Tiers</h4><table><tr><td>1 Day</td><td>Standard</td><td>RM 150.00 / day</td></tr><tr><td>2 - 7 Days</td><td>-25%</td><td>RM 112.50 / day</td></tr><tr><td>8 - 30 Days</td><td>-45%</td><td>RM 82.50 / day</td></tr><tr><td>31+ Days (Yearly)</td><td>-85%</td><td>RM 22.50 / day</td></tr></table></div></div>',
-  '12rent': '<h3>[RENTAL] BOSCH GSR 120-LI CORDLESS DRILL/DRIVER</h3><p>RM 289.62 Total To Pay Now</p><ul><li>Status: Rental</li><li>Brand: Bosch</li><li>Model: GSR 120-LI</li><li>Type: Cordless Drill/Driver</li><li>Lease Term: Daily (DL)</li><li>Lease Rate: RM5.99 DL</li><li>Minimum Rental Period: 7 Days</li></ul>',
   rentism: '<p>Canon Body</p><p>EOS R50 (body only) RM 65/day</p><p>iPhone 15 RM 100/day</p><p>Boya microphone RM 30/day</p><p>Motorola Walkie Talkie RM 20/day</p><p>Godox SK400 lighting RM 40/day</p>',
   itpa: '<table class="rental-rate-table"><tr><td>Dell Latitude laptop</td><td>8GB RAM</td><td>RM 50 / unit / day</td></tr></table>',
   cilt: '<div><h3>PlayStation 5</h3><div><p>Daily</p><p>RM 45</p></div><div><p>3-Day</p><p>RM 120</p></div><div><p>Weekend</p><p>RM 90</p></div></div>',
@@ -40,7 +37,8 @@ test('exactly 22 current domains; toys documented but not silently enabled', () 
   assert.equal(PRICE_SOURCE_COVERAGE.length, 22);
   assert.equal(FUTURE_PRICE_DOMAINS.length, 3);
   assert.ok(!PRICE_SOURCE_COVERAGE.some((row) => /toy/i.test(row.category)));
-  assert.equal(priceSource('avm').adapter, null);
+  assert.equal(PRICE_SOURCES.length, 11);
+  assert.equal(priceSource('avm'), undefined);
 });
 
 for (const [id, content] of Object.entries(SOURCE_FIXTURES)) {
@@ -52,13 +50,30 @@ for (const [id, content] of Object.entries(SOURCE_FIXTURES)) {
       assert.equal(row.collectionMethod, 'automatic');
       assert.equal(row.currency, 'MYR');
       assert.equal(row.validationStatus, 'accepted');
+      assert.ok(['daily_rate','fixed_period','duration_band'].includes(row.rateBasis));
+      assert.equal(row.parserVersion,'3');
       assert.equal(row.reviewedBy, undefined);
       assert.equal(row.canonicalProductId, null);
+      assert.equal(row.condition, null);
+      assert.equal(row.itemAgeYears, null);
       assert.ok(Number.isFinite(row.dailyPrice));
       assert.ok(PRICE_SOURCE_COVERAGE.some((domain) => domain.category === row.category && domain.subcategory === row.subcategory && domain.sourceIds.includes(id)));
     }
   });
 }
+
+test('source parsers distinguish per-day units from one-day packages and duration bands',()=>{
+  const parse=(id,content=SOURCE_FIXTURES[id])=>parsePriceSource(priceSource(id),content).rows;
+  assert.ok(parse('rentism').every(row=>row.rateBasis==='daily_rate'));
+  assert.ok(parse('itpa').every(row=>row.rateBasis==='daily_rate'));
+  assert.deepEqual(parse('cilt').map(row=>row.rateBasis),['daily_rate','fixed_period']);
+  assert.ok(parse('drivor').every(row=>row.rateBasis==='duration_band'));
+  assert.ok(parse('partymix').every(row=>row.rateBasis==='fixed_period'));
+  assert.ok(parse('futago').every(row=>row.rateBasis==='fixed_period'));
+  assert.ok(parse('rental-guy').every(row=>row.rateBasis==='fixed_period'));
+  const rows=parse('rentism','<p>Canon Body</p><p>EOS R50 (body only) RM 180/3 days</p>');
+  assert.equal(rows[0].rateBasis,'fixed_period');assert.equal(rows[0].rentalDurationDays,3);
+});
 test('pending adapters and empty/changed markup fail closed', () => {
   for (const entry of PRICE_SOURCES.filter((source) => !source.adapter)) assert.deepEqual(parsePriceSource(entry, '<p>RM 40/day</p>').rows, []);
   assert.equal(parsePriceSource(priceSource('rentism'), '<p>Changed layout</p>').rows.length, 0);
@@ -91,55 +106,15 @@ test('duration bands are not falsely advertised as one-day quotes or counted rep
   assert.equal(compatiblePriceReferences(rows, profile, []).length, 0);
 });
 
-test('iRent uses explicit product tiers, not the headline minimum or ambiguous yearly price', async () => {
-  const { rows } = await collectSourceQuotes(priceSource('irent'), { fetchText: fixtureFetcher(SOURCE_FIXTURES.irent) });
-  assert.deepEqual(rows.map((r) => [r.quotedAmount, r.rentalDurationDays, r.dailyPrice, r.durationMinDays, r.durationMaxDays]),
-    [[150, 1, 150, 1, 1], [225, 2, 112.5, 2, 7], [660, 8, 82.5, 8, 30]]);
-  assert.ok(rows.every((r) => r.brand === 'Samsung' && r.productModel === 'Galaxy A35 5G'));
-  const profile = { category: 'Devices', subcategory: 'Smartphones', brand: 'Samsung', product_model: 'Galaxy A35 5G', rental_duration_days: 5 };
-  assert.equal(compatiblePriceReferences(rows, profile, ['irent'])[0].dailyPrice, 112.5);
-  assert.equal(compatiblePriceReferences(rows, { ...profile, rental_duration_days: 31 }, ['irent']).length, 0);
-  for (const markup of [SOURCE_FIXTURES.irent.replace('Smartphone Rental', 'Laptop Rental'),
-    SOURCE_FIXTURES.irent.replace('Rental Pricing Tiers', 'Deposit Schedule'),
-    SOURCE_FIXTURES.irent.replaceAll(' / day</td>', '</td>'),
-    '<p>Samsung Galaxy A35 Rental From RM22.50/day</p>']) {
-    assert.equal(parsePriceSource(priceSource('irent'), markup).rows.length, 0);
-  }
-  assert.equal(parsePriceSource(priceSource('irent'), SOURCE_FIXTURES.irent.replace('2 - 7 Days', '1 - 7 Days')).rows.length, 0);
-});
-
-test('12RENT uses labelled lease rate and minimum period, never the checkout/deposit total', async () => {
-  const { rows } = await collectSourceQuotes(priceSource('12rent'), { fetchText: fixtureFetcher(SOURCE_FIXTURES['12rent']) });
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].quotedAmount, 41.93);
-  assert.equal(rows[0].dailyPrice, 5.99);
-  assert.equal(rows[0].rentalDurationDays, 7);
-  assert.equal(rows[0].durationMaxDays, 7);
-  assert.equal(rows[0].brand, 'Bosch');
-  assert.equal(rows[0].productModel, 'GSR 120-LI');
-  for (const [from, to] of [['Status: Rental', 'Status: Sale'], ['Daily (DL)', 'Monthly (ML)'],
-    ['Minimum Rental Period: 7 Days', 'Minimum Rental Period: unknown'], ['RM5.99 DL', 'RM5.999 DL'],
-    ['Model: GSR 120-LI', 'Model: Other Model']]) {
-    assert.equal(parsePriceSource(priceSource('12rent'), SOURCE_FIXTURES['12rent'].replace(from, to)).rows.length, 0);
-  }
-});
-
-test('new source discovery stays allowlisted and malformed robots markup blocks collection', async () => {
-  assert.equal(isAllowedSourceUrl(priceSource('irent'), 'https://irent.my/product/samsung-phone/'), true);
-  assert.equal(isAllowedSourceUrl(priceSource('irent'), 'https://irent.my/wp-admin/private'), false);
-  assert.equal(isAllowedSourceUrl(priceSource('12rent'), 'https://toolrent.instantestore.com/pd-rental-bosch-drill.cfm'), true);
-  assert.equal(isAllowedSourceUrl(priceSource('12rent'), 'https://toolrent.instantestore.com/checkout.cfm'), false);
-  await assert.rejects(collectSourceQuotes(priceSource('12rent'), {
+test('retained-source discovery stays allowlisted and malformed robots blocks collection', async () => {
+  const entry = priceSource('drivor');
+  assert.equal(isAllowedSourceUrl(entry, 'https://drivor.my/vehicle/toyota-camry/'), true);
+  assert.equal(isAllowedSourceUrl(entry, 'https://drivor.my/wp-admin/private'), false);
+  await assert.rejects(collectSourceQuotes(entry, {
     fetchText: async () => '<cfinclude template="/modules/mod_robots.cfm">',
   }), /ACCESS_RESTRICTED/);
-  // Search snippets must not be used to manufacture a RentSmart observation.
-  assert.deepEqual(parsePriceSource(priceSource('rentsmart'), '<p>Laptop RM50/day</p>').rows, []);
-  const output = execFileSync(process.execPath, ['src/scripts/inspectPriceSources.js', 'rentsmart'], { encoding: 'utf8' });
-  const diagnostic = JSON.parse(output);
-  assert.equal(diagnostic.sourceId, 'rentsmart');
-  assert.equal(diagnostic.error, 'ADAPTER_PENDING');
-  assert.equal(diagnostic.databaseWrites, 0);
 });
+
 test('conflicting same-product quotes are quarantined, exact duplicate refreshes deduplicate', async () => {
   const duplicate = SOURCE_FIXTURES.rentism + SOURCE_FIXTURES.rentism;
   const original = await collectSourceQuotes(priceSource('rentism'), { fetchText: fixtureFetcher(SOURCE_FIXTURES.rentism) });

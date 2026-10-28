@@ -50,15 +50,18 @@ test('native audit is bounded, aggregate-only, all-22, respects source gates and
     assert.equal(fiction.storedObservations, 2);
     assert.equal(fiction.excludedObservations, 1);
     assert.equal(report.actions.find((row) => row.subcategory === 'Textbooks').nextAction, 'seek_permissioned_product_quotes');
-    assert.equal(report.actions.find((row) => row.subcategory === 'Sports equipment').nextAction, 'review_source_access');
+    assert.equal(report.actions.find((row) => row.subcategory === 'Sports equipment').nextAction, 'seek_permissioned_product_quotes');
     const camera = report.actions.find((row) => row.subcategory === 'Cameras');
-    assert.deepEqual(camera.missingProductTypes, ['camera']);
+    assert.ok(camera.missingProductTypes.includes('camera'));
+    assert.ok(camera.missingProductTypes.includes('camera_adapter'));
+    assert.equal(camera.missingProductTypes.includes('camera_lens'), false);
     assert.equal(camera.nextAction, 'expand_product_type_evidence');
     assert.equal(camera.observationsWithoutCondition, 1);
     assert.equal(camera.observationsWithoutItemAge, 1);
     assert.equal(report.sources.find((s) => s.sourceId === 'itpa').collectionGate, 'disabled');
-    assert.equal(report.sources.find((s) => s.sourceId === 'irent').collectionGate, 'access_review_required');
-    assert.equal(report.sources.find((s) => s.sourceId === 'rentsmart').collectionGate, 'adapter_unavailable');
+    assert.equal(report.sources.length, 11);
+    assert.equal(report.sources.find((s) => s.sourceId === 'irent'), undefined);
+    assert.equal(report.sources.find((s) => s.sourceId === 'rentsmart'), undefined);
     const serialized = JSON.stringify(report);
     for (const privateValue of ['PRIVATE-', 'example.test/book', 'quotedAmount', 'reviewedBy', 'coordinates']) {
       assert.equal(serialized.includes(privateValue), false, privateValue);

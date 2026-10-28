@@ -55,7 +55,7 @@ test('source status and all source mutations are admin only; strict payload and 
   await request(app).patch(endpoint + '/rentism').set(admin).send({ enabled: 'true', confirmed: true }).expect(400);
   await request(app).post(endpoint + '/rentism/sync').set(admin).send({ confirmed: true, url: 'https://evil.test/' }).expect(400);
   await request(app).patch(endpoint + '/missing').set(admin).send({ enabled: false, confirmed: true }).expect(404);
-  await request(app).patch(endpoint + '/irent').set(admin).send({ enabled: true, confirmed: true }).expect(409);
+  await request(app).patch(endpoint + '/itpa').set(admin).send({ enabled: true, confirmed: true }).expect(409);
   env.priceSyncApprovedSources = [];
   await request(app).patch(endpoint + '/rentism').set(admin).send({ enabled: true, confirmed: true }).expect(409);
   assert.equal(await PricingReferenceModel.countDocuments(), 0);
@@ -76,6 +76,21 @@ test('enable verifies access/parser without inserting observations or fake admin
   assert.equal(await BookingModel.countDocuments(), 0);
   assert.ok(await adminModule.Model.exists({ action: 'pricing_source.synced' }));
 });
+test('body-only and identifiable lens-kit offers remain distinct through normalization and refresh', async () => {
+  const transport = async (url) => url.endsWith('/robots.txt') ? 'User-agent: *\nAllow: /' :
+    '<p>Canon Body</p><p>EOS R50 (body only) RM65/day</p><p>EOS R50 + 18-45mm RM100/day</p>';
+  await setPriceSourceEnabled('rentism', true, identity, { fetchText: transport });
+  const first = await runPriceSourceSync('rentism', { fetchText: transport, force: true });
+  assert.equal(first.acceptedCount, 2);
+  const rows = await PricingReferenceModel.find().lean();
+  assert.equal(new Set(rows.map(row => row.observationKey)).size, 2);
+  assert.equal(new Set(rows.map(row => row.sourceProductKey)).size, 2);
+  assert.equal(rows.find(row => row.packageType === 'with_lens').includedLens, '18-45mm');
+  assert.equal(rows.find(row => row.packageType === 'body_only').quotedAmount, 65);
+  await runPriceSourceSync('rentism', { fetchText: transport, force: true });
+  assert.equal(await PricingReferenceModel.countDocuments(), 2);
+});
+
 test('refresh is idempotent, scheduled jobs respect 24 hours, deactivation survives refresh', async () => {
   await enable(); await runPriceSourceSync('rentism', { fetchText });
   assert.equal((await runPriceSourceSync('rentism', { fetchText })).skipped, true);
@@ -197,39 +212,23 @@ test('specification-only automated quotes can be stored without fabricated brand
   assert.equal(reference.brand, ''); assert.equal(reference.identityLevel, 'specification_only');
   assert.equal(reference.canonicalProductId, null); assert.equal(reference.reviewedBy, undefined);
 });
-test('Goritta stays gated until review; permitted four-day fixtures reach inference without becoming history', async () => {
+test('removed sources stay unavailable despite old enabled records and approval flags', async () => {
+  const removed = ['irent', 'rentsmart', '12rent', 'goritta', 'avm'];
+  env.priceSyncApprovedSources = removed;
   let fetches = 0;
-  const gorittaHtml = '<div class="advc-carousel-images-with-text"><div class="advc-carousel-images-with-text__head">Tents Fee covers up to 4 days of usage</div><li class="advc-carousel-images-with-text__item"><div class="advc-carousel-images-with-text__item-title">Mobi Garden QR Tent - Black Coated</div><div class="advc-carousel-images-with-text__item-description">2-3 person RM112</div></li></div>';
-  const fixture = async (url) => { fetches++; return url.endsWith('/robots.txt') ? 'User-agent: *\nAllow: /' : gorittaHtml; };
-  await assert.rejects(setPriceSourceEnabled('goritta', true, identity, { fetchText: fixture }), { code: 'PRICE_SOURCE_REVIEW_REQUIRED' });
+  const fixture = async () => { fetches++; return 'unused'; };
+  await PriceSourceModel.insertMany(removed.map((sourceId) => ({ sourceId, enabled: true })));
+  for (const id of removed) {
+    await assert.rejects(setPriceSourceEnabled(id, true, identity, { fetchText: fixture }), { code: 'PRICE_SOURCE_NOT_FOUND' });
+    await assert.rejects(runPriceSourceSync(id, { fetchText: fixture, force: true }), { code: 'PRICE_SOURCE_NOT_FOUND' });
+    await request(app).post(endpoint + '/' + id + '/sync').set(admin).send({ confirmed: true }).expect(404);
+  }
+  const response = await request(app).get(endpoint).set(admin).expect(200);
+  assert.equal(response.body.data.sources.length, 11);
+  assert.ok(response.body.data.sources.every((row) => !removed.includes(row.sourceId)));
+  assert.equal(await PriceSourceModel.countDocuments(), 5); // Preserve historical state; no cleanup/migration.
+  assert.equal(await PricingReferenceModel.countDocuments(), 0);
   assert.equal(fetches, 0);
-  assert.equal(await PriceSourceModel.countDocuments(), 0);
-  assert.equal(await PricingReferenceModel.countDocuments(), 0);
-  env.priceSyncApprovedSources = ['goritta']; // Test-only permission configuration, not a publisher-rights claim.
-  await setPriceSourceEnabled('goritta', true, identity, { fetchText: fixture });
-  assert.equal(await PricingReferenceModel.countDocuments(), 0);
-  await runPriceSourceSync('goritta', { fetchText: fixture, force: true });
-  const row = await PricingReferenceModel.findOne().lean();
-  assert.equal(row.quotedAmount, 112);
-  assert.equal(row.rentalDurationDays, 4);
-  assert.equal(row.dailyPrice, 28);
-  assert.equal(row.productModel, 'QR Tent - Black Coated');
-  assert.equal(row.reviewedBy, undefined);
-  await request(app).post('/api/v1/users/session').set(owner).expect(201);
-  let evidence;
-  aiClient.recommendPrice = async (input) => { evidence = input.market_evidence; return { available: true, suggested_daily_price: 28 }; };
-  const input = { itemProfile: { category: 'Equipment', subcategory: 'Sports equipment', brand: 'Mobi Garden',
-    product_model: 'QR Tent - Black Coated', condition: 'Good', item_age_years: 2 }, rentalDurationDays: 4 };
-  await request(app).post('/api/v1/listings/price-recommendation').set(owner).send(input).expect(200);
-  assert.equal(evidence.external_asking_price_count, 1);
-  assert.equal(evidence.historical_rental_count, 0);
-  await request(app).post('/api/v1/listings/price-recommendation').set(owner).send({ ...input, rentalDurationDays: 1 }).expect(200);
-  assert.equal(evidence.external_asking_price_count, 0);
-  assert.equal(await BookingModel.countDocuments(), 0);
-  await PricingReferenceModel.updateOne({ _id: row._id }, { $set: { active: false } });
-  await runPriceSourceSync('goritta', { fetchText: fixture, force: true });
-  assert.equal((await PricingReferenceModel.findById(row._id)).active, false);
-  assert.equal(await PricingReferenceModel.countDocuments(), 1);
 });
 
 test('automatic evidence reaches inference, source disable and stale dates exclude it; history unchanged', async () => {

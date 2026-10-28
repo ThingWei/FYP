@@ -11,7 +11,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw "Launcher syntax errors: $($parseErrors.Count)" }
 
 # Load only these pure/testable helpers, not the launcher's executable body.
-$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines')
+$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -117,10 +117,22 @@ Assert-Launcher (-not (Test-RentHubApiReady)) 'API without saved listing deliver
 $script:apiHealthFixture.data.capabilities += 'listing-delivery-fees-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'API without authorized notification targets must fail'
 $script:apiHealthFixture.data.capabilities += 'notification-targets-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without multi-day pricing baseline support must fail'
+$script:apiHealthFixture.data.capabilities += 'pricing-daily-baseline-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without reviewed product suitability checks must fail'
+$script:apiHealthFixture.data.capabilities += 'pricing-suitability-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without local evidence product selection must fail'
+$script:apiHealthFixture.data.capabilities += 'evidence-led-product-selection-v1'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'
 Remove-Item Function:\Invoke-RestMethod
+
+$apiSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot '..\..\..\services\api\src\app.js')
+Assert-Launcher ($apiSource.Contains("apiCapabilities.push('pricing-daily-baseline-v1')")) 'API and launcher pricing capability must stay aligned'
+Assert-Launcher ((@(Get-RentHubApiArguments) -join ' ') -eq '--watch --watch-path=src src/server.js') 'API watches source only by default'
+Assert-Launcher ((@(Get-RentHubApiArguments -DisableReload) -join ' ') -eq 'src/server.js') 'Stable API opt-out'
+Assert-Launcher ($tree.Extent.Text.Contains('Stop-RentHubOwnedApiProcess -OwnedProcess $apiProcess -StartedAt $apiProcessStartedAt')) 'API watch tree cleanup uses owned-process guard'
 
 $reloadArguments = @(Get-RentHubAiArguments)
 Assert-Launcher (($reloadArguments -join ' ') -eq
@@ -193,4 +205,47 @@ $script:fixtureLookup = $null
 Stop-RentHubOwnedAiProcess -OwnedProcess $ownedFixture -StartedAt $fixtureStartedAt
 Assert-Launcher ($script:killCalls -eq 1) 'Missing process must never be stopped'
 
-Write-Host 'PASS: launcher syntax, AI compatibility, reload arguments and owned-tree cleanup guards.'
+$script:fixtureLookup = [pscustomobject]@{ StartTime = $fixtureStartedAt }
+Stop-RentHubOwnedApiProcess -OwnedProcess $ownedFixture -StartedAt $fixtureStartedAt
+Assert-Launcher ($script:killCalls -eq 2) 'Owned API tree uses the same guarded cleanup'
+$script:fixtureLookup = [pscustomobject]@{ StartTime = $fixtureStartedAt.AddMinutes(1) }
+Stop-RentHubOwnedApiProcess -OwnedProcess $ownedFixture -StartedAt $fixtureStartedAt -WarningAction SilentlyContinue
+Assert-Launcher ($script:killCalls -eq 2) 'Reused API PID must never be stopped'
+$script:fixtureLookup = $null
+Stop-RentHubOwnedApiProcess -OwnedProcess $ownedFixture -StartedAt $fixtureStartedAt
+Assert-Launcher ($script:killCalls -eq 2) 'Missing API process must never be stopped'
+Remove-Item Function:\Get-Process
+Remove-Item Function:\taskkill.exe
+
+if ($Integration) {
+    # Disposable Node parent/child, no RentHub startup and no bound ports.
+    $fixtureNode = (Get-Command node -ErrorAction Stop).Source
+    $nodeTree = Start-Process -FilePath $fixtureNode -ArgumentList @(
+        '-e', '"require(''node:child_process'').spawn(process.execPath,[''-e'',''setInterval(()=>{},1000)'']);setInterval(()=>{},1000)"'
+    ) -WindowStyle Hidden -PassThru
+    $nodeTreeStartedAt = $nodeTree.StartTime
+    try {
+        $nodeFixtureIds = @($nodeTree.Id)
+        for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($nodeTree.Id)")
+            foreach ($child in $children) {
+                if ($child.ProcessId -notin $nodeFixtureIds) { $nodeFixtureIds += $child.ProcessId }
+            }
+            if ($nodeFixtureIds.Count -ge 2) { break }
+            Start-Sleep -Milliseconds 250
+        }
+        Assert-Launcher ($nodeFixtureIds.Count -ge 2) 'Expected disposable Node watch-style parent and child'
+        Stop-RentHubOwnedApiProcess -OwnedProcess $nodeTree -StartedAt $nodeTreeStartedAt
+        for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            $remainingNode = @(Get-Process -Id $nodeFixtureIds -ErrorAction SilentlyContinue)
+            if (-not $remainingNode.Count) { break }
+            Start-Sleep -Milliseconds 250
+        }
+        Assert-Launcher (-not @(Get-Process -Id $nodeFixtureIds -ErrorAction SilentlyContinue).Count) 'Owned Node parent and child must both stop'
+    }
+    finally {
+        Stop-RentHubOwnedApiProcess -OwnedProcess $nodeTree -StartedAt $nodeTreeStartedAt
+    }
+}
+
+Write-Host 'PASS: launcher syntax, AI/API compatibility, source-watch arguments and owned-tree cleanup guards.'

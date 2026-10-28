@@ -10,7 +10,9 @@ import { PriceSourceModel } from './priceSource.model.js';
 import { PRICE_SOURCES, PRICE_SOURCE_COVERAGE, FUTURE_PRICE_DOMAINS, priceSource, productTypeFor, isAllowedSourceUrl } from './priceSources.registry.js';
 import { parsePriceSource } from './priceSource.parsers.js';
 import { checkSourceAccess, fetchSourceText, robotsAllows } from './priceSource.transport.js';
-import { compatibleProductReference, referencePeriodMatches, referenceOfferKey, referenceIdentityUncertain } from './priceProductDomains.js';
+import { compatibleProductReference, referenceOfferKey, referenceIdentityUncertain } from './priceProductDomains.js';
+import { referencePeriodEligibility, validRateBasis } from './pricingPeriods.js';
+import { reviewedComparisonFacts } from './productComparisonFacts.js';
 import { buildPriceCoverage, PRICE_COVERAGE_SCAN_LIMIT } from './priceCoverage.js';
 
 const DAY = 86_400_000, LEASE_MS = 10 * 60_000;
@@ -54,6 +56,8 @@ export async function priceSourcesStatus() {
 }
 
 function normalizeQuote(row, entry, url, now) {
+  if (row.condition != null && !['Fair', 'Good', 'Very good', 'Excellent', 'Like New'].includes(row.condition)) throw new Error('invalid_condition');
+  if (row.itemAgeYears != null && (!Number.isFinite(row.itemAgeYears) || row.itemAgeYears < 0 || row.itemAgeYears > 100)) throw new Error('invalid_item_age');
   if (!PRICE_SOURCE_COVERAGE.some((domain) => domain.category === row.category && domain.subcategory === row.subcategory && domain.sourceIds.includes(entry.id))) throw new Error('wrong_domain');
   if (!row.productType || !row.productModel || row.productModel.length > 120 || (row.brand ?? '').length > 100) throw new Error('unknown_product_type_or_identity');
   if (row.productType !== productTypeFor(row.category, row.subcategory, `${row.brand ?? ''} ${row.productModel}`)) throw new Error('product_type_mismatch');
@@ -62,16 +66,22 @@ function normalizeQuote(row, entry, url, now) {
     !Number.isInteger(days) || days < 1 || days > 365 || !validRentalPrice(amount / days, row.category)) throw new Error('invalid_amount_or_period');
   const min = row.durationMinDays ?? days, max = row.durationMaxDays ?? days;
   if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max > 365 || min > max) throw new Error('invalid_duration_band');
+  if (!validRateBasis(row)) throw new Error('invalid_rate_basis');
   if (/\bfrom\b|starting|chauffeur|crew included|operator included|setup included|service bundle|\$|USD|SGD/i.test(row.packageNotes ?? '')) throw new Error('ambiguous_or_service_quote');
-  const productKey = row.sourceProductKey ?? normalizeCatalogText(`${row.brand ?? ''} ${row.productModel}`);
+  const productKey = row.sourceProductKey ?? (normalizeCatalogText(`${row.brand ?? ''} ${row.productModel}`) +
+    (row.packageType === 'with_lens' ? ':kit:' + normalizeCatalogText(row.includedLens ?? '') : ''));
   const key = createHash('sha256').update(JSON.stringify([entry.id, row.category, row.subcategory,
     productKey, row.productType, min, max])).digest('hex');
   return { observationKey: key, publicId: `pr-${key.slice(0, 32)}`, sourceType: 'external_asking_price',
     collectionMethod: 'automatic', sourceId: entry.id, sourceProductKey: `${row.category}:${row.subcategory}:${row.productType}:${productKey}`,
     category: row.category, subcategory: row.subcategory, brand: row.brand ?? '', productModel: row.productModel,
     productType: row.productType, identityLevel: row.identityLevel,
+    condition: row.condition ?? null, itemAgeYears: row.itemAgeYears ?? null,
     quotedAmount: amount, rentalDurationDays: days, dailyPrice: amount / days,
     durationMinDays: min, durationMaxDays: max, currency: 'MYR', country: 'MY',
+    rateBasis: row.rateBasis ?? 'unknown',
+    includedLens: row.includedLens ?? '', packageType: row.packageType ?? '',
+    comparisonFacts: reviewedComparisonFacts(row),
     sourceName: entry.name, sourceUrl: url, observedAt: now, validatedAt: now,
     parserVersion: entry.parserVersion, validationStatus: 'accepted',
     packageNotes: (row.packageNotes ?? '').slice(0, 500), canonicalProductId: null,
@@ -79,6 +89,7 @@ function normalizeQuote(row, entry, url, now) {
 }
 
 export async function collectSourceQuotes(entry, { fetchText = fetchSourceText, now = new Date(), signal } = {}) {
+  if (!priceSource(entry?.id) || priceSource(entry.id).adapter !== entry.adapter) reject('PRICE_SOURCE_NOT_FOUND', 404);
   // Unlike generic onboarding probes, this publisher explicitly requires prior
   // written reuse permission. Even diagnostics cannot collect without approval.
   if (entry.requiresWrittenPermission && !approved(entry)) reject('PRICE_SOURCE_REVIEW_REQUIRED', 409);
@@ -224,19 +235,26 @@ export async function drainPriceSyncJobs() { await Promise.allSettled([...pendin
 export function compatiblePriceReferences(records, profile, enabledSourceIds) {
   const selected = new Map(), conflicts = new Set();
   const duration = profile.rental_duration_days ?? 1;
-  for (const row of [...records].sort((a, b) => +new Date(b.observedAt) - +new Date(a.observedAt))) {
+  // Applicable tariffs beat a daily baseline for the same originating offer,
+  // even if that baseline was refreshed more recently.
+  for (const row of [...records].sort((a, b) =>
+    Number(referencePeriodEligibility(a, duration).baseline) - Number(referencePeriodEligibility(b, duration).baseline) ||
+    +new Date(b.observedAt) - +new Date(a.observedAt))) {
     if (!validRentalPrice(row.dailyPrice, row.category)) continue;
-    if (!compatibleProductReference(row, profile) || !referencePeriodMatches(row, duration)) continue;
+    const period = referencePeriodEligibility(row, duration);
+    if (!compatibleProductReference(row, profile) || !period.eligible) continue;
     const automatic = row.collectionMethod === 'automatic';
-    if (automatic && (!enabledSourceIds.includes(row.sourceId) || row.validationStatus !== 'accepted' || !row.validatedAt ||
+    if (automatic && (!priceSource(row.sourceId)?.adapter || !enabledSourceIds.includes(row.sourceId) || row.validationStatus !== 'accepted' || !row.validatedAt ||
       !row.productType)) continue;
     let key;
     try { key = row.originatingOfferKey || referenceOfferKey(row); }
     catch { continue; }
     const previous = selected.get(key);
-    if (previous && +new Date(previous.observedAt) === +new Date(row.observedAt) && previous.dailyPrice !== row.dailyPrice) conflicts.add(key);
+    if (previous && previous.durationBaseline === period.baseline &&
+        +new Date(previous.observedAt) === +new Date(row.observedAt) && previous.dailyPrice !== row.dailyPrice) conflicts.add(key);
     // One source product contributes once even when multiple periods overlap.
-    if (!selected.has(key)) selected.set(key, { ...row, identityMatchUncertain: referenceIdentityUncertain(row, profile) });
+    if (!selected.has(key)) selected.set(key, { ...row, rateBasis: period.rateBasis,
+      durationBaseline: period.baseline, identityMatchUncertain: referenceIdentityUncertain(row, profile) });
   }
   return [...selected].filter(([key]) => !conflicts.has(key)).map(([, row]) => row);
 }

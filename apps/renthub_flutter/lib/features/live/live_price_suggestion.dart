@@ -16,6 +16,7 @@ class PriceSuggestionView {
   bool get productSpecific => raw['product_specific_evidence'] == true;
   bool get rough =>
       !productSpecific ||
+      durationBaselineCount > 0 ||
       raw['confidence_label'] != 'high' ||
       (_finite(raw['confidence']) ?? 0) < 0.75 ||
       (!statistical && !trainingKnown) ||
@@ -62,6 +63,58 @@ class PriceSuggestionView {
 
   int count(String key) =>
       (_finite(evidence[key])?.toInt() ?? 0).clamp(0, 1000000);
+  Map get comparisons => raw['comparison_summary'] is Map
+      ? raw['comparison_summary'] as Map
+      : const {};
+  List<Map> get selectedComparisons => ['active', 'historical']
+      .map((key) => comparisons[key])
+      .whereType<Map>()
+      .where((value) =>
+          value['version'] == 'renthub-comparables-v2' &&
+          (_finite(value['selectedCount']) ?? 0) > 0)
+      .toList();
+  bool get similarSupport =>
+      !productSpecific &&
+      selectedComparisons.any((value) =>
+          value['minimumMet'] == true &&
+          (_finite(value['selectedCount']) ?? 0) >= 2 &&
+          {
+            'same_brand_model_family',
+            'same_brand_product_type',
+            'same_product_type'
+          }.contains(value['basis']));
+  String get basisExplanation {
+    if (productSpecific) {
+      return 'This estimate uses prices for the same product. You choose the final price.';
+    }
+    if (selectedComparisons.any((row) =>
+        row['basis'] == 'matching_model_unconfirmed_details' &&
+        row['minimumMet'] == true)) {
+      if (durationBaselineCount > 0 && uncertainDetails == 0) {
+        return 'Based on the matching model’s advertised daily rate. You choose the final price.';
+      }
+      return 'Based on a matching model’s advertised price. Some version or package details are missing, so this is a rough guide.';
+    }
+    if (similarSupport) {
+      return 'Based on comparable rental prices. Exact-model prices are limited. You choose the final price.';
+    }
+    return 'We don’t have enough rental prices for this exact model. This estimate uses broader comparisons.';
+  }
+
+  int get missingAge => selectedComparisons.fold(0,
+      (total, row) => total + (_finite(row['missingAgeCount'])?.toInt() ?? 0));
+  int get missingCondition => selectedComparisons.fold(
+      0,
+      (total, row) =>
+          total + (_finite(row['missingConditionCount'])?.toInt() ?? 0));
+  int get uncertainDetails => selectedComparisons.fold(
+      0,
+      (total, row) =>
+          total + (_finite(row['uncertainIdentityCount'])?.toInt() ?? 0));
+  int get durationBaselineCount => selectedComparisons.fold(
+      0,
+      (total, row) =>
+          total + (_finite(row['durationBaselineCount'])?.toInt() ?? 0));
   String get completedProvenance => evidence
               .containsKey('marketplace_completed_rental_count') &&
           evidence.containsKey('demo_seed_completed_rental_count')
@@ -98,9 +151,12 @@ class LivePriceSuggestion extends StatelessWidget {
                     ?.copyWith(fontWeight: FontWeight.w700)),
             if (view.range != null) Text('Estimated range: ${view.range}'),
             const SizedBox(height: 12),
-            Text(view.productSpecific
-                ? 'This estimate uses prices for the same product. You choose the final price.'
-                : 'We don’t have enough rental prices for this exact model. This estimate uses broader comparisons.'),
+            Text(view.basisExplanation),
+            if (view.durationBaselineCount > 0) ...[
+              const SizedBox(height: 8),
+              const Text(
+                  'Daily rates are used as a guide for your selected rental length. A price or discount for this length has not been confirmed.'),
+            ],
             if (view.syntheticHeavy) ...[
               const SizedBox(height: 8),
               const Text(
@@ -125,6 +181,22 @@ class LivePriceSuggestion extends StatelessWidget {
                     ? 'Based on comparable asking prices or completed rental prices. The price model was unavailable.'
                     : 'Uses comparable prices and a trained price model. Product search identifies the model, not its rental value.'),
                 const SizedBox(height: 8),
+                if (view.selectedComparisons.isNotEmpty) ...[
+                  const Text(
+                      'Uses up to 12 asking-price references and 12 completed rentals. Matching models come first, followed by similar models and the same item type. Known condition, age, rental length and area help choose comparisons.'),
+                  if (view.similarSupport)
+                    const Text(
+                        'Similar models can differ in features and value.'),
+                  if (view.missingAge > 0 || view.missingCondition > 0)
+                    Text(
+                        '${view.missingAge} references have no item age; ${view.missingCondition} have no condition. Missing details are not assumed to match your item.'),
+                  if (view.uncertainDetails > 0)
+                    const Text(
+                        'Some version or package details are missing. Those references are treated as broader comparisons.'),
+                  if (view.comparisons['rangeIncludesComparables'] == true)
+                    const Text(
+                        'The range also covers the selected comparable prices. Prices may fall outside this range.'),
+                ],
                 Text(view.evidence.containsKey('external_asking_price_count')
                     ? '${view.count('marketplace_active_listing_count')} RentHub listings, ${view.count('external_asking_price_count')} advertised rental prices and ${view.count('historical_rental_count')} completed rentals were used.'
                     : '${view.count('comparable_active_count')} listings and ${view.count('historical_rental_count')} completed rentals were used.'),
@@ -133,7 +205,10 @@ class LivePriceSuggestion extends StatelessWidget {
                       'Advertised prices are asking prices, not proof of completed rentals. Rates may vary with rental length and included accessories.'),
                 if (view.evidence.containsKey('automated_asking_price_count'))
                   Text(
-                      '${view.count('automated_asking_price_count')} automatically collected prices and ${view.count('reviewed_asking_price_count')} administrator-reviewed prices. Automatic multi-day quotes are compared only with compatible rental lengths.'),
+                      '${view.count('automated_asking_price_count')} automatically collected prices and ${view.count('reviewed_asking_price_count')} administrator-reviewed prices. Fixed packages and duration-specific quotes are used only for compatible rental lengths.'),
+                if (view.durationBaselineCount > 0)
+                  Text(
+                      '${view.durationBaselineCount} comparisons use published daily rates as a baseline. They do not confirm the advertised total for this rental length.'),
                 Text(view.completedProvenance),
                 if (view.unseenModel)
                   const Text(
@@ -144,8 +219,10 @@ class LivePriceSuggestion extends StatelessWidget {
             ),
             FilledButton(onPressed: onUse, child: const Text('Use this price')),
           ] else ...[
-            const Text(
-                'We can’t suggest a reliable price right now. Enter your own price, or try again later. Your entered price has not changed.'),
+            Text(view.evidence['product_comparison_policy'] ==
+                    'reviewed-class-v1'
+                ? 'We don’t have suitable rental prices for this model and package. Enter your own price, or check the selected package. Your entered price has not changed.'
+                : 'We can’t suggest a reliable price right now. Enter your own price, or try again later. Your entered price has not changed.'),
             TextButton(onPressed: onRetry, child: const Text('Try again')),
           ],
         ]),

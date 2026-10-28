@@ -62,6 +62,7 @@ export function buildRecommendationInteractions({
   views = [],
   bookings = [],
   reviews = [],
+  listings = [],
   includeDemoSeed = false,
   stagedUserIds = [],
   allStaged = false,
@@ -69,36 +70,41 @@ export function buildRecommendationInteractions({
   const interactions = new Map();
   const bookingSourceById = new Map();
   const staged = new Set(stagedUserIds);
+  const demoListings = new Set(listings.filter((listing) => listing.sourceType === 'demo_seed').map((listing) => listing.publicId));
   // Apply explicit export-only classification BEFORE stronger-signal selection.
   // Otherwise an old marketplace-labelled view can hide a staged completion.
-  const sourceFor = (userId, original = 'marketplace') => original === 'synthetic' ? original :
-    allStaged || staged.has(userId) ? 'demo_seed' : original;
-  for (const view of views) retainHigherConfidence(interactions, {
+  const sourceFor = (userId, original = 'marketplace', listingId) => original === 'synthetic' ? original :
+    allStaged || staged.has(userId) || demoListings.has(listingId) ? 'demo_seed' : original;
+  const retain = (interaction) => {
+    if (!includeDemoSeed && interaction.sourceType === 'demo_seed') return;
+    retainHigherConfidence(interactions, interaction);
+  };
+  for (const view of views) retain({
     userId: view.userId, listingId: view.listingId, interactionType: 'viewed',
-    rating: 2, observedAt: validDate(view.lastViewedAt), sourceType: sourceFor(view.userId),
+    rating: 2, observedAt: validDate(view.lastViewedAt), sourceType: sourceFor(view.userId, view.sourceType, view.listingId),
   });
 
   for (const user of users) {
     for (const listingId of user.savedListingIds ?? []) {
-      retainHigherConfidence(interactions, {
+      retain({
         userId: user.authId,
         listingId,
         interactionType: 'saved',
         rating: RECOMMENDATION_INTERACTION_RULES.saved.rating,
         observedAt: validDate(user.updatedAt, user.createdAt),
-        sourceType: sourceFor(user.authId),
+        sourceType: sourceFor(user.authId, undefined, listingId),
       });
     }
   }
 
   for (const booking of bookings) {
-    bookingSourceById.set(booking.publicId, sourceFor(booking.renterId, booking.sourceType));
+    bookingSourceById.set(booking.publicId, sourceFor(booking.renterId, booking.sourceType, booking.listingId));
     if (!ELIGIBLE_BOOKING_STATUSES.has(booking.status)) continue;
-    const sourceType = sourceFor(booking.renterId, booking.sourceType);
+    const sourceType = sourceFor(booking.renterId, booking.sourceType, booking.listingId);
     if (!includeDemoSeed && sourceType === 'demo_seed') continue;
     const completed = booking.status === 'completed';
     const interactionType = completed ? 'completed_rental' : 'booking';
-    retainHigherConfidence(interactions, {
+    retain({
       userId: booking.renterId,
       listingId: booking.listingId,
       interactionType,
@@ -114,9 +120,9 @@ export function buildRecommendationInteractions({
 
   for (const review of reviews) {
     if (review.authorRole !== 'renter' || review.status !== 'published') continue;
-    const sourceType = sourceFor(review.authorId, bookingSourceById.get(review.bookingId));
+    const sourceType = sourceFor(review.authorId, bookingSourceById.get(review.bookingId), review.listingId);
     if (!includeDemoSeed && sourceType === 'demo_seed') continue;
-    retainHigherConfidence(interactions, {
+    retain({
       userId: review.authorId,
       listingId: review.listingId,
       interactionType: 'published_review',

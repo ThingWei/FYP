@@ -363,6 +363,66 @@ test('builds an AI price request from marketplace data without a current price',
   }
 });
 
+test('server rejects an evidence-free AI estimate and cannot accept client-claimed comparison facts', async () => {
+  await startOwner();
+  await activeListing({ publicId: 'l-higher-spec-camera', brand: 'Canon', subcategory: 'Cameras',
+    productModel: 'EOS R6 Mark II', dailyPrice: 350 });
+  const original = aiClient.recommendPrice;
+  let received;
+  aiClient.recommendPrice = async (payload) => {
+    received = payload;
+    return { available: true, suggested_daily_price: 350, lower_bound: 300, upper_bound: 400 };
+  };
+  try {
+    const response = await request(app).post('/api/v1/listings/price-recommendation').set(ownerHeaders).send({
+      itemProfile: { category: 'Devices', subcategory: 'Cameras', brand: 'Canon', product_model: 'EOS R50',
+        condition: 'Excellent', item_age_years: 1, packageType: 'body_only',
+        comparisonFacts: { reviewed: true, sourceUrl: 'https://example.test/forged',
+          attributes: { sensorFormat: 'full_frame', inBodyStabilization: true } } },
+      rentalDurationDays: 1,
+    }).expect(200);
+    assert.equal(received.market_evidence.comparable_active_count, 0);
+    assert.equal(received.item_profile.comparisonFacts.attributes.sensorFormat, 'aps_c');
+    assert.equal(response.body.data.available, false);
+    assert.equal(response.body.data.suggested_daily_price, null);
+    assert.equal(response.body.data.evidence.product_comparison_policy, 'reviewed-class-v1');
+  } finally { aiClient.recommendPrice = original; }
+});
+
+test('broad typed references reach inference with bounded counts and honest range disclosure', async () => {
+  await startOwner();
+  for (let index = 0; index < 16; index++) await activeListing({
+    publicId: `l-similar-${index.toString().padStart(2, '0')}`, brand: 'Maker',
+    subcategory:'Computers', productModel: `NotebookLine ${100 + index} laptop`, dailyPrice: 80 + index,
+    itemAgeYears: index < 12 ? 2 : 9, condition: index < 12 ? 'Excellent' : 'Fair',
+  });
+  await activeListing({publicId:'l-unrelated',subcategory:'Computers',productModel:'Computer mouse'});
+  const original = aiClient.recommendPrice;
+  let received;
+  aiClient.recommendPrice = async (payload) => {
+    received = payload;
+    return {available:true, suggested_daily_price:90, lower_bound:85, upper_bound:92,
+      confidence:0.4, confidence_label:'low',model_source:'global_xgboost',evidence:payload.market_evidence};
+  };
+  try {
+    const response=await request(app).post('/api/v1/listings/price-recommendation').set(ownerHeaders).send({
+      itemProfile:{category:'Devices',subcategory:'Computers',brand:'Maker',product_model:'NotebookLine 200 laptop',
+        condition:'Excellent',item_age_years:2,state:'Kuala Lumpur'},rentalDurationDays:1,
+    }).expect(200);
+    assert.equal(received.market_evidence.comparable_active_count,12);
+    assert.equal(received.market_evidence.active_comparable_tier,'subcategory_brand_malaysia');
+    assert.equal(received.market_evidence.exact_active_count,0);
+    assert.equal(received.market_evidence.historical_rental_count,0);
+    assert.equal(response.body.data.product_specific_evidence,false);
+    assert.equal(response.body.data.comparison_summary.active.candidateCount,16);
+    assert.equal(response.body.data.comparison_summary.active.selectedCount,12);
+    assert.equal(response.body.data.comparison_summary.rangeIncludesComparables,true);
+    assert.equal(response.body.data.lower_bound,80);
+    assert.equal(response.body.data.upper_bound,92);
+    assert.equal(response.body.data.suggested_daily_price,90);
+  } finally { aiClient.recommendPrice=original; }
+});
+
 test('uses a labelled statistical fallback only with sufficient database evidence', async () => {
   await startOwner();
   await Promise.all([

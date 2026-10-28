@@ -1,5 +1,24 @@
 # AI pricing: real-world evidence and feedback-loop improvement
 
+Latest follow-up: [pricing suitability, recovered source observations and frozen evaluation](AI_PRICING_QUALITY_AND_EVALUATION_RESULT.md).
+The R50 cannot inherit higher-spec EOS R prices solely from its name. A new
+read-only audit reports 313 currently eligible asking observations, 249 offers
+and no verified completed rentals; all eligible references lack condition/age.
+The deployed-model forward-time check reports insufficient data (0/24 predictions)
+and an unchanged artifact checksum. Recovered kit quotes and two new-source
+candidates remain private previews, without imports or permission declarations.
+
+28 October follow-up: [similar-item pricing selection and clarity](SIMILAR_ITEM_PRICING_RESULT.md).
+This changes comparable retrieval and disclosure without relaxing provenance or
+claiming independently measured accuracy gains.
+
+Functional test data: [12 source-based demo drafts](MARKET_BASED_DEMO_LISTINGS_RESULT.md)
+were subsequently created at the user's request. They remain excluded from clean
+evidence; no historical transactions were generated.
+
+Latest: [source cleanup and one-command frozen review](PRICING_SOURCE_CLEANUP_AND_READINESS_RESULT.md).
+The old source onboarding state below is retained as audit history.
+
 Audit and implementation: **27 October 2026, Malaysia time**. No live listings,
 bookings, rentals, payment histories, source settings or deployed model artifacts
 were changed. This work improves evidence hygiene; it does not establish better

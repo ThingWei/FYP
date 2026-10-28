@@ -346,7 +346,7 @@ class Listing {
           : 'unknown',
       itemAgeYears: (j['itemAgeYears'] as num?)?.toDouble(),
       dailyPrice: (j['dailyPrice'] as num?)?.toDouble() ?? 0,
-      condition: j['condition'] ?? 'Good',
+      condition: j['condition'] ?? (j['status'] == 'draft' ? '' : 'Good'),
       ownerName: j['ownerName'] ?? 'RentHub Owner',
       ownerTrustScore: (j['ownerTrustScore'] as num?)?.toDouble() ?? 50,
       location: j['location'] ?? '',

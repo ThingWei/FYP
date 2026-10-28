@@ -37,6 +37,51 @@ beforeEach(async () => {
 });
 after(async () => { aiClient.recommendPrice = originalRecommend; await disconnectDatabase(); await mongodb.stop(); });
 
+test('published daily rates support longer requests with qualified evidence and unchanged quote storage', async () => {
+  await request(app).post(endpoint + '/import').set(admin).send({csv:csv({...observation,rateBasis:'daily_rate'}),confirmed:true}).expect(200);
+  let received;
+  aiClient.recommendPrice=async(input)=>{received=input;return{available:input.market_evidence.comparable_active_count>0,
+    suggested_daily_price:65,confidence:0.4,confidence_label:'low',lower_bound:50,upper_bound:80,evidence:input.market_evidence};};
+  for(const days of [1,2,3,7,30]){
+    const response=await request(app).post('/api/v1/listings/price-recommendation').set(owner).send({
+      itemProfile:{category:'Devices',subcategory:'Cameras',condition:'Excellent',brand:'Canon',product_model:'EOS R50',
+        item_age_years:3,packageType:'body_only'},rentalDurationDays:days}).expect(200);
+    assert.equal(received.rental_duration_days,days);
+    assert.equal(received.item_profile.rental_duration_days,days);
+    assert.equal(received.market_evidence.comparable_active_count,1);
+    assert.equal(received.market_evidence.historical_rental_count,0);
+    assert.equal(response.body.data.available,true);
+    assert.equal(response.body.data.product_specific_evidence,days===1);
+    assert.equal(response.body.data.comparison_summary.active.durationBaselineCount,days===1?0:1);
+    assert.equal(response.body.data.comparison_summary.active.requestedRentalDays,days);
+  }
+  const saved=await PricingReferenceModel.findOne().lean();
+  assert.equal(saved.rateBasis,'daily_rate');assert.equal(saved.rentalDurationDays,1);assert.equal(saved.dailyPrice,65);
+  assert.equal(await BookingModel.countDocuments(),0);
+});
+
+test('a quoted three-day package overrides a daily baseline for the same originating offer', async()=>{
+  await request(app).post(endpoint+'/import').set(admin).send({csv:csv({...observation,rateBasis:'daily_rate'},
+    {...observation,rentalDays:'3',quotedAmount:'165',rateBasis:'fixed_period'}),confirmed:true}).expect(200);
+  let received;aiClient.recommendPrice=async(input)=>{received=input;return{available:true,suggested_daily_price:55};};
+  const response=await request(app).post('/api/v1/listings/price-recommendation').set(owner).send({
+    itemProfile:{category:'Devices',subcategory:'Cameras',condition:'Excellent',brand:'Canon',product_model:'EOS R50',
+      packageType:'body_only'},rentalDurationDays:3}).expect(200);
+  assert.equal(received.market_evidence.comparable_active_count,1);
+  assert.equal(received.market_evidence.comparable_active_median,55);
+  assert.equal(response.body.data.comparison_summary.active.durationBaselineCount,0);
+});
+
+test('CSV rate basis is optional, validated and cannot relabel multi-day averages as daily tariffs',async()=>{
+  for(const patch of [{rateBasis:'bad'},{rateBasis:'daily_rate',rentalDays:'7'}, {rateBasis:'duration_band'}]){
+    const response=await request(app).post(endpoint+'/preview').set(admin).send({csv:csv({...observation,...patch})}).expect(200);
+    assert.equal(response.body.data.valid,false);
+  }
+  const response=await request(app).post(endpoint+'/preview').set(admin).send({csv:csv(observation)}).expect(200);
+  assert.equal(response.body.data.rows[0].rateBasis,'fixed_period');
+  assert.equal(await PricingReferenceModel.countDocuments(),0);
+});
+
 test('the sourced starter CSV previews twenty observations without importing them', async () => {
   const content = await readFile(new URL('../../../docs/data/rental_price_references_starter.csv', import.meta.url), 'utf8');
   const response = await request(app).post(endpoint + '/preview').set(admin).send({ csv: content });

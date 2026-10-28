@@ -88,6 +88,8 @@ test('export file creation never overwrites an earlier export, even concurrently
 
 test('forward-time features reject future, late-known, same-product and demo evidence', () => {
   const subject = { category: 'Devices', subcategory: 'Cameras', group_id: 'subject', brand: 'Canon',
+    comparison_facts: { reviewed: true, sourceUrl: 'https://example.test/reviewed-class',
+      attributes: { bodyType: 'mirrorless', sensorFormat: 'full_frame', inBodyStabilization: true } },
     independent_evidence: true, price_origin: 'owner_entered',
     product_model: 'R5', state: 'Selangor', rental_duration_days: 1, source_type: 'real',
     observed_at: '2026-10-20T00:00:00Z' };

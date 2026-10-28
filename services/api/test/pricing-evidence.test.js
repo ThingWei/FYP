@@ -5,7 +5,7 @@ import {
   pricingEvidenceDisclosure,
   evidenceRelevance,
   robustPriceStats,
-  selectComparableTier,
+  selectComparableTier as selectTier,
   statisticalFallback,
   statisticalFallbackConfidence,
 } from '../src/modules/listing/pricingEvidence.js';
@@ -14,6 +14,14 @@ const profile = {
   category: 'Devices', subcategory: 'Cameras', brand: 'Sony',
   product_model: 'A7 III', state: 'Kuala Lumpur', condition: 'Excellent',
 };
+
+// Hierarchy fixtures represent independently reviewed, compatible camera classes.
+// Unknown/mismatched class behaviour is tested in pricing-suitability.test.js.
+const fixtureClass = { reviewed: true, sourceUrl: 'https://example.test/reviewed-camera-class',
+  attributes: { bodyType: 'mirrorless', sensorFormat: 'full_frame', inBodyStabilization: true } };
+const selectComparableTier = (items, p, minimum) => selectTier(
+  items.map(item => ({ ...item, comparisonFacts: item.comparisonFacts ?? fixtureClass })),
+  { ...p, comparisonFacts: p.comparisonFacts ?? fixtureClass }, minimum);
 
 test('pricing disclosures distinguish exact, brand, subcategory and category evidence', () => {
   for (const [tier, scope] of [
@@ -110,7 +118,7 @@ test('prefers an exact canonical product across Malaysia over local broad matche
   const selected = selectComparableTier(items, canonicalProfile);
   assert.equal(selected.name, 'exact_canonical_malaysia');
   assert.equal(selected.items[0].dailyPrice, 70);
-  assert.deepEqual(evidenceCounts(items, canonicalProfile), { exact: 1, similar: 1 });
+  assert.deepEqual(evidenceCounts(items, canonicalProfile), { exact: 1, similar: 0 });
 });
 
 test('progressively falls back through brand, subcategory and category evidence', () => {

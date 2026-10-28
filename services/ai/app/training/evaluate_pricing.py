@@ -28,6 +28,15 @@ def load_observations(path):
     if not isinstance(rows, list) or len(rows) > 10000:
         raise ValueError('Expected at most 10000 observations')
     frame = pd.DataFrame(rows)
+    coverage = payload.get('catalogCoverage', []) if isinstance(payload, dict) else []
+    if not isinstance(coverage, list) or len(coverage) > 100 or any(
+            not isinstance(domain, dict) or any(not isinstance(domain.get(key), str) or
+                not domain[key].strip() or len(domain[key]) > 100 for key in ('category', 'subcategory'))
+            for domain in coverage):
+        raise ValueError('Invalid catalogue coverage metadata')
+    if len({(d['category'], d['subcategory']) for d in coverage}) != len(coverage):
+        raise ValueError('Duplicate catalogue coverage metadata')
+    frame.attrs['catalog_coverage'] = coverage
     for column in REQUIRED_COLUMNS:
         if column not in frame:
             frame[column] = None
@@ -125,12 +134,15 @@ def evaluate(path, *, cutoff=None, seed=42, pipeline_factory=_pipeline, mode='de
                   'Owner history aggregates are excluded because fold-local history is unavailable',
                   'No live artifact comparison or automatic deployment is performed']}
     if frame.empty:
-        return {**report, 'inputRows': 0, 'trainRows': 0, 'testRows': 0}
+        report.update(inputRows=0, trainRows=0, testRows=0, modelMode=mode,
+                      evidenceReadiness=evidence_readiness(frame, frame.attrs.get('catalog_coverage', [])))
+        return frozen_evaluation(report, frame, frame, artifact_path) if mode == 'deployed' else report
     independent = frame.get('independent_evidence', pd.Series(False, index=frame.index)).eq(True)
     origin = frame.get('price_origin', pd.Series('unknown', index=frame.index))
     eligible = frame.loc[independent & ((frame.source_type.eq('external_asking_price') & origin.eq('external_reference')) |
         (frame.source_type.eq('real') & origin.eq('owner_entered') &
          ~frame.get('payment_simulated', pd.Series(False, index=frame.index)).eq(True)))].copy()
+    report['evidenceReadiness'] = evidence_readiness(eligible, frame.attrs.get('catalog_coverage', []))
     report.update(inputRows=len(frame), excludedDemoSyntheticRows=len(frame) - len(eligible))
     report.update(modelMode=mode, excludedProvenanceRows=len(frame) - len(eligible),
                   excludedSourceCounts=frame.loc[~frame.index.isin(eligible.index)].source_type.value_counts().to_dict())
@@ -158,6 +170,49 @@ def evaluate(path, *, cutoff=None, seed=42, pipeline_factory=_pipeline, mode='de
                   evaluationByTargetSource=cohort_metrics(test_features, predicted, baseline),
                   holdoutEvidenceTiers=test_features.active_comparable_tier.value_counts().to_dict())
     return report
+
+
+def evidence_readiness(frame, coverage):
+    """Aggregate gaps only; cohort size/field presence is never training permission."""
+    expected = [(d['category'], d['subcategory']) for d in coverage]
+    observed = list(frame[['category', 'subcategory']].drop_duplicates().itertuples(index=False, name=None)) if len(frame) else []
+    domains = list(dict.fromkeys(expected + observed))
+    rows = []
+    for category, subcategory in domains:
+        cohort = frame.loc[frame.category.eq(category) & frame.subcategory.eq(subcategory)] if len(frame) else frame
+        count = len(cohort)
+        conditions = cohort.get('condition', pd.Series(dtype=object)).isin(['Fair', 'Good', 'Very good', 'Excellent', 'Like New'])
+        ages = pd.to_numeric(cohort.get('item_age_years', pd.Series(dtype=float)), errors='coerce')
+        targets = cohort.get('target_source', pd.Series(dtype=object))
+        origins = cohort.get('source_type', pd.Series(dtype=object))
+        rows.append({'category': category, 'subcategory': subcategory, 'eligibleRows': count,
+            'distinctProductGroups': int(cohort.group_id.nunique()) if count else 0,
+            'askingPriceRows': int(targets.isin(['active_asking', 'external_asking_price']).sum()),
+            'acceptedBookingRows': int((origins.eq('real') & targets.eq('accepted_booking')).sum()),
+            'verifiedCompletedRentalRows': int((origins.eq('real') & targets.eq('completed_rental')).sum()),
+            'withCondition': int(conditions.sum()), 'withItemAge': int(ages.notna().sum()),
+            'withBothConditionAndItemAge': int((conditions & ages.notna()).sum()),
+            'distinctKnownAges': int(ages.nunique()),
+            'status': 'missing_evidence' if not count else 'evidence_requires_evaluation'})
+    missing = sum(r['eligibleRows'] == 0 for r in rows)
+    completed = sum(r['verifiedCompletedRentalRows'] for r in rows)
+    gaps = []
+    if not coverage:
+        gaps.append('expected_catalogue_coverage_unknown_in_legacy_export')
+    if missing:
+        gaps.append('missing_subcategory_evidence')
+    if not completed:
+        gaps.append('no_verified_completed_rental_evidence')
+    if sum(r['withCondition'] for r in rows) < len(frame):
+        gaps.append('condition_values_missing_or_unknown')
+    if sum(r['withItemAge'] for r in rows) < len(frame):
+        gaps.append('item_age_values_missing_or_unknown')
+    return {'expectedSubcategories': len(expected) if coverage else None, 'reportedSubcategories': len(rows),
+        'subcategoriesWithEvidence': sum(r['eligibleRows'] > 0 for r in rows),
+        'missingSubcategories': missing, 'verifiedCompletedRentalRows': completed, 'dataGaps': gaps,
+        'candidateTrainingDecision': 'not_justified_by_current_data' if gaps else 'requires_separate_review',
+        'automaticTrainingAllowed': False, 'rows': rows,
+        'limitation': 'Field completeness and row counts do not establish independence, accuracy or learned age/condition effects.'}
 
 
 def safe_metrics(actual, predicted):

@@ -11,12 +11,60 @@ class CatalogPage {
       this.refreshNeeded = false,
       this.stale = false,
       this.providerAvailable = true,
-      this.reachedLimit = false});
+      this.reachedLimit = false,
+      this.evidenceLed = false,
+      this.scanLimited = false});
 
   final List<Map<String, dynamic>> items;
   final int limit;
   final int? nextLimit;
   final bool refreshNeeded, stale, providerAvailable, reachedLimit;
+  final bool evidenceLed, scanLimited;
+
+  CatalogPage mergeCatalogue(CatalogPage other) {
+    String normalized(Object? value) => '${value ?? ''}'
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\s\-]+'), ' ');
+    String key(Map<String, dynamic> row) => [
+          'brand',
+          'model',
+          'variant',
+          'edition',
+          'isbn',
+          'packageType',
+          'includedLens'
+        ].map((name) => normalized(row[name])).join('|');
+    final merged = <String, Map<String, dynamic>>{};
+    for (final row in items) {
+      merged[key(row)] = row;
+    }
+    for (final row in other.items) {
+      final saved = merged[key(row)];
+      merged[key(row)] = saved == null
+          ? {...row, 'selectionSource': 'catalogue'}
+          : {
+              ...row,
+              ...saved,
+              'canonicalProductId':
+                  saved['canonicalProductId'] ?? row['canonicalProductId'],
+              'catalogBrandId':
+                  saved['catalogBrandId'] ?? row['catalogBrandId'],
+              'catalogSource': saved['catalogSource'] ?? row['catalogSource'],
+            };
+    }
+    final more =
+        merged.length > limit || nextLimit != null || other.nextLimit != null;
+    return CatalogPage(
+        items: merged.values.take(limit).toList(),
+        limit: limit,
+        nextLimit: more && limit < 120 ? (limit + 12).clamp(1, 120) : null,
+        providerAvailable: other.providerAvailable,
+        stale: other.stale,
+        reachedLimit: limit == 120 && more,
+        evidenceLed: true,
+        scanLimited: scanLimited || other.scanLimited);
+  }
 
   factory CatalogPage.fromEnvelope(Map<String, dynamic> envelope,
       {int requestedLimit = 12}) {
@@ -40,7 +88,8 @@ class CatalogPage {
           'refreshNeeded',
           'stale',
           'providerAvailable',
-          'reachedLimit'
+          'reachedLimit',
+          'scanLimited'
         ].any((key) => meta[key] != null && meta[key] is! bool)) {
       throw ApiException(502, 'Unexpected catalogue response',
           code: 'INVALID_RESPONSE');
@@ -58,6 +107,8 @@ class CatalogPage {
       stale: meta['stale'] == true,
       providerAvailable: meta['providerAvailable'] != false,
       reachedLimit: meta['reachedLimit'] == true,
+      evidenceLed: meta['mode'] == 'evidence',
+      scanLimited: meta['scanLimited'] == true,
     );
   }
 }

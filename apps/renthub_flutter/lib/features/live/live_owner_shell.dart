@@ -606,6 +606,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   String subcategory = 'Smartphones';
   String requiredLicenceClass = '';
   String condition = 'Excellent';
+  final conditionFieldKey = GlobalKey<FormFieldState<String>>();
   bool saving = false;
   bool addingImages = false;
   bool checkingIdentity = false;
@@ -617,6 +618,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   String? catalogBrandId;
   String? canonicalProductId;
   String? catalogSource;
+  String? selectedSuggestionSource;
   String selectedCatalogMatchType = 'manual_entry';
   Map<String, dynamic>? priceRecommendation;
   late final priceOrigin =
@@ -773,6 +775,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       );
 
   void _clearCatalogIdentity() {
+    selectedSuggestionSource = null;
     _clearComparisonDetails();
     brand.clear();
     productModel.clear();
@@ -786,6 +789,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   void _manualBrandChanged(String value) {
     setState(() {
+      selectedSuggestionSource = null;
       _clearComparisonDetails();
       priceRecommendation = null;
       catalogBrandId = null;
@@ -797,6 +801,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   void _manualModelChanged(String value) {
     setState(() {
+      selectedSuggestionSource = null;
       _clearComparisonDetails();
       priceRecommendation = null;
       canonicalProductId = null;
@@ -806,6 +811,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   void _toggleManualBrand() {
     setState(() {
+      selectedSuggestionSource = null;
       manualBrand = !manualBrand;
       manualModel = manualBrand;
       catalogBrandId = null;
@@ -818,6 +824,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   void _toggleManualModel() {
     setState(() {
+      selectedSuggestionSource = null;
       manualModel = !manualModel;
       canonicalProductId = null;
       selectedCatalogMatchType = 'manual_entry';
@@ -828,6 +835,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   Future<void> _pickBrand() async {
     final requestedCategory = category, requestedSubcategory = subcategory;
     final controller = context.read<LiveRentHubController>();
+    final requestedAccount = controller.profile?.id;
     final result = await showCatalogPicker(
       context,
       title: category == RentHubCategories.books
@@ -841,12 +849,23 @@ class _LiveListingFormState extends State<LiveListingForm> {
               category: requestedCategory,
               subcategory: requestedSubcategory,
               query: query,
+              mode: 'evidence',
+              limit: limit,
+              refresh: refresh,
+              preferCache: preferCache),
+      findMorePage: (query,
+              {required limit, required refresh, required preferCache}) =>
+          controller.loadCatalogPage(
+              category: requestedCategory,
+              subcategory: requestedSubcategory,
+              query: query,
               limit: limit,
               refresh: refresh,
               preferCache: preferCache),
     );
     if (!mounted ||
         result == null ||
+        controller.profile?.id != requestedAccount ||
         category != requestedCategory ||
         subcategory != requestedSubcategory) {
       return;
@@ -864,6 +883,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       manualBrand = false;
       manualModel = false;
       if (changed) {
+        selectedSuggestionSource = null;
         _clearComparisonDetails();
         productModel.clear();
         canonicalProductId = null;
@@ -879,8 +899,9 @@ class _LiveListingFormState extends State<LiveListingForm> {
   Future<void> _pickModel() async {
     final requestedCategory = category, requestedSubcategory = subcategory;
     final requestedBrand = brand.text, requestedId = catalogBrandId;
-    if (requestedId == null) return;
+    if (requestedBrand.trim().isEmpty) return;
     final controller = context.read<LiveRentHubController>();
+    final requestedAccount = controller.profile?.id;
     final result = await showCatalogPicker(
       context,
       title: category == RentHubCategories.books
@@ -896,12 +917,25 @@ class _LiveListingFormState extends State<LiveListingForm> {
               brand: requestedBrand,
               catalogBrandId: requestedId,
               query: query,
+              mode: 'evidence',
+              limit: limit,
+              refresh: refresh,
+              preferCache: preferCache),
+      findMorePage: (query,
+              {required limit, required refresh, required preferCache}) =>
+          controller.loadCatalogPage(
+              category: requestedCategory,
+              subcategory: requestedSubcategory,
+              brand: requestedBrand,
+              catalogBrandId: requestedId,
+              query: query,
               limit: limit,
               refresh: refresh,
               preferCache: preferCache),
     );
     if (!mounted ||
         result == null ||
+        controller.profile?.id != requestedAccount ||
         category != requestedCategory ||
         subcategory != requestedSubcategory ||
         catalogBrandId != requestedId ||
@@ -914,10 +948,30 @@ class _LiveListingFormState extends State<LiveListingForm> {
       return;
     }
     setState(() {
-      if (productModel.text != result['model']) _clearComparisonDetails();
+      if (productModel.text != result['model'] ||
+          (result['packageType'] is String &&
+              (result['packageType'] as String).isNotEmpty &&
+              result['packageType'] != packageType)) {
+        _clearComparisonDetails();
+      }
       productModel.text = result['model'] as String? ?? '';
       canonicalProductId = result['canonicalProductId'] as String?;
       catalogSource = result['catalogSource'] as String?;
+      selectedSuggestionSource =
+          result['selectionSource'] as String? ?? 'catalogue';
+      for (final entry
+          in {'variant': variant, 'edition': edition, 'isbn': isbn}.entries) {
+        final value = result[entry.key];
+        if (value is String && value.isNotEmpty) entry.value.text = value;
+      }
+      final lens = result['includedLens'];
+      if (lens is String && lens.isNotEmpty) variant.text = lens;
+      final selectedPackage = result['packageType'];
+      if (selectedPackage is String &&
+          ['item_only', 'body_only', 'with_lens', 'equipment_set']
+              .contains(selectedPackage)) {
+        packageType = selectedPackage;
+      }
       // Explicitly selecting an entry is an exact selection, not a fuzzy search guess.
       selectedCatalogMatchType = 'exact_catalog_match';
       manualModel = false;
@@ -971,6 +1025,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
     var valid = true;
     validatingPricing = true;
     for (final key in [
+      conditionFieldKey,
       brandFieldKey,
       modelFieldKey,
       ageFieldKey,
@@ -1196,6 +1251,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
 
   Future<void> _save({bool submitForReview = true}) async {
     if (saving || checkingIdentity || addingImages) return;
+    if (!submitForReview && widget.listing?.status == 'active') return;
     if (submitForReview) {
       if (!InputValidation.validate(context) ||
           !formKey.currentState!.validate()) {
@@ -1291,7 +1347,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
         'itemAgeYears':
             itemAge.text.trim().isEmpty ? null : double.parse(itemAge.text),
         'priceUnit': 'day',
-        'condition': condition,
+        if (condition.isNotEmpty) 'condition': condition,
         if (deposit.text.trim().isNotEmpty)
           'securityDeposit': double.parse(deposit.text),
         if (deliveryFee.text.trim().isNotEmpty)
@@ -1531,7 +1587,12 @@ class _LiveListingFormState extends State<LiveListingForm> {
                         ],
                         DropdownButtonFormField<String>(
                           isExpanded: true,
-                          initialValue: condition,
+                          key: conditionFieldKey,
+                          initialValue: condition.isEmpty ? null : condition,
+                          hint: const Text('Choose condition'),
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Choose the item condition'
+                              : null,
                           decoration:
                               const InputDecoration(labelText: 'Condition'),
                           items: const [
@@ -1589,8 +1650,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                         TextFormField(
                           controller: productModel,
                           key: modelFieldKey,
-                          enabled: brand.text.trim().isNotEmpty &&
-                              (manualBrand || catalogBrandId != null),
+                          enabled: brand.text.trim().isNotEmpty,
                           readOnly: !manualModel && !manualBrand,
                           onTap: manualModel || manualBrand ? null : _pickModel,
                           onChanged: _manualModelChanged,
@@ -1617,7 +1677,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                               InputValidation.lengthEnforcement,
                         ),
                         _comparisonDetails(),
-                        if (catalogBrandId != null)
+                        if (brand.text.trim().isNotEmpty && !manualBrand)
                           Align(
                               alignment: Alignment.centerLeft,
                               child: TextButton(
@@ -1625,7 +1685,18 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   child: Text(manualModel
                                       ? 'Choose from the catalogue'
                                       : 'Enter model manually'))),
-                        if (canonicalProductId != null)
+                        if (selectedSuggestionSource == 'rental_reference' ||
+                            selectedSuggestionSource == 'marketplace_evidence')
+                          ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.check_circle_outline,
+                                  color: AppColors.primary),
+                              title: const Text('Product selected'),
+                              subtitle: Text(selectedSuggestionSource ==
+                                      'rental_reference'
+                                  ? 'Found in rental references. This does not verify your item or its price.'
+                                  : 'Found in reviewed marketplace evidence. This does not verify your item or its price.'))
+                        else if (canonicalProductId != null)
                           const ListTile(
                             contentPadding: EdgeInsets.zero,
                             leading: Icon(
@@ -1872,20 +1943,25 @@ class _LiveListingFormState extends State<LiveListingForm> {
                               InputValidation.lengthEnforcement,
                         ),
                       const SizedBox(height: 20),
-                      const Text(
-                          'You can save an unfinished draft and complete it later. All required details and approved MyKad verification are needed only when submitting for review.'),
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: saving || checkingIdentity
-                            ? null
-                            : () => _save(submitForReview: false),
-                        child: const Text('Save Draft'),
-                      ),
+                      Text(widget.listing?.status == 'active'
+                          ? 'Changes to a published listing need review before it can appear again.'
+                          : 'You can save an unfinished draft and complete it later. All required details and approved MyKad verification are needed only when submitting for review.'),
+                      if (widget.listing?.status != 'active') ...[
+                        const SizedBox(height: 12),
+                        OutlinedButton(
+                          onPressed: saving || checkingIdentity
+                              ? null
+                              : () => _save(submitForReview: false),
+                          child: const Text('Save Draft'),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       RentHubActionButton(
-                        label: widget.listing == null
-                            ? 'Save & Submit for Review'
-                            : 'Save Changes & Resubmit',
+                        label: widget.listing?.status == 'active'
+                            ? 'Save changes & submit for review'
+                            : widget.listing == null
+                                ? 'Save & Submit for Review'
+                                : 'Save Changes & Resubmit',
                         loading: saving || checkingIdentity,
                         onPressed:
                             saving || checkingIdentity ? null : () => _save(),

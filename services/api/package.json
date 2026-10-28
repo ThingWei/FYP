@@ -10,6 +10,8 @@
     "backfill:public-locations": "node src/scripts/backfillPublicLocations.js",
     "migrate:marketplace-roles": "node src/scripts/migrateMarketplaceRoles.js",
     "seed:pricing-demo": "node src/scripts/seedDemoPricingHistory.js",
+    "seed:market-demo-listings": "node src/scripts/seedMarketDemoListings.js",
+    "publish:market-demo-listings": "node src/scripts/publishMarketDemoListings.js",
     "export:pricing-data": "node src/scripts/exportPricingData.js",
     "export:recommendation-data": "node src/scripts/exportRecommendationData.js",
     "preflight": "node src/scripts/preflight.js",
@@ -17,6 +19,7 @@
     "inspect:price-sources": "node src/scripts/inspectPriceSources.js",
     "audit:price-coverage": "node src/scripts/auditPriceCoverage.js",
     "audit:pricing-real-world": "node src/scripts/auditPricingRealWorld.js",
+    "review:pricing-evidence": "node src/scripts/reviewPricingEvidence.js",
     "preflight:production": "node src/scripts/preflight.js --require-production --write-probe"
   },
   "dependencies": {

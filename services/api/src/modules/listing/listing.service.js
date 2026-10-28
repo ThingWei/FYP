@@ -23,6 +23,7 @@ import { resolveProductIdentity } from '../catalog/catalog.service.js';
 import { catalogItemType, withCatalogTypes } from '../catalog/catalog.itemType.js';
 import { PricingReferenceModel } from './pricingReference.model.js';
 import { compatiblePriceReferences, enabledPriceSourceIds } from './priceSync.service.js';
+import { reviewedComparisonFacts } from './productComparisonFacts.js';
 import {
   buildRecommendationInteractions,
   modelInteraction,
@@ -42,6 +43,7 @@ import {
   selectComparableTier,
   statisticalFallback,
   statisticalFallbackConfidence,
+  withComparablePresentation,
 } from './pricingEvidence.js';
 
 function pageOptions(query) {
@@ -328,17 +330,19 @@ export const listingService = {
         .lean(),
     ]);
     // Always include this renter's bounded history before the global CF window.
-    const [views, ownBookings, ownReviews] = await Promise.all([
+    const [views, ownBookings, ownReviews, demoListings] = await Promise.all([
       ListingViewModel.find({ userId: identity.authId, lastViewedAt: { $gte: new Date(Date.now() - 90 * DAY) } })
         .sort({ lastViewedAt: -1 }).limit(500).lean(),
       BookingModel.find({ renterId: identity.authId }).sort({ createdAt: -1 }).limit(100).lean(),
       ReviewModel.find({ authorId: identity.authId, authorRole: 'renter', status: 'published' }).sort({ createdAt: -1 }).limit(100).lean(),
+      ListingModel.find({ sourceType: 'demo_seed' }).select('publicId sourceType').limit(5000).lean(),
     ]);
     const interactions = buildRecommendationInteractions({
       users: interactionUsers,
       views,
       bookings: [...ownBookings, ...bookings],
       reviews: [...ownReviews, ...reviews],
+      listings: demoListings,
       includeDemoSeed: env.recommendationIncludeDemoSeed,
     });
     const historyIds = interactions.filter(row => row.userId === identity.authId)
@@ -387,6 +391,8 @@ export const listingService = {
     const productIdentity = await resolveProductIdentity(requestedProfile);
     const profile = {
       ...requestedProfile,
+      comparisonFacts: undefined,
+      comparison_facts: undefined,
       brand: productIdentity.brand,
       product_model: productIdentity.model,
       canonicalProductId: productIdentity.canonicalProductId,
@@ -396,6 +402,7 @@ export const listingService = {
       rental_duration_days: input.rentalDurationDays ?? 1,
     };
     profile.productType = await catalogItemType({ ...profile, productModel: profile.product_model, listingType: 'physical' });
+    profile.comparisonFacts = reviewedComparisonFacts((await withCatalogTypes([{ ...profile, productModel: profile.product_model }]))[0]);
     const productMatch = {
       type: profile.productMatchType,
       brand: profile.brand,
@@ -492,8 +499,8 @@ export const listingService = {
         : [];
     });
     const historicalTier = selectComparableTier(completedCandidates, profile);
-    const activeEvidenceCounts = evidenceCounts(activeCandidates, profile);
-    const historicalEvidenceCounts = evidenceCounts(completedCandidates, profile);
+    const activeEvidenceCounts = evidenceCounts(activeTier.items, profile);
+    const historicalEvidenceCounts = evidenceCounts(historicalTier.items, profile);
     const marketplaceCompletedCount = historicalTier.items.filter(
       (item) => item.sourceType !== 'demo_seed',
     ).length;
@@ -541,6 +548,9 @@ export const listingService = {
       active_comparable_tier: activeTier.name,
       historical_comparable_tier: historicalTier.name,
       evidence_window_days: PRICING_EVIDENCE_WINDOW_DAYS,
+      comparable_selection_version: activeTier.selection.version,
+      product_comparison_policy: 'reviewed-class-v1',
+      comparison_class_available: Boolean(profile.comparisonFacts),
     };
     const recommendation = await aiClient.recommendPrice({
       schema_version: 'renthub-price-v2',
@@ -553,14 +563,19 @@ export const listingService = {
       prediction_month: new Date().getUTCMonth() + 1,
     });
     const disclosure = pricingEvidenceDisclosure(marketEvidence);
-    if (recommendation.available) {
-      return { ...recommendation, ...disclosure, product_match: productMatch };
+    const present = (result) => withComparablePresentation(result, activeTier, historicalTier);
+    if (recommendation.available && disclosure.evidence_status !== 'insufficient') {
+      return present({ ...recommendation, ...disclosure, evidence: marketEvidence, product_match: productMatch });
     }
     const fallback = statisticalFallback(activeStats, historicalStats, profile.category);
     if (!fallback) {
-      return {
+      return present({
         ...recommendation,
         ...disclosure,
+        available: false,
+        suggested_daily_price: null,
+        lower_bound: null,
+        upper_bound: null,
         model_source: 'insufficient_data',
         evidence: marketEvidence,
         product_match: productMatch,
@@ -568,7 +583,7 @@ export const listingService = {
           ...(recommendation.warnings ?? []),
           'Not enough current marketplace evidence for a statistical fallback.',
         ],
-      };
+      });
     }
     const fallbackUsesHistory = historicalStats.count >= PRICING_FALLBACK_MIN_OBSERVATIONS;
     const fallbackStats = fallbackUsesHistory ? historicalStats : activeStats;
@@ -577,7 +592,7 @@ export const listingService = {
       marketEvidence.market_freshness_days,
       profile.productMatchType,
     );
-    return {
+    return present({
       available: true,
       ...disclosure,
       ...fallback,
@@ -604,7 +619,7 @@ export const listingService = {
       ],
       similar_listing_average: activeStats.mean,
       historical_average: historicalStats.mean,
-    };
+    });
   },
 
   async list(query) {

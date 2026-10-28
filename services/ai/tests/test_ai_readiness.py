@@ -130,6 +130,8 @@ def observations(count=40):
                    independent_evidence=True, price_origin='owner_entered',
                    observed_at=f'2026-09-{i + 1:02d}T00:00:00Z' if i < 30 else f'2026-10-{i - 29:02d}T00:00:00Z',
                    group_id=f'group-{i}', comparable_active_median=999999,
+                   comparison_facts={'reviewed': True, 'sourceUrl': 'https://example.test/camera-fixture',
+                                     'attributes': {'bodyType': 'mirrorless', 'sensorFormat': 'full_frame'}},
                    owner_trust_score=999999, owner_average_rating=999999)
         rows.append(row)
     return rows
@@ -146,7 +148,8 @@ def test_pricing_uses_only_earlier_training_history_and_rebuilds_leaked_features
     train, test, _ = pricing.forward_split(frame, cutoff)
     assert 'late-quote' not in set(train.group_id) | set(test.group_id)
     rebuilt = pricing.forward_features(test, train)
-    assert (rebuilt.comparable_active_count == 30).all()
+    # Shared production selection caps each comparison set at twelve offers.
+    assert (rebuilt.comparable_active_count == 12).all()
     assert rebuilt.comparable_active_median.max() < 200
     assert rebuilt.owner_average_rating.isna().all() and rebuilt.owner_trust_score.isna().all()
     first = pricing.forward_features(train.iloc[:1], train)

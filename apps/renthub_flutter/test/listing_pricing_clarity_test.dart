@@ -86,8 +86,10 @@ class UnavailableController extends LiveRentHubController {
   }
 }
 
-Listing listing() => Listing.fromJson({
+Listing listing({String status = 'active'}) => Listing.fromJson({
       'publicId': 'test-item',
+      'status': status,
+      'itemAgeYears': 1,
       'title': 'Apple phone',
       'description': 'A phone in good condition.',
       'category': 'Devices',
@@ -130,6 +132,225 @@ void viewport(WidgetTester tester, double width) {
 }
 
 void main() {
+  for (final width in [360.0, 390.0]) {
+    testWidgets('longer-rental baseline is visible and qualified at $width',
+        (tester) async {
+      viewport(tester, width);
+      var used = false;
+      final raw = {
+        ...suggestion(synthetic: true),
+        'comparison_summary': {
+          'active': {
+            'version': 'renthub-comparables-v2',
+            'basis': 'matching_model_unconfirmed_details',
+            'selectedCount': 1,
+            'minimumMet': true,
+            'durationBaselineCount': 1,
+            'requestedRentalDays': 7,
+            'uncertainIdentityCount': 0
+          },
+        }
+      };
+      await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.4)),
+              child: child!),
+          home: Scaffold(
+              body: SingleChildScrollView(
+                  child: LivePriceSuggestion(
+                      suggestion: PriceSuggestionView(raw),
+                      onUse: () => used = true,
+                      onRetry: () {})))));
+      expect(find.text('Rough daily estimate'), findsOneWidget);
+      expect(find.textContaining('advertised daily rate'), findsOneWidget);
+      expect(find.textContaining('Daily rates are used as a guide'),
+          findsOneWidget);
+      expect(find.textContaining('has not been validated'), findsOneWidget);
+      expect(find.textContaining('Some version or package details are missing'),
+          findsNothing);
+      await press(tester, 'How this estimate was calculated');
+      expect(find.textContaining('1 comparisons use published daily rates'),
+          findsOneWidget);
+      await press(tester, 'Use this price');
+      expect(used, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  testWidgets(
+      'pricing request retains rental lengths above one with an empty daily price',
+      (tester) async {
+    final api = PricingApi();
+    final controller = LiveRentHubController(api);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(form(controller));
+    await tester.ensureVisible(field('Daily price (RM)'));
+    await tester.enterText(field('Daily price (RM)'), '');
+    for (final days in [2, 3, 7, 30]) {
+      await tester.ensureVisible(field('Expected rental length (days)'));
+      await tester.enterText(field('Expected rental length (days)'), '$days');
+      await press(tester, 'Suggest a daily price');
+      expect((api.calls.last as Map)['rentalDurationDays'], days);
+      expect(
+          tester
+              .widget<TextFormField>(field('Daily price (RM)'))
+              .controller!
+              .text,
+          '');
+    }
+    expect(api.writeCalls, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final width in [360.0, 390.0, 1024.0]) {
+    testWidgets('similar-product estimate explains comparisons at $width',
+        (tester) async {
+      viewport(tester, width);
+      var used = false;
+      final raw = {
+        ...suggestion(synthetic: true),
+        'comparison_summary': {
+          'active': {
+            'version': 'renthub-comparables-v2',
+            'basis': 'same_brand_model_family',
+            'minimumMet': true,
+            'selectedCount': 4,
+            'missingAgeCount': 4,
+            'missingConditionCount': 4,
+            'uncertainIdentityCount': 1,
+          },
+          'rangeIncludesComparables': true,
+        },
+      };
+      await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.4)),
+              child: child!),
+          home: Scaffold(
+              body: SingleChildScrollView(
+                  child: LivePriceSuggestion(
+                      suggestion: PriceSuggestionView(raw),
+                      onUse: () => used = true,
+                      onRetry: () {})))));
+      expect(find.text('Rough daily estimate'), findsOneWidget);
+      expect(find.textContaining('Based on comparable rental prices'),
+          findsOneWidget);
+      expect(find.textContaining('Exact-model prices are limited'),
+          findsOneWidget);
+      expect(find.textContaining('has not been validated'), findsOneWidget);
+      await press(tester, 'How this estimate was calculated');
+      expect(
+          find.textContaining('4 references have no item age'), findsOneWidget);
+      expect(find.textContaining('Some version or package details are missing'),
+          findsOneWidget);
+      expect(find.textContaining('Prices may fall outside'), findsOneWidget);
+      await press(tester, 'Use this price');
+      expect(used, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  test('sparse or malformed comparison metadata retains conservative wording',
+      () {
+    for (final metadata in [
+      null,
+      [],
+      {'active': 'bad'},
+      {
+        'active': {
+          'version': 'renthub-comparables-v2',
+          'selectedCount': 1,
+          'basis': 'same_brand_product_type',
+          'minimumMet': false,
+        }
+      }
+    ]) {
+      final view = PriceSuggestionView(
+          {...suggestion(), 'comparison_summary': metadata});
+      expect(view.similarSupport, isFalse);
+      expect(
+          view.basisExplanation, contains('don’t have enough rental prices'));
+      expect(view.rough, isTrue);
+    }
+  });
+
+  test('matching model with unknown package stays rough and qualified', () {
+    final view = PriceSuggestionView({
+      ...suggestion(),
+      'comparison_summary': {
+        'active': {
+          'version': 'renthub-comparables-v2',
+          'basis': 'matching_model_unconfirmed_details',
+          'minimumMet': true,
+          'selectedCount': 1,
+          'uncertainIdentityCount': 1,
+        },
+      }
+    });
+    expect(view.productSpecific, isFalse);
+    expect(view.rough, isTrue);
+    expect(view.basisExplanation,
+        contains('Some version or package details are missing'));
+    expect(view.basisExplanation, isNot(contains('same product')));
+  });
+
+  for (final width in [360.0, 390.0]) {
+    testWidgets(
+        'active listing has review action instead of drafting at $width',
+        (tester) async {
+      viewport(tester, width);
+      final api = PricingApi();
+      final controller = LiveRentHubController(api);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(form(controller, scale: 1.4));
+      expect(find.text('Save Draft', skipOffstage: false), findsNothing);
+      expect(find.textContaining('unfinished draft', skipOffstage: false),
+          findsNothing);
+      await tester.ensureVisible(find.text('Save changes & submit for review'));
+      expect(find.textContaining('Changes to a published listing need review'),
+          findsOneWidget);
+      expect(api.writeCalls, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('source-based draft keeps unknown condition and age when saving',
+      (tester) async {
+    viewport(tester, 390);
+    final api = PricingApi();
+    final controller = LiveRentHubController(api);
+    addTearDown(controller.dispose);
+    final draft = Listing.fromJson({
+      'publicId': 'l-demo-market-fixture',
+      'title': '[Demo] Canon Eos R5',
+      'category': 'Devices',
+      'subcategory': 'Cameras',
+      'brand': 'Canon',
+      'productModel': 'Eos R5',
+      'dailyPrice': 400,
+      'status': 'draft',
+      'location': 'Kuala Lumpur',
+      'priceProvenance': {'origin': 'external_reference'},
+    });
+    await tester.pumpWidget(form(controller, item: draft));
+    expect(find.text('Choose condition', skipOffstage: false), findsOneWidget);
+    expect(
+        tester
+            .widget<TextFormField>(field('Item age (years)'))
+            .controller!
+            .text,
+        '');
+    await press(tester, 'Save Draft');
+    expect(api.writeCalls, hasLength(1));
+    final saved = api.writeCalls.single as Map;
+    expect(saved.containsKey('condition'), false);
+    expect(saved['itemAgeYears'], null);
+    expect(saved['priceProvenance']['origin'], 'unknown');
+    expect(saved['dailyPrice'], 400);
+    expect(tester.takeException(), isNull);
+  });
   test('book prices accept cents without changing other listing minimums', () {
     for (final value in ['0.01', '0.35', '0.99', '1', '1000000.00']) {
       expect(InputRules.bookPriceRm.validate(value), isNull, reason: value);
@@ -479,12 +700,17 @@ void main() {
             body: LivePriceSuggestion(
                 suggestion: PriceSuggestionView({
                   'available': false,
-                  'warnings': ['private /server/path']
+                  'warnings': ['private /server/path'],
+                  'evidence': {'product_comparison_policy': 'reviewed-class-v1'}
                 }),
                 onUse: () => fail('must not apply'),
                 onRetry: () => retries++))));
     expect(find.text('Use this price'), findsNothing);
     expect(find.textContaining('Enter your own price'), findsOneWidget);
+    expect(
+        find.textContaining(
+            'suitable rental prices for this model and package'),
+        findsOneWidget);
     await tester.tap(find.text('Try again'));
     expect(retries, 1);
     expect(find.textContaining('/server/path'), findsNothing);
@@ -498,7 +724,8 @@ void main() {
       final api = PricingApi();
       final controller = LiveRentHubController(api);
       addTearDown(controller.dispose);
-      await tester.pumpWidget(form(controller, scale: 1.4));
+      await tester.pumpWidget(
+          form(controller, scale: 1.4, item: listing(status: 'draft')));
       expect(find.text('Details'), findsOneWidget);
       await tester.ensureVisible(field('Daily price (RM)'));
       await tester.enterText(field('Daily price (RM)'), '');

@@ -249,6 +249,16 @@ test('calculates the authoritative camera total and exposes both participant vie
   assert.equal(adminBookings.body.meta.total, 1);
 });
 
+test('bookings of a demo listing retain demo provenance', async () => {
+  await ListingModel.updateOne({ publicId: 'l-camera' }, { $set: { sourceType: 'demo_seed' } });
+  const response = await createCameraBooking();
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const stored = await BookingModel.findOne({ publicId: response.body.data.id }).lean();
+  assert.equal(stored.sourceType, 'demo_seed');
+  assert.equal(stored.pricingEvidenceSnapshot.sourceType, 'demo_seed');
+  assert.equal(stored.status, 'pending');
+});
+
 test('normalizes physical rental input to Malaysian calendar dates without a one-day shift', async () => {
   const dateOnly = await request(app)
     .post('/api/v1/bookings')

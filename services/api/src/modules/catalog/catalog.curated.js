@@ -1,3 +1,5 @@
+import { reviewedComparisonFacts } from '../listing/productComparisonFacts.js';
+
 function normalized(value) {
   return String(value ?? '')
     .normalize('NFKD')
@@ -135,7 +137,9 @@ export function searchCuratedCatalog(input) {
       description: `${entry.brand} ${entry.subcategory} model in the curated RentHub identity catalog`,
       specifications: { domain: entry.subcategory, curated: true,
         ...(entry.identitySourceUrl && { identitySourceUrl: entry.identitySourceUrl }),
-        ...entry.modelSpecifications[model] },
+        ...entry.modelSpecifications[model],
+        ...(reviewedComparisonFacts({ category: entry.category, subcategory: entry.subcategory, brand: entry.brand, productModel: model })
+          ? { comparisonFacts: reviewedComparisonFacts({ category: entry.category, subcategory: entry.subcategory, brand: entry.brand, productModel: model }) } : {}) },
       source: 'renthub-curated',
     })));
 }

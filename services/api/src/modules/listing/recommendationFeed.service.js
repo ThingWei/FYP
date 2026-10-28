@@ -31,7 +31,7 @@ export const recommendationFeed = {
         if (query.latitude === undefined) return { status: 'location_required', items: [] };
         const since = new Date(Date.now() - 30 * DAY);
         const [listings, views, bookings] = await Promise.all([
-          ListingModel.find({ ...filter, ...nearbyFilter(query) }).limit(1000),
+          ListingModel.find({ ...filter, ...nearbyFilter(query), sourceType: { $ne: 'demo_seed' } }).limit(1000),
           ListingViewModel.find({ lastViewedAt: { $gte: since } }).sort({ lastViewedAt: -1 }).limit(10000).lean(),
           BookingModel.find({ ...realBookings, $and: [{ $or: [{ completedAt: { $gte: since } }, { activatedAt: { $gte: since } }, { decidedAt: { $gte: since } }, { createdAt: { $gte: since } }] }] })
             .sort({ createdAt: -1 }).limit(10000).lean(),

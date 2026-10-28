@@ -4,6 +4,7 @@ param(
     [switch]$Admin,
     [switch]$SkipAi,
     [switch]$NoAiReload,
+    [switch]$NoApiReload,
     [switch]$SkipBlockchain,
     [switch]$CheckOnly,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -51,6 +52,9 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'recommendation-feed-v2' -and `
             $response.data.capabilities -contains 'listing-delivery-fees-v1' -and `
             $response.data.capabilities -contains 'notification-targets-v1' -and `
+            $response.data.capabilities -contains 'pricing-daily-baseline-v1' -and `
+            $response.data.capabilities -contains 'pricing-suitability-v1' -and `
+            $response.data.capabilities -contains 'evidence-led-product-selection-v1' -and `
             $response.data.capabilities -contains 'mandatory-identity-access-v1' -and `
             $response.data.capabilities -contains 'listing-maps-push-status-v1' -and `
             $response.data.capabilities -contains 'precise-locations-v1'
@@ -90,6 +94,37 @@ function Get-RentHubAiArguments {
         $aiArguments += @('--reload', '--reload-dir', 'app')
     }
     return $aiArguments
+}
+
+function Get-RentHubApiArguments {
+    param([switch]$DisableReload)
+    if ($DisableReload) { return @('src/server.js') }
+    # Restrict watching to source code, excluding private uploads/data and logs.
+    return @('--watch', '--watch-path=src', 'src/server.js')
+}
+
+function Stop-RentHubOwnedApiProcess {
+    param(
+        [Parameter(Mandatory = $true)][System.Diagnostics.Process]$OwnedProcess,
+        [Parameter(Mandatory = $true)][datetime]$StartedAt
+    )
+    try {
+        if ($OwnedProcess.HasExited) { return }
+        $current = Get-Process -Id $OwnedProcess.Id -ErrorAction SilentlyContinue
+        if ($null -eq $current) { return }
+        if ($current.StartTime -ne $StartedAt) {
+            Write-Warning 'API process ID was reused; leaving that unrelated process untouched.'
+            return
+        }
+        # Node watch has a child server. Stop only this launcher's owned tree.
+        & taskkill.exe /PID $OwnedProcess.Id /T /F | Out-Null
+        if ($LASTEXITCODE -ne 0 -and -not $OwnedProcess.HasExited) {
+            Write-Warning 'Could not stop the API process tree owned by this launcher.'
+        }
+    }
+    catch {
+        Write-Warning 'API cleanup could not complete. Check port 3000 before starting another server.'
+    }
 }
 
 function Stop-RentHubOwnedAiProcess {
@@ -218,6 +253,7 @@ $blockchainStandardLog = Join-Path $blockchainLogDirectory 'launcher-ganache.log
 $blockchainErrorLog = Join-Path $blockchainLogDirectory 'launcher-ganache-error.log'
 $blockchainDataDirectory = Join-Path $blockchainDirectory '.data\ganache'
 $apiProcess = $null
+$apiProcessStartedAt = $null
 $aiProcess = $null
 $aiProcessStartedAt = $null
 $blockchainProcess = $null
@@ -443,19 +479,20 @@ try {
     }
     else {
         if (Test-RentHubTcpPort -HostName 'localhost' -Port 3000) {
-            throw 'Port 3000 is occupied by an outdated or unhealthy API process. Stop its original terminal or launcher with Ctrl+C, then run this launcher again so the catalog and mandatory MyKad readability/pair-validation routes are loaded.'
+            throw 'Port 3000 is occupied by an outdated or unhealthy API process. Stop its original terminal or launcher with Ctrl+C, then run this launcher again to load current catalogue, identity and multi-day pricing support. This launcher will not stop an API it did not start.'
         }
         New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
         Write-Host 'Starting the RentHub API...' -ForegroundColor Cyan
         $apiProcess = Start-Process `
             -FilePath $nodePath `
-            -ArgumentList 'src/server.js' `
+            -ArgumentList (Get-RentHubApiArguments -DisableReload:$NoApiReload) `
             -WorkingDirectory $apiDirectory `
             -WindowStyle Hidden `
             -RedirectStandardOutput $standardLog `
             -RedirectStandardError $errorLog `
             -PassThru
         $startedApi = $true
+        $apiProcessStartedAt = $apiProcess.StartTime
 
         $ready = $false
         for ($attempt = 0; $attempt -lt 30; $attempt++) {
@@ -605,9 +642,9 @@ finally {
         Write-Host 'Stopping the AI process tree started by this launcher...' -ForegroundColor DarkGray
         Stop-RentHubOwnedAiProcess -OwnedProcess $aiProcess -StartedAt $aiProcessStartedAt
     }
-    if ($startedApi -and $null -ne $apiProcess -and -not $apiProcess.HasExited) {
-        Write-Host 'Stopping the API process started by this launcher...' -ForegroundColor DarkGray
-        Stop-Process -Id $apiProcess.Id -Force
+    if ($startedApi -and $null -ne $apiProcess -and $null -ne $apiProcessStartedAt) {
+        Write-Host 'Stopping the API process tree started by this launcher...' -ForegroundColor DarkGray
+        Stop-RentHubOwnedApiProcess -OwnedProcess $apiProcess -StartedAt $apiProcessStartedAt
     }
     if ($startedBlockchain -and $null -ne $blockchainProcess -and -not $blockchainProcess.HasExited) {
         Write-Host 'Stopping the blockchain process started by this launcher...' -ForegroundColor DarkGray

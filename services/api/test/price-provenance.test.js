@@ -21,6 +21,17 @@ test('unknown and AI-derived prices cannot become independent through declaratio
   assert.equal(legacy.priceProvenance, undefined);
 });
 
+test('external-derived draft edits cannot erase their originating offer', () => {
+  const listing = item({ priceProvenance: { origin: 'external_reference', independence: 'unverified', originatingOfferKey: 'fixture-offer' } });
+  const declaration = nextPriceProvenance({ dailyPrice: 30, priceProvenance: { origin: 'owner_entered' } }, listing);
+  assert.equal(declaration.origin, 'external_reference');
+  assert.equal(declaration.originatingOfferKey, 'fixture-offer');
+  assert.equal(listingEvidenceReason({ ...listing, priceProvenance: declaration }), 'derived_external_copy');
+  const suggestion = nextPriceProvenance({ priceProvenance: { origin: 'ai_suggested', suggestedAmount: 45 } }, listing);
+  assert.equal(suggestion.origin, 'ai_suggested');
+  assert.equal(suggestion.originatingOfferKey, 'fixture-offer');
+});
+
 test('review binds to the saved price and item context and is cleared by relevant edits', () => {
   const listing = reviewedPrice(item());
   assert.equal(listingEvidenceReason(listing), null);
@@ -67,8 +78,9 @@ test('contaminated prices never enter clean training rows or influence compatibl
 
 test('missing age is not treated as age zero and an offer cannot supply its own target features', () => {
   const profile = { ...item(), item_age_years: 0 };
-  assert.equal(evidenceRelevance(item({ itemAgeYears: null }), profile),
-    evidenceRelevance(item({ itemAgeYears: undefined }), profile));
+  // Isolate age from wall-clock freshness; consecutive Date.now() calls can differ.
+  assert.equal(evidenceRelevance(item({ itemAgeYears: null, updatedAt: undefined }), profile),
+    evidenceRelevance(item({ itemAgeYears: undefined, updatedAt: undefined }), profile));
   const row = { ...item(), product_model: 'Computer mouse', rental_duration_days: 1,
     group_id: 'target', observed_at: '2026-10-20', origin_offer_key: 'shared-offer' };
   const history = [{ ...row, group_id: 'different-group', observed_at: '2026-10-01', available_at: '2026-10-02',

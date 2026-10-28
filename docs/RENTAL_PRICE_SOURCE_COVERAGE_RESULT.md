@@ -1,5 +1,9 @@
 # Automatic rental-price sources — implementation result
 
+Current implementation: [source cleanup and automated evidence review](PRICING_SOURCE_CLEANUP_AND_READINESS_RESULT.md).
+iRent, RentSmart, 12RENT, Goritta and AVM are removed. The older onboarding notes
+below are historical; do not use them to re-enable those sources.
+
 27 October later checks: [iRent/ITPA/12RENT diagnostics and evidence evaluation](PRICING_EVIDENCE_FOLLOWUP_RESULT.md).
 No collection settings changed; access/parser success and reuse clearance remain separate.
 

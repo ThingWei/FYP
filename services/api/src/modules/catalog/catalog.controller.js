@@ -12,6 +12,7 @@ function respond(res, result) {
     nextLimit: result.nextLimit,
     reachedLimit: result.reachedLimit,
     refreshNeeded: result.refreshNeeded,
+    ...(result.mode && { mode: result.mode, evidenceSuggestions: result.evidenceSuggestions, scanLimited: result.scanLimited }),
     ...(result.warning && { warning: result.warning }),
   });
 }

@@ -11,7 +11,7 @@ import { minimumRentalPrice, validRentalPrice } from './priceLimits.js';
 
 export const REFERENCE_COLUMNS = ['category', 'subcategory', 'brand', 'model',
   'quotedAmount', 'rentalDays', 'currency', 'sourceName', 'sourceUrl', 'observedDate',
-  'location', 'state', 'condition', 'itemAgeYears', 'packageNotes', 'isbn', 'edition', 'variant', 'packageType'];
+  'location', 'state', 'condition', 'itemAgeYears', 'packageNotes', 'isbn', 'edition', 'variant', 'packageType', 'rateBasis'];
 export const REFERENCE_TEMPLATE = REFERENCE_COLUMNS.join(',') + '\r\n';
 const requiredColumns = REFERENCE_COLUMNS.slice(0, 10);
 const fail = (message, details) => { throw new AppError(message, 400, 'INVALID_PRICE_CSV', details); };
@@ -114,6 +114,10 @@ function validatedRow(row) {
   result.edition = cleanText(row.edition, 80);
   result.variant = cleanText(row.variant, 80);
   result.packageType = cleanText(row.packageType, 40);
+  result.rateBasis = cleanText(row.rateBasis, 30) || 'fixed_period';
+  if (!['daily_rate', 'fixed_period'].includes(result.rateBasis) || result.rateBasis === 'daily_rate' && rentalDurationDays !== 1) {
+    throw new Error('Rate basis must be fixed_period, or daily_rate with rentalDays = 1 for an explicitly published daily rate');
+  }
   if (result.packageType && !['body_only', 'with_lens', 'item_only', 'equipment_set'].includes(result.packageType)) throw new Error('Package type must be body_only, with_lens, item_only or equipment_set');
   result.productType = productTypeFor(category, subcategory, `${result.brand} ${result.productModel}`);
   // Reviews must reject minimum/ambiguous quotes and inseparable event services.
@@ -131,7 +135,7 @@ function validatedRow(row) {
 function sameObservation(a, b) {
   return ['quotedAmount', 'location', 'state', 'condition', 'itemAgeYears', 'packageNotes']
     .every((key) => a[key] === b[key]) && ['isbn', 'edition', 'variant', 'packageType']
-    .every((key) => (a[key] ?? '') === (b[key] ?? ''));
+    .every((key) => (a[key] ?? '') === (b[key] ?? '')) && (a.rateBasis || 'fixed_period') === (b.rateBasis || 'fixed_period');
 }
 
 export async function previewPricingReferences(csv) {

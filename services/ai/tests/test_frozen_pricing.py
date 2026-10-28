@@ -68,3 +68,36 @@ def test_future_training_ignores_legacy_real_labels_and_ai_lineage(tmp_path):
 def test_undefined_r_squared_is_not_reported_as_success():
     assert pricing.safe_metrics(np.array([10, 10]), np.array([10, 11]))['r2'] is None
     assert pricing.safe_metrics(np.array([]), np.array([])) is None
+
+
+def test_readiness_reports_missing_domains_and_keeps_age_zero_distinct_from_unknown(tmp_path):
+    rows = observations()
+    for row in rows:
+        row['item_age_years'] = None
+        row['condition'] = None
+    rows[0]['item_age_years'] = 0
+    rows[0]['condition'] = 'Good'
+    coverage = [{'category': 'Devices', 'subcategory': 'Cameras'},
+                {'category': 'Books', 'subcategory': 'Fiction'}]
+    path = tmp_path / 'reviewed.json'
+    path.write_text(json.dumps({'rows': rows, 'catalogCoverage': coverage}))
+    report = pricing.evaluate(path, cutoff='2026-10-01', artifact_path=artifact(tmp_path))
+    readiness = report['evidenceReadiness']
+    assert readiness['expectedSubcategories'] == 2
+    assert readiness['missingSubcategories'] == 1
+    camera = next(row for row in readiness['rows'] if row['subcategory'] == 'Cameras')
+    assert camera['withItemAge'] == 1
+    assert camera['withCondition'] == 1
+    assert camera['withBothConditionAndItemAge'] == 1
+    assert readiness['automaticTrainingAllowed'] is False
+    assert readiness['candidateTrainingDecision'] == 'not_justified_by_current_data'
+
+
+def test_empty_evaluation_keeps_expected_domains_and_verifies_frozen_artifact(tmp_path):
+    path = tmp_path / 'empty.json'
+    path.write_text(json.dumps({'rows': [], 'catalogCoverage': [{'category': 'Books', 'subcategory': 'Fiction'}]}))
+    report = pricing.evaluate(path, artifact_path=artifact(tmp_path))
+    assert report['status'] == 'insufficient_data'
+    assert report['artifactUnchanged'] is True
+    assert report['evidenceReadiness']['missingSubcategories'] == 1
+    assert report['predictionCoverage']['eligibleTargets'] == 0

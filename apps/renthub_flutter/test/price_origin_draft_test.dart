@@ -34,4 +34,12 @@ void main() {
         }).priceOrigin,
         'ai_suggested');
   });
+  test('server-owned external origin is not sent as a client declaration', () {
+    final draft = PriceOriginDraft(origin: 'external_reference');
+    expect(draft.toJson()['origin'], 'unknown');
+    expect(
+        Listing.fromJson(
+            {'id': 'demo', 'category': 'Devices', 'status': 'draft'}).condition,
+        '');
+  });
 }

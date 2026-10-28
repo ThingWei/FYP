@@ -2021,7 +2021,9 @@ class LiveRentHubController extends ChangeNotifier {
     int limit = 12,
     bool refresh = false,
     bool preferCache = true,
+    String? mode,
   }) async {
+    final requestAccount = profile?.id;
     final parameters = Uri(queryParameters: {
       'category': category,
       'subcategory': subcategory,
@@ -2029,12 +2031,17 @@ class LiveRentHubController extends ChangeNotifier {
       'limit': '$limit',
       'refresh': '$refresh',
       'preferCache': '$preferCache',
+      if (mode != null) 'mode': mode,
       if (brand != null) 'brand': brand,
       if (catalogBrandId?.isNotEmpty ?? false)
         'catalogBrandId': catalogBrandId!,
     }).query;
     final result = await api.requestEnvelope(
         'GET', '/catalog/${brand == null ? 'brands' : 'models'}?$parameters');
+    if (profile?.id != requestAccount) {
+      throw ApiException(401, 'Your account changed. Reopen product selection.',
+          code: 'SESSION_CHANGED');
+    }
     return CatalogPage.fromEnvelope(result, requestedLimit: limit);
   }
 

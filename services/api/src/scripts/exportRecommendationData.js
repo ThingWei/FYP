@@ -23,15 +23,16 @@ export async function readRecommendationTrainingExport(db, { limit = 10000, now 
     if (rows.length > limit) throw new Error('Export limit exceeded; no partial export written');
     return rows;
   };
-  const [users, bookings, reviews, views] = await Promise.all([
+  const [users, bookings, reviews, views, listings] = await Promise.all([
     read('users', { 'savedListingIds.0': { $exists: true } }, { authId: 1, savedListingIds: 1, createdAt: 1, updatedAt: 1 }),
     read('bookings', {}, { publicId: 1, renterId: 1, listingId: 1, status: 1, sourceType: 1,
       createdAt: 1, decidedAt: 1, completedAt: 1 }),
     read('reviews', { authorRole: 'renter', status: 'published' }, { bookingId: 1, authorId: 1,
       authorRole: 1, listingId: 1, overallRating: 1, status: 1, createdAt: 1, updatedAt: 1 }),
     read('listingviews', { expiresAt: { $gt: now } }, { userId: 1, listingId: 1, lastViewedAt: 1 }),
+    read('listings', { sourceType: 'demo_seed' }, { publicId: 1, sourceType: 1 }),
   ]);
-  const interactions = buildRecommendationInteractions({ users, bookings, reviews, views,
+  const interactions = buildRecommendationInteractions({ users, bookings, reviews, views, listings,
     includeDemoSeed: true, stagedUserIds, allStaged });
   const eligible = interactions.filter((row) => row.observedAt > new Date(0) && row.observedAt <= now);
   const rows = eligible.map((row) => {

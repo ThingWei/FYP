@@ -9,17 +9,19 @@ import { buildRecommendationInteractions } from '../src/modules/listing/recommen
 import { reviewedPrice, reviewedBooking, realPayment } from './helpers/pricingEvidence.js';
 
 const now = new Date('2026-10-20T00:00:00Z');
+const fixtureClass = { reviewed: true, sourceUrl: 'https://example.test/reviewed-specifications',
+  attributes: { bodyType: 'mirrorless', sensorFormat: 'full_frame', inBodyStabilization: true } };
 const item = (id, extra = {}) => reviewedPrice({ publicId: id, ownerId: 'private-owner', listingType: 'physical',
   category: 'Devices', subcategory: 'Cameras', brand: 'Canon', productModel: id,
   condition: 'Good', state: 'Selangor', location: 'PRIVATE UNIT', coordinates: [101, 3],
-  dailyPrice: 100, status: 'active', updatedAt: new Date('2026-10-19'), ...extra });
+  comparisonFacts: fixtureClass, dailyPrice: 100, status: 'active', updatedAt: new Date('2026-10-19'), ...extra });
 const reference = (id, extra = {}) => ({ publicId: id, observationKey: id,
   sourceType: 'external_asking_price', active: true, currency: 'MYR', country: 'MY',
   category: 'Devices', subcategory: 'Cameras', brand: 'Canon', productModel: id,
   quotedAmount: 100, rentalDurationDays: 1, dailyPrice: 100,
   sourceName: 'Reviewed source', sourceUrl: 'https://example.com/rental',
   observedAt: new Date('2026-10-01'), reviewedAt: new Date('2026-10-02'),
-  createdAt: new Date('2026-10-02'), reviewedBy: 'private-reviewer', collectionMethod: 'manual_csv', ...extra });
+  createdAt: new Date('2026-10-02'), reviewedBy: 'private-reviewer', collectionMethod: 'manual_csv', comparisonFacts: fixtureClass, ...extra });
 const automatic = (id, extra = {}) => reference(id, { collectionMethod: 'automatic', sourceId: 'rentism',
   validatedAt: new Date('2026-10-02'), validationStatus: 'accepted', productType: 'camera',
   durationMinDays: 1, durationMaxDays: 365, ...extra });
@@ -29,6 +31,7 @@ test('reviewed/automated asking observations stay separate from completed rental
   const result = build({ listings: [item('subject')], references: [reference('manual'), automatic('auto')],
     enabledSourceIds: ['rentism'] });
   assert.equal(result.rows.length, 3);
+  assert.equal(result.catalogCoverage.length, 22);
   assert.deepEqual(result.summary.targetSources, { external_asking_price: 2, active_asking: 1 });
   const subject = result.rows.find((r) => r.product_model === 'subject');
   assert.equal(subject.external_asking_price_count, 2);
@@ -107,7 +110,8 @@ test('completed evidence requires settled/captured payment; demos cannot contami
   const result = build({ listings, bookings, payments: bookings.map(realPayment) });
   assert.equal(result.summary.targetSources.completed_rental, 1);
   assert.equal(result.summary.targetSources.demo_seed_completed_rental, 1);
-  assert.equal(result.rows.find((r) => r.product_model === 'subject').historical_rental_count, 1);
+  // A two-day completed average cannot price this one-day asking scenario.
+  assert.equal(result.rows.find((r) => r.product_model === 'subject').historical_rental_count, 0);
 });
 
 test('duplicate refreshes deduplicate; conflicting observations stop export', () => {

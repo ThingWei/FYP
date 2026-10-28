@@ -328,6 +328,7 @@ async function createBooking(input, identity, ensureLockOwned) {
           listingId: listing.publicId,
           listingTitle: listing.title,
           listingType: listing.listingType,
+          sourceType: listing.sourceType ?? 'marketplace',
           category: listing.category,
           requiredLicenceClass: listing.requiredLicenceClass,
           renterId: renter.authId,

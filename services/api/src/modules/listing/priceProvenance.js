@@ -24,8 +24,10 @@ export function nextPriceProvenance(input, previous = {}, now = new Date()) {
   let origin = declared?.origin ?? (changed && input.dailyPrice !== undefined ? 'owner_entered' : old?.origin ?? 'unknown');
   if (ai && origin !== 'ai_suggested') origin = 'ai_edited';
   if (ai && changed && !declared) origin = 'ai_edited';
+  if ((old?.origin === 'external_reference' || old?.originatingOfferKey) && !['ai_suggested', 'ai_edited'].includes(origin)) origin = 'external_reference';
   const supplied = { ...old, ...declared };
   return { origin, independence: 'unverified', recordedAt: now,
+    ...(old?.originatingOfferKey && { originatingOfferKey: old.originatingOfferKey }),
     ...(Number.isFinite(supplied.suggestedAmount) && { suggestedAmount: supplied.suggestedAmount }),
     ...(supplied.modelVersion && { modelVersion: supplied.modelVersion }),
   };

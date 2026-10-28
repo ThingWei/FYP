@@ -282,6 +282,7 @@ paths:
         - { $ref: '#/components/parameters/CatalogLimit' }
         - { $ref: '#/components/parameters/CatalogRefresh' }
         - { $ref: '#/components/parameters/CatalogPreferCache' }
+        - { $ref: '#/components/parameters/CatalogMode' }
       responses:
         '200': { description: Cached or provider-backed brand suggestions, content: { application/json: { schema: { $ref: '#/components/schemas/CatalogSuggestions' } } } }
         '503': { description: Catalog provider unavailable and no cached results exist }
@@ -297,6 +298,7 @@ paths:
         - { $ref: '#/components/parameters/CatalogLimit' }
         - { $ref: '#/components/parameters/CatalogRefresh' }
         - { $ref: '#/components/parameters/CatalogPreferCache' }
+        - { $ref: '#/components/parameters/CatalogMode' }
       responses:
         '200': { description: Brand-filtered cached or provider-backed model suggestions, content: { application/json: { schema: { $ref: '#/components/schemas/CatalogSuggestions' } } } }
         '503': { description: Catalog provider unavailable and no cached results exist }
@@ -311,6 +313,7 @@ paths:
         - { $ref: '#/components/parameters/CatalogLimit' }
         - { $ref: '#/components/parameters/CatalogRefresh' }
         - { $ref: '#/components/parameters/CatalogPreferCache' }
+        - { $ref: '#/components/parameters/CatalogMode' }
       responses:
         '200': { description: General product-catalog suggestions, content: { application/json: { schema: { $ref: '#/components/schemas/CatalogSuggestions' } } } }
         '503': { description: Catalog provider unavailable and no cached results exist }
@@ -446,6 +449,11 @@ components:
       name: preferCache
       description: Return saved/reviewed suggestions immediately when available. If refreshNeeded is true, the client may request refresh=true while retaining the displayed choices.
       schema: { type: boolean, default: false }
+    CatalogMode:
+      in: query
+      name: mode
+      description: Set evidence for read-only local rental-reference, reviewed marketplace, cached catalogue and curated suggestions. No provider refresh occurs, including with refresh=true. Omit for existing provider-backed catalogue behaviour.
+      schema: { type: string, enum: [evidence] }
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   schemas:
@@ -464,7 +472,7 @@ components:
         data:
           type: array
           maxItems: 120
-          items: { type: object, additionalProperties: true }
+          items: { $ref: '#/components/schemas/CatalogSuggestion' }
         meta:
           type: object
           properties:
@@ -477,6 +485,29 @@ components:
             reachedLimit: { type: boolean }
             refreshNeeded: { type: boolean }
             warning: { type: string }
+            mode: { type: string, enum: [evidence] }
+            evidenceSuggestions: { type: integer, minimum: 0 }
+            scanLimited: { type: boolean }
+    CatalogSuggestion:
+      type: object
+      additionalProperties: true
+      description: Identity suggestion only. Display keys are not catalogue IDs; selecting an identity grants no price-evidence or item-verification status.
+      properties:
+        entityType: { type: string, enum: [brand, product] }
+        brand: { type: string }
+        model: { type: string }
+        canonicalProductId: { type: string, nullable: true }
+        catalogBrandId: { type: string, nullable: true }
+        catalogSource: { type: string, nullable: true }
+        displayKey: { type: string }
+        selectionSource: { type: string, enum: [rental_reference, marketplace_evidence, catalogue] }
+        variant: { type: string }
+        edition: { type: string }
+        isbn: { type: string }
+        packageType: { type: string }
+        includedLens: { type: string }
+        description: { type: string }
+        specifications: { type: object, additionalProperties: true }
     UserProfile:
       type: object
       required: [authId, email, displayName, roles, activeRole]

@@ -1,0 +1,24 @@
+{
+  "purpose": "source_based_demo_drafts_not_marketplace_transactions",
+  "observedDate": "2026-10-27",
+  "sources": {
+    "rentism": { "name": "RENTISM", "url": "https://www.rentism.com.my/price-list/" },
+    "itpa": { "name": "ITPA", "url": "https://itpa.my/pc-rental.php" },
+    "drivor": { "name": "DRIVOR", "url": "https://drivor.my/vehicle/toyota-camry/" },
+    "cilt": { "name": "Cilt Tech", "url": "https://cilttech.com/ms/sewaan" }
+  },
+  "records": [
+    { "slug": "samsung-s23", "category": "Devices", "subcategory": "Smartphones", "brand": "Samsung", "model": "S23", "amount": 190, "sourceId": "rentism", "packageType": "item_only", "notes": "Published one-day phone rate; other charges require confirmation." },
+    { "slug": "samsung-s24", "category": "Devices", "subcategory": "Smartphones", "brand": "Samsung", "model": "S24", "amount": 230, "sourceId": "rentism", "packageType": "item_only", "notes": "Published one-day phone rate; other charges require confirmation." },
+    { "slug": "canon-5d", "category": "Devices", "subcategory": "Cameras", "brand": "Canon", "model": "5D", "amount": 100, "sourceId": "rentism", "packageType": "body_only", "notes": "Camera body only; lens excluded. Source lists it as 5d." },
+    { "slug": "canon-5d-mark-iii", "category": "Devices", "subcategory": "Cameras", "brand": "Canon", "model": "5D Mark III", "amount": 180, "sourceId": "rentism", "packageType": "body_only", "notes": "Camera body only; lens excluded. Source lists it as 5d mark iii." },
+    { "slug": "canon-r6-mark-ii", "category": "Devices", "subcategory": "Cameras", "brand": "Canon", "model": "Eos R6 Mark ii", "amount": 350, "sourceId": "rentism", "packageType": "body_only", "notes": "Camera body only; lens excluded." },
+    { "slug": "canon-r5", "category": "Devices", "subcategory": "Cameras", "brand": "Canon", "model": "Eos R5", "amount": 400, "sourceId": "rentism", "packageType": "body_only", "notes": "Camera body only; lens excluded." },
+    { "slug": "sony-a7-mark-iii", "category": "Devices", "subcategory": "Cameras", "brand": "Sony", "model": "A7 Mark iii", "amount": 210, "sourceId": "rentism", "packageType": "body_only", "notes": "Camera body only; lens excluded." },
+    { "slug": "sony-a7s-mark-iii", "category": "Devices", "subcategory": "Cameras", "brand": "Sony", "model": "A7S Mark iii", "amount": 450, "sourceId": "rentism", "packageType": "body_only", "notes": "Camera body only; lens excluded." },
+    { "slug": "dell-latitude-7390", "category": "Devices", "subcategory": "Computers", "brand": "Dell", "model": "Latitude 7390", "amount": 100, "sourceId": "itpa", "packageType": "item_only", "notes": "Published on-site laptop rate with Windows/Office; delivery and setup charged separately." },
+    { "slug": "dell-latitude-7420", "category": "Devices", "subcategory": "Computers", "brand": "Dell", "model": "Latitude 7420", "amount": 150, "sourceId": "itpa", "packageType": "item_only", "notes": "Published on-site laptop rate with Windows/Office; delivery and setup charged separately." },
+    { "slug": "toyota-camry", "category": "Vehicles", "subcategory": "Cars", "brand": "Toyota", "model": "Camry", "amount": 500, "sourceId": "drivor", "packageType": "item_only", "notes": "Explicit 1-3 day tariff. Longer periods differ; fuel, mileage rules and variable deposit apply. Headline from-price not used." },
+    { "slug": "sony-ps5-pro", "category": "Devices", "subcategory": "Gaming", "brand": "Sony", "model": "PlayStation 5 Pro", "amount": 80, "sourceId": "cilt", "packageType": "equipment_set", "notes": "Explicit Daily package with controller/cables. Source refundable deposit RM400 is separate; it is not assigned to this Owner's draft." }
+  ]
+}

@@ -9,6 +9,7 @@ Future<Map<String, dynamic>?> showCatalogPicker(
   required String labelKey,
   Future<List<Map<String, dynamic>>> Function(String)? load,
   CatalogPageLoader? loadPage,
+  CatalogPageLoader? findMorePage,
   String currentValue = '',
 }) =>
     showModalBottomSheet<Map<String, dynamic>>(
@@ -20,6 +21,7 @@ Future<Map<String, dynamic>?> showCatalogPicker(
           labelKey: labelKey,
           load: load,
           loadPage: loadPage,
+          findMorePage: findMorePage,
           currentValue: currentValue),
     );
 
@@ -30,11 +32,13 @@ class CatalogPicker extends StatefulWidget {
       required this.labelKey,
       this.load,
       this.loadPage,
+      this.findMorePage,
       this.currentValue = ''})
       : assert(load != null || loadPage != null);
   final String title, labelKey, currentValue;
   final Future<List<Map<String, dynamic>>> Function(String)? load;
   final CatalogPageLoader? loadPage;
+  final CatalogPageLoader? findMorePage;
   @override
   State<CatalogPicker> createState() => _CatalogPickerState();
 }
@@ -49,6 +53,8 @@ class _CatalogPickerState extends State<CatalogPicker> {
   int limit = 12;
   int? nextLimit;
   bool reachedLimit = false;
+  bool usingExternal = false;
+  bool scanLimited = false;
   List<Map<String, dynamic>> items = [];
   @override
   void initState() {
@@ -68,6 +74,7 @@ class _CatalogPickerState extends State<CatalogPicker> {
   Future<void> _load(String query,
       {bool refresh = false,
       bool preferCache = true,
+      bool external = false,
       int? requestedLimit}) async {
     final request = ++version;
     var updateAgain = false;
@@ -77,23 +84,39 @@ class _CatalogPickerState extends State<CatalogPicker> {
       error = null;
     });
     try {
-      final result = widget.loadPage == null
+      var result = widget.loadPage == null
           ? CatalogPage(items: await widget.load!(query), limit: wanted)
           : await widget.loadPage!(query,
               limit: wanted, refresh: refresh, preferCache: preferCache);
+      if (external &&
+          widget.findMorePage != null &&
+          mounted &&
+          request == version) {
+        try {
+          final more = await widget.findMorePage!(query,
+              limit: wanted, refresh: true, preferCache: false);
+          result = result.mergeCatalogue(more);
+        } catch (_) {
+          result = result.mergeCatalogue(CatalogPage(
+              items: const [], limit: wanted, providerAvailable: false));
+        }
+      }
       if (mounted && request == version) {
         setState(() {
           items = result.items;
           limit = result.limit;
           nextLimit = result.nextLimit;
           reachedLimit = result.reachedLimit;
+          usingExternal = external;
+          scanLimited = result.scanLimited;
           error = !result.providerAvailable
               ? 'Couldn’t check for newer suggestions. You can still use the choices below or enter manually.'
               : result.stale
                   ? 'Some saved suggestions may be older. Refresh to check for updates.'
                   : null;
         });
-        updateAgain = result.refreshNeeded && !refresh;
+        updateAgain =
+            widget.findMorePage == null && result.refreshNeeded && !refresh;
       }
     } catch (exception) {
       if (mounted && request == version) {
@@ -117,6 +140,11 @@ class _CatalogPickerState extends State<CatalogPicker> {
     unawaited(_load(search.text.trim(), refresh: true, preferCache: false));
   }
 
+  void _findMore() {
+    debounce?.cancel();
+    unawaited(_load(search.text.trim(), external: true));
+  }
+
   void _changed(String value) {
     debounce?.cancel();
     version++;
@@ -127,6 +155,8 @@ class _CatalogPickerState extends State<CatalogPicker> {
       limit = 12;
       nextLimit = null;
       reachedLimit = false;
+      usingExternal = false;
+      scanLimited = false;
     });
     if (scroll.hasClients) scroll.jumpTo(0);
     final query = value.trim();
@@ -178,13 +208,21 @@ class _CatalogPickerState extends State<CatalogPicker> {
                       )),
                   Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                              onPressed: () => Navigator.pop(
-                                  context, <String, dynamic>{'_manual': true}),
-                              icon: const Icon(Icons.edit_outlined),
-                              label: const Text('Enter manually')))),
+                      child: Wrap(spacing: 8, children: [
+                        TextButton.icon(
+                            onPressed: () => Navigator.pop(
+                                context, <String, dynamic>{'_manual': true}),
+                            icon: const Icon(Icons.edit_outlined),
+                            label: const Text('Enter manually')),
+                        if (widget.findMorePage != null)
+                          TextButton.icon(
+                              onPressed:
+                                  loading || search.text.trim().length == 1
+                                      ? null
+                                      : _findMore,
+                              icon: const Icon(Icons.travel_explore),
+                              label: const Text('Find more products')),
+                      ])),
                   if (loading && items.isNotEmpty)
                     const LinearProgressIndicator(
                         semanticsLabel: 'Updating suggestions'),
@@ -219,6 +257,31 @@ class _CatalogPickerState extends State<CatalogPicker> {
                                     minVerticalPadding: 12,
                                     title:
                                         Text('${item[widget.labelKey] ?? ''}'),
+                                    subtitle: item['selectionSource'] == null
+                                        ? null
+                                        : Text([
+                                            switch (item['selectionSource']) {
+                                              'rental_reference' =>
+                                                'Found in rental references',
+                                              'marketplace_evidence' =>
+                                                'Found in reviewed marketplace evidence',
+                                              _ => 'Catalogue suggestion',
+                                            },
+                                            ...[
+                                              'variant',
+                                              'edition',
+                                              'packageType',
+                                              'includedLens'
+                                            ]
+                                                .map((key) => item[key])
+                                                .whereType<String>()
+                                                .where((v) => v.isNotEmpty)
+                                                .map((v) => v == 'body_only'
+                                                    ? 'Body only'
+                                                    : v == 'with_lens'
+                                                        ? 'Camera with lens'
+                                                        : v),
+                                          ].join(' · ')),
                                     trailing: const Icon(Icons.chevron_right),
                                     onTap: () => Navigator.pop(context, item)),
                               if (nextLimit != null)
@@ -229,6 +292,7 @@ class _CatalogPickerState extends State<CatalogPicker> {
                                             ? null
                                             : () => _load(search.text.trim(),
                                                 preferCache: false,
+                                                external: usingExternal,
                                                 requestedLimit: nextLimit),
                                         icon: const Icon(Icons.expand_more),
                                         label: const Text('Load more'))),
@@ -238,6 +302,11 @@ class _CatalogPickerState extends State<CatalogPicker> {
                                     child: Text(reachedLimit
                                         ? 'Search by the model name to narrow these suggestions.'
                                         : 'Can’t find it? Search by name or enter manually.')),
+                              if (scanLimited)
+                                const Padding(
+                                    padding: EdgeInsets.all(16),
+                                    child: Text(
+                                        'More products may be available. Search by name to narrow the results.')),
                             ])),
                 ])),
       );

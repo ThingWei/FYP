@@ -53,8 +53,8 @@ PROVENANCE_COLUMNS = [
     'isbn', 'edition', 'variant', 'packageType',
     'canonicalProductId', 'productMatchType', 'identity_level', 'product_type',
     'collection_method', 'source_name', 'source_url', 'package_notes',
-    'quoted_rental_days', 'duration_feature_basis', 'duration_min_days', 'duration_max_days',
-    'available_at', 'marketplace_active_listing_count', 'external_asking_price_count',
+    'quoted_rental_days', 'duration_feature_basis', 'duration_min_days', 'duration_max_days', 'rate_basis',
+    'included_lens', 'comparison_facts', 'available_at', 'marketplace_active_listing_count', 'external_asking_price_count',
     'active_comparable_tier', 'historical_comparable_tier',
 ]
 

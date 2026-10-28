@@ -1,5 +1,10 @@
 # RentHub real-data collection kit
 
+Latest pricing workflow: [source cleanup and automated evidence review](PRICING_SOURCE_CLEANUP_AND_READINESS_RESULT.md).
+Use `npm.cmd run review:pricing-evidence -- --run-id NEW-ID` from `services/api`
+for a fresh read-only audit and frozen evaluation. Five previously disabled source
+registrations are removed; the old source onboarding instructions below are historical.
+
 27 October update: [pricing evidence follow-up](PRICING_EVIDENCE_FOLLOWUP_RESULT.md)
 records the current strict provenance checks, source diagnostics and frozen
 evaluation. The pricing evaluator now defaults to `--mode deployed`; candidate

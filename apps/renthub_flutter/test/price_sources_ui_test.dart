@@ -46,6 +46,8 @@ class SourcesApi extends PricingReferenceApi {
               'eligibleObservations': malformedCoverage ? 'bad' : 7,
               'uniqueOfferCount': 3,
               'sourceWebsiteCount': 2,
+              'withCondition': 0,
+              'withItemAge': 0,
               'freshestObservationAt': '2026-10-23T00:00:00Z'
             },
           ],
@@ -145,6 +147,8 @@ void main() {
       expect(find.textContaining('No eligible rental-price references'),
           findsOneWidget);
       expect(find.textContaining('7 observations'), findsOneWidget);
+      expect(find.textContaining('Condition recorded: 0/7'), findsOneWidget);
+      expect(find.textContaining('Item age recorded: 0/7'), findsOneWidget);
       expect(
           find.textContaining('Accuracy is not established'), findsOneWidget);
       expect(tester.takeException(), isNull);

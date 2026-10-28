@@ -1,9 +1,15 @@
 import { CATALOG_COVERAGE } from '../catalog/catalog.coverage.js';
+import { suitableProductComparison } from './productComparisonFacts.js';
 
 // Semantic identities only. No rental amounts, depreciation or manufacturer APIs.
 const rules = {
   Smartphones: [['smartphone', /./]],
-  Cameras: [['camera_lens', /\blens\b|\b(?:ef|rf|fe|af-s|af-p)\b.*\d.*mm/], ['camera', /./]],
+  Cameras: [['camera_adapter', /\badapter\b|\bmount adapter\b/],
+    ['camera_accessory', /\bcage\b|\bgrip\b|\btripod\b|\bgimbal\b|\bflash\b/],
+    ['action_camera', /\bgo\s?pro\b|\binsta360\b|\baction camera\b/],
+    ['camcorder', /\bcamcorder\b|\bhandycam\b|\bhxr[- ]|\bfdr[- ]|\bpxw[- ]|osmo pocket/],
+    ['cinema_camera', /\bcinema\b|\beos c\d/],
+    ['camera_lens', /\blens\b|\b(?:ef|rf|fe|af-s|af-p)\b.*\d.*mm|\b\d+(?:\.\d+)?\s*mm\b/], ['camera', /./]],
   Computers: [['mouse', /\bmouse\b|\bmx master\b/], ['keyboard', /\bkeyboard\b|\bmx keys\b/],
     ['monitor', /\bmonitor\b|studio display|thunderbolt display|\bu\d{4}[a-z]+\b/],
     ['desktop', /desktop|\bpc\b|imac|mac mini/], ['laptop', /laptop|notebook|macbook|latitude|thinkpad|\bxps\b|ideapad/]],
@@ -51,9 +57,13 @@ export const priceText = (value) => String(value ?? '').normalize('NFKC').toLowe
 
 export function productTypeFor(category, subcategory, text, declaredType) {
   if (!PRICE_PRODUCT_DOMAINS.some((row) => row.category === category && row.subcategory === subcategory)) return null;
-  if (declaredType && rules[subcategory].some(([type]) => type === declaredType)) return declaredType;
   const value = String(text ?? '').normalize('NFKC').toLowerCase().trim();
   if (!value) return null;
+  if (subcategory === 'Cameras') {
+    const specific = rules.Cameras.slice(0, -1).find(([, pattern]) => pattern.test(value));
+    if (specific) return specific[0]; // A coarse legacy "camera" tag cannot override an adapter/action/camcorder label.
+  }
+  if (declaredType && rules[subcategory].some(([type]) => type === declaredType)) return declaredType;
   // A mobility scooter must not inherit the generic electric-scooter type.
   if (subcategory === 'Other vehicles' && /mobility scooter/.test(value)) return 'mobility_scooter';
   return rules[subcategory].find(([, pattern]) => pattern.test(value))?.[0] ?? null;
@@ -76,12 +86,15 @@ export function normalizeIsbn(value) {
 const model = (item) => item.productModel ?? item.product_model ?? '';
 const edition = (item) => priceText(item.edition || model(item).match(/\b\d+(?:st|nd|rd|th)?\s+(?:edition|ed)\b/i)?.[0])
   .replace(/\b(\d+)(?:st|nd|rd|th)?(?:\s+(?:edition|ed))?\b/, '$1');
-const variant = (item) => priceText(item.variant || model(item).match(/\b\d+(?:\.\d+)?\s*(?:gb|tb)\b/i)?.[0]).replace(/\s/g, '');
+const variant = (item) => item.subcategory === 'Cameras' && item.packageType === 'with_lens' ? ''
+  : priceText(item.variant || model(item).match(/\b\d+(?:\.\d+)?\s*(?:gb|tb)\b/i)?.[0]).replace(/\s/g, '');
 const packageType = (item) => item.packageType === 'item_only' && item.subcategory === 'Cameras' &&
   productTypeFor(item.category, item.subcategory, `${item.brand ?? ''} ${model(item)}`) === 'camera' ? 'body_only'
   : item.packageType || (/body\s*only/i.test(`${model(item)} ${item.packageNotes ?? ''}`) ? 'body_only'
     : /with (?:a )?lens|\+\s*lens|lens kit|camera kit/i.test(`${model(item)} ${item.packageNotes ?? ''}`) ? 'with_lens' : '');
 const bookTitle = (item) => priceText(model(item).replace(/\b\d+(?:st|nd|rd|th)?\s+(?:edition|ed)\b/ig, ''));
+const includedLens = (item) => item.subcategory === 'Cameras' && packageType(item) === 'with_lens'
+  ? priceText(item.includedLens ?? item.included_lens ?? item.variant ?? '') : '';
 
 // Same-domain constraints apply to both CSV and automatic observations. A valid
 // catalogue identity cannot override an explicit edition/variant/package conflict.
@@ -96,6 +109,8 @@ export function compatibleProductReference(item, profile) {
   }
   const offeredPackage = packageType(item), requestedPackage = packageType(profile);
   if (offeredPackage && offeredPackage !== requestedPackage && !(offeredPackage === 'body_only' && !requestedPackage)) return false;
+  if (includedLens(item) && includedLens(profile) && includedLens(item) !== includedLens(profile)) return false;
+  if (!suitableProductComparison(item, profile)) return false;
   if (item.category === 'Books') {
     if (item.isbn || profile.isbn) {
       const offered = normalizeIsbn(item.isbn), requested = normalizeIsbn(profile.isbn);
@@ -116,7 +131,7 @@ export function referencePeriodMatches(item, days) {
 }
 
 export function referenceIdentityUncertain(item, profile) {
-  return [edition, variant, packageType].some((attribute) => Boolean(attribute(item)) !== Boolean(attribute(profile)));
+  return [edition, variant, packageType, includedLens].some((attribute) => Boolean(attribute(item)) !== Boolean(attribute(profile)));
 }
 
 export function referenceOfferKey(row) {
@@ -128,5 +143,5 @@ export function referenceOfferKey(row) {
   url.searchParams.sort();
   return JSON.stringify([url.hostname.replace(/^www\./, ''), url.pathname.replace(/\/$/, ''), url.search,
     priceText(row.brand), priceText(model(row)), row.isbn ? normalizeIsbn(row.isbn) : '',
-    edition(row), variant(row), packageType(row)]);
+    edition(row), variant(row), packageType(row), includedLens(row)]);
 }

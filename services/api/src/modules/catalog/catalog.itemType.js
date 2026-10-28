@@ -19,6 +19,6 @@ export async function withCatalogTypes(items) {
   const ids = [...new Set(items.map((r) => r.canonicalProductId).filter(Boolean))];
   if (!ids.length) return items;
   const entries = await ProductCatalogModel.find({ entityType: 'product', canonicalProductId: { $in: ids } })
-    .select('canonicalProductId category subcategory brand model specifications.productType').limit(2000).lean();
+    .select('canonicalProductId category subcategory brand model specifications.productType specifications.comparisonFacts').limit(2000).lean();
   return catalogTypesFor(items, entries);
 }

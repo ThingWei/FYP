@@ -1,5 +1,7 @@
 import { minimumRentalPrice, validRentalPrice } from './priceLimits.js';
 import { compatibleProductReference } from './priceProductDomains.js';
+import { annotateComparable, comparableDurationFits, comparableSelection, conditionSimilarity,
+  MAX_SELECTED_COMPARABLES, modelNeighbourhoodScore, sameComparableFamily } from './pricingSimilarity.js';
 
 export const PRICING_EVIDENCE_WINDOW_DAYS = 365;
 export const PRICING_EVIDENCE_QUERY_LIMIT = 1000;
@@ -15,14 +17,18 @@ function same(value, expected) {
 }
 
 function canonicalSame(item, profile) {
-  return !item.identityMatchUncertain && item.identityLevel !== 'specification_only' && Boolean(profile.canonicalProductId) &&
+  return !item.identityMatchUncertain && !item.durationBaseline && item.identityLevel !== 'specification_only' && Boolean(profile.canonicalProductId) &&
     item.canonicalProductId === profile.canonicalProductId;
 }
 
-function sameProductText(item, profile) {
-  return !item.identityMatchUncertain && item.identityLevel !== 'specification_only' && same(item.subcategory, profile.subcategory) &&
+function sameProductName(item, profile) {
+  return item.identityLevel !== 'specification_only' && same(item.subcategory, profile.subcategory) &&
     same(item.brand, profile.brand) &&
     same(item.productModel, profile.product_model);
+}
+
+function sameProductText(item, profile) {
+  return !item.identityMatchUncertain && !item.durationBaseline && sameProductName(item, profile);
 }
 
 const hierarchy = [
@@ -47,6 +53,16 @@ const hierarchy = [
     name: 'exact_product_malaysia',
     minimum: 1,
     match: sameProductText,
+  },
+  {
+    name: 'subcategory_brand_model_unconfirmed',
+    minimum: 1,
+    match: (item, profile) => (item.identityMatchUncertain || item.durationBaseline) && sameProductName(item, profile),
+  },
+  {
+    name: 'subcategory_brand_model_family',
+    minimum: 2,
+    match: sameComparableFamily,
   },
   {
     name: 'subcategory_brand_condition_state',
@@ -88,7 +104,9 @@ export function evidenceRelevance(item, profile) {
   else if (sameProductText(item, profile)) score += 32;
   if (same(item.subcategory, profile.subcategory)) score += 20;
   if (same(item.brand, profile.brand)) score += 15;
-  if (same(item.condition, profile.condition)) score += 8;
+  if (sameComparableFamily(item, profile)) score += 16;
+  score += modelNeighbourhoodScore(item, profile);
+  score += conditionSimilarity(item, profile);
   if (same(item.location, profile.location)) score += 10;
   else if (same(item.state, profile.state)) score += 6;
   const number = (value) => value == null || value === '' ? NaN : Number(value);
@@ -107,28 +125,38 @@ export function evidenceRelevance(item, profile) {
   const observedAt = item.observedAt ?? item.updatedAt;
   const timestamp = observedAt ? new Date(observedAt).getTime() : Number.NaN;
   if (Number.isFinite(timestamp)) {
-    const ageDays = Math.max(0, (Date.now() - timestamp) / 86_400_000);
+    const cutoff = new Date(profile.observed_at ?? profile.evidence_as_of ?? Date.now()).getTime();
+    const ageDays = Math.max(0, (cutoff - timestamp) / 86_400_000);
     score += Math.max(0, 4 - ageDays / 90);
   }
   return score;
 }
 
 export function selectComparableTier(items, profile, minimum) {
-  items = items.filter((item) => compatibleProductReference(item, profile));
+  items = items.filter((item) => compatibleProductReference(item, profile) && comparableDurationFits(item, profile))
+    .map((item) => annotateComparable(item, profile));
   let last = { name: 'category_wide', items: [] };
   for (const level of hierarchy) {
-    const matches = items
+    let matches = items
       .filter((item) => level.match(item, profile))
       .sort((left, right) =>
-        evidenceRelevance(right, profile) - evidenceRelevance(left, profile));
-    last = { name: level.name, items: matches };
+        Number(Boolean(left.durationBaseline)) - Number(Boolean(right.durationBaseline)) ||
+        evidenceRelevance(right, profile) - evidenceRelevance(left, profile) ||
+        String(left.publicId ?? left.observationKey ?? left.productModel ?? '').localeCompare(
+          String(right.publicId ?? right.observationKey ?? right.productModel ?? '')));
+    const quotedPeriod = matches.filter((row) => !row.durationBaseline);
+    if (quotedPeriod.length >= (minimum ?? level.minimum)) matches = quotedPeriod;
+    const selected = matches.slice(0, MAX_SELECTED_COMPARABLES);
+    last = { name: level.name, items: selected,
+      selection: comparableSelection(level.name, selected, matches.length, minimum ?? level.minimum, profile.rental_duration_days) };
     if (matches.length >= (minimum ?? level.minimum)) return last;
   }
   return last;
 }
 
 export function evidenceCounts(items, profile) {
-  items = items.filter((item) => compatibleProductReference(item, profile));
+  items = items.filter((item) => compatibleProductReference(item, profile) && comparableDurationFits(item, profile))
+    .map((item) => annotateComparable(item, profile));
   const exact = items.filter((item) =>
     canonicalSame(item, profile) || sameProductText(item, profile));
   return {
@@ -155,6 +183,28 @@ export function pricingEvidenceDisclosure(evidence) {
     product_specific_evidence: scope === 'product',
     evidence_status: scope === 'product' ? 'product_specific' : scope ? 'broad' : 'insufficient',
   };
+}
+
+export function withComparablePresentation(result, activeTier, historicalTier) {
+  const values = [...activeTier.items, ...historicalTier.items]
+    .map((item) => item.dailyPrice).filter((price) => Number.isFinite(price) && price > 0);
+  const summary = { active: activeTier.selection, historical: historicalTier.selection,
+    observedRange: values.length ? { lower: Math.min(...values), upper: Math.max(...values) } : null,
+    originalModelRange: Number.isFinite(result.lower_bound) && Number.isFinite(result.upper_bound)
+      ? { lower: result.lower_bound, upper: result.upper_bound } : null,
+    rangeIncludesComparables: false };
+  const response = { ...result, comparison_summary: summary };
+  if (result.available && !result.product_specific_evidence && values.length >= 1 &&
+      Number.isFinite(result.lower_bound) && Number.isFinite(result.upper_bound)) {
+    // An envelope, not a newly calibrated confidence interval. Never shrink the
+    // model's uncertainty or change its predicted amount to fit the references.
+    response.lower_bound = Math.min(result.lower_bound, ...values);
+    response.upper_bound = Math.max(result.upper_bound, ...values);
+    summary.rangeIncludesComparables = true;
+    response.explanation = [...(Array.isArray(result.explanation) ? result.explanation : []),
+      'Displayed bounds also include selected comparable observations; the original model interval is retained separately. This envelope has not been independently calibrated.'];
+  }
+  return response;
 }
 
 function quantile(sorted, position) {

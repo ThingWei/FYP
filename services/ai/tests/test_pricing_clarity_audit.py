@@ -38,3 +38,28 @@ def test_identity_and_age_reach_inference_with_fixed_evidence(monkeypatch):
     assert all(frame.iloc[0]['comparable_active_median'] == 85 for frame in frames)
     assert all(frame.iloc[0]['rental_duration_days'] == 1 for frame in frames)
     assert all(frame.iloc[0]['condition'] == 'Excellent' for frame in frames)
+
+
+def test_requested_longer_duration_reaches_frozen_feature_contract(monkeypatch):
+    frames = []
+
+    def predict(frame):
+        frames.append(frame.copy())
+        return np.array([70.0])
+
+    model = SimpleNamespace(predict=predict)
+    artifact = {'global_model': model, 'feature_schema': {'ordered': FEATURES},
+                'calibration': {'globalAbsoluteResidual': 5}, 'model_version': 'fixture',
+                'supported_categories': ['Devices'], 'metrics': {'dataset': {'sourceTypes': {'real': 100}}}}
+    monkeypatch.setattr(pricing, '_artifact', lambda: (artifact, None, None))
+    for days in [1, 2, 3, 7, 30]:
+        request = controlled_request('Fixture', 'Fixture phone', 1)
+        request.rental_duration_days = days
+        request.item_profile['rental_duration_days'] = days
+        request.market_evidence['active_comparable_tier'] = 'subcategory_brand_model_unconfirmed'
+        request.market_evidence['exact_active_count'] = 0
+        result = pricing.XGBoostPriceService().recommend(request)
+        assert result.available
+        assert not result.product_specific_evidence
+    assert [int(frame.iloc[0]['rental_duration_days']) for frame in frames] == [1, 2, 3, 7, 30]
+    assert all(list(frame.columns) == FEATURES for frame in frames)

@@ -1,0 +1,25 @@
+{
+  "purpose": "fictional_demo_presentation_not_observed_item_facts",
+  "meetingPoint": {
+    "label": "Dataran Merdeka — demo meeting point",
+    "city": "Kuala Lumpur",
+    "state": "Kuala Lumpur",
+    "latitude": 3.1487691,
+    "longitude": 101.6936377,
+    "source": "Existing OpenStreetMap search adapter; public landmark lookup on 2026-10-27. Not the Owner's address."
+  },
+  "items": {
+    "samsung-s23": { "condition": "Excellent", "age": 3, "deposit": 300, "delivery": 20, "summary": "Compact Android phone for navigation, everyday photos and short trips. Demo package: phone only." },
+    "samsung-s24": { "condition": "Excellent", "age": 2, "deposit": 350, "delivery": 20, "summary": "Everyday Android phone for travel, calls and photography. Demo package: phone only." },
+    "canon-5d": { "condition": "Good", "age": 18, "deposit": 300, "delivery": 20, "summary": "Classic full-frame DSLR body for practising portrait and still photography. Body only; lens not included." },
+    "canon-5d-mark-iii": { "condition": "Good", "age": 10, "deposit": 400, "delivery": 20, "summary": "Full-frame DSLR body for portraits and event photography. Body only; lens not included." },
+    "canon-r6-mark-ii": { "condition": "Excellent", "age": 2, "deposit": 600, "delivery": 20, "summary": "Full-frame mirrorless camera body for photo and video projects. Body only; lens not included." },
+    "canon-r5": { "condition": "Very good", "age": 3, "deposit": 700, "delivery": 20, "summary": "Mirrorless camera body for detailed photography and creative video work. Body only; lens not included." },
+    "sony-a7-mark-iii": { "condition": "Very good", "age": 5, "deposit": 500, "delivery": 20, "summary": "Full-frame mirrorless body for portraits, travel and creative projects. Body only; lens not included." },
+    "sony-a7s-mark-iii": { "condition": "Excellent", "age": 3, "deposit": 700, "delivery": 20, "summary": "Video-oriented mirrorless camera body for filmmaking practice. Body only; lens not included." },
+    "dell-latitude-7390": { "condition": "Good", "age": 6, "deposit": 200, "delivery": 20, "summary": "Compact business laptop for presentations, training and office tasks. Demo package includes a power adapter." },
+    "dell-latitude-7420": { "condition": "Very good", "age": 4, "deposit": 250, "delivery": 20, "summary": "Portable business laptop for workshops, study and temporary work. Demo package includes a power adapter." },
+    "toyota-camry": { "condition": "Excellent", "age": 3, "deposit": 1000, "delivery": 80, "summary": "Comfortable sedan example for city journeys and short trips. Fuel, mileage and eligibility rules still need checking in any real rental." },
+    "sony-ps5-pro": { "condition": "Excellent", "age": 1, "deposit": 400, "delivery": 20, "summary": "Gaming-console package for trying the rental flow. Demo package includes one controller and connection cables; games are not included." }
+  }
+}

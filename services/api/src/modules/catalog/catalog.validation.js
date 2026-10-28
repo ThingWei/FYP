@@ -5,6 +5,7 @@ import { CATALOG_COVERAGE } from './catalog.coverage.js';
 import { MAX_CATALOG_RESULTS } from './catalog.limits.js';
 
 const context = [
+  query('mode').optional().custom(textInput).bail().isIn(['evidence']),
   query('category').isIn(LISTING_CATEGORIES.filter((item) => item !== 'Services')),
   query('subcategory').custom(textInput).bail().trim().isLength({ min: 2, max: 100 }).bail()
     .custom((value, { req }) => CATALOG_COVERAGE.some((entry) =>

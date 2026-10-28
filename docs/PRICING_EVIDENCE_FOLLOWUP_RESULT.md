@@ -1,5 +1,8 @@
 # Pricing evidence follow-up: sources, transactions and evaluation
 
+Superseded source state: [five disabled sources are now removed](PRICING_SOURCE_CLEANUP_AND_READINESS_RESULT.md).
+The diagnostic counts below describe the earlier research pass, not active registrations.
+
 27 October 2026. This follows the existing source review and implements the
 requested transaction-collection preparation and frozen-model evaluation steps.
 It does not claim that genuine transactions or publisher approvals occurred.

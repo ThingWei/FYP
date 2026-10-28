@@ -231,6 +231,11 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
                       final row = value as Map;
                       final count =
                           (row['eligibleObservations'] as num).toInt();
+                      final profileDetails = count > 0 &&
+                              row['withCondition'] is num &&
+                              row['withItemAge'] is num
+                          ? '\nCondition recorded: ${row['withCondition']}/$count · Item age recorded: ${row['withItemAge']}/$count. Missing details stay unknown.'
+                          : '';
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         title:
@@ -238,7 +243,7 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
                         subtitle: Text(count == 0
                             ? 'No eligible rental-price references. Manual pricing remains available.'
                             : '$count observations · ${row['uniqueOfferCount']} distinct offers · ${row['sourceWebsiteCount']} source websites\n'
-                                'Latest observation: ${row['freshestObservationAt']?.toString().split('T').first ?? 'Not available'}. Accuracy is not established by these counts.'),
+                                'Latest observation: ${row['freshestObservationAt']?.toString().split('T').first ?? 'Not available'}. Accuracy is not established by these counts.$profileDetails'),
                       );
                     }),
                 ],

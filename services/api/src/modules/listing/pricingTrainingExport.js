@@ -2,9 +2,10 @@
 import { createHash } from 'node:crypto';
 import { validRentalPrice } from './priceLimits.js';
 import { CATALOG_COVERAGE } from '../catalog/catalog.coverage.js';
-import { productTypeFor } from './priceSources.registry.js';
-import { compatibleProductReference, referencePeriodMatches, referenceIdentityUncertain, referenceOfferKey } from './priceProductDomains.js';
+import { productTypeFor, priceSource } from './priceSources.registry.js';
+import { compatibleProductReference, referenceIdentityUncertain, referenceOfferKey } from './priceProductDomains.js';
 import { listingEvidenceReason, bookingEvidenceReason } from './priceProvenance.js';
+import { referencePeriodEligibility, referenceRateBasis, validRateBasis } from './pricingPeriods.js';
 import { PRICING_COMPLETED_PAYMENT_STATUSES, PRICING_EVIDENCE_WINDOW_DAYS,
   robustPriceStats, selectComparableTier } from './pricingEvidence.js';
 
@@ -46,13 +47,14 @@ function base(item, observed, dailyPrice, target, source) {
     price_origin: item.priceProvenance?.origin ?? (source === 'external_asking_price' ? 'external_reference' : 'unknown'),
     independent_evidence: source === 'external_asking_price' || !listingEvidenceReason(item),
     isbn: item.isbn || '', edition: item.edition || '', variant: item.variant || '', packageType: item.packageType || '',
+    included_lens: item.includedLens || '', comparison_facts: item.comparisonFacts ?? null,
     _ownerId: item.ownerId ?? null, _knownAt: observed,
   };
 }
 
 export function eligibleTrainingReference(row, enabledSourceIds, now = new Date()) {
   const observed = date(row.observedAt), amount = row.quotedAmount, days = row.rentalDurationDays;
-  if (row.active !== true || row.sourceType !== 'external_asking_price' || row.currency !== 'MYR' || row.country !== 'MY' ||
+  if (!validRateBasis(row) || row.active !== true || row.sourceType !== 'external_asking_price' || row.currency !== 'MYR' || row.country !== 'MY' ||
       !observed || observed > now || observed < new Date(now - PRICING_EVIDENCE_WINDOW_DAYS * DAY) ||
       !CATALOG_COVERAGE.some((c) => c.category === row.category && c.subcategory === row.subcategory) ||
       !row.productModel || !row.sourceName || !row.sourceUrl ||
@@ -67,7 +69,7 @@ export function eligibleTrainingReference(row, enabledSourceIds, now = new Date(
   } catch { return false; }
   if (row.collectionMethod === 'automatic') {
     const min = row.durationMinDays, max = row.durationMaxDays;
-    return enabledSourceIds.includes(row.sourceId) && row.validationStatus === 'accepted' &&
+    return Boolean(priceSource(row.sourceId)?.adapter) && enabledSourceIds.includes(row.sourceId) && row.validationStatus === 'accepted' &&
       Boolean(date(row.validatedAt)) && !future(row.validatedAt, now) &&
       Boolean(row.productType) && row.productType === productTypeFor(row.category, row.subcategory, `${row.brand ?? ''} ${row.productModel}`) &&
       Number.isInteger(min) && Number.isInteger(max) && min >= 1 && max <= 365 && min <= max;
@@ -94,12 +96,17 @@ export function trainingComparableFeatures(row, history, reviews = []) {
   });
   const asCandidate = (r) => ({ ...r, productModel: r.product_model, dailyPrice: r.daily_price,
     identityMatchUncertain: r.source_type === 'external_asking_price' && referenceIdentityUncertain({ ...r, packageNotes: r.package_notes }, row),
-    identityLevel: r.identity_level, observedAt: r.observed_at });
+    identityLevel: r.identity_level, observedAt: r.observed_at,
+    packageNotes: r.package_notes, durationMinDays: r.duration_min_days, durationMaxDays: r.duration_max_days,
+    rateBasis: r.rate_basis,
+    includedLens: r.included_lens, comparisonFacts: r.comparison_facts,
+    rentalDurationDays: r.quoted_rental_days ?? r.rental_duration_days });
   const externalCompatible = (r) => compatibleProductReference({ ...r,
-    productType: r.product_type, packageNotes: r.package_notes }, row) && referencePeriodMatches({
+    productType: r.product_type, packageNotes: r.package_notes }, row) && referencePeriodEligibility({
+    rateBasis: r.rate_basis,
     durationMinDays: r.duration_min_days, durationMaxDays: r.duration_max_days,
     rentalDurationDays: r.quoted_rental_days ?? r.rental_duration_days,
-  }, row.rental_duration_days);
+  }, row.rental_duration_days).eligible;
   const activeTier = selectComparableTier(prior.filter((r) => asking.has(r.target_source) &&
     (r.source_type !== 'external_asking_price' || externalCompatible(r))).map(asCandidate), row);
   const historyTier = selectComparableTier(prior.filter((r) => completed.has(r.target_source)).map(asCandidate), row);
@@ -201,6 +208,7 @@ export function buildPricingTrainingExport({ listings = [], bookings = [], revie
     observations.push({ ...row, rental_duration_days: featureDays, quoted_rental_days: days,
       duration_feature_basis: featureDays === days ? 'quoted_period' : 'eligible_band_minimum',
       duration_min_days: reference.durationMinDays ?? days, duration_max_days: reference.durationMaxDays ?? days,
+      rate_basis: referenceRateBasis(reference),
       collection_method: reference.collectionMethod ?? 'manual_csv', source_name: reference.sourceName,
       source_url: reference.sourceUrl, package_notes: reference.packageNotes ?? '',
       origin_offer_key: hash(offer),
@@ -213,7 +221,8 @@ export function buildPricingTrainingExport({ listings = [], bookings = [], revie
   }
   const rows = prepared.map(({ _ownerId, _knownAt, ...row }) => row);
   const counts = (field) => rows.reduce((result, row) => { result[row[field]] = (result[row[field]] || 0) + 1; return result; }, {});
-  return { schemaVersion: 'renthub-pricing-observations-v2', generatedAt: now.toISOString(), rows,
+  return { schemaVersion: 'renthub-pricing-observations-v2', generatedAt: now.toISOString(),
+    catalogCoverage: CATALOG_COVERAGE.map(({ category, subcategory }) => ({ category, subcategory })), rows,
     summary: { rows: rows.length, sourceTypes: counts('source_type'), targetSources: counts('target_source'),
       excludedReferences, duplicateReferences: duplicates,
       excludedPlatform,
