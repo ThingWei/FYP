@@ -34,6 +34,7 @@ import {
 import { drivingEligibilityCheck, hasApprovedMykad, LICENCE_CLASSES, reviewedLicenceExpiry } from './drivingEligibility.js';
 import { fingerprintForNumber, assertBindingReady, assertIdentityNotLinked, approveMykadAtomically } from './identityBinding.js';
 import { drivingAssessment, DRIVING_CONTRACT } from './drivingAssistance.js';
+import { withTrustProfile, refreshTrustProfile } from './trust.service.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -443,7 +444,14 @@ export const userService = {
     return { user: updated, created: false };
   },
 
-  getMe: requireCurrentUser,
+  async getMe(identity) { return withTrustProfile(await requireCurrentUser(identity)); },
+  async getTrust(identity, id = identity.authId) {
+    const viewer = await requireCurrentUser(identity);
+    const target = await userRepository.findById(id);
+    const administrator = viewer.roles.includes('admin');
+    if (!target || !administrator && target.authId !== viewer.authId && (target.accountStatus !== 'active' || viewer.blockedUserIds.includes(target.authId) || target.blockedUserIds.includes(viewer.authId))) throw new AppError('User not found', 404, 'NOT_FOUND');
+    return refreshTrustProfile(target.authId);
+  },
 
   async deactivateMe(identity, reason) {
     const user = await requireCurrentUser(identity);
@@ -1046,7 +1054,7 @@ export const userService = {
     }
     const user = await userRepository.findPublicById(id);
     if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
-    return user;
+    return withTrustProfile(user);
   },
 
   async list(query) {

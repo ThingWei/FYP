@@ -29,6 +29,9 @@ apiCapabilities.push('notification-targets-v1');
 apiCapabilities.push('pricing-daily-baseline-v1');
 apiCapabilities.push('pricing-suitability-v1');
 apiCapabilities.push('evidence-led-product-selection-v1');
+apiCapabilities.push('admin-record-details-v1');
+apiCapabilities.push('trust-profile-v1');
+apiCapabilities.push('user-records-messaging-v2');
 app.use(
   helmet(),
   cors({ origin: env.corsOrigins }),

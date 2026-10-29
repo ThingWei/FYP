@@ -15,6 +15,7 @@ const userId = param('id').custom(textInput).bail().trim()
   .matches(/^(?:[a-f\d]{24}|u-[a-z\d-]+)$/i)
   .withMessage('Invalid user identifier');
 
+export const trustProfileValidation = [param('id').custom(textInput).bail().isLength({ min: 1, max: 160 }).not().matches(/[\x00-\x1f]/)];
 const email = () => body('email').custom(textInput).bail().trim().isEmail().normalizeEmail();
 const password = () =>
   body('password')
@@ -104,7 +105,7 @@ export const verificationSubmissionValidation = [
     if (value.licenceSource && value.documentType !== 'driving_licence') throw new Error('Licence source is only used for driving evidence');
     return true;
   }),
-  body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
+  body('documentType').isIn(['mykad', 'driving_licence']),
   body('licenceSource').optional().isIn(['physical', 'myjpj']),
   body('documentRefs').isArray({ min: 1, max: 2 }),
   body('documentRefs.*').custom(textInput).bail().trim()
@@ -218,7 +219,7 @@ export const verificationFrameValidation = [
   }),
   body('contentBase64').isString().isLength({ min: 100, max: 1_900_000 }),
   body('contentType').optional().isIn(['image/jpeg', 'image/png']),
-  body('documentType').isIn(['mykad', 'passport', 'driving_licence']),
+  body('documentType').isIn(['mykad', 'driving_licence']),
   body('licenceSource').optional().isIn(['physical', 'myjpj']),
   body('expectedSide').optional().isIn(['front', 'back']),
   body('validateCapture').optional().custom((value) => typeof value === 'boolean'),

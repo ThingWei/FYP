@@ -17,7 +17,7 @@ export const reviewRepository = {
     const paging = pages({ page, limit });
     return Promise.all([
       ReviewModel.find(query)
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(paging.skip)
         .limit(paging.limit),
       ReviewModel.countDocuments(query),
@@ -28,7 +28,7 @@ export const reviewRepository = {
     const paging = pages({ page, limit });
     return Promise.all([
       ReviewModel.find(query)
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(paging.skip)
         .limit(paging.limit),
       ReviewModel.countDocuments(query),
@@ -42,7 +42,7 @@ export const reviewRepository = {
     const paging = pages({ page, limit });
     return Promise.all([
       ReviewModel.find(query)
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(paging.skip)
         .limit(paging.limit),
       ReviewModel.countDocuments(query),

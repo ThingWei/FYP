@@ -25,6 +25,11 @@ export const listRentalsValidation = [
   query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
   query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
   query('status').optional().isIn(RENTAL_STATUSES),
+  query('bookingIds').optional().custom(textInput).bail().custom(value => {
+    const ids=value.split(',');
+    if(!ids.length || ids.length>50 || ids.some(id=>!/^RH-(?:BKG|SVC)-\d{4}-[A-Z0-9]+$/i.test(id)))throw new Error('Invalid booking references');
+    return true;
+  }),
 ];
 
 export const handoverValidation = [rentalId, ...evidenceFields];

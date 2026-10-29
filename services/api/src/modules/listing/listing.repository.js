@@ -28,7 +28,12 @@ export const listingRepository = {
     const criteria = { status: 'active', ...filter };
     if (unavailableIds?.length) criteria.publicId = { $nin: unavailableIds };
     const [items, total] = await Promise.all([
-      ListingModel.find(criteria)
+      sort.ownerTrustScore ? ListingModel.aggregate([
+        { $match: criteria },
+        { $set: { _trustOrder: { $cond: [{ $and: [{ $eq: ['$ownerTrustProfile.version', 'renthub-trust-v1'] }, { $eq: ['$ownerTrustProfile.marketplace.status', 'established'] }] }, '$ownerTrustProfile.marketplace.score', 50] } } },
+        { $sort: { _trustOrder: -1, rating: -1, createdAt: -1, _id: -1 } },
+        { $skip: (page - 1) * limit }, { $limit: limit }, { $unset: '_trustOrder' },
+      ]).then(rows => rows.map(row => ListingModel.hydrate(row))) : ListingModel.find(criteria)
         .sort(sort)
         .skip((page - 1) * limit)
         .limit(limit),
@@ -41,7 +46,7 @@ export const listingRepository = {
     const filter = { ownerId, ...(status && { status }) };
     const [items, total] = await Promise.all([
       ListingModel.find(filter)
-        .sort({ updatedAt: -1 })
+        .sort({ updatedAt: -1, _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       ListingModel.countDocuments(filter),
@@ -53,7 +58,7 @@ export const listingRepository = {
     const filter = { ...(status && { status }) };
     const [items, total] = await Promise.all([
       ListingModel.find(filter)
-        .sort({ updatedAt: -1 })
+        .sort({ updatedAt: -1, _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       ListingModel.countDocuments(filter),

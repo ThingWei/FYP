@@ -16,9 +16,18 @@ import 'package:renthub_flutter/shared/models/domain_models.dart';
 
 class _Api extends ApiClient {
   _Api() : super('http://example.invalid');
+  Map<String, dynamic>? adminRecord;
+  @override
+  Future<Map<String, dynamic>> requestEnvelope(String method, String path,
+          {Object? body}) async =>
+      {
+        'data': [if (adminRecord != null) adminRecord!],
+        'meta': {'page': 1, 'limit': 20, 'total': adminRecord == null ? 0 : 1}
+      };
   final calls = <(String, String, Object?)>[];
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
+    if (path.startsWith('/admin/records/')) return {'record': adminRecord};
     calls.add((method, path, body));
     if (path.contains('price-recommendation')) {
       return {
@@ -40,6 +49,10 @@ class _Controller extends LiveRentHubController {
   _Controller(super.api);
   @override
   Future<void> loadAdmin() async {}
+  @override
+  Future<void> loadAdminOverview() async {}
+  @override
+  Future<void> refreshAdminHealth() async {}
 }
 
 const _profile = {
@@ -255,10 +268,12 @@ void main() {
             'accountStatus': 'active'
           }
         ];
+      api.adminRecord = controller.users.single;
       addTearDown(controller.dispose);
       await tester.pumpWidget(app(const LiveAdminShell(), controller));
       await tester.tap(find.text('Users').first);
       await tester.pumpAndSettle();
+      await press(tester, 'View details');
       await press(tester, 'Suspend');
       await enter(tester, 'Required reason', 'x');
       await press(tester, 'Suspend');

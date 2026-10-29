@@ -804,25 +804,13 @@ test('licence evidence without MyKad cannot be approved and AI identifiers remai
   assert.ok(!JSON.stringify(stored.verification).includes('900101-07-1234'));
 });
 
-test('passport approval verifies identity but does not replace vehicle MyKad and licence requirements', async () => {
+test('new Passport submissions are rejected while historical approvals retain their actual record', async () => {
   const renter = identity();
-  const admin = identity({ id: 'u-admin', roles: 'admin' });
   await request(app).post('/api/v1/users/session').set(renter);
-  await request(app).post('/api/v1/users/session').set(admin);
-  const submitted = await request(app)
-    .post('/api/v1/users/me/verification')
-    .set(renter)
+  const submitted = await request(app).post('/api/v1/users/me/verification').set(renter)
     .send({ documentType: 'passport', documentRefs: ['local://verification/synthetic-passport.jpg'] });
-  assert.equal(submitted.status, 200);
-  const user = await UserModel.findOne({ authId: 'u-renter' }).lean();
-  const reviewed = await request(app)
-    .patch(`/api/v1/users/${user._id}/verification`)
-    .set(admin)
-    // A deprecated tier field from older clients is ignored by matchedData.
-    .send({ status: 'approved', tier: 'enhanced', attemptId: submitted.body.data.verification.history[0].attemptId });
-  assert.equal(reviewed.status, 200);
-  assert.equal(reviewed.body.data.verification.status, 'approved');
-  assert.equal(reviewed.body.data.verification.tier, 'basic');
+  assert.equal(submitted.status, 422);
+  await UserModel.updateOne({ authId: 'u-renter' }, { $set: { 'verification.documentType': 'passport', 'verification.status': 'approved' } });
   const requirements = await request(app)
     .get('/api/v1/users/me/verification/requirements')
     .query({ category: 'Vehicles', dailyPrice: 10 })

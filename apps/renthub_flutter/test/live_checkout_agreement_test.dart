@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/booking/checkout_models.dart';
@@ -53,6 +54,7 @@ class CheckoutApi extends ApiClient {
   Object? readError;
   String record = 'awaiting_approval';
   bool historicalMissing = false;
+  int agreementConnectionDrops = 0;
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     if (method == 'POST') {
@@ -82,6 +84,10 @@ class CheckoutApi extends ApiClient {
     reads++;
     if (readError != null) throw readError!;
     if (path.contains('/agreement')) {
+      if (agreementConnectionDrops > 0) {
+        agreementConnectionDrops--;
+        throw http.ClientException('Connection closed before full header');
+      }
       return {
         'booking': saved,
         'terms': historicalMissing
@@ -161,6 +167,27 @@ Future<void> tapVisible(WidgetTester tester, String text) async {
 }
 
 void main() {
+  testWidgets(
+      'paid checkout opens the saved agreement after a dropped read connection',
+      (tester) async {
+    final api = CheckoutApi()..agreementConnectionDrops = 1;
+    api.saved['paymentStatus'] = 'authorized';
+    await mount(tester, api);
+    expect(find.text('Demo payment complete — awaiting Owner approval'),
+        findsOneWidget);
+    await tapVisible(tester, 'View agreement');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    expect(find.byType(LiveAgreementPage), findsOneWidget);
+    expect(find.text('Test camera'), findsOneWidget);
+    expect(find.text('Status: pending'), findsOneWidget);
+    expect(
+        find.text(
+            'We couldn’t connect to RentHub. Check your connection and try again.'),
+        findsNothing);
+    expect(api.writes, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   test(
       'saved delivery charges support legacy zero fees and reject inconsistent totals',
       () {

@@ -49,6 +49,9 @@ class ReferenceApi extends PricingReferenceApi {
         'total': imports == 0 ? 0 : 1
       };
   @override
+  Future<Map<String, dynamic>> detail(String id) async =>
+      {'record': observation};
+  @override
   Future<Map<String, dynamic>> preview(String csv) async {
     if (previewError != null) throw previewError!;
     if (failPreview) throw ApiException(503, 'private server path');
@@ -99,7 +102,7 @@ Future<void> press(WidgetTester tester, String text) async {
   if (['Get blank CSV', 'Choose CSV', 'How to prepare your CSV']
           .contains(text) &&
       find.text(text).evaluate().isEmpty) {
-    await press(tester, 'Advanced / manual import');
+    await press(tester, 'Import prices from a file');
   }
   if (find.text(text).evaluate().isEmpty) {
     await tester.scrollUntilVisible(find.text(text), 180,
@@ -145,7 +148,7 @@ void main() {
                   textScaler: const TextScaler.linear(1.4)),
               child: LivePricingReferencesPage(api: api))));
       await tester.pumpAndSettle();
-      await press(tester, 'Advanced / manual import');
+      await press(tester, 'Import prices from a file');
       expect(find.text('Get blank CSV'), findsOneWidget);
       expect(find.text('Download template'), findsNothing);
       await press(tester, 'How to prepare your CSV');
@@ -251,7 +254,7 @@ void main() {
         child: MaterialApp(
             theme: AppTheme.light, home: LivePricingReferencesPage(api: api))));
     await tester.pumpAndSettle();
-    await press(tester, 'Advanced / manual import');
+    await press(tester, 'Import prices from a file');
     await tester.ensureVisible(find.text('Choose CSV'));
     for (var attempt = 0; attempt < 12; attempt++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
@@ -456,11 +459,16 @@ void main() {
       await press(tester, 'Import reviewed prices');
       await press(tester, 'Confirm import');
       expect(api.imports, 1);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 5000));
+      await tester.pumpAndSettle();
+      await press(tester, 'View details');
       await press(tester, 'Deactivate');
       expect(api.deactivations, 0);
       await press(tester, 'Deactivate');
       expect(api.deactivations, 1);
-      expect(find.textContaining('Inactive'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close details'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Not in use'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

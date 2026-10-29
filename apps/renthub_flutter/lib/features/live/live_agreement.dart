@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:http/http.dart' as http;
+import '../../core/network/api_client.dart';
 import 'package:provider/provider.dart';
 import '../../core/booking/checkout_models.dart';
 import '../../core/network/user_facing_error.dart';
@@ -7,6 +10,23 @@ import '../renter/booking/booking_flow.dart' show formatDateRange;
 import 'live_authenticated_page.dart';
 import 'live_booking_charges.dart';
 import 'live_renthub_controller.dart';
+
+/// Only retry this read. Never replay checkout or booking writes here.
+Future<dynamic> readAgreement(ApiClient api, String path) async {
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await api
+          .request('GET', path)
+          .timeout(const Duration(seconds: 15));
+    } on http.ClientException {
+      if (attempt == 1) rethrow;
+    } on TimeoutException {
+      if (attempt == 1) rethrow;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  throw const FormatException('Agreement unavailable');
+}
 
 String agreementStatusLabel(Rental rental) =>
     rental.blockchainStatus == 'confirmed'
@@ -94,6 +114,7 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
   BookingAgreementDocument? document;
   bool loading = true;
   String? error;
+  int generation = 0;
   @override
   void initState() {
     super.initState();
@@ -101,23 +122,28 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
   }
 
   Future<void> _load() async {
+    final request = ++generation,
+        c = context.read<LiveRentHubController>(),
+        account = c.profile?.id;
+    bool current() =>
+        mounted && request == generation && c.profile?.id == account;
     setState(() {
       loading = true;
       error = null;
     });
     try {
-      final api = context.read<LiveRentHubController>().api;
+      final api = c.api;
       if (widget.bookingId == null) {
         final value = AgreementTerms.fromJson(Map<String,
-            dynamic>.from(await api.request('GET',
+            dynamic>.from(await readAgreement(api,
                 '/bookings/agreement-terms?listingType=${widget.listingType}')
             as Map));
-        if (mounted) setState(() => terms = value);
+        if (current()) setState(() => terms = value);
       } else {
         final value = BookingAgreementDocument.fromJson(
-            Map<String, dynamic>.from(await api.request(
-                'GET', '/bookings/${widget.bookingId}/agreement') as Map));
-        if (mounted) {
+            Map<String, dynamic>.from(await readAgreement(
+                api, '/bookings/${widget.bookingId}/agreement') as Map));
+        if (current()) {
           setState(() {
             document = value;
             terms = value.terms;
@@ -125,9 +151,9 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
         }
       }
     } catch (exception) {
-      if (mounted) setState(() => error = friendlyError(exception));
+      if (current()) setState(() => error = friendlyError(exception));
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (current()) setState(() => loading = false);
     }
   }
 
@@ -174,6 +200,9 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(error!),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                          'Your booking has not been changed. Try loading the agreement again.'),
                                       const SizedBox(height: 16),
                                       OutlinedButton(
                                           onPressed: _load,

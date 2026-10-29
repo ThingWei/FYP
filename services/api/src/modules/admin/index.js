@@ -33,6 +33,7 @@ import {
 } from '../../operations/lifecycleJobs.js';
 import { technologyHealth } from '../../operations/technologyHealth.js';
 import { pricingReferenceRouter } from './pricingReference.routes.js';
+import { createAdminRecordsService } from './adminRecords.service.js';
 
 const auditSchema = new mongoose.Schema(
   {
@@ -190,10 +191,15 @@ const service = {
   },
 
   async getSettings() {
-    return (
+    const settings = (
       (await PlatformSettingModel.findOne({ key: 'platform' })) ??
-      PlatformSettingModel.create({ key: 'platform' })
+      await PlatformSettingModel.create({ key: 'platform' })
     );
+    const result = settings.toJSON();
+    result.kycRequirements = result.kycRequirements.map(rule => ({ ...rule,
+      documentTypes: rule.documentTypes.filter(type => type !== 'passport'),
+    }));
+    return result;
   },
 
   async updateSettings(input, identity) {
@@ -265,7 +271,7 @@ const settingsValidation = [
   body('kycRequirements.*.documentTypes').optional().isArray({ max: 3 }),
   body('kycRequirements.*.documentTypes.*')
     .optional()
-    .isIn(['mykad', 'passport', 'driving_licence']),
+    .isIn(['mykad', 'driving_licence']),
   body('kycRequirements.*.highValueOnly').optional().isBoolean().toBoolean(),
   body('supportEmail').optional().isEmail().normalizeEmail(),
   body('bookingPolicy').optional().custom(textInput).bail().trim().isLength({ min: 10, max: 3000 }),
@@ -355,6 +361,13 @@ router.post(
   ),
 );
 router.use(authenticate, authorize('admin'));
+const records = createAdminRecordsService(Model);
+router.get('/dashboard-summary', asyncHandler(async (_req, res) => ok(res, await records.summary())));
+router.get('/records/:type', asyncHandler(async (req, res) => {
+  const result = await records.list(req.params.type, req.query);
+  return ok(res, result.items, result.meta);
+}));
+router.get('/records/:type/:id', asyncHandler(async (req, res) => ok(res, await records.get(req.params.type, req.params.id))));
 router.use('/pricing-references', pricingReferenceRouter(repository.create));
 router.get(
   '/technology-health',
@@ -377,9 +390,13 @@ router.post(
 );
 router.get(
   '/reporting/reports',
-  asyncHandler(async (_req, res) =>
-    ok(res, await adminReportService.listReports()),
-  ),
+  asyncHandler(async (req, res) => {
+    if (req.query.page !== undefined || req.query.limit !== undefined) {
+      const result = await records.list('generated-reports', req.query);
+      return ok(res, result.items, result.meta);
+    }
+    return ok(res, await adminReportService.listReports());
+  }),
 );
 router.post(
   '/reporting/reports',
@@ -423,9 +440,13 @@ router.get(
 );
 router.get(
   '/reporting/schedules',
-  asyncHandler(async (_req, res) =>
-    ok(res, await adminReportService.listSchedules()),
-  ),
+  asyncHandler(async (req, res) => {
+    if (req.query.page !== undefined || req.query.limit !== undefined) {
+      const result = await records.list('report-schedules', req.query);
+      return ok(res, result.items, result.meta);
+    }
+    return ok(res, await adminReportService.listSchedules());
+  }),
 );
 router.post(
   '/reporting/schedules',

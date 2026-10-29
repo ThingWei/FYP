@@ -327,6 +327,12 @@ async function summaryFor(userId) {
 }
 
 export const loyaltyService = {
+  async entries(identity, query) {
+    await activeUser(identity);
+    const { page, limit } = pageOptions({ ...query, limit: query.limit ?? '20' });
+    const [items,total]=await loyaltyRepository.listUserEntries(identity.authId,page,limit);
+    return { items, meta:{page,limit,total} };
+  },
   async summary(identity) {
     await activeUser(identity);
     return summaryFor(identity.authId);

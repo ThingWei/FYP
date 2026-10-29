@@ -10,6 +10,8 @@ import { PaymentModel } from '../payment/payment.model.js';
 import { nextPriceProvenance, listingEvidenceReason, bookingEvidenceReason } from './priceProvenance.js';
 import { ReviewModel } from '../review/review.model.js';
 import { UserModel } from '../user/user.model.js';
+import { availableTrustProfile } from '../user/trust.service.js';
+import { realTrustScore, ownerTrustSummary } from '../user/trustPolicy.js';
 import { assertMarketplaceIdentity } from '../user/kycRequirements.js';
 import { hasApprovedMykad } from '../user/drivingEligibility.js';
 import {
@@ -233,6 +235,20 @@ async function requireOwnedListing(id, identity, { verifiedIdentity = false } = 
 }
 
 export const listingService = {
+  async searchSuggestions(identity, query) {
+    const viewer=await UserModel.findOne({authId:identity.authId}).select('blockedUserIds accountStatus').lean();
+    if(!viewer || viewer.accountStatus!=='active')throw new AppError('Account unavailable',403,'ACCOUNT_RESTRICTED');
+    const excluded=await UserModel.distinct('authId',{$or:[{accountStatus:{$ne:'active'}},{blockedUserIds:identity.authId}]});
+    const pattern=escapedPattern(query.q.trim());
+    const filter={status:'active',ownerId:{$nin:[identity.authId,...(viewer.blockedUserIds??[]),...excluded]},$or:[{title:pattern},{brand:pattern},{productModel:pattern}]};
+    const platform=await PlatformSettingModel.findOne({key:'platform'}).select('categories').lean();
+    const categories=platform?.categories?.filter(c=>c.active).map(c=>c.name);
+    if(query.category)filter.category=categories&&!categories.includes(query.category)?{$in:[]}:query.category;
+    else if(categories)filter.category={$in:categories};
+    const rows=await ListingModel.find(filter).select('publicId title category').sort({createdAt:-1,_id:-1}).limit(40).lean();
+    const unique=new Map();for(const row of rows){const key=row.title?.normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('en');if(key&&!unique.has(key))unique.set(key,{title:row.title,category:row.category,listingId:row.publicId});}
+    return [...unique.values()].slice(0,8);
+  },
   async recommended(identity, query, options = {}) {
     const user = await UserModel.findOne({ authId: identity.authId });
     if (!user || !user.roles.includes('renter')) {
@@ -557,7 +573,7 @@ export const listingService = {
       item_profile: profile,
       market_evidence: marketEvidence,
       rental_duration_days: input.rentalDurationDays ?? 1,
-      owner_trust_score: owner.trustScore,
+      owner_trust_score: realTrustScore((await availableTrustProfile(owner.authId)).owner.marketplace),
       owner_average_rating: ownerRating[0]?.average ?? 0,
       owner_completed_rentals: completedBookings.filter((b) => b.ownerId === owner.authId && !bookingEvidenceReason(b, paymentEvidence)).length,
       prediction_month: new Date().getUTCMonth() + 1,
@@ -694,6 +710,7 @@ export const listingService = {
 
   async create(input, identity) {
     const owner = await requireOwner(identity);
+    const trust = await availableTrustProfile(owner.authId);
     if (input.coordinates || input.locationDetails) requireListingPin(input);
     await uploadService.assertOwnedReferences(identity, input.images, ['listing_image']);
     const normalizedInput = await withResolvedProductIdentity(input);
@@ -701,7 +718,8 @@ export const listingService = {
       ...listingInput(normalizedInput),
       ownerId: owner.authId,
       ownerName: owner.displayName,
-      ownerTrustScore: owner.trustScore,
+      ownerTrustScore: realTrustScore(trust.owner.marketplace),
+      ownerTrustProfile: ownerTrustSummary(trust),
       verified: hasApprovedMykad(owner),
       status: 'draft',
     });

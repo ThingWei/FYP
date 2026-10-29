@@ -22,7 +22,7 @@ import {
   assertMarketplaceIdentity,
   resolveKycRequirement,
 } from '../user/kycRequirements.js';
-import { BOOKING_STATUSES } from './booking.model.js';
+import { BookingModel, BOOKING_STATUSES } from './booking.model.js';
 import { bookingRepository } from './booking.repository.js';
 import { agreementTerms } from './agreementTerms.js';
 import { presentBooking } from '../../core/location.js';
@@ -454,7 +454,12 @@ export const bookingService = {
       limit,
       status,
     });
-    return { items, meta: { page, limit, total } };
+    const [pending, activeOrders, listings] = await Promise.all([
+      BookingModel.countDocuments({ownerId:identity.authId,status:'pending'}),
+      RentalModel.countDocuments({ownerId:identity.authId,status:{$in:['active','overdue']}}),
+      ListingModel.countDocuments({ownerId:identity.authId}),
+    ]);
+    return { items, meta: { page, limit, total, summary:{pending,activeOrders,listings} } };
   },
 
   async listAdmin(query) {

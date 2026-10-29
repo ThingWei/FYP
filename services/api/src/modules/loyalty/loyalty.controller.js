@@ -10,6 +10,7 @@ function body(req) {
 }
 
 export const loyaltyController = {
+  entries: asyncHandler(async(req,res)=>{const result=await loyaltyService.entries(req.user,req.query);return ok(res,result.items,result.meta);}),
   summary: asyncHandler(async (req, res) =>
     ok(res, await loyaltyService.summary(req.user)),
   ),

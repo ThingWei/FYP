@@ -77,7 +77,7 @@ class DuplicateApi extends ApiClient {
 Future<void> tapText(WidgetTester tester, String text) async {
   final target = find.text(text);
   for (int i = 0; target.evaluate().isEmpty && i < 35; i++) {
-    await tester.drag(find.byType(Scrollable).last, const Offset(0, -220));
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -220));
     await tester.pumpAndSettle();
   }
   await tester.ensureVisible(target.last);

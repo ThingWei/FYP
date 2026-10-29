@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/user_facing_error.dart';
 import 'live_price_sources.dart';
+import 'admin_record_models.dart';
+import 'admin_record_widgets.dart';
 
 String _identityDetails(Map row) => [
       for (final entry in const {
@@ -21,6 +23,11 @@ String _identityDetails(Map row) => [
 class PricingReferenceApi {
   PricingReferenceApi(this.client);
   final ApiClient client;
+  int pageSize = 20;
+  Future<Map<String, dynamic>> detail(String id) async =>
+      Map<String, dynamic>.from(await client.request('GET',
+              '/admin/records/pricing-references/${Uri.encodeComponent(id)}')
+          as Map);
   static const readTimeout = Duration(seconds: 15);
   Future<Map<String, dynamic>> sources() async =>
       Map<String, dynamic>.from(await client
@@ -64,7 +71,8 @@ class PricingReferenceApi {
 
   Future<Map<String, dynamic>> list(int page) async =>
       Map<String, dynamic>.from(await client
-          .request('GET', '/admin/pricing-references?page=$page')
+          .request(
+              'GET', '/admin/pricing-references?page=$page&limit=$pageSize')
           .timeout(readTimeout) as Map);
   Future<Map<String, dynamic>> preview(String csv) async =>
       Map<String, dynamic>.from(await client.request(
@@ -147,6 +155,8 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
   Map<String, dynamic>? preview;
   List<Map<String, dynamic>> items = [];
   int page = 1, total = 0;
+  int previewPage = 1, previewLimit = 20;
+  int loadVersion = 0;
   @override
   void initState() {
     super.initState();
@@ -154,24 +164,31 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
   }
 
   Future<void> _load() async {
+    final version = ++loadVersion;
     setState(() {
       loading = true;
       error = null;
     });
     try {
       final result = await widget.api.list(page);
-      if (mounted) {
+      if (mounted && version == loadVersion) {
         setState(() {
           items = (result['items'] as List)
               .map((row) => Map<String, dynamic>.from(row as Map))
               .toList();
           total = (result['total'] as num).toInt();
         });
+        if (page > 1 && (page - 1) * widget.api.pageSize >= total) {
+          page = total == 0 ? 1 : (total / widget.api.pageSize).ceil();
+          await _load();
+        }
       }
     } catch (exception) {
-      if (mounted) setState(() => error = _referenceError(exception));
+      if (mounted && version == loadVersion) {
+        setState(() => error = _referenceError(exception));
+      }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && version == loadVersion) setState(() => loading = false);
     }
   }
 
@@ -204,6 +221,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
           selectedCsv = csv;
           fileName = file.name;
           preview = null;
+          previewPage = 1;
           reviewed = false;
           feedback = 'Reading $fileName and checking the CSV…';
         });
@@ -297,6 +315,113 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
     });
   }
 
+  Future<void> _showReference(Map<String, dynamic> row) async {
+    await showAdminRecordDialog(context,
+        type: 'pricing-references',
+        record: row,
+        loadRecord: () => widget.api.detail(row['publicId'] as String),
+        actions: (context, record, reload) => [
+              if (record['active'] == true)
+                TextButton(
+                    onPressed: working
+                        ? null
+                        : () async {
+                            await _deactivate(record);
+                            await reload();
+                          },
+                    child: const Text('Deactivate'))
+            ]);
+    if (mounted) await _load();
+  }
+
+  Widget _savedPrices() =>
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Saved references ($total)',
+            style: Theme.of(context).textTheme.titleLarge),
+        const Text(
+            'Advertised rental prices are not completed RentHub rentals. Times are shown in Malaysia time (MYT).'),
+        if (loading) const LinearProgressIndicator(),
+        if (error != null && selectedCsv == null) Text(error!),
+        SizedBox(
+            height: 520,
+            child: items.isEmpty
+                ? const Center(
+                    child: Text(
+                        'No saved prices yet. Check the price sources below or import a reviewed file.'))
+                : LayoutBuilder(
+                    builder: (context, size) => size.maxWidth < 700
+                        ? ListView(children: [
+                            for (final row in items)
+                              Card(
+                                  child: ListTile(
+                                      title: Text(
+                                          '${row['brand'] ?? ''} ${row['productModel'] ?? ''}'
+                                              .trim()),
+                                      subtitle: Text(
+                                          '${adminMoney(row['quotedAmount'])} for ${row['rentalDurationDays']} day(s) · ${row['sourceName']}\n${adminDate(row['observedAt'])} · ${row['active'] == true ? 'In use' : 'Not in use'}'),
+                                      onTap: () => _showReference(row),
+                                      trailing: TextButton(
+                                          onPressed: () => _showReference(row),
+                                          child: const Text('View details'))))
+                          ])
+                        : SingleChildScrollView(
+                            child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: DataTable(columns: const [
+                                  DataColumn(label: Text('Product')),
+                                  DataColumn(label: Text('Advertised price')),
+                                  DataColumn(label: Text('Source')),
+                                  DataColumn(label: Text('Checked')),
+                                  DataColumn(label: Text('Status')),
+                                  DataColumn(label: Text('Details'))
+                                ], rows: [
+                                  for (final row in items)
+                                    DataRow(cells: [
+                                      DataCell(SizedBox(
+                                          width: 210,
+                                          child: TextButton(
+                                              onPressed: () =>
+                                                  _showReference(row),
+                                              child: Text(
+                                                  '${row['brand'] ?? ''} ${row['productModel'] ?? ''}'
+                                                      .trim(),
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis)))),
+                                      DataCell(Text(
+                                          '${adminMoney(row['quotedAmount'])} / ${row['rentalDurationDays']} day(s)')),
+                                      DataCell(Text('${row['sourceName']}')),
+                                      DataCell(
+                                          Text(adminDate(row['observedAt']))),
+                                      DataCell(Text(row['active'] == true
+                                          ? 'In use'
+                                          : 'Not in use')),
+                                      DataCell(TextButton(
+                                          onPressed: () => _showReference(row),
+                                          child: const Text('View details')))
+                                    ])
+                                ]))))),
+        AdminPagination(
+            page: page,
+            limit: widget.api.pageSize,
+            total: total,
+            loading: loading || working,
+            onPage: (value) {
+              page = value;
+              _load();
+            },
+            onLimit: (value) {
+              widget.api.pageSize = value;
+              page = 1;
+              _load();
+            }),
+        Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+                onPressed: loading || working ? null : _load,
+                child: const Text('Refresh'))),
+      ]);
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Rental-price references')),
@@ -304,16 +429,15 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
           child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1000),
               child: ListView(padding: const EdgeInsets.all(20), children: [
-                const Text(
-                    'Keep rental-price references up to date automatically. Advertised prices are not completed RentHub rentals.'),
+                _savedPrices(),
                 const SizedBox(height: 12),
                 LivePriceSourcesPanel(api: widget.api),
                 const SizedBox(height: 16),
                 ExpansionTile(
                   key: const ValueKey('manual-price-import'),
-                  title: const Text('Advanced / manual import'),
-                  subtitle:
-                      const Text('Optional CSV fallback for reviewed prices'),
+                  title: const Text('Import prices from a file'),
+                  subtitle: const Text(
+                      'Optional: review a CSV file before saving its prices'),
                   children: [
                     Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -372,12 +496,18 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                                         children: [
                                           Text(
                                               '${preview!['rowCount']} rows · ${preview!['newCount']} new · ${preview!['duplicateCount']} duplicates'),
+                                          if ((preview!['errors'] as List)
+                                              .isNotEmpty)
+                                            AdminInlineHistory(
+                                                title: 'Rows to correct',
+                                                rows:
+                                                    preview!['errors'] as List,
+                                                initiallyExpanded: true),
                                           for (final row
-                                              in preview!['errors'] as List)
-                                            Text(
-                                                'Row ${row['row']}: ${row['message']}'),
-                                          for (final row
-                                              in preview!['rows'] as List)
+                                              in (preview!['rows'] as List)
+                                                  .skip((previewPage - 1) *
+                                                      previewLimit)
+                                                  .take(previewLimit))
                                             Padding(
                                                 padding:
                                                     const EdgeInsets.symmetric(
@@ -385,9 +515,21 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                                                 child: Text(
                                                     '${row['category']} / ${row['subcategory']} · ${row['brand']} ${row['productModel']}\n'
                                                     'RM ${row['quotedAmount']} for ${row['rentalDurationDays']} day(s) · ${row['sourceName']} · ${row['sourceUrl']}\n'
-                                                    'Observed ${row['observedAt'].toString().split('T').first} · ${row['packageNotes']}\n'
+                                                    'Checked ${adminDate(row['observedAt'], calendar: true)} · ${row['packageNotes']}\n'
                                                     '${_identityDetails(row)}'
                                                     '${row['canonicalProductId'] == null ? 'No catalogue match; original product text will be kept.' : 'Matched a catalogue entry.'}')),
+                                          AdminPagination(
+                                              page: previewPage,
+                                              limit: previewLimit,
+                                              total: (preview!['rows'] as List)
+                                                  .length,
+                                              loading: working,
+                                              onPage: (v) => setState(
+                                                  () => previewPage = v),
+                                              onLimit: (v) => setState(() {
+                                                    previewLimit = v;
+                                                    previewPage = 1;
+                                                  })),
                                           if (preview!['valid'] == true) ...[
                                             CheckboxListTile(
                                                 contentPadding: EdgeInsets.zero,
@@ -410,67 +552,6 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                         ])
                   ],
                 ),
-                const SizedBox(height: 20),
-                Text('Saved references ($total)',
-                    style: Theme.of(context).textTheme.titleLarge),
-                if (loading) const LinearProgressIndicator(),
-                if (!loading && items.isEmpty)
-                  const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text(
-                          'No saved references yet. Enable an approved source, or use the optional manual import.')),
-                for (final item in items)
-                  Card(
-                      child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('${item['brand']} ${item['productModel']}',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium),
-                                Text(
-                                    '${item['category']} / ${item['subcategory']} · ${item['active'] == true ? 'Active' : 'Inactive'}'),
-                                Text(
-                                    'RM ${item['quotedAmount']} / ${item['rentalDurationDays']} day(s) · ${item['sourceName']}'),
-                                SelectableText('${item['sourceUrl']}'),
-                                Text(
-                                    'Observed ${item['observedAt'].toString().split('T').first} · ${item['packageNotes']}'),
-                                if (_identityDetails(item).isNotEmpty)
-                                  Text(_identityDetails(item)),
-                                Text(item['collectionMethod'] == 'automatic'
-                                    ? 'Automatically collected advertised price'
-                                    : 'Administrator-reviewed advertised price'),
-                                if (item['active'] == true)
-                                  TextButton(
-                                      onPressed: working
-                                          ? null
-                                          : () => _deactivate(item),
-                                      child: const Text('Deactivate')),
-                              ]))),
-                Wrap(spacing: 12, children: [
-                  TextButton(
-                      onPressed: loading || working || page <= 1
-                          ? null
-                          : () {
-                              page--;
-                              _load();
-                            },
-                      child: const Text('Previous')),
-                  Text('Page $page'),
-                  TextButton(
-                      onPressed: loading || working || page * 50 >= total
-                          ? null
-                          : () {
-                              page++;
-                              _load();
-                            },
-                      child: const Text('Next')),
-                  TextButton(
-                      onPressed: loading || working ? null : _load,
-                      child: const Text('Refresh')),
-                ]),
               ])),
         ),
       );

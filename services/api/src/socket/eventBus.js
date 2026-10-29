@@ -21,6 +21,13 @@ export function emitReadReceipt(receipt) {
     .emit(events.messageRead, receipt);
 }
 
+export function emitMessageChange(message, participantIds) {
+  if (!socketServer || !participantIds.length) return;
+  let rooms = socketServer.to(`user:${participantIds[0]}`);
+  for (const id of participantIds.slice(1)) rooms = rooms.to(`user:${id}`);
+  rooms.emit(events.messageNew, message);
+}
+
 export function emitNotification(notification) {
   socketServer
     ?.to(`user:${notification.userId}`)

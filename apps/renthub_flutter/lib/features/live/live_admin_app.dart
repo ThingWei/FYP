@@ -1,3 +1,4 @@
+import 'live_trust_page.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -12,9 +13,12 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatMoney;
 import 'live_renthub_controller.dart';
-import 'live_document_field_risk_panel.dart';
 import 'live_item_verification_panel.dart';
 import 'live_pricing_references.dart';
+import 'admin_record_models.dart';
+import 'admin_record_widgets.dart';
+import 'admin_system_status.dart';
+import 'live_agreement.dart';
 
 class LiveAdminApp extends StatelessWidget {
   const LiveAdminApp({super.key});
@@ -63,7 +67,7 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
 
   Future<void> _load() async {
     try {
-      await context.read<LiveRentHubController>().loadAdmin();
+      await context.read<LiveRentHubController>().loadAdminOverview();
     } catch (_) {}
   }
 
@@ -88,7 +92,7 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
             title: Text(destinations[selected].$1),
             actions: [
               IconButton(
-                tooltip: 'Refresh live data',
+                tooltip: 'Refresh overview',
                 onPressed: controller.adminWorkspace.loading ? null : _load,
                 icon: const Icon(Icons.refresh),
               ),
@@ -108,10 +112,12 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
                   child: navigation,
                 ),
               Expanded(
-                child: controller.adminWorkspace.loading &&
+                child: selected == 0 &&
+                        controller.adminWorkspace.loading &&
                         !controller.adminWorkspace.loaded
                     ? const Center(child: CircularProgressIndicator())
-                    : controller.adminWorkspace.error != null &&
+                    : selected == 0 &&
+                            controller.adminWorkspace.error != null &&
                             !controller.adminWorkspace.loaded
                         ? RentHubFeedbackState(
                             kind: FeedbackKind.error,
@@ -134,15 +140,22 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
 
   Widget _page(int index) => switch (index) {
         0 => const _AdminDashboard(),
-        1 => const _AdminVerification(),
-        2 => const _AdminUsers(),
-        3 => const _AdminListings(),
-        4 => const _AdminBookingsTransactions(),
-        5 => const _AdminDisputesClaims(),
-        6 => const _AdminMessageReports(),
-        7 => const _AdminReviews(),
-        8 => const _AdminPlatformSettings(),
-        9 => const _AdminAuditLogs(),
+        1 => const _AdminRecordSection(type: 'verification'),
+        2 => const _AdminRecordSection(type: 'users'),
+        3 => const _AdminRecordSection(type: 'listings'),
+        4 => const _AdminRecordTabs(
+            types: ['bookings', 'rentals', 'transactions']),
+        5 => const _AdminRecordTabs(types: ['disputes', 'claims']),
+        6 => const _AdminRecordTabs(types: [
+            'reports',
+            'message-reports',
+            'generated-reports',
+            'report-schedules'
+          ]),
+        7 => const _AdminRecordSection(type: 'reviews'),
+        8 => _AdminSettingsWorkspace(
+            key: ValueKey(context.read<LiveRentHubController>().profile?.id)),
+        9 => const _AdminRecordSection(type: 'audit-logs'),
         _ => _DeferredAdminModule(title: destinations[index].$1),
       };
 }
@@ -161,7 +174,10 @@ class _AdminNavigation extends StatelessWidget {
           children: [
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
-              child: RentHubLogo(),
+              child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: RentHubLogo()),
             ),
             for (var index = 0;
                 index < _LiveAdminShellState.destinations.length;
@@ -183,30 +199,282 @@ class _AdminNavigation extends StatelessWidget {
       );
 }
 
+class _AdminRecordTabs extends StatelessWidget {
+  const _AdminRecordTabs({required this.types});
+  final List<String> types;
+  @override
+  Widget build(BuildContext context) => DefaultTabController(
+      length: types.length,
+      child: Column(children: [
+        TabBar(isScrollable: true, tabs: [
+          for (final type in types) Tab(text: adminRecordTitles[type])
+        ]),
+        Expanded(
+            child: TabBarView(children: [
+          for (final type in types)
+            _AdminRecordSection(key: ValueKey(type), type: type)
+        ])),
+      ]));
+}
+
+class _AdminRecordSection extends StatelessWidget {
+  const _AdminRecordSection({super.key, required this.type});
+  final String type;
+  @override
+  Widget build(BuildContext context) => AdminRecordsTable(
+      key: ValueKey(type),
+      type: type,
+      header: type == 'listings'
+          ? Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.icon(
+                  icon: const Icon(Icons.price_check),
+                  label: const Text('Rental-price references'),
+                  onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                          builder: (_) => LivePricingReferencesPage(
+                              api: PricingReferenceApi(context
+                                  .read<LiveRentHubController>()
+                                  .api))))))
+          : ['generated-reports', 'report-schedules'].contains(type)
+              ? const _AdminReportingPanel(controlsOnly: true)
+              : null,
+      detailBody: type == 'verification'
+          ? (context, row) => _AdminVerification(focusedUser: row)
+          : null,
+      actions: (context, row, reload) {
+        final c = context.watch<LiveRentHubController>();
+        Widget action(String label, Future<void> Function() operation) =>
+            OutlinedButton(
+                onPressed: c.loading
+                    ? null
+                    : () async {
+                        await operation();
+                        if (context.mounted) {
+                          await reload();
+                          await c.loadAdminOverview();
+                        }
+                      },
+                child: Text(label));
+        switch (type) {
+          case 'bookings':
+          case 'rentals':
+            final bookingId = type == 'bookings'
+                ? row['publicId'] ?? row['id']
+                : row['bookingId'];
+            return [
+              if (bookingId is String)
+                action('View agreement', () async {
+                  await Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) =>
+                              LiveAgreementPage(bookingId: bookingId)));
+                })
+            ];
+          case 'users':
+            return [
+              action(
+                  'View trust history',
+                  () => openTrustDetails(context,
+                      row['authId'] as String? ?? row['id'] as String)),
+              if (row['accountStatus'] == 'active' &&
+                  !(row['roles'] as List? ?? []).contains('admin'))
+                action('Suspend',
+                    () => const _AdminUsers()._restrict(context, row)),
+              if (row['accountStatus'] != 'active')
+                action('Reactivate',
+                    () => const _AdminUsers()._reactivate(context, row))
+            ];
+          case 'listings':
+            final listing = Listing.fromJson(row);
+            return [
+              if (!listing.isService)
+                action(
+                    'View photos',
+                    () => showItemPhotoReview(context, listing,
+                        showDiagnostics: false)),
+              if (listing.status == 'pending_review') ...[
+                action(
+                    'Reject',
+                    () => const _AdminListings()
+                        ._moderate(context, listing, 'rejected')),
+                action(
+                    'Approve',
+                    () => const _AdminListings()
+                        ._moderate(context, listing, 'active'))
+              ]
+            ];
+          case 'transactions':
+            final payment = Transaction.fromJson(row);
+            return [
+              if (payment.type == 'capture' && payment.status == 'succeeded')
+                action(
+                    'Refund',
+                    () => const _AdminBookingsTransactions()
+                        ._refund(context, payment))
+            ];
+          case 'reviews':
+            final review = Review.fromJson(row);
+            return [
+              action(
+                  review.status == 'hidden' ? 'Restore Review' : 'Hide Review',
+                  () => const _AdminReviews()._moderate(context, review,
+                      review.status == 'hidden' ? 'published' : 'hidden'))
+            ];
+          case 'reports':
+          case 'message-reports':
+            return [
+              if (row['status'] == 'open') ...[
+                action(
+                    'Dismiss',
+                    () => const _AdminMessageReports()._resolve(
+                        context, row, 'dismissed',
+                        messageReport: type == 'message-reports')),
+                action(
+                    'Resolve',
+                    () => const _AdminMessageReports()._resolve(
+                        context, row, 'resolved',
+                        messageReport: type == 'message-reports'))
+              ]
+            ];
+          case 'disputes':
+            final dispute = Dispute.fromJson(row);
+            return [
+              action(
+                  'View case and agreement',
+                  () =>
+                      const _AdminDisputesClaims()._viewCase(context, dispute)),
+              if (!['resolved', 'dismissed'].contains(dispute.status)) ...[
+                action(
+                    'Request more evidence',
+                    () => const _AdminDisputesClaims()._updateStatus(
+                        context, dispute, 'more_evidence_required')),
+                action(
+                    'Escalate',
+                    () => const _AdminDisputesClaims()
+                        ._updateStatus(context, dispute, 'escalated')),
+                action(
+                    'Resolve',
+                    () =>
+                        const _AdminDisputesClaims()._resolve(context, dispute))
+              ]
+            ];
+          case 'claims':
+            final claim = InsuranceClaim.fromJson(row);
+            return [
+              if (claim.status == 'pending') ...[
+                action(
+                    'Reject',
+                    () => const _AdminDisputesClaims()
+                        ._decideClaim(context, claim, 'rejected')),
+                action(
+                    'Approve',
+                    () => const _AdminDisputesClaims()
+                        ._decideClaim(context, claim, 'approved'))
+              ]
+            ];
+          case 'generated-reports':
+            return [
+              action('Save report file',
+                  () => const _AdminReportingPanel()._download(context, row))
+            ];
+          case 'report-schedules':
+            return [
+              action(row['enabled'] == true ? 'Turn off' : 'Turn on', () async {
+                final accepted = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                            title: const Text('Change this report schedule?'),
+                            content: Text(row['enabled'] == true
+                                ? 'Automatic reports for this schedule will stop.'
+                                : 'Reports will be generated automatically for this schedule.'),
+                            actions: [
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('Cancel')),
+                              FilledButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('Confirm'))
+                            ]));
+                if (accepted == true) {
+                  await c.setReportScheduleEnabled(row, row['enabled'] != true);
+                }
+              })
+            ];
+          default:
+            return [];
+        }
+      });
+}
+
+class _AdminSettingsWorkspace extends StatefulWidget {
+  const _AdminSettingsWorkspace({super.key});
+  @override
+  State<_AdminSettingsWorkspace> createState() =>
+      _AdminSettingsWorkspaceState();
+}
+
+class _AdminSettingsWorkspaceState extends State<_AdminSettingsWorkspace> {
+  Future<void>? pending;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final controller = context.read<LiveRentHubController>();
+    pending ??= controller.platformSettings.isNotEmpty &&
+            controller.loyaltyConfig.isNotEmpty
+        ? Future.value()
+        : controller.loadAdminSettings();
+  }
+
+  @override
+  Widget build(BuildContext context) => DefaultTabController(
+      length: 3,
+      child: Column(children: [
+        const TabBar(isScrollable: true, tabs: [
+          Tab(text: 'Platform settings'),
+          Tab(text: 'Referrals'),
+          Tab(text: 'Points history')
+        ]),
+        Expanded(
+            child: TabBarView(children: [
+          FutureBuilder<void>(
+              future: pending,
+              builder: (context, result) => result.connectionState !=
+                      ConnectionState.done
+                  ? const Center(child: CircularProgressIndicator())
+                  : result.hasError
+                      ? Center(
+                          child: TextButton(
+                              onPressed: () => setState(() => pending = context
+                                  .read<LiveRentHubController>()
+                                  .loadAdminSettings()),
+                              child: const Text(
+                                  'Could not load settings. Try again')))
+                      : const _AdminPlatformSettings(showRecords: false)),
+          const _AdminRecordSection(type: 'referrals'),
+          const _AdminRecordSection(type: 'reward-history')
+        ]))
+      ]));
+}
+
 class _AdminDashboard extends StatelessWidget {
   const _AdminDashboard();
 
   @override
   Widget build(BuildContext context) {
     final data = context.watch<LiveRentHubController>();
-    final pendingListings = data.adminListings
-        .where((item) => item.status == 'pending_review')
-        .length;
-    final openReports = data.messageReports
-            .where((item) => item['status'] == 'open')
-            .length +
-        data.moderationReports.where((item) => item['status'] == 'open').length;
-    final flaggedReviews =
-        data.adminReviews.where((review) => review.flagged).length;
+    final summary = data.adminSummary;
     return RefreshIndicator(
       onRefresh: data.loadAdmin,
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Text('Live platform overview',
+          Text('Platform overview',
               style: Theme.of(context).textTheme.headlineSmall),
           const Text(
-            'These counts are loaded from MongoDB.',
+            'Review requests, manage records and check how RentHub is running.',
             style: TextStyle(color: AppColors.secondaryText),
           ),
           const SizedBox(height: 20),
@@ -215,25 +483,25 @@ class _AdminDashboard extends StatelessWidget {
             runSpacing: 16,
             children: [
               _AdminMetric(
-                  'Users', '${data.users.length}', Icons.people_outline),
+                  'Users', '${summary['users'] ?? '—'}', Icons.people_outline),
               _AdminMetric(
                 'Pending listings',
-                '$pendingListings',
+                '${summary['pendingListings'] ?? '—'}',
                 Icons.inventory_2_outlined,
               ),
               _AdminMetric(
                 'Bookings',
-                '${data.adminWorkspace.bookings.length}',
+                '${summary['bookings'] ?? '—'}',
                 Icons.receipt_long_outlined,
               ),
               _AdminMetric(
                 'Open safety reports',
-                '$openReports',
+                '${summary['openReports'] ?? '—'}',
                 Icons.report_outlined,
               ),
               _AdminMetric(
                 'Flagged reviews',
-                '$flaggedReviews',
+                '${summary['flaggedReviews'] ?? '—'}',
                 Icons.rate_review_outlined,
               ),
             ],
@@ -248,124 +516,8 @@ class _AdminDashboard extends StatelessWidget {
 
 class _TechnologyHealthPanel extends StatelessWidget {
   const _TechnologyHealthPanel();
-
-  String _label(String value) => value
-      .replaceAll('_', ' ')
-      .split(' ')
-      .map((word) =>
-          word.isEmpty ? word : '${word[0].toUpperCase()}${word.substring(1)}')
-      .join(' ');
-
   @override
-  Widget build(BuildContext context) {
-    final controller = context.watch<LiveRentHubController>();
-    final health = controller.technologyHealth;
-    final components =
-        (health['components'] as Map<String, dynamic>?) ?? const {};
-    final counts =
-        (health['operationalCounts'] as Map<String, dynamic>?) ?? const {};
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Technology health',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        health.isEmpty
-                            ? 'Health data is unavailable.'
-                            : 'Overall: ${_label('${health['status']}')}',
-                        style: const TextStyle(
-                          color: AppColors.secondaryText,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: controller.loading
-                      ? null
-                      : () async {
-                          try {
-                            await controller.runLifecycleAutomation();
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Lifecycle automation completed.',
-                                ),
-                              ),
-                            );
-                          } catch (_) {}
-                        },
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Run lifecycle now'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                for (final entry in components.entries)
-                  Builder(
-                    builder: (context) {
-                      final detail = entry.value as Map<String, dynamic>;
-                      final status = '${detail['status'] ?? 'unknown'}';
-                      final subtitle = switch (entry.key) {
-                        'database' => '${detail['state'] ?? ''}',
-                        'authentication' => '${detail['mode'] ?? ''}',
-                        'storage' => '${detail['provider'] ?? ''}',
-                        'ai' => '${detail['model_mode'] ?? ''}',
-                        'blockchain' => '${detail['mode'] ?? ''}',
-                        'lifecycle' => detail['lastCompletedAt'] == null
-                            ? 'Not run yet'
-                            : 'Last run ${detail['lastCompletedAt']}',
-                        _ => '',
-                      };
-                      return SizedBox(
-                        width: 190,
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            side: const BorderSide(color: AppColors.border),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          title: Text(_label(entry.key)),
-                          subtitle: Text(subtitle),
-                          trailing: StatusBadge(_label(status)),
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-            if (counts.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text(
-                'Expired bookings: ${counts['expiredBookings'] ?? 0}  |  '
-                'Overdue rentals: ${counts['overdueRentals'] ?? 0}  |  '
-                'Pending unpaid: ${counts['pendingUnpaidBookings'] ?? 0}',
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const AdminSystemStatus();
 }
 
 class _AdminMetric extends StatelessWidget {
@@ -375,17 +527,17 @@ class _AdminMetric extends StatelessWidget {
   final IconData icon;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        width: 220,
-        height: 140,
+  Widget build(BuildContext context) => ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 140, maxWidth: 220),
         child: Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(icon, color: AppColors.primary),
-                const Spacer(),
+                const SizedBox(height: 16),
                 Text(value, style: Theme.of(context).textTheme.headlineSmall),
                 Text(label),
               ],
@@ -396,7 +548,8 @@ class _AdminMetric extends StatelessWidget {
 }
 
 class _AdminVerification extends StatefulWidget {
-  const _AdminVerification();
+  const _AdminVerification({this.focusedUser});
+  final Map<String, dynamic>? focusedUser;
 
   @override
   State<_AdminVerification> createState() => _AdminVerificationState();
@@ -413,9 +566,19 @@ class _AdminVerificationState extends State<_AdminVerification> {
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
+    final summaries = user['verificationSummary'];
+    final pendingTypes = summaries is List
+        ? summaries
+            .whereType<Map>()
+            .where((item) => item['status'] == 'pending')
+            .map((item) => item['documentType'])
+            .toSet()
+        : null;
     final candidates = history
         .where((item) =>
             item['status'] == 'pending' &&
+            (pendingTypes == null ||
+                pendingTypes.contains(item['documentType'])) &&
             (documentFilter == 'all' || item['documentType'] == documentFilter))
         .toList();
     // A simultaneously pending MyKad must remain reviewable before driving approval.
@@ -426,6 +589,16 @@ class _AdminVerificationState extends State<_AdminVerification> {
       if (mykad != null) return mykad;
     }
     if (candidates.isNotEmpty) return candidates.last;
+    final driving = user['drivingEligibility'];
+    if (verification['status'] != 'pending' &&
+        driving is Map &&
+        driving['status'] == 'pending') {
+      return {
+        ...Map<String, dynamic>.from(driving),
+        'documentType': 'driving_licence',
+        'attemptId': driving['latestAttemptId']
+      };
+    }
     return verification['status'] == 'pending'
         ? {
             'documentType': verification['documentType'],
@@ -660,11 +833,22 @@ class _AdminVerificationState extends State<_AdminVerification> {
 
   @override
   Widget build(BuildContext context) {
-    final users = context.watch<LiveRentHubController>().users;
+    final users = widget.focusedUser == null
+        ? context.watch<LiveRentHubController>().users
+        : [widget.focusedUser!];
     final pending = users.where((user) {
+      if (user['verificationSummary'] is List) {
+        return (user['verificationSummary'] as List).whereType<Map>().any(
+            (item) =>
+                item['status'] == 'pending' &&
+                (documentFilter == 'all' ||
+                    item['documentType'] == documentFilter));
+      }
       final verification = user['verification'] as Map<String, dynamic>?;
       final history = verification?['history'] as List? ?? const [];
       return verification?['status'] == 'pending' ||
+          (user['drivingEligibility'] is Map &&
+              user['drivingEligibility']['status'] == 'pending') ||
           history.any(
             (item) => item is Map && item['status'] == 'pending',
           );
@@ -696,63 +880,106 @@ class _AdminVerificationState extends State<_AdminVerification> {
       return rightTime.compareTo(leftTime);
     });
     if (pending.isEmpty) {
+      if (widget.focusedUser != null) return const SizedBox.shrink();
       return const RentHubFeedbackState(
         kind: FeedbackKind.empty,
         title: 'Verification queue is clear',
         message: 'New identity submissions will appear here.',
       );
     }
+    if (widget.focusedUser != null) {
+      final user = pending.first;
+      final attempt = _pendingAttempt(user);
+      final attemptId = attempt['attemptId'] as String?;
+      final documentType = attempt['documentType'];
+      final refs =
+          (attempt['documentRefs'] as List? ?? const []).cast<String>();
+      final current = context.watch<LiveRentHubController>();
+      return AdminDetailSection(
+          title: 'Review required',
+          icon: Icons.fact_check_outlined,
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(
+                'Review the ${adminLabel(documentType)} photos before deciding. Automated checks do not prove that a document is genuine.'),
+            const SizedBox(height: 16),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              OutlinedButton.icon(
+                  onPressed:
+                      refs.isEmpty ? null : () => _viewDocuments(context, refs),
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('View Documents')),
+              OutlinedButton(
+                  onPressed: current.loading
+                      ? null
+                      : () => _review(
+                          context, user, 'resubmission_required', attemptId),
+                  child: const Text('Request Resubmission')),
+              OutlinedButton(
+                  onPressed: current.loading
+                      ? null
+                      : () => _review(context, user, 'rejected', attemptId),
+                  child: const Text('Reject')),
+              if (['mykad', 'driving_licence'].contains(documentType))
+                FilledButton(
+                    onPressed: current.loading
+                        ? null
+                        : () => _review(context, user, 'approved', attemptId),
+                    child: const Text('Approve')),
+            ]),
+          ]));
+    }
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: documentFilter,
-                  decoration: const InputDecoration(labelText: 'Document type'),
-                  items: const [
-                    DropdownMenuItem(
-                        value: 'all', child: Text('All documents')),
-                    DropdownMenuItem(value: 'mykad', child: Text('MyKad')),
-                    DropdownMenuItem(
-                        value: 'passport', child: Text('Passport')),
-                    DropdownMenuItem(
-                      value: 'driving_licence',
-                      child: Text('Driving Eligibility'),
-                    ),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => documentFilter = value ?? 'all'),
+        if (widget.focusedUser == null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: documentFilter,
+                    decoration:
+                        const InputDecoration(labelText: 'Document type'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'all', child: Text('All documents')),
+                      DropdownMenuItem(value: 'mykad', child: Text('MyKad')),
+                      DropdownMenuItem(
+                        value: 'driving_licence',
+                        child: Text('Driving Eligibility'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => documentFilter = value ?? 'all'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: sortOrder,
-                  decoration: const InputDecoration(labelText: 'Sort queue'),
-                  items: const [
-                    DropdownMenuItem(
-                        value: 'newest', child: Text('Newest first')),
-                    DropdownMenuItem(
-                      value: 'confidence_low',
-                      child: Text('Lowest confidence'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'confidence_high',
-                      child: Text('Highest confidence'),
-                    ),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => sortOrder = value ?? 'newest'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: sortOrder,
+                    decoration: const InputDecoration(labelText: 'Sort queue'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'newest', child: Text('Newest first')),
+                      DropdownMenuItem(
+                        value: 'confidence_low',
+                        child: Text('Lowest confidence'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'confidence_high',
+                        child: Text('Highest confidence'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => sortOrder = value ?? 'newest'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Text('${pending.length} pending'),
-            ],
+                const SizedBox(width: 16),
+                Text('${pending.length} pending'),
+              ],
+            ),
           ),
-        ),
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.all(24),
@@ -773,10 +1000,6 @@ class _AdminVerificationState extends State<_AdminVerification> {
                   const [];
               final ocr = Map<String, dynamic>.from(
                 (attempt['aiEvidence'] ?? verification['ocrResult']) as Map? ??
-                    const {},
-              );
-              final extracted = Map<String, dynamic>.from(
-                (ocr['extracted_fields'] ?? ocr['extractedFields']) as Map? ??
                     const {},
               );
               final attemptId = attempt['attemptId'] as String?;
@@ -804,7 +1027,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
                                       Theme.of(context).textTheme.titleMedium,
                                 ),
                                 Text(
-                                  '${attemptDocumentType ?? 'Document'} | ${references.length} protected image(s)',
+                                  '${adminLabel(attemptDocumentType ?? 'Document')} · ${references.length} protected photo(s)',
                                 ),
                               ],
                             ),
@@ -814,44 +1037,16 @@ class _AdminVerificationState extends State<_AdminVerification> {
                       ),
                       const SizedBox(height: 12),
                       Text(attemptDocumentType == 'driving_licence'
-                          ? 'Driving evidence (OCR/rules only) | Holder match: ${ocr['identityMatch'] ?? 'unavailable'} | MyKad approval required'
-                          : 'Identity AI assistance: ${ocr['outcome'] ?? 'unavailable'} | OCR confidence: ${(((ocr['confidence'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%'),
-                      if (extracted['documentFieldRisk'] is Map)
-                        DocumentFieldRiskPanel(
-                          evidence: Map<String, dynamic>.from(
-                              extracted['documentFieldRisk'] as Map),
-                        ),
-                      if ((ocr['reasons'] as List? ?? const []).isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          (ocr['reasons'] as List).join(' · '),
-                          style:
-                              const TextStyle(color: AppColors.secondaryText),
-                        ),
-                      ],
-                      if (extracted.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Extracted evidence: ${extracted.entries.where((entry) => ![
-                                'address',
-                                'fullName',
-                                'documentFieldRisk',
-                                'documentRiskScore',
-                                'documentRiskSourceType',
-                                'requiresAdminReview',
-                              ].contains(entry.key)).map((entry) => '${entry.key}: ${entry.value}').join(' | ')}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                      if ((ocr['risk_indicators'] as List? ?? const [])
-                          .isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Risk indicators: ${(ocr['risk_indicators'] as List).join(' | ')}',
-                          style: const TextStyle(color: AppColors.warning),
-                        ),
-                      ],
-                      if (history.length > 1)
+                          ? (ocr['identityMatch'] == 'matched'
+                              ? 'The licence holder matches the verified identity. Review the licence before deciding.'
+                              : 'Check the licence holder against the approved MyKad before deciding.')
+                          : (ocr['outcome'] == 'accepted'
+                              ? 'Automated checks are complete. Administrator review is still required.'
+                              : 'Review both document images carefully before deciding.')),
+                      const SizedBox(height: 8),
+                      const Text(
+                          'Automated checks do not prove that a document is genuine.'),
+                      if (history.length > 1 && widget.focusedUser == null)
                         ExpansionTile(
                           tilePadding: EdgeInsets.zero,
                           title:
@@ -864,16 +1059,13 @@ class _AdminVerificationState extends State<_AdminVerification> {
                                   '${previous['documentType'] ?? 'document'} â€¢ ${previous['status'] ?? 'unknown'}',
                                 ),
                                 subtitle: Text(
-                                  '${previous['submittedAt'] ?? ''}'
+                                  '${adminDate(previous['submittedAt'])}'
                                   '${('${previous['reviewReason'] ?? ''}').isEmpty ? '' : '\n${previous['reviewReason']}'}',
                                 ),
                               ),
                           ],
                         ),
                       const SizedBox(height: 4),
-                      for (final reference in references)
-                        Text(reference,
-                            style: Theme.of(context).textTheme.bodySmall),
                       const SizedBox(height: 16),
                       Wrap(
                         spacing: 8,
@@ -1391,7 +1583,7 @@ class _AdminDisputesClaims extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleMedium),
                   Text(dispute.listingTitle),
                   Text(
-                    '${dispute.listingType == 'physical' ? agreement['fulfilmentMethod'] : agreement['serviceVenue']} • ${formatMoney((pricing['total'] as num?)?.toDouble() ?? 0)}',
+                    '${adminLabel(dispute.listingType == 'physical' ? agreement['fulfilmentMethod'] : agreement['serviceVenue'])} • ${adminMoney(pricing['total'])}',
                   ),
                   const Divider(height: 28),
                   Text('Evidence & inspection',
@@ -1407,7 +1599,7 @@ class _AdminDisputesClaims extends StatelessWidget {
                     ),
                   ] else
                     Text(
-                      'Service delivery: ${inspection['serviceDeliveredAt'] ?? 'Not recorded'}',
+                      'Service delivered: ${adminDate(inspection['serviceDeliveredAt'])}',
                     ),
                   const Divider(height: 28),
                   Text('Conversation history',
@@ -1421,7 +1613,13 @@ class _AdminDisputesClaims extends StatelessWidget {
                         dense: true,
                         leading: const Icon(Icons.chat_bubble_outline),
                         title: Text(
-                          (raw as Map<String, dynamic>)['senderId'] as String,
+                          (raw as Map<String, dynamic>)['senderName']
+                                  as String? ??
+                              (raw['senderId'] == record['raisedById']
+                                  ? dispute.raisedByName
+                                  : raw['senderId'] == record['respondentId']
+                                      ? dispute.respondentName
+                                      : 'Participant'),
                         ),
                         subtitle: Text(raw['text'] as String),
                       ),
@@ -1524,6 +1722,7 @@ class _AdminDisputesClaims extends StatelessWidget {
     if (!context.mounted) return;
     final held = (balance['held'] as num).toDouble();
     var outcome = 'release_to_renter';
+    var responsibleParty = 'undetermined';
     final renterAmount = TextEditingController();
     final ownerAmount = TextEditingController();
     final notes = TextEditingController();
@@ -1562,6 +1761,30 @@ class _AdminDisputesClaims extends StatelessWidget {
                     ],
                     onChanged: (value) => setState(() => outcome = value!),
                   ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      initialValue: responsibleParty,
+                      decoration: const InputDecoration(
+                          labelText: 'Responsibility finding'),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'undetermined',
+                            child: Text('Not determined')),
+                        DropdownMenuItem(
+                            value: 'none', child: Text('Neither participant')),
+                        DropdownMenuItem(
+                            value: 'renter', child: Text('Renter')),
+                        DropdownMenuItem(value: 'owner', child: Text('Owner')),
+                        DropdownMenuItem(
+                            value: 'both', child: Text('Both participants'))
+                      ],
+                      onChanged: (value) => setState(
+                          () => responsibleParty = value ?? 'undetermined')),
+                  const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                          'Choose a participant only when the evidence establishes responsibility. Refund amounts alone do not determine fault. This finding can affect the trust score.')),
                   if (outcome == 'split') ...[
                     const SizedBox(height: 12),
                     TextFormField(
@@ -1626,7 +1849,7 @@ class _AdminDisputesClaims extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'This records simulated ledger payouts, not real money. A split must allocate the full remaining balance.',
+                    'This records demonstration payouts, without moving real money. Divide the full remaining balance between the participants.',
                     style: TextStyle(color: AppColors.secondaryText),
                   ),
                 ],
@@ -1658,6 +1881,7 @@ class _AdminDisputesClaims extends StatelessWidget {
         await context.read<LiveRentHubController>().resolveDispute(
               dispute: dispute,
               outcome: outcome,
+              responsibleParty: responsibleParty,
               notes: notes.text,
               renterAmount: outcome == 'split' ? renter : null,
               ownerAmount: outcome == 'split' ? owner : null,
@@ -1887,7 +2111,8 @@ class _AdminDisputesClaims extends StatelessWidget {
 }
 
 class _AdminReportingPanel extends StatelessWidget {
-  const _AdminReportingPanel();
+  const _AdminReportingPanel({this.controlsOnly = false});
+  final bool controlsOnly;
 
   static const reportTypes = {
     'platform_summary': 'Platform summary',
@@ -2104,6 +2329,20 @@ class _AdminReportingPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = context.watch<LiveRentHubController>();
+    if (controlsOnly) {
+      return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(
+                onPressed: data.loading ? null : () => _schedule(context),
+                icon: const Icon(Icons.schedule),
+                label: const Text('New Schedule')),
+            FilledButton.icon(
+                onPressed: data.loading ? null : () => _generate(context),
+                icon: const Icon(Icons.add_chart),
+                label: const Text('Generate CSV')),
+          ]));
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2193,7 +2432,7 @@ class _AdminReportingPanel extends StatelessWidget {
               title: Text(report['fileName'] as String),
               subtitle: Text(
                 '${report['rowCount']} rows | ${report['generationKind']} | '
-                '${report['createdAt']}',
+                '${adminDate(report['createdAt'])}',
               ),
               trailing: OutlinedButton.icon(
                 onPressed:
@@ -2286,7 +2525,7 @@ class _AdminMessageReports extends StatelessWidget {
         Text('Safety reports',
             style: Theme.of(context).textTheme.headlineSmall),
         const Text(
-          'MongoDB-backed reports for users, listings, reviews, and messages.',
+          'Review safety reports about accounts, listings, reviews and messages.',
           style: TextStyle(color: AppColors.secondaryText),
         ),
         const SizedBox(height: 16),
@@ -2565,7 +2804,8 @@ class _AdminReviews extends StatelessWidget {
 }
 
 class _AdminPlatformSettings extends StatefulWidget {
-  const _AdminPlatformSettings();
+  const _AdminPlatformSettings({this.showRecords = true});
+  final bool showRecords;
 
   @override
   State<_AdminPlatformSettings> createState() => _AdminPlatformSettingsState();
@@ -2578,7 +2818,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
   final servicePoints = TextEditingController();
   final referralPoints = TextEditingController();
   final friendReward = TextEditingController();
-  final redemptionOptions = TextEditingController();
+  final rewardRows = <(TextEditingController, TextEditingController)>[];
   final marketplaceFee = TextEditingController();
   final highValueThreshold = TextEditingController();
   final reportThreshold = TextEditingController();
@@ -2612,11 +2852,16 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
       servicePoints.text = '${config['serviceCompletionPoints'] ?? 100}';
       referralPoints.text = '${config['referralRewardPoints'] ?? 250}';
       friendReward.text = '${config['refereeDiscountAmount'] ?? 5}';
-      redemptionOptions.text =
-          (config['redemptionOptions'] as List? ?? const []).map((raw) {
-        final option = raw as Map<String, dynamic>;
-        return '${option['points']}:${option['discountAmount']}';
-      }).join(', ');
+      for (final raw in config['redemptionOptions'] as List? ?? const []) {
+        final option = raw as Map;
+        rewardRows.add((
+          TextEditingController(text: '${option['points']}'),
+          TextEditingController(text: '${option['discountAmount']}')
+        ));
+      }
+      if (rewardRows.isEmpty) {
+        rewardRows.add((TextEditingController(), TextEditingController()));
+      }
     }
     final platform = controller.platformSettings;
     if (!platformInitialized && platform.isNotEmpty) {
@@ -2628,7 +2873,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
       reportThreshold.text = '${platform['reportAutoHideThreshold'] ?? 3}';
       ocrThreshold.text = '${platform['verificationOcrThreshold'] ?? 80}';
       reviewThreshold.text =
-          '${platform['verificationManualReviewThreshold'] ?? 0.8}';
+          '${((platform['verificationManualReviewThreshold'] as num?) ?? 0.8) * 100}';
       minimumAge.text = '${platform['minimumVerificationAge'] ?? 18}';
       supportEmail.text =
           platform['supportEmail'] as String? ?? 'support@renthub.my';
@@ -2652,7 +2897,9 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
         final rule = Map<String, dynamic>.from(raw as Map);
         final category = rule['category'] as String;
         kycDocuments[category] = {
-          ...(rule['documentTypes'] as List? ?? const []).cast<String>(),
+          ...(rule['documentTypes'] as List? ?? const [])
+              .cast<String>()
+              .where((type) => type != 'passport'),
           'mykad',
           if (category == 'Vehicles') 'driving_licence'
         };
@@ -2682,7 +2929,10 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
     servicePoints.dispose();
     referralPoints.dispose();
     friendReward.dispose();
-    redemptionOptions.dispose();
+    for (final row in rewardRows) {
+      row.$1.dispose();
+      row.$2.dispose();
+    }
     marketplaceFee.dispose();
     highValueThreshold.dispose();
     reportThreshold.dispose();
@@ -2708,7 +2958,8 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
         'highValueThreshold': double.parse(highValueThreshold.text),
         'reportAutoHideThreshold': int.parse(reportThreshold.text),
         'verificationOcrThreshold': int.parse(ocrThreshold.text),
-        'verificationManualReviewThreshold': double.parse(reviewThreshold.text),
+        'verificationManualReviewThreshold':
+            double.parse(reviewThreshold.text) / 100,
         'minimumVerificationAge': int.parse(minimumAge.text),
         'kycRequirements': kycDocuments.entries
             .map(
@@ -2732,7 +2983,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
             .toList(),
       });
       if (mounted) {
-        showMockSuccess(context, 'Platform settings saved and audited');
+        showMockSuccess(context, 'Platform settings saved.');
       }
     } catch (exception) {
       if (mounted) {
@@ -2744,11 +2995,9 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
 
   List<Map<String, dynamic>>? _parseOptions() {
     final options = <Map<String, dynamic>>[];
-    for (final token in redemptionOptions.text.split(',')) {
-      final parts = token.trim().split(':');
-      if (parts.length != 2) return null;
-      final points = int.tryParse(parts[0].trim());
-      final amount = double.tryParse(parts[1].trim());
+    for (final row in rewardRows) {
+      final points = int.tryParse(row.$1.text);
+      final amount = double.tryParse(row.$2.text);
       if (points == null || points < 1 || amount == null || amount <= 0) {
         return null;
       }
@@ -2768,7 +3017,8 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
     if (options == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Use unique reward pairs such as 500:5, 1000:10.'),
+          content: Text(
+              'Each reward must use a different points amount and a valid discount.'),
         ),
       );
       return;
@@ -2782,7 +3032,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
         'refereeDiscountAmount': double.parse(friendReward.text),
         'redemptionOptions': options,
       });
-      if (mounted) showMockSuccess(context, 'Loyalty rules saved and audited');
+      if (mounted) showMockSuccess(context, 'Reward settings saved.');
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -2802,462 +3052,537 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
     if (data.loyaltyConfig.isEmpty || data.platformSettings.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    return ListView(
-      padding: const EdgeInsets.all(24),
-      children: [
-        Text('Platform Settings',
-            style: Theme.of(context).textTheme.headlineSmall),
-        const Text(
-          'Marketplace, verification, moderation, category, policy, and notification rules persist in MongoDB and are audited.',
-          style: TextStyle(color: AppColors.secondaryText),
-        ),
-        const SizedBox(height: 16),
-        Form(
-          key: platformFormKey,
-          child: Column(
-            children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
+    return Center(
+        child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1120),
+            child: ListView(
+              key: const ValueKey('admin-settings-form'),
+              padding: const EdgeInsets.all(24),
+              children: [
+                Text('Platform Settings',
+                    style: Theme.of(context).textTheme.headlineSmall),
+                const Text(
+                  'Manage fees, identity checks, support messages and rewards. Changes take effect after you save.',
+                  style: TextStyle(color: AppColors.secondaryText),
+                ),
+                const SizedBox(height: 16),
+                Form(
+                  key: platformFormKey,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text('Marketplace & safety rules',
-                          style: Theme.of(context).textTheme.titleLarge),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('Fees and identity checks',
+                                  style:
+                                      Theme.of(context).textTheme.titleLarge),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 16,
+                                runSpacing: 12,
+                                children: [
+                                  _RuleField(
+                                    controller: marketplaceFee,
+                                    label: 'Marketplace fee (%)',
+                                    validator: (value) {
+                                      final number =
+                                          double.tryParse(value ?? '');
+                                      return number == null ||
+                                              number < 0 ||
+                                              number > 20
+                                          ? 'Enter 0 to 20'
+                                          : null;
+                                    },
+                                    rule: const InputRule('Marketplace fee',
+                                        kind: InputKind.decimal,
+                                        maxLength: 30,
+                                        max: 20),
+                                  ),
+                                  _RuleField(
+                                    controller: highValueThreshold,
+                                    label: 'Additional-document threshold (RM)',
+                                    validator: (value) =>
+                                        (double.tryParse(value ?? '') ?? -1) < 0
+                                            ? 'Enter zero or more'
+                                            : null,
+                                    rule: const InputRule(
+                                        'Additional-document threshold',
+                                        kind: InputKind.money,
+                                        maxLength: 30,
+                                        max: 1000000),
+                                  ),
+                                  _RuleField(
+                                    controller: reportThreshold,
+                                    label: 'Auto-hide report threshold',
+                                    validator: (value) {
+                                      final number = int.tryParse(value ?? '');
+                                      return number == null ||
+                                              number < 1 ||
+                                              number > 100
+                                          ? 'Enter 1 to 100'
+                                          : null;
+                                    },
+                                    rule: const InputRule(
+                                        'Auto-hide report threshold',
+                                        kind: InputKind.integer,
+                                        maxLength: 30,
+                                        min: 1,
+                                        max: 100),
+                                  ),
+                                  _RuleField(
+                                    controller: ocrThreshold,
+                                    label: 'Text readability requirement (%)',
+                                    validator: (value) {
+                                      final number = int.tryParse(value ?? '');
+                                      return number == null ||
+                                              number < 0 ||
+                                              number > 100
+                                          ? 'Enter 0 to 100'
+                                          : null;
+                                    },
+                                    rule: const InputRule(
+                                        'OCR confidence threshold',
+                                        kind: InputKind.integer,
+                                        maxLength: 30,
+                                        max: 100),
+                                  ),
+                                  _RuleField(
+                                    controller: reviewThreshold,
+                                    label: 'Manual review requirement (%)',
+                                    validator: (value) {
+                                      final number =
+                                          double.tryParse(value ?? '');
+                                      return number == null ||
+                                              number < 0 ||
+                                              number > 100
+                                          ? 'Enter 0 to 100'
+                                          : null;
+                                    },
+                                    rule: const InputRule(
+                                        'Manual-review threshold',
+                                        kind: InputKind.decimal,
+                                        maxLength: 30,
+                                        max: 100),
+                                  ),
+                                  _RuleField(
+                                    controller: minimumAge,
+                                    label: 'Minimum verification age',
+                                    validator: (value) {
+                                      final number = int.tryParse(value ?? '');
+                                      return number == null ||
+                                              number < 18 ||
+                                              number > 100
+                                          ? 'Enter 18 to 100'
+                                          : null;
+                                    },
+                                    rule: const InputRule(
+                                        'Minimum verification age',
+                                        kind: InputKind.integer,
+                                        maxLength: 30,
+                                        min: 18,
+                                        max: 100),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text(
+                                    'Enable high-value additional-document rules'),
+                                value: highValueKycEnabled,
+                                onChanged: (value) =>
+                                    setState(() => highValueKycEnabled = value),
+                              ),
+                              const Divider(height: 28),
+                              Text(
+                                'Identity requirements',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const Text(
+                                'MyKad approval is required before renting or publishing a listing. Vehicle renters also need an approved driving licence.',
+                                style:
+                                    TextStyle(color: AppColors.secondaryText),
+                              ),
+                              for (final category in kycDocuments.keys)
+                                ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading:
+                                      const Icon(Icons.verified_user_outlined),
+                                  title: Text(category),
+                                  subtitle: Text(category == 'Vehicles'
+                                      ? 'MyKad • Driving licence for renters'
+                                      : 'MyKad'),
+                                  trailing: const Tooltip(
+                                      message: 'Required by RentHub policy',
+                                      child:
+                                          Icon(Icons.lock_outline, size: 20)),
+                                ),
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Maintenance mode'),
+                                subtitle: const Text(
+                                  'Use during planned maintenance. Save to apply the change.',
+                                ),
+                                value: maintenanceMode,
+                                onChanged: (value) =>
+                                    setState(() => maintenanceMode = value),
+                              ),
+                              TextFormField(
+                                controller: supportEmail,
+                                decoration: (const InputDecoration(
+                                        labelText: 'Support email'))
+                                    .copyWith(
+                                        counterText: '', errorMaxLines: 3),
+                                validator: InputValidation.compose(
+                                    InputRules.supportEmail.validate,
+                                    (value) => value != null &&
+                                            RegExp(r'^[^@]+@[^@]+\.[^@]+$')
+                                                .hasMatch(value)
+                                        ? null
+                                        : 'Enter a valid email'),
+                                inputFormatters: InputValidation.formatters(
+                                    InputRules.supportEmail, supportEmail),
+                                autovalidateMode:
+                                    AutovalidateMode.onUserInteraction,
+                                maxLength: InputRules.supportEmail.maxLength,
+                                maxLengthEnforcement:
+                                    InputValidation.lengthEnforcement,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                       const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 16,
-                        runSpacing: 12,
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('Support and customer messages',
+                                  style:
+                                      Theme.of(context).textTheme.titleLarge),
+                              const SizedBox(height: 12),
+                              for (final field in [
+                                (bookingPolicy, 'Booking policy', 10),
+                                (contentPolicy, 'Content policy', 10),
+                                (
+                                  bookingApprovedTemplate,
+                                  'Booking-approved message',
+                                  5
+                                ),
+                                (
+                                  verificationTemplate,
+                                  'Verification-update message',
+                                  5
+                                ),
+                                (
+                                  reportResolvedTemplate,
+                                  'Report-resolved message',
+                                  5
+                                ),
+                              ]) ...[
+                                TextFormField(
+                                  controller: field.$1,
+                                  minLines: field.$2.contains('policy') ? 2 : 1,
+                                  maxLines: field.$2.contains('policy') ? 4 : 2,
+                                  decoration:
+                                      (InputDecoration(labelText: field.$2))
+                                          .copyWith(
+                                              counterText: '',
+                                              errorMaxLines: 3),
+                                  validator: InputValidation.compose(
+                                      InputRule(field.$2,
+                                              minLength: field.$1 ==
+                                                          bookingPolicy ||
+                                                      field.$1 == contentPolicy
+                                                  ? 10
+                                                  : 5,
+                                              maxLength: field.$1 ==
+                                                          bookingPolicy ||
+                                                      field.$1 == contentPolicy
+                                                  ? 3000
+                                                  : 300)
+                                          .validate,
+                                      (value) => (value?.trim().length ?? 0) <
+                                              field.$3
+                                          ? 'Enter at least ${field.$3} characters'
+                                          : null),
+                                  inputFormatters: InputValidation.formatters(
+                                      InputRule(field.$2,
+                                          minLength:
+                                              field.$1 == bookingPolicy ||
+                                                      field.$1 == contentPolicy
+                                                  ? 10
+                                                  : 5,
+                                          maxLength:
+                                              field.$1 == bookingPolicy ||
+                                                      field.$1 == contentPolicy
+                                                  ? 3000
+                                                  : 300),
+                                      field.$1),
+                                  autovalidateMode:
+                                      AutovalidateMode.onUserInteraction,
+                                  maxLength: InputRule(field.$2,
+                                          minLength:
+                                              field.$1 == bookingPolicy ||
+                                                      field.$1 == contentPolicy
+                                                  ? 10
+                                                  : 5,
+                                          maxLength:
+                                              field.$1 == bookingPolicy ||
+                                                      field.$1 == contentPolicy
+                                                  ? 3000
+                                                  : 300)
+                                      .maxLength,
+                                  maxLengthEnforcement:
+                                      InputValidation.lengthEnforcement,
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('Listing categories',
+                                  style:
+                                      Theme.of(context).textTheme.titleLarge),
+                              const Text(
+                                'Choose which categories are available. Category names stay the same.',
+                                style:
+                                    TextStyle(color: AppColors.secondaryText),
+                              ),
+                              for (final entry in categoryStates.entries)
+                                SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  secondary: const Icon(Icons.lock_outline),
+                                  title: Text(entry.key),
+                                  subtitle: const Text(
+                                      'Available to Owners and renters'),
+                                  value: entry.value,
+                                  onChanged: (value) => setState(
+                                    () => categoryStates[entry.key] = value,
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: FilledButton.icon(
+                                  onPressed:
+                                      data.loading ? null : _savePlatform,
+                                  icon: const Icon(Icons.save_outlined),
+                                  label: const Text('Save settings'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Text('Points and referral rewards',
+                    style: Theme.of(context).textTheme.headlineSmall),
+                const Text(
+                  'Changes apply to future completions, referrals and redemptions and are written to the administrator audit log.',
+                  style: TextStyle(color: AppColors.secondaryText),
+                ),
+                const SizedBox(height: 16),
+                Form(
+                  key: formKey,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _RuleField(
-                            controller: marketplaceFee,
-                            label: 'Marketplace fee (%)',
-                            validator: (value) {
-                              final number = double.tryParse(value ?? '');
-                              return number == null || number < 0 || number > 20
-                                  ? 'Enter 0 to 20'
-                                  : null;
-                            },
-                            rule: const InputRule('Marketplace fee',
-                                kind: InputKind.decimal,
-                                maxLength: 30,
-                                max: 20),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Loyalty programme enabled'),
+                            subtitle: const Text(
+                              'Pausing prevents future automatic awards and redemptions.',
+                            ),
+                            value: enabled,
+                            onChanged: (value) =>
+                                setState(() => enabled = value),
                           ),
-                          _RuleField(
-                            controller: highValueThreshold,
-                            label: 'Additional-document threshold (RM)',
-                            validator: (value) =>
-                                (double.tryParse(value ?? '') ?? -1) < 0
-                                    ? 'Enter zero or more'
-                                    : null,
-                            rule: const InputRule(
-                                'Additional-document threshold',
-                                kind: InputKind.money,
-                                maxLength: 30,
-                                max: 1000000),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 16,
+                            runSpacing: 12,
+                            children: [
+                              _RuleField(
+                                controller: physicalPoints,
+                                label: 'Points per completed item rental',
+                                validator: _wholeNumber,
+                                rule: const InputRule(
+                                    'Points per completed item rental',
+                                    kind: InputKind.integer,
+                                    maxLength: 30,
+                                    max: 10000),
+                              ),
+                              _RuleField(
+                                controller: servicePoints,
+                                label: 'Points per completed service',
+                                validator: _wholeNumber,
+                                rule: const InputRule(
+                                    'Points per completed service',
+                                    kind: InputKind.integer,
+                                    maxLength: 30,
+                                    max: 10000),
+                              ),
+                              _RuleField(
+                                controller: referralPoints,
+                                label: 'Points for inviting a friend',
+                                validator: _wholeNumber,
+                                rule: const InputRule(
+                                    'Points for inviting a friend',
+                                    kind: InputKind.integer,
+                                    maxLength: 30,
+                                    max: 10000),
+                              ),
+                              _RuleField(
+                                controller: friendReward,
+                                label: 'New friend discount (RM)',
+                                validator: (value) {
+                                  final amount = double.tryParse(value ?? '');
+                                  return amount == null || amount < 0
+                                      ? 'Enter zero or more'
+                                      : null;
+                                },
+                                rule: const InputRule('Friend reward',
+                                    kind: InputKind.money,
+                                    maxLength: 30,
+                                    max: 1000),
+                              ),
+                            ],
                           ),
-                          _RuleField(
-                            controller: reportThreshold,
-                            label: 'Auto-hide report threshold',
-                            validator: (value) {
-                              final number = int.tryParse(value ?? '');
-                              return number == null ||
-                                      number < 1 ||
-                                      number > 100
-                                  ? 'Enter 1 to 100'
-                                  : null;
-                            },
-                            rule: const InputRule('Auto-hide report threshold',
-                                kind: InputKind.integer,
-                                maxLength: 30,
-                                min: 1,
-                                max: 100),
-                          ),
-                          _RuleField(
-                            controller: ocrThreshold,
-                            label: 'OCR confidence threshold (%)',
-                            validator: (value) {
-                              final number = int.tryParse(value ?? '');
-                              return number == null ||
-                                      number < 0 ||
-                                      number > 100
-                                  ? 'Enter 0 to 100'
-                                  : null;
-                            },
-                            rule: const InputRule('OCR confidence threshold',
-                                kind: InputKind.integer,
-                                maxLength: 30,
-                                max: 100),
-                          ),
-                          _RuleField(
-                            controller: reviewThreshold,
-                            label: 'AI manual-review threshold (0-1)',
-                            validator: (value) {
-                              final number = double.tryParse(value ?? '');
-                              return number == null || number < 0 || number > 1
-                                  ? 'Enter 0 to 1'
-                                  : null;
-                            },
-                            rule: const InputRule('Manual-review threshold',
-                                kind: InputKind.decimal, maxLength: 30, max: 1),
-                          ),
-                          _RuleField(
-                            controller: minimumAge,
-                            label: 'Minimum verification age',
-                            validator: (value) {
-                              final number = int.tryParse(value ?? '');
-                              return number == null ||
-                                      number < 18 ||
-                                      number > 100
-                                  ? 'Enter 18 to 100'
-                                  : null;
-                            },
-                            rule: const InputRule('Minimum verification age',
-                                kind: InputKind.integer,
-                                maxLength: 30,
-                                min: 18,
-                                max: 100),
+                          const SizedBox(height: 12),
+                          Text('Discount rewards',
+                              style: Theme.of(context).textTheme.titleMedium),
+                          const Text(
+                              'Choose how many points a renter exchanges for a discount.'),
+                          const SizedBox(height: 12),
+                          for (final row in rewardRows)
+                            Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Wrap(
+                                    spacing: 12,
+                                    runSpacing: 8,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      _RuleField(
+                                          controller: row.$1,
+                                          label: 'Points needed',
+                                          validator: (v) =>
+                                              (int.tryParse(v ?? '') ?? 0) < 1
+                                                  ? 'Enter at least 1 point'
+                                                  : null,
+                                          rule: const InputRule('Points needed',
+                                              kind: InputKind.integer,
+                                              maxLength: 7,
+                                              min: 1,
+                                              max: 100000)),
+                                      _RuleField(
+                                          controller: row.$2,
+                                          label: 'Discount (RM)',
+                                          validator: (v) =>
+                                              (double.tryParse(v ?? '') ?? 0) <=
+                                                      0
+                                                  ? 'Enter a positive amount'
+                                                  : null,
+                                          rule: const InputRule('Discount',
+                                              kind: InputKind.money,
+                                              maxLength: 10,
+                                              min: 0.01,
+                                              max: 10000)),
+                                      IconButton(
+                                          tooltip: 'Remove reward',
+                                          onPressed: rewardRows.length <= 1
+                                              ? null
+                                              : () => setState(() {
+                                                    rewardRows.remove(row);
+                                                    row.$1.dispose();
+                                                    row.$2.dispose();
+                                                  }),
+                                          icon:
+                                              const Icon(Icons.delete_outline)),
+                                    ])),
+                          Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                  onPressed: rewardRows.length >= 10
+                                      ? null
+                                      : () => setState(() => rewardRows.add((
+                                            TextEditingController(),
+                                            TextEditingController()
+                                          ))),
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('Add reward'))),
+                          const SizedBox(height: 16),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: FilledButton.icon(
+                              onPressed: data.loading ? null : _save,
+                              icon: const Icon(Icons.save_outlined),
+                              label: const Text('Save rewards'),
+                            ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text(
-                            'Enable high-value additional-document rules'),
-                        value: highValueKycEnabled,
-                        onChanged: (value) =>
-                            setState(() => highValueKycEnabled = value),
-                      ),
-                      const Divider(height: 28),
-                      Text(
-                        'KYC documents by rental category',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const Text(
-                        'Approved MyKad is mandatory for every booking and Owner submission/publication. These settings cannot disable it. Vehicle renters also require driving eligibility.',
-                        style: TextStyle(color: AppColors.secondaryText),
-                      ),
-                      for (final category in kycDocuments.keys)
-                        ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          title: Text(category),
-                          subtitle: Text(
-                            kycDocuments[category]!.isEmpty
-                                ? 'Optional'
-                                : kycDocuments[category]!.join(', '),
-                          ),
-                          children: [
-                            for (final type in const [
-                              'mykad',
-                              'passport',
-                              'driving_licence',
-                            ])
-                              CheckboxListTile(
-                                title: Text(type.replaceAll('_', ' ')),
-                                value: kycDocuments[category]!.contains(type),
-                                onChanged: type == 'mykad' ||
-                                        type == 'driving_licence'
-                                    ? null
-                                    : (selected) => setState(() {
-                                          if (selected ?? false) {
-                                            kycDocuments[category]!.add(type);
-                                          } else {
-                                            kycDocuments[category]!
-                                                .remove(type);
-                                          }
-                                        }),
-                              ),
-                            SwitchListTile(
-                              title: const Text(
-                                  'Additional documents only above the threshold'),
-                              value: kycHighValueOnly[category] ?? false,
-                              onChanged: (value) => setState(
-                                () => kycHighValueOnly[category] = value,
-                              ),
-                            ),
-                          ],
-                        ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Maintenance mode'),
-                        subtitle: const Text(
-                          'Persisted operational flag for controlled maintenance windows.',
-                        ),
-                        value: maintenanceMode,
-                        onChanged: (value) =>
-                            setState(() => maintenanceMode = value),
-                      ),
-                      TextFormField(
-                        controller: supportEmail,
-                        decoration:
-                            (const InputDecoration(labelText: 'Support email'))
-                                .copyWith(counterText: '', errorMaxLines: 3),
-                        validator: InputValidation.compose(
-                            InputRules.supportEmail.validate,
-                            (value) => value != null &&
-                                    RegExp(r'^[^@]+@[^@]+\.[^@]+$')
-                                        .hasMatch(value)
-                                ? null
-                                : 'Enter a valid email'),
-                        inputFormatters: InputValidation.formatters(
-                            InputRules.supportEmail, supportEmail),
-                        autovalidateMode: AutovalidateMode.onUserInteraction,
-                        maxLength: InputRules.supportEmail.maxLength,
-                        maxLengthEnforcement: InputValidation.lengthEnforcement,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('Policies & notification templates',
-                          style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 12),
-                      for (final field in [
-                        (bookingPolicy, 'Booking policy', 10),
-                        (contentPolicy, 'Content policy', 10),
-                        (
-                          bookingApprovedTemplate,
-                          'Booking-approved message',
-                          5
-                        ),
-                        (
-                          verificationTemplate,
-                          'Verification-update message',
-                          5
-                        ),
-                        (reportResolvedTemplate, 'Report-resolved message', 5),
-                      ]) ...[
-                        TextFormField(
-                          controller: field.$1,
-                          minLines: field.$2.contains('policy') ? 2 : 1,
-                          maxLines: field.$2.contains('policy') ? 4 : 2,
-                          decoration: (InputDecoration(labelText: field.$2))
-                              .copyWith(counterText: '', errorMaxLines: 3),
-                          validator: InputValidation.compose(
-                              InputRule(field.$2,
-                                      minLength: field.$1 == bookingPolicy ||
-                                              field.$1 == contentPolicy
-                                          ? 10
-                                          : 5,
-                                      maxLength: field.$1 == bookingPolicy ||
-                                              field.$1 == contentPolicy
-                                          ? 3000
-                                          : 300)
-                                  .validate,
-                              (value) => (value?.trim().length ?? 0) < field.$3
-                                  ? 'Enter at least ${field.$3} characters'
-                                  : null),
-                          inputFormatters: InputValidation.formatters(
-                              InputRule(field.$2,
-                                  minLength: field.$1 == bookingPolicy ||
-                                          field.$1 == contentPolicy
-                                      ? 10
-                                      : 5,
-                                  maxLength: field.$1 == bookingPolicy ||
-                                          field.$1 == contentPolicy
-                                      ? 3000
-                                      : 300),
-                              field.$1),
-                          autovalidateMode: AutovalidateMode.onUserInteraction,
-                          maxLength: InputRule(field.$2,
-                                  minLength: field.$1 == bookingPolicy ||
-                                          field.$1 == contentPolicy
-                                      ? 10
-                                      : 5,
-                                  maxLength: field.$1 == bookingPolicy ||
-                                          field.$1 == contentPolicy
-                                      ? 3000
-                                      : 300)
-                              .maxLength,
-                          maxLengthEnforcement:
-                              InputValidation.lengthEnforcement,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('Listing categories',
-                          style: Theme.of(context).textTheme.titleLarge),
-                      const Text(
-                        'Canonical category names are protected; availability can be changed.',
-                        style: TextStyle(color: AppColors.secondaryText),
-                      ),
-                      for (final entry in categoryStates.entries)
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          secondary: const Icon(Icons.lock_outline),
-                          title: Text(entry.key),
-                          subtitle: const Text('Protected category name'),
-                          value: entry.value,
-                          onChanged: (value) => setState(
-                            () => categoryStates[entry.key] = value,
-                          ),
-                        ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton.icon(
-                          onPressed: data.loading ? null : _savePlatform,
-                          icon: const Icon(Icons.save_outlined),
-                          label: const Text('Save Platform Settings'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 32),
-        Text('Loyalty & referral rules',
-            style: Theme.of(context).textTheme.headlineSmall),
-        const Text(
-          'Changes apply to future completions, referrals and redemptions and are written to the administrator audit log.',
-          style: TextStyle(color: AppColors.secondaryText),
-        ),
-        const SizedBox(height: 16),
-        Form(
-          key: formKey,
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Loyalty programme enabled'),
-                    subtitle: const Text(
-                      'Pausing prevents future automatic awards and redemptions.',
                     ),
-                    value: enabled,
-                    onChanged: (value) => setState(() => enabled = value),
                   ),
+                ),
+                if (widget.showRecords) ...[
+                  const SizedBox(height: 24),
+                  Text('Referral activity',
+                      style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 12,
-                    children: [
-                      _RuleField(
-                        controller: physicalPoints,
-                        label: 'Physical completion points',
-                        validator: _wholeNumber,
-                        rule: const InputRule('Physical completion points',
-                            kind: InputKind.integer, maxLength: 30, max: 10000),
-                      ),
-                      _RuleField(
-                        controller: servicePoints,
-                        label: 'Service completion points',
-                        validator: _wholeNumber,
-                        rule: const InputRule('Service completion points',
-                            kind: InputKind.integer, maxLength: 30, max: 10000),
-                      ),
-                      _RuleField(
-                        controller: referralPoints,
-                        label: 'Referrer reward points',
-                        validator: _wholeNumber,
-                        rule: const InputRule('Referrer reward points',
-                            kind: InputKind.integer, maxLength: 30, max: 10000),
-                      ),
-                      _RuleField(
-                        controller: friendReward,
-                        label: 'Friend reward (RM)',
-                        validator: (value) {
-                          final amount = double.tryParse(value ?? '');
-                          return amount == null || amount < 0
-                              ? 'Enter zero or more'
-                              : null;
-                        },
-                        rule: const InputRule('Friend reward',
-                            kind: InputKind.money, maxLength: 30, max: 1000),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: redemptionOptions,
-                    decoration: (const InputDecoration(
-                      labelText: 'Reward options (points:RM)',
-                      helperText: 'Example: 500:5, 1000:10',
-                    )).copyWith(counterText: '', errorMaxLines: 3),
-                    validator: InputValidation.compose(
-                        InputRules.rewardOptionsPointsRm.validate,
-                        (value) => (value?.trim().isEmpty ?? true)
-                            ? 'At least one reward is required'
-                            : null),
-                    inputFormatters: InputValidation.formatters(
-                        InputRules.rewardOptionsPointsRm, redemptionOptions),
-                    autovalidateMode: AutovalidateMode.onUserInteraction,
-                    maxLength: InputRules.rewardOptionsPointsRm.maxLength,
-                    maxLengthEnforcement: InputValidation.lengthEnforcement,
-                  ),
-                  const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton.icon(
-                      onPressed: data.loading ? null : _save,
-                      icon: const Icon(Icons.save_outlined),
-                      label: const Text('Save Rules'),
+                  if (data.adminReferrals.isEmpty)
+                    const Card(
+                      child:
+                          ListTile(title: Text('No referral applications yet')),
                     ),
-                  ),
+                  for (final referral in data.adminReferrals)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.people_outline),
+                        title: Text(
+                            '${referral['referrerId']} → ${referral['refereeId']}'),
+                        subtitle: Text(referral['referralCode'] as String),
+                        trailing: StatusBadge(referral['status'] as String),
+                      ),
+                    ),
+                  const SizedBox(height: 24),
+                  Text('Recent points ledger',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  for (final entry in data.adminRewardLedger.take(20))
+                    Card(
+                      child: ListTile(
+                        title: Text(entry['description'] as String),
+                        subtitle: Text('${entry['userId']} • ${entry['type']}'),
+                        trailing: Text(
+                          '${(entry['points'] as num) > 0 ? '+' : ''}${entry['points']}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
                 ],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text('Referral activity',
-            style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
-        if (data.adminReferrals.isEmpty)
-          const Card(
-            child: ListTile(title: Text('No referral applications yet')),
-          ),
-        for (final referral in data.adminReferrals)
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.people_outline),
-              title:
-                  Text('${referral['referrerId']} → ${referral['refereeId']}'),
-              subtitle: Text(referral['referralCode'] as String),
-              trailing: StatusBadge(referral['status'] as String),
-            ),
-          ),
-        const SizedBox(height: 24),
-        Text('Recent points ledger',
-            style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
-        for (final entry in data.adminRewardLedger.take(20))
-          Card(
-            child: ListTile(
-              title: Text(entry['description'] as String),
-              subtitle: Text('${entry['userId']} • ${entry['type']}'),
-              trailing: Text(
-                '${(entry['points'] as num) > 0 ? '+' : ''}${entry['points']}',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-      ],
-    );
+              ],
+            )));
   }
 }
 
@@ -3291,46 +3616,6 @@ class _RuleField extends StatelessWidget {
           autovalidateMode: AutovalidateMode.onUserInteraction,
         ),
       );
-}
-
-class _AdminAuditLogs extends StatelessWidget {
-  const _AdminAuditLogs();
-
-  @override
-  Widget build(BuildContext context) {
-    final logs = context.watch<LiveRentHubController>().auditLogs;
-    if (logs.isEmpty) {
-      return const RentHubFeedbackState(
-        kind: FeedbackKind.empty,
-        title: 'No audit entries yet',
-        message: 'Administrator dispute and claim decisions will appear here.',
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(24),
-      itemCount: logs.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final log = logs[index];
-        final metadata = log['metadata'] as Map<String, dynamic>? ?? const {};
-        return Card(
-          child: ListTile(
-            leading: const Icon(Icons.history, color: AppColors.primary),
-            title: Text((log['action'] as String).replaceAll('.', ' • ')),
-            subtitle: Text(
-              '${log['actorId']} → ${log['targetType']} ${log['targetId']}\n${metadata.entries.map((entry) => '${entry.key}: ${entry.value}').join(' • ')}',
-            ),
-            isThreeLine: true,
-            trailing: Text(
-              (log['createdAt'] as String? ?? '').replaceFirst('T', '\n'),
-              textAlign: TextAlign.right,
-              style: const TextStyle(color: AppColors.secondaryText),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
 
 class _DeferredAdminModule extends StatelessWidget {

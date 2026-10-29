@@ -123,6 +123,12 @@ Assert-Launcher (-not (Test-RentHubApiReady)) 'API without reviewed product suit
 $script:apiHealthFixture.data.capabilities += 'pricing-suitability-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'API without local evidence product selection must fail'
 $script:apiHealthFixture.data.capabilities += 'evidence-led-product-selection-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without administrator record details must fail'
+$script:apiHealthFixture.data.capabilities += 'admin-record-details-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without calculated trust summaries must fail'
+$script:apiHealthFixture.data.capabilities += 'trust-profile-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without grouped conversations and user record paging must fail'
+$script:apiHealthFixture.data.capabilities += 'user-records-messaging-v2'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'

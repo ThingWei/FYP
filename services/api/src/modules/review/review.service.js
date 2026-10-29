@@ -6,6 +6,7 @@ import { RentalModel } from '../rental/rental.model.js';
 import { UserModel } from '../user/user.model.js';
 import { REVIEW_STATUSES } from './review.model.js';
 import { reviewRepository } from './review.repository.js';
+import { refreshTrustAfterActivity } from '../user/trust.service.js';
 
 const editWindowMs = 24 * 60 * 60 * 1000;
 
@@ -99,6 +100,7 @@ export const reviewService = {
       entityType: 'review',
       entityId: review.publicId,
     });
+    await refreshTrustAfterActivity([subjectId]);
     return withEditState(review, identity);
   },
 
@@ -123,6 +125,7 @@ export const reviewService = {
       editedAt: new Date(),
     });
     await review.save();
+    await refreshTrustAfterActivity([review.subjectId]);
     return withEditState(review, identity);
   },
 
@@ -200,6 +203,7 @@ export const reviewService = {
       moderatedAt: new Date(),
     };
     await review.save();
+    await refreshTrustAfterActivity([review.subjectId]);
     await notifyUser({
       userId: review.authorId,
       category: 'review',

@@ -72,6 +72,8 @@ class LiveLocationPicker extends StatefulWidget {
       this.positionClient,
       this.startWithCurrentLocation = false,
       this.searchAreaOnly = false,
+      this.confirmationLabel = 'Use this location',
+      this.notice,
       this.title = 'Choose location'});
   final ListingLocationApi api;
   final String initialLabel;
@@ -79,6 +81,8 @@ class LiveLocationPicker extends StatefulWidget {
   final LocationMapBuilder? mapBuilder;
   final CurrentLocationClient? positionClient;
   final String title;
+  final String confirmationLabel;
+  final String? notice;
   final bool startWithCurrentLocation, searchAreaOnly;
   @override
   State<LiveLocationPicker> createState() => _LiveLocationPickerState();
@@ -447,12 +451,18 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
           child: FilledButton(
               onPressed:
                   selected == null || resolving || locating ? null : _confirm,
-              child: const Text('Use this location'))),
+              child: Text(widget.confirmationLabel))),
       body: SafeArea(
           child: Center(
               child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 800),
                   child: ListView(padding: const EdgeInsets.all(16), children: [
+                    if (widget.notice != null)
+                      Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Text(widget.notice!,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600))),
                     Text(widget.searchAreaOnly
                         ? 'Search or use GPS to choose a nearby search centre, then tap Use this location. This is not a delivery address.'
                         : 'Search or use GPS, check the pin, then tap Use this location. GPS and public pins ask OpenStreetMap for the nearest mapped address. Private pin skips that lookup.'),

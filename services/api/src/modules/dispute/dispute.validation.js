@@ -68,6 +68,7 @@ export const reviewStatusValidation = [
 
 export const resolveValidation = [
   disputeId,
+  body('responsibleParty').optional().isIn(['undetermined', 'none', 'renter', 'owner', 'both']),
   body('outcome').isIn([
     'release_to_renter',
     'split',

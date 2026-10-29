@@ -63,6 +63,10 @@ export const loyaltyRepository = {
   },
   listEntries: (userId, limit = 20) =>
     RewardLedgerModel.find({ userId }).sort({ createdAt: -1 }).limit(limit),
+  listUserEntries: (userId, page, limit) => Promise.all([
+    RewardLedgerModel.find({ userId }).sort({ createdAt: -1, _id: -1 }).skip((page-1)*limit).limit(limit),
+    RewardLedgerModel.countDocuments({ userId }),
+  ]),
   findReferralForReferee: (refereeId) => ReferralModel.findOne({ refereeId }),
   createReferral: (data) => ReferralModel.create(data),
   findConfig: () => LoyaltyConfigModel.findOne({ key: 'default' }),

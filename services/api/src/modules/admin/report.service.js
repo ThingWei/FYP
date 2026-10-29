@@ -140,7 +140,8 @@ async function detailReport(type, periodStart, periodEnd) {
         accountStatus: item.accountStatus,
         verificationStatus: item.verification?.status,
         verificationTier: item.verification?.tier,
-        trustScore: item.trustScore,
+        trustScore: item.trustProfile?.version === 'renthub-trust-v1' && item.trustProfile.overall?.marketplace?.status === 'established'
+          ? item.trustProfile.overall.marketplace.score : null,
         createdAt: item.createdAt,
       })),
     };

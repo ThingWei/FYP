@@ -6,6 +6,7 @@ import { env, validateEnv } from './config/env.js';
 import { registerSocket } from './socket/registerSocket.js';
 import { startPriceSyncScheduler, stopPriceSyncScheduler } from './operations/priceSyncJobs.js';
 import { drainPriceSyncJobs } from './modules/listing/priceSync.service.js';
+import { MessageModel } from './modules/communication/message.model.js';
 import {
   startLifecycleScheduler,
   stopLifecycleScheduler,
@@ -13,6 +14,7 @@ import {
 
 validateEnv();
 await connectDatabase();
+await MessageModel.init();
 const server = http.createServer(app);
 registerSocket(new Server(server, { cors: { origin: env.corsOrigins } }));
 startLifecycleScheduler();

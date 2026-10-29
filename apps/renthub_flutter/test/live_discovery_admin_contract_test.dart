@@ -212,9 +212,9 @@ void main() {
     );
     await tester.pump();
     await tester.tap(find.text('Platform Settings').first);
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(find.text('Marketplace & safety rules'), findsOneWidget);
+    expect(find.text('Fees and identity checks'), findsOneWidget);
     expect(find.text('Listing categories'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

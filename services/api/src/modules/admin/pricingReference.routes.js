@@ -39,9 +39,13 @@ export function pricingReferenceRouter(writeAudit) {
     if (typeof pageText !== 'string' || !/^\d+$/.test(pageText) || Number(pageText) < 1 || Number(pageText) > 10000) {
       throw new AppError('Enter a valid page number', 400, 'VALIDATION_ERROR');
     }
-    const page = Number(pageText), limit = 50;
+    const limitText = req.query.limit ?? '50';
+    if (typeof limitText !== 'string' || !/^\d+$/.test(limitText) || Number(limitText) < 1 || Number(limitText) > 100) {
+      throw new AppError('Choose a valid page size', 422, 'VALIDATION_ERROR');
+    }
+    const page = Number(pageText), limit = Number(limitText);
     const [items, total] = await Promise.all([
-      PricingReferenceModel.find().sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).select('-_id -__v -observationKey').lean(),
+      PricingReferenceModel.find().sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).select('-_id -__v -observationKey').lean(),
       PricingReferenceModel.countDocuments(),
     ]);
     return ok(res, { items, total, page, limit });

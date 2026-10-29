@@ -1,9 +1,13 @@
+import 'live_reviews_list.dart';
+export 'live_chat_page.dart';
+import 'live_chat_page.dart';
+import 'user_record_pagination.dart';
+import 'live_trust_page.dart';
 import '../../core/verification/mykad_draft.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -91,8 +95,11 @@ class _LiveMessagesPageState extends State<LiveMessagesPage> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
+    final page = controller.userRecordPages['conversations'];
     return Scaffold(
       appBar: AppBar(title: const Text('Messages')),
+      bottomNavigationBar:
+          const UserRecordPagination(collection: 'conversations'),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: controller.conversations.isEmpty
@@ -101,14 +108,19 @@ class _LiveMessagesPageState extends State<LiveMessagesPage> {
                   SizedBox(
                     height: MediaQuery.sizeOf(context).height * .68,
                     child: RentHubFeedbackState(
-                      kind: controller.error == null
-                          ? FeedbackKind.empty
-                          : FeedbackKind.error,
-                      title: controller.error == null
-                          ? 'No conversations yet'
-                          : 'Messages unavailable',
-                      message: controller.error ??
-                          'A conversation is created automatically when you request a booking.',
+                      kind: page?.loading == true
+                          ? FeedbackKind.loading
+                          : page?.error == null
+                              ? FeedbackKind.empty
+                              : FeedbackKind.error,
+                      title: page?.loading == true
+                          ? 'Loading messages'
+                          : page?.error == null
+                              ? 'No conversations yet'
+                              : 'Messages unavailable',
+                      message: page?.error == null
+                          ? 'A conversation is created automatically when you request a booking.'
+                          : friendlyError(page!.error!),
                       actionLabel: 'Refresh',
                       onAction: _refresh,
                     ),
@@ -131,7 +143,9 @@ class _LiveMessagesPageState extends State<LiveMessagesPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          conversation.listingTitle,
+                          conversation.bookingCount > 1
+                              ? '${conversation.bookingCount} bookings'
+                              : conversation.listingTitle,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 12),
@@ -165,404 +179,6 @@ class _LiveMessagesPageState extends State<LiveMessagesPage> {
       ),
     );
   }
-}
-
-class LiveChatPage extends StatefulWidget {
-  const LiveChatPage({super.key, required this.conversation});
-
-  final Conversation conversation;
-
-  @override
-  State<LiveChatPage> createState() => _LiveChatPageState();
-}
-
-class _LiveChatPageState extends State<LiveChatPage> {
-  final input = TextEditingController();
-  final messages = <Message>[];
-  StreamSubscription<Message>? subscription;
-  bool loading = true;
-  bool sending = false;
-  String? error;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
-  }
-
-  Future<void> _load() async {
-    final controller = context.read<LiveRentHubController>();
-    subscription ??= controller
-        .watchThread(widget.conversation.id)
-        .listen((message) => _addMessage(message));
-    try {
-      final loaded = await controller.loadMessages(widget.conversation.id);
-      await controller.markThreadRead(widget.conversation.id);
-      if (!mounted) return;
-      setState(() {
-        messages
-          ..clear()
-          ..addAll(loaded);
-        loading = false;
-        error = null;
-      });
-    } catch (exception) {
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-        error = friendlyError(exception);
-      });
-    }
-  }
-
-  void _addMessage(Message message) {
-    if (!mounted || messages.any((item) => item.id == message.id)) return;
-    setState(() => messages.add(message));
-  }
-
-  Future<void> _send() async {
-    if (!InputValidation.validate(context)) return;
-    final text = input.text.trim();
-    if (text.isEmpty || sending) return;
-    setState(() => sending = true);
-    try {
-      final message = await context
-          .read<LiveRentHubController>()
-          .sendMessage(widget.conversation.id, text);
-      input.clear();
-      _addMessage(message);
-    } catch (exception) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(exception))),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => sending = false);
-    }
-  }
-
-  Future<void> _sendImage() async {
-    if (sending) return;
-    setState(() => sending = true);
-    try {
-      final message = await context
-          .read<LiveRentHubController>()
-          .pickAndSendMessageImage(widget.conversation.id,
-              confirmSelection: (bytes, name) =>
-                  confirmPhotoSelection(context, bytes, name));
-      if (message != null) _addMessage(message);
-    } catch (exception) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(exception))),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => sending = false);
-    }
-  }
-
-  Future<void> _report(Message message) async {
-    var reason = 'inappropriate';
-    final details = TextEditingController();
-    final accepted = await InputValidation.showFormDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Report message'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                initialValue: reason,
-                decoration: const InputDecoration(labelText: 'Reason'),
-                items: const [
-                  DropdownMenuItem(
-                      value: 'harassment', child: Text('Harassment')),
-                  DropdownMenuItem(value: 'scam', child: Text('Scam')),
-                  DropdownMenuItem(value: 'spam', child: Text('Spam')),
-                  DropdownMenuItem(
-                    value: 'inappropriate',
-                    child: Text('Inappropriate'),
-                  ),
-                  DropdownMenuItem(value: 'other', child: Text('Other')),
-                ],
-                onChanged: (value) =>
-                    setDialogState(() => reason = value ?? reason),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: details,
-                maxLength: 1000,
-                maxLengthEnforcement: InputValidation.lengthEnforcement,
-                decoration: (const InputDecoration(
-                  labelText: 'Details',
-                  hintText: 'Explain what happened',
-                )).copyWith(counterText: '', errorMaxLines: 3),
-                validator: InputRules.details.validate,
-                inputFormatters:
-                    InputValidation.formatters(InputRules.details, details),
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => InputValidation.popIfValid(dialogContext, true),
-              child: const Text('Submit Report'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (accepted != true || !mounted) {
-      details.dispose();
-      return;
-    }
-    try {
-      await context.read<LiveRentHubController>().reportMessage(
-            message.id,
-            reason,
-            details.text,
-          );
-      if (mounted) showMockSuccess(context, 'Message report submitted');
-    } catch (exception) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(exception))),
-        );
-      }
-    } finally {
-      details.dispose();
-    }
-  }
-
-  @override
-  void dispose() {
-    subscription?.cancel();
-    input.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ownId = context.watch<LiveRentHubController>().profile?.id;
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.conversation.otherParticipantName),
-            Text(
-              widget.conversation.listingTitle,
-              style: const TextStyle(fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: loading
-                ? const Center(child: CircularProgressIndicator())
-                : error != null
-                    ? RentHubFeedbackState(
-                        kind: FeedbackKind.error,
-                        title: 'Conversation unavailable',
-                        message: error!,
-                        actionLabel: 'Try Again',
-                        onAction: _load,
-                      )
-                    : messages.isEmpty
-                        ? const RentHubFeedbackState(
-                            kind: FeedbackKind.empty,
-                            title: 'Start the conversation',
-                            message:
-                                'Messages are stored with this booking in MongoDB.',
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: messages.length,
-                            itemBuilder: (context, index) {
-                              final message = messages[index];
-                              final own = message.senderId == ownId;
-                              return Align(
-                                alignment: own
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: GestureDetector(
-                                  onLongPress:
-                                      own ? null : () => _report(message),
-                                  child: Container(
-                                    constraints:
-                                        const BoxConstraints(maxWidth: 300),
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: own
-                                          ? AppColors.primaryLight
-                                          : AppColors.background,
-                                      border:
-                                          Border.all(color: AppColors.border),
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        if (message.attachment?.kind == 'image')
-                                          _ProtectedMessageImage(
-                                            attachment: message.attachment!,
-                                          ),
-                                        if (message.attachment != null &&
-                                            message.text.isNotEmpty)
-                                          const SizedBox(height: 8),
-                                        if (message.text.isNotEmpty)
-                                          Text(message.text),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: TextFormField(
-                controller: input,
-                enabled: !sending,
-                maxLength: 2000,
-                maxLengthEnforcement: InputValidation.lengthEnforcement,
-                minLines: 1,
-                maxLines: 4,
-                onFieldSubmitted: (_) => _send(),
-                decoration: (InputDecoration(
-                  hintText: 'Write a message',
-                  counterText: '',
-                  prefixIcon: IconButton(
-                    tooltip: 'Send image',
-                    onPressed: sending ? null : _sendImage,
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                  ),
-                  suffixIcon: IconButton(
-                    tooltip: 'Send message',
-                    onPressed: sending ? null : _send,
-                    icon: sending
-                        ? const SizedBox.square(
-                            dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send),
-                  ),
-                )).copyWith(errorMaxLines: 3),
-                validator: InputRules.writeAMessage.validate,
-                inputFormatters:
-                    InputValidation.formatters(InputRules.writeAMessage, input),
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProtectedMessageImage extends StatefulWidget {
-  const _ProtectedMessageImage({required this.attachment});
-
-  final MessageAttachment attachment;
-
-  @override
-  State<_ProtectedMessageImage> createState() => _ProtectedMessageImageState();
-}
-
-class _ProtectedMessageImageState extends State<_ProtectedMessageImage> {
-  late Future<Uint8List> imageBytes;
-
-  @override
-  void initState() {
-    super.initState();
-    imageBytes = context
-        .read<LiveRentHubController>()
-        .api
-        .downloadBytes(widget.attachment.url);
-  }
-
-  void _open(Uint8List bytes) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => Dialog(
-        child: InteractiveViewer(
-          minScale: 0.5,
-          maxScale: 4,
-          child: Image.memory(
-            bytes,
-            semanticLabel: widget.attachment.filename,
-            fit: BoxFit.contain,
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => FutureBuilder<Uint8List>(
-        future: imageBytes,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return const SizedBox(
-              width: 220,
-              height: 120,
-              child: Center(
-                child: Text(
-                  'Image unavailable',
-                  style: TextStyle(color: AppColors.secondaryText),
-                ),
-              ),
-            );
-          }
-          final bytes = snapshot.data;
-          if (bytes == null) {
-            return const SizedBox(
-              width: 220,
-              height: 120,
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          return Semantics(
-            button: true,
-            label: 'Open image ${widget.attachment.filename}',
-            child: InkWell(
-              onTap: () => _open(bytes),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: 260,
-                    maxHeight: 260,
-                  ),
-                  child: Image.memory(
-                    bytes,
-                    semanticLabel: widget.attachment.filename,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      );
 }
 
 class LiveNotificationsPage extends StatefulWidget {
@@ -610,8 +226,7 @@ class _LiveNotificationsPageState extends State<LiveNotificationsPage> {
                     final accepted = await confirmAction(
                       context,
                       title: 'Clear all notifications?',
-                      message:
-                          'This permanently removes your notifications from MongoDB.',
+                      message: 'This permanently removes your notifications.',
                       action: 'Clear All',
                       destructive: true,
                     );
@@ -623,6 +238,8 @@ class _LiveNotificationsPageState extends State<LiveNotificationsPage> {
           ),
         ],
       ),
+      bottomNavigationBar:
+          const UserRecordPagination(collection: 'notifications'),
       body: Column(
         children: [
           SizedBox(
@@ -659,7 +276,9 @@ class _LiveNotificationsPageState extends State<LiveNotificationsPage> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: _load,
-              child: controller.loading && controller.notifications.isEmpty
+              child: controller.userRecordPages['notifications']?.loading ==
+                          true &&
+                      controller.notifications.isEmpty
                   ? const Center(child: CircularProgressIndicator())
                   : controller.notifications.isEmpty
                       ? ListView(
@@ -785,8 +404,12 @@ class LiveProfilePage extends StatelessWidget {
                     const SizedBox(height: 8),
                     StatusBadge('$role account'),
                     const SizedBox(height: 8),
-                    Text(
-                        'Trust score ${profile?.trustScore.toStringAsFixed(0) ?? '—'}'),
+                    if (profile != null)
+                      TrustSummaryButton(
+                          userId: profile.id,
+                          role: role.toLowerCase(),
+                          summary:
+                              profile.trustProfile.forRole(role.toLowerCase())),
                   ],
                 ),
               ),
@@ -859,6 +482,14 @@ class LiveProfilePage extends StatelessWidget {
                 ),
               ),
             ),
+            ListTile(
+                leading: const Icon(Icons.rate_review_outlined),
+                title: const Text('My reviews'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const LiveReviewsListPage()))),
             ListTile(
               leading: const Icon(Icons.settings_outlined),
               title: const Text('Application settings'),

@@ -11,6 +11,7 @@ const sessionMetadata = (req) => ({
 });
 
 export const userController = {
+  trust: asyncHandler(async (req, res) => ok(res, await userService.getTrust(req.user, req.params.id))),
   clearBrowsingHistory: asyncHandler(async (req, res) => ok(res, await userService.clearBrowsingHistory(req.user))),
   localLogin: asyncHandler(async (req, res) =>
     ok(

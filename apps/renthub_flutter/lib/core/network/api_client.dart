@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -12,6 +13,23 @@ class ApiException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// A list remains compatible with existing callers while keeping server totals.
+class ApiItems extends ListBase<dynamic> {
+  ApiItems(List<dynamic> items, Map<String, dynamic> metadata)
+      : _items = items,
+        meta = Map.unmodifiable(metadata);
+  final List<dynamic> _items;
+  final Map<String, dynamic> meta;
+  @override
+  int get length => _items.length;
+  @override
+  set length(int value) => _items.length = value;
+  @override
+  dynamic operator [](int index) => _items[index];
+  @override
+  void operator []=(int index, dynamic value) => _items[index] = value;
 }
 
 class ApiClient {
@@ -130,7 +148,11 @@ class ApiClient {
         details: errorDetails,
       );
     }
-    return includeMeta ? decoded : decoded?['data'];
+    if (includeMeta) return decoded;
+    final data = decoded?['data'];
+    return data is List && decoded?['meta'] is Map
+        ? ApiItems(data, Map<String, dynamic>.from(decoded['meta'] as Map))
+        : data;
   }
 
   Future<Map<String, dynamic>> uploadFile(

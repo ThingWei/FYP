@@ -1,3 +1,7 @@
+import 'live_reviews_list.dart';
+import 'live_search_field.dart';
+import 'user_record_pagination.dart';
+import 'live_trust_page.dart';
 import 'live_location_picker.dart';
 import 'live_location_field.dart';
 import 'live_booking_locations.dart';
@@ -167,6 +171,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
   int searchGeneration = 0;
   String? resultQuery;
   String? _marketplaceAccount;
+  int browseLimit = 20;
   late ListingViewMode viewMode =
       widget.featuredOnly ? ListingViewMode.carousel : ListingViewMode.grid;
 
@@ -191,7 +196,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
     super.dispose();
   }
 
-  Future<void> _applyFilters() async {
+  Future<void> _applyFilters({int page = 1}) async {
     if (!InputValidation.validate(context)) return;
     final nextCategory = filters.category;
     final request = ++searchGeneration;
@@ -246,7 +251,8 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
           : await controller.discoverListings({
               ...parameters,
               'sort': filters.sort,
-              'limit': '100',
+              'page': '$page',
+              'limit': '$browseLimit',
             });
       if (mounted && request == searchGeneration) {
         setState(() {
@@ -283,8 +289,15 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
       await context.read<LiveRentHubController>().refreshRecommendationFeed();
     }
     if (!mounted) return;
-    if (filters.activeCount > 0 || queryController.text.isNotEmpty) {
-      await _applyFilters();
+    if (!widget.featuredOnly ||
+        filters.activeCount > 0 ||
+        queryController.text.isNotEmpty) {
+      await _applyFilters(
+          page: context
+                  .read<LiveRentHubController>()
+                  .userRecordPages['explore']
+                  ?.page ??
+              1);
     } else {
       setState(() => results = null);
     }
@@ -323,6 +336,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                 ? 'Remove from comparison'
                 : 'Add to comparison',
             onPressed: () => toggleLiveComparison(context, listing),
+            color: controller.isCompared(listing.id) ? AppColors.primary : null,
             icon: Icon(controller.isCompared(listing.id)
                 ? Icons.compare_arrows
                 : Icons.compare_arrows_outlined)),
@@ -371,6 +385,56 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
           ),
         ],
       ),
+      bottomNavigationBar: showingAiRecommendations
+          ? null
+          : SafeArea(
+              top: false,
+              child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    Text(
+                        'Page ${controller.userRecordPages['explore']?.page ?? 1}${controller.userRecordPages['explore']?.total == null ? '' : ' ? ${controller.userRecordPages['explore']!.total} results'}'),
+                    IconButton(
+                        tooltip: 'Previous results',
+                        onPressed: searching ||
+                                (controller.userRecordPages['explore']?.page ??
+                                        1) <=
+                                    1
+                            ? null
+                            : () => _applyFilters(
+                                page: controller
+                                        .userRecordPages['explore']!.page -
+                                    1),
+                        icon: const Icon(Icons.chevron_left)),
+                    IconButton(
+                        tooltip: 'Next results',
+                        onPressed: searching ||
+                                !(controller
+                                        .userRecordPages['explore']?.hasMore ??
+                                    controller.listings.length >= 20)
+                            ? null
+                            : () => _applyFilters(
+                                page: (controller
+                                            .userRecordPages['explore']?.page ??
+                                        1) +
+                                    1),
+                        icon: const Icon(Icons.chevron_right)),
+                    DropdownButton<int>(
+                        value: browseLimit,
+                        items: [10, 20, 50]
+                            .map((n) => DropdownMenuItem(
+                                value: n, child: Text('$n / page')))
+                            .toList(),
+                        onChanged: searching
+                            ? null
+                            : (n) {
+                                if (n != null) {
+                                  setState(() => browseLimit = n);
+                                  _applyFilters();
+                                }
+                              }),
+                  ])),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
@@ -383,38 +447,11 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               ),
               const SizedBox(height: 12),
             ],
-            TextFormField(
-              controller: queryController,
-              textInputAction: TextInputAction.search,
-              onFieldSubmitted: (_) => _applyFilters(),
-              onChanged: (_) => setState(() {}),
-              decoration: (InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Search rentals and services',
-                suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (queryController.text.isNotEmpty)
-                    IconButton(
-                      tooltip: 'Clear search',
-                      onPressed: () {
-                        queryController.clear();
-                        _applyFilters();
-                      },
-                      icon: const Icon(Icons.close),
-                    ),
-                  IconButton(
-                    tooltip: 'Search',
-                    onPressed: searching ? null : _applyFilters,
-                    icon: const Icon(Icons.arrow_forward),
-                  )
-                ]),
-              )).copyWith(counterText: '', errorMaxLines: 3),
-              validator: InputRules.searchRentalsAndServices.validate,
-              inputFormatters: InputValidation.formatters(
-                  InputRules.searchRentalsAndServices, queryController),
-              autovalidateMode: AutovalidateMode.onUserInteraction,
-              maxLength: InputRules.searchRentalsAndServices.maxLength,
-              maxLengthEnforcement: InputValidation.lengthEnforcement,
-            ),
+            LiveListingSearchField(
+                controller: queryController,
+                onSearch: _applyFilters,
+                category: filters.category,
+                busy: searching),
             const SizedBox(height: 12),
             Row(children: [
               IconButton.outlined(
@@ -427,6 +464,9 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               const SizedBox(width: 8),
               IconButton(
                   tooltip: 'Compare (${controller.comparisonListings.length})',
+                  color: controller.comparisonListings.isNotEmpty
+                      ? AppColors.primary
+                      : null,
                   onPressed: () => Navigator.push<void>(
                       context,
                       MaterialPageRoute(
@@ -803,12 +843,9 @@ class LiveSavedListingsPage extends StatelessWidget {
               title: 'Your wishlist is empty',
               message: 'Save listings from Home or Explore to find them here.',
             )
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: controller.savedListings.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final listing = controller.savedListings[index];
+          : LocalPagedListView<Listing>(
+              items: controller.savedListings,
+              itemBuilder: (context, listing) {
                 return Card(
                   child: ListTile(
                     leading: Icon(
@@ -1454,10 +1491,21 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                        '${formatMoney(listing.displayPrice)} / ${listing.priceUnit}',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
                     Text(listing.title,
                         style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 4),
                     Text('${listing.ownerName} · ${listing.location}'),
+                    TrustSummaryButton(
+                        userId: listing.ownerId,
+                        role: 'owner',
+                        prefix: 'Owner trust',
+                        summary: listing.ownerTrustProfile),
                     if (listing.locationPrecision == 'approximate') ...[
                       const Text(
                           'Approximate area · exact pickup point shared after approval'),
@@ -1663,10 +1711,17 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${average.toStringAsFixed(1)} / 5 from ${reviews.length} review${reviews.length == 1 ? '' : 's'}',
+                          '${average.toStringAsFixed(1)} / 5 ? ${reviews.length} recent reviews',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 8),
+                        TextButton(
+                            onPressed: () => Navigator.push<void>(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => LiveReviewsListPage(
+                                        listingId: listing.id))),
+                            child: const Text('Read all reviews')),
                         for (final review in reviews.take(2)) ...[
                           Row(
                             children: [
@@ -2018,6 +2073,9 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
           ),
         ],
       ),
+      bottomNavigationBar: widget.focusBookingId == null
+          ? const UserRecordPagination(collection: 'renter-bookings')
+          : null,
       body: LiveBookingWorkspace(
         state: controller.renterWorkspace,
         hasRecords: visibleBookings.isNotEmpty,

@@ -368,6 +368,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Unavailable dates'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('The selected range overlaps unavailable dates.'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
       find.text('The selected range overlaps unavailable dates.'),
       findsOneWidget,

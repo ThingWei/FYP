@@ -57,7 +57,10 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'evidence-led-product-selection-v1' -and `
             $response.data.capabilities -contains 'mandatory-identity-access-v1' -and `
             $response.data.capabilities -contains 'listing-maps-push-status-v1' -and `
-            $response.data.capabilities -contains 'precise-locations-v1'
+            $response.data.capabilities -contains 'precise-locations-v1' -and `
+            $response.data.capabilities -contains 'admin-record-details-v1' -and `
+            $response.data.capabilities -contains 'trust-profile-v1' -and `
+            $response.data.capabilities -contains 'user-records-messaging-v2'
     }
     catch {
         return $false

@@ -19,24 +19,46 @@ export const bookingThreadValidation = [
 ];
 
 export const threadMessagesValidation = [threadId, ...paginationValidation];
+threadMessagesValidation.push(query('before').optional().matches(/^MSG-[A-Z0-9-]+$/i));
+threadMessagesValidation.push(query().custom(value=>{if(value.before && Number(value.page??1)!==1)throw new Error('Use a message cursor with page one');return true;}));
+export const changeMessageValidation = [
+  param('messageId').matches(/^MSG-[A-Z0-9-]+$/i),
+  body('action').isIn(['edit', 'recall', 'delete']),
+  body('text').optional().custom(textInput).bail().trim().isLength({ min: 1, max: 2000 }),
+  body('expectedRevision').optional().custom(wholeInput).bail().isInt({ min: 0 }).toInt(),
+  body().custom(value => {
+    if (Object.keys(value).some(key => !['action', 'text', 'expectedRevision'].includes(key))) throw new Error('Unknown message fields');
+    if (value.action === 'edit' && !value.text?.trim()) throw new Error('Enter a message');
+    if (value.action !== 'delete' && value.expectedRevision === undefined) throw new Error('Refresh the message before changing it');
+    return true;
+  }),
+];
 
 export const sendMessageValidation = [
   threadId,
   body().custom((value) => {
-    const allowed = new Set(['text', 'attachmentRef']);
+    const allowed = new Set(['text', 'attachmentRef', 'location', 'clientMessageId']);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     return true;
   }),
   body('text').optional().custom(textInput).bail().trim().isLength({ max: 2000 }),
+  body('clientMessageId').optional().custom(textInput).bail().matches(/^[a-zA-Z0-9:._-]{8,120}$/),
   body('attachmentRef')
     .optional().custom(textInput).bail().trim()
     .matches(/^upload:\/\/UPL-[A-Z0-9]+$/i)
     .withMessage('Invalid message image reference'),
   body().custom((value) => {
-    if (!value.text?.trim() && !value.attachmentRef) {
+    if (!value.text?.trim() && !value.attachmentRef && !value.location) {
       throw new Error('A message requires text or an image');
     }
+    return true;
+  }),
+  body('location').optional().custom(value => {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !['latitude','longitude','label'].includes(k)) ||
+      typeof value.latitude !== 'number' || !Number.isFinite(value.latitude) || Math.abs(value.latitude) > 90 ||
+      typeof value.longitude !== 'number' || !Number.isFinite(value.longitude) || Math.abs(value.longitude) > 180 ||
+      typeof value.label !== 'string' || value.label.trim().length < 2 || value.label.length > 250 || /[\x00-\x1f]/.test(value.label)) throw new Error('Choose a valid location');
     return true;
   }),
 ];

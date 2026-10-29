@@ -15,6 +15,9 @@ import '../../shared/models/domain_models.dart';
 import '../../core/recommendations/recommendation_models.dart';
 import '../../core/location/confirmed_location.dart';
 import 'live_catalog_page.dart';
+import 'admin_record_models.dart';
+import '../../core/trust/trust_profile.dart';
+import 'user_record_pagination.dart';
 
 class BookingWorkspaceState {
   List<Booking> bookings = [];
@@ -66,6 +69,30 @@ class LiveRentHubController extends ChangeNotifier {
       renterWorkspace.clear();
       ownerWorkspace.clear();
       adminWorkspace.clear();
+      adminRecordPages.clear();
+      userRecordPages.clear();
+      conversations = [];
+      notifications = [];
+      rewardEntries = [];
+      ownerActivitySummary = {};
+      ownerOrderRecords = [];
+      listingReviewPages.clear();
+      reviews = [];
+      receivedReviews = [];
+      disputes = [];
+      claims = [];
+      savedListings = [];
+      comparisonListings = [];
+      ownerListings = [];
+      loyalty = null;
+      adminSummary = {};
+      technologyHealth = {};
+      adminHealthError = null;
+      adminHealthLoading = false;
+      _adminHealthRequest++;
+      platformSettings = {};
+      loyaltyConfig = {};
+      _pagedAdminMode = false;
       loading = false;
       error = null;
       lastError = null;
@@ -82,6 +109,261 @@ class LiveRentHubController extends ChangeNotifier {
   final renterWorkspace = BookingWorkspaceState();
   final ownerWorkspace = BookingWorkspaceState();
   final adminWorkspace = BookingWorkspaceState();
+  final userRecordPages = <String, UserRecordPage>{};
+  Map<String, dynamic> ownerActivitySummary = {};
+  String notificationCategory = 'all';
+  void rememberUserPage(String key, dynamic data) {
+    if (key == 'owner-bookings' &&
+        data is ApiItems &&
+        data.meta['summary'] is Map) {
+      ownerActivitySummary = Map<String, dynamic>.from(data.meta['summary']);
+    }
+    final state = userRecordPages.putIfAbsent(key, UserRecordPage.new);
+    state.accept(data, requestedPage: state.page, requestedLimit: state.limit);
+  }
+
+  List<T> userPageModels<T>(
+      String key, dynamic data, T Function(Map<String, dynamic>) parse) {
+    final state = userRecordPages[key];
+    if (state != null &&
+        (state.loading ||
+            data is ApiItems && data.meta['page'] != state.page)) {
+      final current = switch (key) {
+        'renter-bookings' => renterWorkspace.bookings,
+        'owner-bookings' => ownerWorkspace.bookings,
+        'renter-rentals' => renterWorkspace.rentals,
+        'owner-rentals' => ownerWorkspace.rentals,
+        'owner-listings' => ownerListings,
+        'conversations' => conversations,
+        'reviews' => reviews,
+        'received-reviews' => receivedReviews,
+        'disputes' => disputes,
+        'claims' => claims,
+        _ => <dynamic>[]
+      };
+      return current.cast<T>();
+    }
+    rememberUserPage(key, data);
+    return _models(data, parse);
+  }
+
+  String userRecordPath(String key, String path) {
+    final state = userRecordPages[key];
+    final query = {
+      if (state != null && state.page != 1) 'page': '${state.page}',
+      if (state != null && state.limit != 20) 'limit': '${state.limit}'
+    };
+    return '$path${query.isEmpty ? '' : '?${Uri(queryParameters: query).query}'}';
+  }
+
+  Future<void> loadUserRecords(String key, {int? page, int? limit}) async {
+    final state = userRecordPages.putIfAbsent(key, UserRecordPage.new);
+    if (state.loading && page == null && limit == null) return;
+    final account = _accountGeneration, request = ++state.generation;
+    final nextPage = page ?? state.page, nextLimit = limit ?? state.limit;
+    final path = switch (key) {
+      'renter-bookings' => '/bookings/mine',
+      'owner-bookings' => '/bookings/owner',
+      'renter-rentals' => '/rentals/mine',
+      'owner-rentals' => '/rentals/owner',
+      'owner-listings' => '/listings/owner/mine',
+      'conversations' => '/messages/threads',
+      'notifications' => '/messages/notifications',
+      'reviews' => '/reviews/mine',
+      'received-reviews' => '/reviews/received',
+      'disputes' => '/disputes/mine',
+      'claims' => '/disputes/claims/mine',
+      'points' => '/rewards/entries',
+      _ => key.startsWith('listing-reviews:')
+          ? '/reviews/listing/${Uri.encodeComponent(key.substring(16))}'
+          : throw ArgumentError('Unknown record collection'),
+    };
+    final query = <String, String>{
+      if (nextPage != 1) 'page': '$nextPage',
+      if (nextLimit != 20) 'limit': '$nextLimit',
+      if (key == 'notifications' && notificationCategory != 'all')
+        'category': notificationCategory
+    };
+    state.loading = true;
+    state.error = null;
+    notifyListeners();
+    try {
+      final data = await api.request('GET',
+          '$path${query.isEmpty ? '' : '?${Uri(queryParameters: query).query}'}');
+      if (!_sameAccount(account) || request != state.generation) return;
+      if (data is! List) throw const FormatException('Invalid record page');
+      List<Rental>? associated;
+      if (key.endsWith('-bookings')) {
+        final ids = data
+            .map((r) => r is Map ? r['publicId'] ?? r['id'] : null)
+            .whereType<String>()
+            .toList();
+        if (ids.isEmpty) {
+          associated = [];
+        } else if (ids.every((id) =>
+            RegExp(r'^RH-(?:BKG|SVC)-\d{4}-[A-Z0-9]+$', caseSensitive: false)
+                .hasMatch(id))) {
+          final result = await api.request(
+              'GET',
+              '/rentals/${key.startsWith('owner') ? 'owner' : 'mine'}?${Uri(queryParameters: {
+                    'bookingIds': ids.join(','),
+                    'limit': '100'
+                  }).query}');
+          if (!_sameAccount(account) || request != state.generation) return;
+          associated = _models(result, Rental.fromJson);
+        }
+      }
+      final total = data is ApiItems ? data.meta['total'] : null;
+      if (data.isEmpty && nextPage > 1 && total is num) {
+        state.loading = false;
+        return loadUserRecords(key,
+            page: ((total.toInt() - 1) ~/ nextLimit + 1).clamp(1, nextPage - 1),
+            limit: nextLimit);
+      }
+      switch (key) {
+        case 'renter-bookings':
+          renterWorkspace.bookings = _models(data, Booking.fromJson);
+          if (associated != null) {
+            renterWorkspace.rentals =
+                mergeRentalCache(renterWorkspace.rentals, associated);
+          }
+        case 'owner-bookings':
+          ownerWorkspace.bookings = _models(data, Booking.fromJson);
+          if (associated != null) {
+            ownerWorkspace.rentals =
+                mergeRentalCache(ownerWorkspace.rentals, associated);
+          }
+        case 'renter-rentals':
+          renterWorkspace.rentals = _models(data, Rental.fromJson);
+        case 'owner-rentals':
+          ownerOrderRecords = _models(data, Rental.fromJson);
+          ownerWorkspace.rentals =
+              mergeRentalCache(ownerWorkspace.rentals, ownerOrderRecords);
+        case 'owner-listings':
+          ownerListings = _models(data, Listing.fromJson);
+        case 'conversations':
+          conversations = _models(data, Conversation.fromJson);
+        case 'notifications':
+          notifications = _models(data, RentHubNotification.fromJson);
+        case 'reviews':
+          reviews = _models(data, Review.fromJson);
+        case 'received-reviews':
+          receivedReviews = _models(data, Review.fromJson);
+        case 'disputes':
+          disputes = _models(data, Dispute.fromJson);
+        case 'claims':
+          claims = _models(data, InsuranceClaim.fromJson);
+        case 'points':
+          rewardEntries = _models(data, RewardLedgerEntry.fromJson);
+        default:
+          if (key.startsWith('listing-reviews:')) {
+            listingReviewPages[key.substring(16)] =
+                _models(data, Review.fromJson);
+          }
+      }
+      state.accept(data, requestedPage: nextPage, requestedLimit: nextLimit);
+      if (key == 'owner-bookings' &&
+          data is ApiItems &&
+          data.meta['summary'] is Map) {
+        ownerActivitySummary = Map<String, dynamic>.from(data.meta['summary']);
+      }
+    } catch (e) {
+      if (_sameAccount(account) && request == state.generation) state.error = e;
+    } finally {
+      if (_sameAccount(account) && request == state.generation) {
+        state.loading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  final Map<String, AdminRecordPageState> adminRecordPages = {};
+  Map<String, dynamic> adminSummary = {};
+  bool _pagedAdminMode = false;
+  int adminRecordRevision = 0;
+  bool adminHealthLoading = false;
+  Object? adminHealthError;
+  int _ownTrustRequest = 0;
+  Future<TrustProfile> loadTrustProfile(String userId) async {
+    final account = _accountGeneration;
+    final accountId = profile?.id;
+    final own = profile?.id == userId;
+    final request = own ? ++_ownTrustRequest : 0;
+    final data = await api.request(
+        'GET',
+        own
+            ? '/users/me/trust'
+            : '/users/${Uri.encodeComponent(userId)}/trust');
+    final result = TrustProfile.fromJson(data);
+    if (!result.supported) {
+      throw ApiException(502, 'Trust summary is unavailable',
+          code: 'INVALID_RESPONSE');
+    }
+    if (_sameAccount(account) &&
+        own &&
+        profile?.id == accountId &&
+        request == _ownTrustRequest &&
+        profile != null) {
+      profile = profile!.withTrustProfile(result);
+      notifyListeners();
+    }
+    return result;
+  }
+
+  Future<void> _refreshTrustIfSupported() async {
+    if (profile?.trustProfile.supported != true ||
+        profile!.roles.contains(UserRole.admin)) {
+      return;
+    }
+    try {
+      await loadTrustProfile(profile!.id);
+    } catch (_) {/* The original operation already succeeded. */}
+  }
+
+  int _adminHealthRequest = 0;
+
+  Future<void> loadAdminOverview() {
+    _pagedAdminMode = true;
+    return _loadWorkspace(UserRole.admin, (current) async {
+      final result = await api.request('GET', '/admin/dashboard-summary');
+      if (current()) adminSummary = Map<String, dynamic>.from(result as Map);
+    });
+  }
+
+  Future<void> refreshAdminHealth() async {
+    final account = _accountGeneration, request = ++_adminHealthRequest;
+    adminHealthLoading = true;
+    adminHealthError = null;
+    notifyListeners();
+    try {
+      final result = await api.request('GET', '/admin/technology-health');
+      if (_sameAccount(account) && request == _adminHealthRequest) {
+        technologyHealth = Map<String, dynamic>.from(result as Map);
+      }
+    } catch (error) {
+      if (_sameAccount(account) && request == _adminHealthRequest) {
+        adminHealthError = error;
+      }
+    } finally {
+      if (_sameAccount(account) && request == _adminHealthRequest) {
+        adminHealthLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> loadAdminSettings() async {
+    final account = _accountGeneration;
+    final result = await Future.wait([
+      api.request('GET', '/admin/settings'),
+      api.request('GET', '/rewards/admin/config')
+    ]);
+    if (!_sameAccount(account)) return;
+    platformSettings = Map<String, dynamic>.from(result[0] as Map);
+    loyaltyConfig = Map<String, dynamic>.from(result[1] as Map);
+    notifyListeners();
+  }
+
   User? _authenticatedUser;
   UserRole? _sessionRole;
 
@@ -381,6 +663,39 @@ class LiveRentHubController extends ChangeNotifier {
   List<Listing> ownerListings = [];
   List<Listing> adminListings = [];
   List<Conversation> conversations = [];
+  List<RewardLedgerEntry> rewardEntries = [];
+  List<Rental> ownerOrderRecords = [];
+  final listingReviewPages = <String, List<Review>>{};
+  List<Rental> mergeRentalCache(List<Rental> previous, List<Rental> incoming) =>
+      {for (final r in previous) r.id: r, for (final r in incoming) r.id: r}
+          .values
+          .toList();
+  Future<void> joinCurrentBookingRentals(BookingWorkspaceState state,
+      {required bool owner, required bool Function() current}) async {
+    final page =
+        userRecordPages[owner ? 'owner-bookings' : 'renter-bookings']?.page ??
+            1;
+    if (page <= 1) return;
+    final ids = state.bookings
+        .map((b) => b.id)
+        .where((id) =>
+            RegExp(r'^RH-(?:BKG|SVC)-\d{4}-[A-Z0-9]+$', caseSensitive: false)
+                .hasMatch(id))
+        .take(50)
+        .toList();
+    if (ids.isEmpty) return;
+    final data = await api.request(
+        'GET',
+        '/rentals/${owner ? 'owner' : 'mine'}?${Uri(queryParameters: {
+              'bookingIds': ids.join(','),
+              'limit': '100'
+            }).query}');
+    if (current()) {
+      state.rentals =
+          mergeRentalCache(state.rentals, _models(data, Rental.fromJson));
+    }
+  }
+
   List<RentHubNotification> notifications = [];
   List<Map<String, dynamic>> notificationDevices = [];
   List<Map<String, dynamic>> loginSessions = [];
@@ -610,7 +925,9 @@ class LiveRentHubController extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
-      return await operation();
+      final result = await operation();
+      if (_sameAccount(account) && _pagedAdminMode) adminRecordRevision++;
+      return result;
     } catch (exception) {
       if (_sameAccount(account)) {
         lastError = exception;
@@ -643,12 +960,14 @@ class LiveRentHubController extends ChangeNotifier {
         final results = await Future.wait([
           api.request('GET', '/users/me'),
           api.request('GET', '/listings'),
-          api.request('GET', '/bookings/mine'),
-          api.request('GET', '/rentals/mine'),
-          api.request('GET', '/messages/threads'),
-          api.request('GET', '/reviews/mine'),
-          api.request('GET', '/disputes/mine'),
-          api.request('GET', '/disputes/claims/mine'),
+          api.request(
+              'GET', userRecordPath('renter-bookings', '/bookings/mine')),
+          api.request('GET', userRecordPath('renter-rentals', '/rentals/mine')),
+          api.request(
+              'GET', userRecordPath('conversations', '/messages/threads')),
+          api.request('GET', userRecordPath('reviews', '/reviews/mine')),
+          api.request('GET', userRecordPath('disputes', '/disputes/mine')),
+          api.request('GET', userRecordPath('claims', '/disputes/claims/mine')),
           api.request('GET', '/rewards/summary'),
           api.request('GET', '/users/me/saved-listings'),
           api.request('GET', '/users/me/comparison'),
@@ -659,88 +978,111 @@ class LiveRentHubController extends ChangeNotifier {
         await _connectRealtime(profile!.id);
         if (!current()) return;
         listings = _models(results[1], Listing.fromJson);
-        renterWorkspace.bookings = _models(results[2], Booking.fromJson);
-        renterWorkspace.rentals = _models(results[3], Rental.fromJson);
-        conversations = _models(results[4], Conversation.fromJson);
-        reviews = _models(results[5], Review.fromJson);
-        disputes = _models(results[6], Dispute.fromJson);
-        claims = _models(results[7], InsuranceClaim.fromJson);
+        renterWorkspace.bookings =
+            userPageModels('renter-bookings', results[2], Booking.fromJson);
+        renterWorkspace.rentals =
+            userPageModels('renter-rentals', results[3], Rental.fromJson);
+        conversations =
+            userPageModels('conversations', results[4], Conversation.fromJson);
+        reviews = userPageModels('reviews', results[5], Review.fromJson);
+        disputes = userPageModels('disputes', results[6], Dispute.fromJson);
+        claims = userPageModels('claims', results[7], InsuranceClaim.fromJson);
         loyalty = Reward.fromJson(results[8] as Map<String, dynamic>);
         savedListings = _models(results[9], Listing.fromJson);
         comparisonListings = _models(results[10], Listing.fromJson);
+        await joinCurrentBookingRentals(renterWorkspace,
+            owner: false, current: current);
       });
 
   Future<void> loadOwner() => _loadWorkspace(UserRole.owner, (current) async {
         final results = await Future.wait([
           api.request('GET', '/users/me'),
-          api.request('GET', '/listings/owner/mine'),
-          api.request('GET', '/bookings/owner'),
-          api.request('GET', '/rentals/owner'),
-          api.request('GET', '/messages/threads'),
-          api.request('GET', '/reviews/received'),
-          api.request('GET', '/reviews/mine'),
-          api.request('GET', '/disputes/mine'),
-          api.request('GET', '/disputes/claims/mine'),
+          api.request(
+              'GET', userRecordPath('owner-listings', '/listings/owner/mine')),
+          api.request(
+              'GET', userRecordPath('owner-bookings', '/bookings/owner')),
+          api.request('GET', userRecordPath('owner-rentals', '/rentals/owner')),
+          api.request(
+              'GET', userRecordPath('conversations', '/messages/threads')),
+          api.request(
+              'GET', userRecordPath('received-reviews', '/reviews/received')),
+          api.request('GET', userRecordPath('reviews', '/reviews/mine')),
+          api.request('GET', userRecordPath('disputes', '/disputes/mine')),
+          api.request('GET', userRecordPath('claims', '/disputes/claims/mine')),
           api.request('GET', '/rewards/summary'),
         ]);
         if (!current()) return;
         _acceptWorkspaceProfile(results[0]);
         await _connectRealtime(profile!.id);
         if (!current()) return;
-        ownerListings = _models(results[1], Listing.fromJson);
-        ownerWorkspace.bookings = _models(results[2], Booking.fromJson);
-        ownerWorkspace.rentals = _models(results[3], Rental.fromJson);
-        conversations = _models(results[4], Conversation.fromJson);
-        receivedReviews = _models(results[5], Review.fromJson);
-        reviews = _models(results[6], Review.fromJson);
-        disputes = _models(results[7], Dispute.fromJson);
-        claims = _models(results[8], InsuranceClaim.fromJson);
+        ownerListings =
+            userPageModels('owner-listings', results[1], Listing.fromJson);
+        ownerWorkspace.bookings =
+            userPageModels('owner-bookings', results[2], Booking.fromJson);
+        ownerWorkspace.rentals =
+            userPageModels('owner-rentals', results[3], Rental.fromJson);
+        if (userRecordPages['owner-rentals']?.loading != true) {
+          ownerOrderRecords = List.of(ownerWorkspace.rentals);
+        }
+        conversations =
+            userPageModels('conversations', results[4], Conversation.fromJson);
+        receivedReviews =
+            userPageModels('received-reviews', results[5], Review.fromJson);
+        reviews = userPageModels('reviews', results[6], Review.fromJson);
+        disputes = userPageModels('disputes', results[7], Dispute.fromJson);
+        claims = userPageModels('claims', results[8], InsuranceClaim.fromJson);
         loyalty = Reward.fromJson(results[9] as Map<String, dynamic>);
+        await joinCurrentBookingRentals(ownerWorkspace,
+            owner: true, current: current);
       });
 
-  Future<void> loadAdmin() => _loadWorkspace(UserRole.admin, (current) async {
-        final results = await Future.wait([
-          api.request('GET', '/users/me'),
-          api.request('GET', '/users?limit=100'),
-          api.request('GET', '/listings/admin'),
-          api.request('GET', '/bookings/admin'),
-          api.request('GET', '/rentals/admin'),
-          api.request('GET', '/payments'),
-          api.request('GET', '/messages/reports'),
-          api.request('GET', '/reviews/admin'),
-          api.request('GET', '/disputes/admin'),
-          api.request('GET', '/disputes/claims/admin'),
-          api.request('GET', '/admin'),
-          api.request('GET', '/rewards/admin/config'),
-          api.request('GET', '/rewards/admin/ledger'),
-          api.request('GET', '/rewards/admin/referrals'),
-          api.request('GET', '/admin/reports'),
-          api.request('GET', '/admin/settings'),
-          api.request('GET', '/admin/technology-health'),
-          api.request('GET', '/admin/reporting/schedules'),
-          api.request('GET', '/admin/reporting/reports'),
-        ]);
-        if (!current()) return;
-        _acceptWorkspaceProfile(results[0]);
-        users = (results[1] as List).cast<Map<String, dynamic>>();
-        adminListings = _models(results[2], Listing.fromJson);
-        adminWorkspace.bookings = _models(results[3], Booking.fromJson);
-        adminWorkspace.rentals = _models(results[4], Rental.fromJson);
-        transactions = _models(results[5], Transaction.fromJson);
-        messageReports = (results[6] as List).cast<Map<String, dynamic>>();
-        adminReviews = _models(results[7], Review.fromJson);
-        adminDisputes = _models(results[8], Dispute.fromJson);
-        adminClaims = _models(results[9], InsuranceClaim.fromJson);
-        auditLogs = (results[10] as List).cast<Map<String, dynamic>>();
-        loyaltyConfig = results[11] as Map<String, dynamic>;
-        adminRewardLedger = (results[12] as List).cast<Map<String, dynamic>>();
-        adminReferrals = (results[13] as List).cast<Map<String, dynamic>>();
-        moderationReports = (results[14] as List).cast<Map<String, dynamic>>();
-        platformSettings = results[15] as Map<String, dynamic>;
-        technologyHealth = results[16] as Map<String, dynamic>;
-        reportSchedules = (results[17] as List).cast<Map<String, dynamic>>();
-        generatedReports = (results[18] as List).cast<Map<String, dynamic>>();
-      });
+  Future<void> loadAdmin() => _pagedAdminMode
+      ? loadAdminOverview()
+      : _loadWorkspace(UserRole.admin, (current) async {
+          final results = await Future.wait([
+            api.request('GET', '/users/me'),
+            api.request('GET', '/users?limit=100'),
+            api.request('GET', '/listings/admin'),
+            api.request('GET', '/bookings/admin'),
+            api.request('GET', '/rentals/admin'),
+            api.request('GET', '/payments'),
+            api.request('GET', '/messages/reports'),
+            api.request('GET', '/reviews/admin'),
+            api.request('GET', '/disputes/admin'),
+            api.request('GET', '/disputes/claims/admin'),
+            api.request('GET', '/admin'),
+            api.request('GET', '/rewards/admin/config'),
+            api.request('GET', '/rewards/admin/ledger'),
+            api.request('GET', '/rewards/admin/referrals'),
+            api.request('GET', '/admin/reports'),
+            api.request('GET', '/admin/settings'),
+            api.request('GET', '/admin/technology-health'),
+            api.request('GET', '/admin/reporting/schedules'),
+            api.request('GET', '/admin/reporting/reports'),
+          ]);
+          if (!current()) return;
+          _acceptWorkspaceProfile(results[0]);
+          users = (results[1] as List).cast<Map<String, dynamic>>();
+          adminListings = _models(results[2], Listing.fromJson);
+          adminWorkspace.bookings = _models(results[3], Booking.fromJson);
+          adminWorkspace.rentals = _models(results[4], Rental.fromJson);
+          transactions = _models(results[5], Transaction.fromJson);
+          messageReports = (results[6] as List).cast<Map<String, dynamic>>();
+          adminReviews = _models(results[7], Review.fromJson);
+          adminDisputes = _models(results[8], Dispute.fromJson);
+          adminClaims = _models(results[9], InsuranceClaim.fromJson);
+          auditLogs = (results[10] as List).cast<Map<String, dynamic>>();
+          loyaltyConfig = results[11] as Map<String, dynamic>;
+          adminRewardLedger =
+              (results[12] as List).cast<Map<String, dynamic>>();
+          adminReferrals = (results[13] as List).cast<Map<String, dynamic>>();
+          moderationReports =
+              (results[14] as List).cast<Map<String, dynamic>>();
+          platformSettings = results[15] as Map<String, dynamic>;
+          technologyHealth = results[16] as Map<String, dynamic>;
+          reportSchedules = (results[17] as List).cast<Map<String, dynamic>>();
+          generatedReports = (results[18] as List).cast<Map<String, dynamic>>();
+        });
 
   Future<void> runLifecycleAutomation() => _perform(() async {
         await api.request('POST', '/admin/lifecycle/run');
@@ -824,17 +1166,23 @@ class LiveRentHubController extends ChangeNotifier {
         return saved != null;
       });
 
+  int _discoveryRequest = 0;
   Future<List<Listing>> discoverListings(
     Map<String, String> parameters,
   ) async {
+    final account = _accountGeneration, request = ++_discoveryRequest;
     final query = Uri(queryParameters: {
       for (final entry in parameters.entries)
         if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
     }).query;
-    return _models(
-      await api.request('GET', '/listings${query.isEmpty ? '' : '?$query'}'),
-      Listing.fromJson,
-    );
+    final data =
+        await api.request('GET', '/listings${query.isEmpty ? '' : '?$query'}');
+    if (_sameAccount(account) && request == _discoveryRequest) {
+      userRecordPages.putIfAbsent('explore', UserRecordPage.new).accept(data,
+          requestedPage: int.tryParse(parameters['page'] ?? '1') ?? 1,
+          requestedLimit: int.tryParse(parameters['limit'] ?? '20') ?? 20);
+    }
+    return _models(data, Listing.fromJson);
   }
 
   Future<List<Listing>> recommendListings(
@@ -1119,13 +1467,15 @@ class LiveRentHubController extends ChangeNotifier {
           '/rewards/admin/config',
           body: input,
         ) as Map<String, dynamic>;
-        adminRewardLedger = (await api.request(
-          'GET',
-          '/rewards/admin/ledger',
-        ) as List)
-            .cast<Map<String, dynamic>>();
-        auditLogs = (await api.request('GET', '/admin') as List)
-            .cast<Map<String, dynamic>>();
+        if (!_pagedAdminMode) {
+          adminRewardLedger = (await api.request(
+            'GET',
+            '/rewards/admin/ledger',
+          ) as List)
+              .cast<Map<String, dynamic>>();
+          auditLogs = (await api.request('GET', '/admin') as List)
+              .cast<Map<String, dynamic>>();
+        }
       });
 
   Dispute? disputeForRental(String rentalId) {
@@ -1258,6 +1608,7 @@ class LiveRentHubController extends ChangeNotifier {
     required String notes,
     double? renterAmount,
     double? ownerAmount,
+    String? responsibleParty,
   }) =>
       _perform(() async {
         final updated = Dispute.fromJson(
@@ -1269,10 +1620,13 @@ class LiveRentHubController extends ChangeNotifier {
               'notes': notes.trim(),
               if (renterAmount != null) 'renterAmount': renterAmount,
               if (ownerAmount != null) 'ownerAmount': ownerAmount,
+              if (responsibleParty != null)
+                'responsibleParty': responsibleParty,
             },
           ) as Map<String, dynamic>,
         );
         _replaceDispute(updated, adminDisputes);
+        await _refreshTrustIfSupported();
       });
 
   Future<void> decideClaim({
@@ -1327,10 +1681,13 @@ class LiveRentHubController extends ChangeNotifier {
     _socket!.connect();
   }
 
-  Stream<Message> watchThread(String threadId) {
+  Stream<Message> watchThread(String threadId, {String? peerId}) {
     _socket?.join(threadId);
-    return _realtimeMessages.stream
-        .where((message) => message.threadId == threadId);
+    return _realtimeMessages.stream.where((message) => peerId != null &&
+            peerId.isNotEmpty
+        ? (message.senderId == peerId && message.recipientId == profile?.id ||
+            message.recipientId == peerId && message.senderId == profile?.id)
+        : message.threadId == threadId);
   }
 
   Future<List<Review>> listingReviews(String listingId) async => _models(
@@ -1623,6 +1980,9 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   void _replaceRental(Rental rental) {
+    ownerOrderRecords = [
+      for (final r in ownerOrderRecords) r.id == rental.id ? rental : r
+    ];
     for (final state in [renterWorkspace, ownerWorkspace, adminWorkspace]) {
       final belongs = state == renterWorkspace
           ? profile != null && rental.renterId == profile!.id
@@ -1652,12 +2012,20 @@ class LiveRentHubController extends ChangeNotifier {
     notifyListeners();
     try {
       final results = await Future.wait([
-        api.request('GET', owner ? '/bookings/owner' : '/bookings/mine'),
+        api.request(
+            'GET',
+            userRecordPath(owner ? 'owner-bookings' : 'renter-bookings',
+                owner ? '/bookings/owner' : '/bookings/mine')),
         api.request('GET', owner ? '/rentals/owner' : '/rentals/mine'),
       ]);
       if (!current()) return;
-      state.bookings = _models(results[0], Booking.fromJson);
-      state.rentals = _models(results[1], Rental.fromJson);
+      state.bookings = userPageModels(
+          owner ? 'owner-bookings' : 'renter-bookings',
+          results[0],
+          Booking.fromJson);
+      state.rentals =
+          mergeRentalCache(state.rentals, _models(results[1], Rental.fromJson));
+      await joinCurrentBookingRentals(state, owner: owner, current: current);
       state.loaded = true;
     } catch (exception) {
       if (current()) state.error = exception;
@@ -1716,6 +2084,9 @@ class LiveRentHubController extends ChangeNotifier {
         if (!_sameAccount(account)) return;
         await _reloadBookingState(owner ? ownerWorkspace : renterWorkspace,
             owner: owner);
+        if (['return-confirm', 'service-completion'].contains(action)) {
+          await _refreshTrustIfSupported();
+        }
       });
 
   Future<Rental> extensionRental(String id) async {
@@ -1762,11 +2133,38 @@ class LiveRentHubController extends ChangeNotifier {
         await api.request('GET', '/messages/threads/$threadId/messages'),
         Message.fromJson,
       );
+  Future<(List<Message>, bool, String?)> loadMessagePage(String threadId,
+      {String? before}) async {
+    final data = await api.request('GET',
+        '/messages/threads/$threadId/messages${before == null ? '' : '?before=${Uri.encodeComponent(before)}'}');
+    final rows = _models(data, Message.fromJson);
+    final meta = data is ApiItems ? data.meta : const <String, dynamic>{};
+    return (
+      rows,
+      meta['hasMore'] as bool? ?? rows.length >= 20,
+      meta['nextBefore'] as String? ?? (rows.isEmpty ? null : rows.first.id)
+    );
+  }
+
+  Future<Message?> changeMessage(Message message, String action,
+      {String? text}) async {
+    final data = await api.request('PATCH', '/messages/${message.id}', body: {
+      'action': action,
+      if (action != 'delete') 'expectedRevision': message.revision,
+      if (text != null) 'text': text
+    });
+    unawaited(refreshConversations().catchError((_) {}));
+    return action == 'delete'
+        ? null
+        : Message.fromJson(Map<String, dynamic>.from(data as Map));
+  }
 
   Future<Message> sendMessage(
     String threadId,
     String text, {
     String? attachmentRef,
+    MessageLocation? location,
+    String? clientMessageId,
   }) =>
       _perform(() async {
         final message = Message.fromJson(
@@ -1776,10 +2174,12 @@ class LiveRentHubController extends ChangeNotifier {
             body: {
               if (text.trim().isNotEmpty) 'text': text.trim(),
               if (attachmentRef != null) 'attachmentRef': attachmentRef,
+              if (location != null) 'location': location.toJson(),
+              if (clientMessageId != null) 'clientMessageId': clientMessageId,
             },
           ) as Map<String, dynamic>,
         );
-        await refreshConversations();
+        unawaited(refreshConversations().catchError((_) {}));
         return message;
       });
 
@@ -1822,20 +2222,15 @@ class LiveRentHubController extends ChangeNotifier {
       });
 
   Future<void> refreshConversations() async {
-    conversations = _models(
-      await api.request('GET', '/messages/threads'),
-      Conversation.fromJson,
-    );
-    notifyListeners();
+    await loadUserRecords('conversations');
   }
 
-  Future<void> loadNotifications({String? category}) => _perform(() async {
-        final suffix = category == null ? '' : '?category=$category';
-        notifications = _models(
-          await api.request('GET', '/messages/notifications$suffix'),
-          RentHubNotification.fromJson,
-        );
-      });
+  Future<void> loadNotifications({String? category}) async {
+    final next = category ?? 'all', changed = notificationCategory != next;
+    notificationCategory = next;
+    if (changed) notifications = [];
+    await loadUserRecords('notifications', page: changed ? 1 : null);
+  }
 
   Future<void> loadNotificationDevices() => _perform(() async {
         notificationDevices = (await api.request(
@@ -2213,8 +2608,10 @@ class LiveRentHubController extends ChangeNotifier {
           '/admin/settings',
           body: input,
         ) as Map<String, dynamic>;
-        auditLogs = (await api.request('GET', '/admin') as List)
-            .cast<Map<String, dynamic>>();
+        if (!_pagedAdminMode) {
+          auditLogs = (await api.request('GET', '/admin') as List)
+              .cast<Map<String, dynamic>>();
+        }
       });
 
   Future<void> moderateListing(

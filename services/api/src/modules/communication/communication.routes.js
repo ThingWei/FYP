@@ -16,11 +16,14 @@ import {
   resolveReportValidation,
   sendMessageValidation,
   threadMessagesValidation,
+  changeMessageValidation,
 } from './communication.validation.js';
 
 export const communicationRouter = Router();
 
 communicationRouter.use(authenticate);
+communicationRouter.get('/threads/:threadId/participant', markReadValidation, validate, communicationController.participantProfile);
+communicationRouter.patch('/:messageId', changeMessageValidation, validate, communicationController.changeMessage);
 communicationRouter.get('/notifications/:notificationId/target', notificationIdValidation, validate, communicationController.notificationTarget);
 communicationRouter.get('/push/status', (_req, res) => {
   const status = pushDelivery.status();

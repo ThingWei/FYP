@@ -8,6 +8,7 @@ import { recommendationFeed } from './recommendationFeed.service.js';
 const bodyData = (req) => matchedData(req, { locations: ['body'] });
 
 export const listingController = {
+  searchSuggestions: asyncHandler(async(req,res)=>ok(res,await listingService.searchSuggestions(req.user,req.query))),
   recommendationFeed: asyncHandler(async (req, res) => ok(res, await recommendationFeed.home(req.user, req.query))),
   recordView: asyncHandler(async (req, res) => ok(res, await recommendationFeed.recordView(req.user, req.params.id))),
   complements: asyncHandler(async (req, res) => ok(res, await recommendationFeed.complements(req.user, req.params.id, req.query))),

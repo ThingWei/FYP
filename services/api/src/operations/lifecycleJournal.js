@@ -40,6 +40,8 @@ async function finishEffects(operation, ensureOwned) {
       await ensureOwned();
       const { awardRentalCompletion } = await import('../modules/loyalty/loyalty.service.js');
       await awardRentalCompletion(rental, booking);
+      const { refreshTrustAfterActivity } = await import('../modules/user/trust.service.js');
+      await refreshTrustAfterActivity([rental.ownerId, rental.renterId]);
     }
     await LifecycleOperationModel.updateOne({ _id: operation._id }, { $set: { effectsPending: false } });
   } catch {

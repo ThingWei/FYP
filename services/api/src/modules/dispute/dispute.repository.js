@@ -8,7 +8,7 @@ function paging(page, limit) {
 async function list(Model, filter, page, limit) {
   const range = paging(page, limit);
   return Promise.all([
-    Model.find(filter).sort({ updatedAt: -1 }).skip(range.skip).limit(range.limit),
+    Model.find(filter).sort({ updatedAt: -1, _id: -1 }).skip(range.skip).limit(range.limit),
     Model.countDocuments(filter),
   ]);
 }

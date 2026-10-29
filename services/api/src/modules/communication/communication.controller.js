@@ -4,6 +4,8 @@ import { created, ok } from '../../core/respond.js';
 import { communicationService } from './communication.service.js';
 
 export const communicationController = {
+  participantProfile: asyncHandler(async (req, res) => ok(res, await communicationService.participantProfile(req.params.threadId, req.user))),
+  changeMessage: asyncHandler(async (req, res) => ok(res, await communicationService.changeMessage(req.params.messageId, matchedData(req, { locations: ['body'] }), req.user))),
   notificationTarget: asyncHandler(async (req, res) =>
     ok(res, await communicationService.notificationTarget(req.params.notificationId, req.user))),
   listPushDevices: asyncHandler(async (req, res) =>

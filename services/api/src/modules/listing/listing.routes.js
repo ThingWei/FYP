@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { listingController } from './listing.controller.js';
+import { query } from 'express-validator';
+import { textInput } from '../../core/inputValidation.js';
+import { LISTING_CATEGORIES } from './listing.model.js';
 import {
   availabilityValidation,
   bundleValidation,
@@ -17,6 +20,7 @@ import {
 } from './listing.validation.js';
 
 export const listingRouter = Router();
+listingRouter.get('/search-suggestions',authenticate,authorize('renter'),query('q').custom(textInput).bail().trim().isLength({min:2,max:100}),query('category').optional().isIn(LISTING_CATEGORIES),validate,listingController.searchSuggestions);
 listingRouter.get('/recommendation-feed', authenticate, authorize('renter'), recommendationValidation, validate, listingController.recommendationFeed);
 listingRouter.post('/:id/views', authenticate, authorize('renter'), listingIdValidation, validate, listingController.recordView);
 listingRouter.get('/:id/complements', authenticate, authorize('renter'), listingIdValidation, recommendationValidation, validate, listingController.complements);

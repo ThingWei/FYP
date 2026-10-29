@@ -135,6 +135,8 @@ class _LiveNotificationDestinationState
           destination = LiveChatPage(
               conversation: Conversation(
                   id: target.threadId!,
+                  otherParticipantId:
+                      owner ? booking.renterId : booking.ownerId,
                   bookingId: booking.id,
                   listingTitle: booking.listingTitle,
                   otherParticipantName:

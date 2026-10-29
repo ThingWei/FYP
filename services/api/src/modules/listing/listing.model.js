@@ -77,6 +77,7 @@ const listingSchema = new mongoose.Schema(
     ownerId: { type: String, required: true, trim: true, index: true },
     ownerName: { type: String, required: true, trim: true, maxlength: 80 },
     ownerTrustScore: { type: Number, min: 0, max: 100, default: 50 },
+    ownerTrustProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
     title: { type: String, required: function () { return this.status !== 'draft'; }, trim: true, maxlength: 120, default: '' },
     description: { type: String, trim: true, maxlength: 3000, default: '' },
     category: { type: String, required: true, enum: LISTING_CATEGORIES, index: true },
@@ -166,6 +167,8 @@ const listingSchema = new mongoose.Schema(
     toJSON: {
       virtuals: true,
       transform: (_document, value) => {
+        value.ownerTrustScore = value.ownerTrustProfile?.version === 'renthub-trust-v1' && value.ownerTrustProfile.marketplace?.status === 'established'
+          ? value.ownerTrustProfile.marketplace.score : 50;
         value.id = value.publicId;
         value.isService = value.listingType === 'service';
         const now = Date.now();

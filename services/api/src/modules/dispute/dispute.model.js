@@ -47,6 +47,7 @@ const responseSchema = new mongoose.Schema(
 
 const resolutionSchema = new mongoose.Schema(
   {
+    responsibleParty: { type: String, enum: ['undetermined', 'none', 'renter', 'owner', 'both'], default: 'undetermined' },
     outcome: {
       type: String,
       enum: ['release_to_renter', 'split', 'release_to_owner', 'dismissed'],

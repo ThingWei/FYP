@@ -18,6 +18,7 @@ import {
   roleValidation,
   savedListingValidation,
   targetUserValidation,
+  trustProfileValidation,
   verificationDecisionValidation,
   verificationFrameValidation,
   verificationPairValidation,
@@ -66,6 +67,8 @@ userRouter.post(
 );
 userRouter.post('/session', authenticate, userController.startSession);
 userRouter.get('/me', authenticate, userController.me);
+userRouter.get('/me/trust', authenticate, userController.trust);
+userRouter.get('/:id/trust', authenticate, trustProfileValidation, validate, userController.trust);
 userRouter.get('/me/sessions', authenticate, userController.localSessions);
 userRouter.post(
   '/me/sessions/revoke-others',

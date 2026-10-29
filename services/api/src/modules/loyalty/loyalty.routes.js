@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { loyaltyController } from './loyalty.controller.js';
+import { paginationValidation } from '../communication/communication.validation.js';
 import {
   adminLedgerValidation,
   adminReferralValidation,
@@ -12,6 +13,7 @@ import {
 
 export const loyaltyRouter = Router();
 loyaltyRouter.use(authenticate);
+loyaltyRouter.get('/entries', paginationValidation, validate, loyaltyController.entries);
 loyaltyRouter.get('/summary', loyaltyController.summary);
 loyaltyRouter.post('/redeem', redeemValidation, validate, loyaltyController.redeem);
 loyaltyRouter.post(

@@ -346,6 +346,7 @@ export const disputeService = {
       if (!dispute) throw new AppError('Dispute not found', 404, 'NOT_FOUND');
       if (['resolved', 'dismissed'].includes(dispute.status)) {
         if (dispute.resolution?.outcome === input.outcome && dispute.resolution.notes === input.notes &&
+            (input.responsibleParty === undefined || dispute.resolution.responsibleParty === (input.outcome === 'dismissed' ? 'none' : input.responsibleParty)) &&
             (input.renterAmount == null || input.renterAmount === dispute.resolution.renterAmount) &&
             (input.ownerAmount == null || input.ownerAmount === dispute.resolution.ownerAmount)) return dispute;
         throw new AppError('This dispute is already closed', 409, 'DISPUTE_CLOSED');
@@ -409,6 +410,7 @@ export const disputeService = {
         rental.transactionHash = chainResult.lastTransactionHash ?? rental.transactionHash;
       }
       dispute.resolution = {
+        responsibleParty: input.outcome === 'dismissed' ? 'none' : input.responsibleParty ?? 'undetermined',
         outcome: input.outcome,
         renterAmount,
         ownerAmount,

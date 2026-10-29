@@ -115,6 +115,11 @@ class SourcesApi extends PricingReferenceApi {
 }
 
 Future<void> press(WidgetTester tester, String label) async {
+  if (find.text(label).evaluate().isEmpty) {
+    await tester.scrollUntilVisible(find.text(label), 240,
+        scrollable: find.byType(Scrollable).first, maxScrolls: 40);
+    await tester.pumpAndSettle();
+  }
   final dialog =
       find.descendant(of: find.byType(AlertDialog), matching: find.text(label));
   final target =
@@ -142,15 +147,11 @@ void main() {
               child: child!),
           home: LivePricingReferencesPage(api: api)));
       await tester.pumpAndSettle();
-      await press(tester, 'Price evidence by category');
-      expect(find.textContaining('1 of 22'), findsOneWidget);
-      expect(find.textContaining('No eligible rental-price references'),
-          findsOneWidget);
-      expect(find.textContaining('7 observations'), findsOneWidget);
-      expect(find.textContaining('Condition recorded: 0/7'), findsOneWidget);
-      expect(find.textContaining('Item age recorded: 0/7'), findsOneWidget);
-      expect(
-          find.textContaining('Accuracy is not established'), findsOneWidget);
+      expect(find.text('Price evidence by category'), findsNothing);
+      expect(find.textContaining('Condition recorded'), findsNothing);
+      expect(find.textContaining('Item age recorded'), findsNothing);
+      await press(tester, 'Price sources (1)');
+      expect(find.text('Price updates'), findsOneWidget);
       expect(tester.takeException(), isNull);
       expect(api.changes, 0);
       expect(api.syncs, 0);
@@ -186,43 +187,37 @@ void main() {
           home: LivePricingReferencesPage(api: api)));
       await tester.pumpAndSettle();
       expect(find.text('Choose CSV'), findsNothing);
-      await press(tester, 'Sources (1)');
+      await press(tester, 'Price sources (1)');
       expect(find.textContaining('The Rental Guy · Could not update'),
           findsOneWidget);
-      expect(find.textContaining('requested fewer requests'), findsOneWidget);
-      await press(tester, 'Sync now');
+      expect(find.textContaining('longer wait'), findsOneWidget);
+      await press(tester, 'Update now');
       expect(api.syncs, 0);
       await press(tester, 'Cancel');
       expect(api.syncs, 0);
-      await press(tester, 'Sync now');
+      await press(tester, 'Update now');
       await press(tester, 'Confirm');
       expect(api.syncs, 1);
       expect(find.textContaining('The Rental Guy · Updating'), findsOneWidget);
       expect(
           tester
-              .widget<TextButton>(find.widgetWithText(TextButton, 'Sync now'))
+              .widget<TextButton>(find.widgetWithText(TextButton, 'Update now'))
               .onPressed,
           isNull);
       api.running = false;
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
       expect(api.reads, greaterThan(1));
-      await press(tester, 'Disable source');
+      await press(tester, 'Turn off');
       expect(api.changes, 0);
       expect(find.textContaining('Manual CSV references are unchanged'),
           findsOneWidget);
       await press(tester, 'Confirm');
       expect(api.changes, 1);
       expect(find.textContaining('The Rental Guy · Disabled'), findsOneWidget);
-      await press(tester, 'Sources (1)');
-      await press(tester, 'Category coverage');
-      expect(find.text('Equipment / Event equipment'), findsOneWidget);
-      expect(
-          find.textContaining(
-              'No suitable external rental-price source verified'),
-          findsOneWidget);
-      await press(tester, 'Category coverage');
-      await press(tester, 'Advanced / manual import');
+      await press(tester, 'Price sources (1)');
+      expect(find.text('Category coverage'), findsNothing);
+      await press(tester, 'Import prices from a file');
       expect(find.text('Choose CSV'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -235,12 +230,11 @@ void main() {
     await tester
         .pumpWidget(MaterialApp(home: LivePricingReferencesPage(api: api)));
     await tester.pumpAndSettle();
-    await press(tester, 'Sources (1)');
-    expect(find.textContaining('Access review needed'), findsOneWidget);
+    await press(tester, 'Price sources (1)');
+    expect(find.textContaining('Setup needed'), findsOneWidget);
     expect(
         tester
-            .widget<TextButton>(
-                find.widgetWithText(TextButton, 'Enable source'))
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Turn on'))
             .onPressed,
         isNull);
     expect(api.changes, 0);
@@ -252,8 +246,8 @@ void main() {
     await tester
         .pumpWidget(MaterialApp(home: LivePricingReferencesPage(api: api)));
     await tester.pumpAndSettle();
-    await press(tester, 'Sources (1)');
-    await press(tester, 'Sync now');
+    await press(tester, 'Price sources (1)');
+    await press(tester, 'Update now');
     await press(tester, 'Confirm');
     expect(api.syncs, 1);
     expect(
@@ -261,7 +255,7 @@ void main() {
     expect(find.textContaining('private source'), findsNothing);
     expect(
         tester
-            .widget<TextButton>(find.widgetWithText(TextButton, 'Sync now'))
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Update now'))
             .onPressed,
         isNotNull);
     await press(tester, 'Refresh source status');
@@ -280,7 +274,7 @@ void main() {
     expect(tester.takeException(), isNull);
     api.malformed = false;
     await press(tester, 'Refresh source status');
-    expect(find.text('Sources (1)'), findsOneWidget);
+    expect(find.text('Price sources (1)'), findsOneWidget);
   });
   testWidgets('PC Rent enable shows local progress, failure and explicit retry',
       (tester) async {
@@ -298,8 +292,8 @@ void main() {
     await tester
         .pumpWidget(MaterialApp(home: LivePricingReferencesPage(api: api)));
     await tester.pumpAndSettle();
-    await press(tester, 'Sources (9)');
-    await press(tester, 'Enable source');
+    await press(tester, 'Price sources (9)');
+    await press(tester, 'Turn on');
     await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -313,8 +307,7 @@ void main() {
         findsOneWidget);
     expect(
         tester
-            .widget<TextButton>(
-                find.widgetWithText(TextButton, 'Enable source').last)
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Turn on').last)
             .onPressed,
         isNull);
     api.enablePending!.complete();
@@ -324,27 +317,29 @@ void main() {
         find.byKey(const ValueKey('price-source-feedback-pc-rent'));
     expect(
         find.descendant(
-            of: feedback, matching: find.textContaining('refused access')),
+            of: feedback,
+            matching: find.textContaining('not available to RentHub')),
         findsOneWidget);
     expect(find.textContaining('private.invalid'), findsNothing);
-    expect(find.textContaining('refused access').hitTestable(), findsOneWidget);
+    expect(find.textContaining('not available to RentHub').hitTestable(),
+        findsOneWidget);
     expect(
         tester
-            .widget<TextButton>(
-                find.widgetWithText(TextButton, 'Enable source').last)
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Turn on').last)
             .onPressed,
         isNotNull);
     await press(tester, 'Refresh source status');
     expect(api.changes, 1);
     api.failEnable = false;
-    await press(tester, 'Enable source');
+    await press(tester, 'Turn on');
     await press(tester, 'Confirm');
     expect(api.changes, 2);
     expect(
         find.descendant(
-            of: feedback, matching: find.textContaining('Source enabled')),
+            of: feedback,
+            matching: find.textContaining('Price updates turned on.')),
         findsOneWidget);
-    expect(find.textContaining('refused access'), findsNothing);
+    expect(find.textContaining('not available to RentHub'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -358,12 +353,11 @@ void main() {
     await tester
         .pumpWidget(MaterialApp(home: LivePricingReferencesPage(api: api)));
     await tester.pumpAndSettle();
-    await press(tester, 'Sources (1)');
-    expect(find.textContaining('Not ready yet'), findsOneWidget);
+    await press(tester, 'Price sources (1)');
+    expect(find.textContaining('Setup needed'), findsOneWidget);
     expect(
         tester
-            .widget<TextButton>(
-                find.widgetWithText(TextButton, 'Enable source'))
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Turn on'))
             .onPressed,
         isNull);
     expect(api.changes, 0);
@@ -396,14 +390,14 @@ void main() {
         child: MaterialApp(
             theme: AppTheme.light, home: LivePricingReferencesPage(api: api))));
     await tester.pumpAndSettle();
-    await press(tester, 'Sources (1)');
+    await press(tester, 'Price sources (1)');
     for (var i = 0; i < 12; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      if (Focus.of(tester.element(find.text('Sync now'))).hasFocus) break;
+      if (Focus.of(tester.element(find.text('Update now'))).hasFocus) break;
     }
-    expect(Focus.of(tester.element(find.text('Sync now'))).hasFocus, isTrue);
-    await press(tester, 'Sync now');
+    expect(Focus.of(tester.element(find.text('Update now'))).hasFocus, isTrue);
+    await press(tester, 'Update now');
     await press(tester, 'Confirm');
     if (capture) {
       for (final width in [1024, 390, 360]) {

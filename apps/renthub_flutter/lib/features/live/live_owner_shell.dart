@@ -1,3 +1,6 @@
+import 'live_reviews_list.dart';
+import 'user_record_pagination.dart';
+import 'live_trust_page.dart';
 import 'live_price_suggestion.dart';
 import '../../core/pricing/price_origin_draft.dart';
 import '../../core/validation/product_identity_validation.dart';
@@ -201,12 +204,14 @@ class LiveOwnerDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
-    final pending = controller.ownerBookings
-        .where((item) => item.status == 'pending')
-        .length;
-    final active = controller.ownerRentals
-        .where((item) => ['active', 'overdue'].contains(item.status))
-        .length;
+    final pending = controller.ownerActivitySummary['pending'] ??
+        controller.ownerBookings
+            .where((item) => item.status == 'pending')
+            .length;
+    final active = controller.ownerActivitySummary['activeOrders'] ??
+        controller.ownerRentals
+            .where((item) => ['active', 'overdue'].contains(item.status))
+            .length;
     return Scaffold(
       appBar: AppBar(
         title: const RentHubLogo(),
@@ -247,7 +252,7 @@ class LiveOwnerDashboard extends StatelessWidget {
               children: [
                 _LiveMetric(
                   'My listings',
-                  '${controller.ownerListings.length}',
+                  '${controller.ownerActivitySummary['listings'] ?? controller.ownerListings.length}',
                   Icons.inventory_2_outlined,
                 ),
                 _LiveMetric('Pending requests', '$pending', Icons.schedule),
@@ -255,7 +260,15 @@ class LiveOwnerDashboard extends StatelessWidget {
                     'Active orders', '$active', Icons.local_shipping_outlined),
                 _LiveMetric(
                   'Trust score',
-                  controller.profile?.trustScore.toStringAsFixed(0) ?? '—',
+                  controller.profile?.trustProfile.owner.marketplace
+                              .established ==
+                          true
+                      ? '${controller.profile!.trustProfile.owner.marketplace.score} / 100'
+                      : 'New',
+                  onTap: controller.profile == null
+                      ? null
+                      : () => openTrustDetails(context, controller.profile!.id,
+                          role: 'owner'),
                   Icons.verified_user_outlined,
                 ),
               ],
@@ -287,11 +300,31 @@ class LiveOwnerDashboard extends StatelessWidget {
                 ),
               )
             else
-              for (final rental in controller.ownerRentals)
+              for (final rental in controller.ownerRentals.take(3))
                 _OwnerRentalCard(rental: rental),
+            TextButton(
+                onPressed: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const LiveOwnerOrdersPage())),
+                child: const Text('View all orders')),
             const SizedBox(height: 20),
-            Text('Reviews received',
-                style: Theme.of(context).textTheme.titleLarge),
+            Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 16,
+                children: [
+                  Text('Reviews received',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  TextButton(
+                      onPressed: () => Navigator.push<void>(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => LiveReviewsListPage(
+                                  received: true,
+                                  onFlag: (review) => _flag(context, review)))),
+                      child: const Text('View all reviews'))
+                ]),
             const SizedBox(height: 8),
             if (controller.receivedReviews.isEmpty)
               const Card(
@@ -325,29 +358,33 @@ class LiveOwnerDashboard extends StatelessWidget {
 }
 
 class _LiveMetric extends StatelessWidget {
-  const _LiveMetric(this.label, this.value, this.icon);
+  const _LiveMetric(this.label, this.value, this.icon, {this.onTap});
+  final VoidCallback? onTap;
 
   final String label, value;
   final IconData icon;
 
   @override
   Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: AppColors.primary),
-              const Spacer(),
-              Text(value, style: Theme.of(context).textTheme.titleLarge),
-              Text(label,
-                  style: const TextStyle(
-                    color: AppColors.secondaryText,
-                    fontSize: 12,
-                  )),
-            ],
-          ),
-        ),
+        child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(icon, color: AppColors.primary),
+                  const Spacer(),
+                  Text(value, style: Theme.of(context).textTheme.titleLarge),
+                  Text(label,
+                      style: const TextStyle(
+                        color: AppColors.secondaryText,
+                        fontSize: 12,
+                      )),
+                ],
+              ),
+            )),
       );
 }
 
@@ -405,6 +442,8 @@ class LiveOwnerListingsPage extends StatelessWidget {
         icon: const Icon(Icons.add),
         label: const Text('New Listing'),
       ),
+      bottomNavigationBar:
+          const UserRecordPagination(collection: 'owner-listings'),
       body: RefreshIndicator(
         onRefresh: controller.loadOwner,
         child: controller.ownerListings.isEmpty
@@ -2650,6 +2689,9 @@ class LiveOwnerRequestsPage extends StatelessWidget {
       appBar: AppBar(
           title: Text(
               focusBookingId == null ? 'Booking Requests' : 'Booking details')),
+      bottomNavigationBar: focusBookingId == null
+          ? const UserRecordPagination(collection: 'owner-bookings')
+          : null,
       body: LiveBookingWorkspace(
         state: controller.ownerWorkspace,
         hasRecords: visibleBookings.isNotEmpty,
@@ -2700,6 +2742,12 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             Text('${booking.renterName} · ${booking.id}'),
+                            TextButton.icon(
+                                onPressed: () => openTrustDetails(
+                                    context, booking.renterId,
+                                    role: 'renter'),
+                                icon: const Icon(Icons.verified_user_outlined),
+                                label: const Text('Renter trust history')),
                             if (payment != null)
                               LivePaymentSummary(payment: payment!),
                             BookingLocationsButton(bookingId: booking.id),
@@ -2976,5 +3024,33 @@ class _OwnerRentalCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class LiveOwnerOrdersPage extends StatelessWidget {
+  const LiveOwnerOrdersPage({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final c = context.watch<LiveRentHubController>();
+    return Scaffold(
+        appBar: AppBar(title: const Text('Rental and service orders')),
+        bottomNavigationBar:
+            const UserRecordPagination(collection: 'owner-rentals'),
+        body: RefreshIndicator(
+            onRefresh: () => c.loadUserRecords('owner-rentals'),
+            child: c.ownerOrderRecords.isEmpty
+                ? ListView(children: [
+                    Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                            c.userRecordPages['owner-rentals']?.loading == true
+                                ? 'Loading orders?'
+                                : 'No orders on this page.'))
+                  ])
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: c.ownerOrderRecords.length,
+                    itemBuilder: (_, i) =>
+                        _OwnerRentalCard(rental: c.ownerOrderRecords[i]))));
   }
 }

@@ -2,6 +2,60 @@ openapi: 3.0.3
 info: { title: RentHub API, version: 1.0.0 }
 servers: [{ url: http://localhost:3000/api/v1 }]
 paths:
+  /users/me/trust:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: Calculated reputation from recorded activity over 365 days. Separate overall, Owner and renter summaries for genuine marketplace and demo activity. Scores require three qualified completions and two distinct counterparties; otherwise score is null. Cached for up to 60 seconds. No identity or booking identifiers are returned. Does not change permissions or establish identity authenticity.
+      responses:
+        '200': { description: renthub-trust-v1 aggregate summary with counts and optional score }
+        '401': { description: Authentication required }
+  /users/{id}/trust:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: Same aggregate trust summary for a visible account. Blocked or inactive accounts are hidden from other ordinary users; self and administrator access remains available.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200': { description: Safe role-specific and provenance-separated summary }
+        '401': { description: Authentication required }
+        '404': { description: Account not available }
+  /admin/dashboard-summary:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: Administrator-only database totals, independent of loaded pages. Read-only.
+      responses:
+        '200': { description: User, pending-listing, booking, open-report, flagged-review and verification counts with checkedAt }
+        '401': { description: Authentication required }
+        '403': { description: Administrator required }
+  /admin/records/{type}:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: Administrator-only safe record summaries. Verification defaults to all submitted/history records, with current-document status filters; unsubmitted accounts are excluded. Filters apply before counting and pagination; sorted by createdAt and database identifier descending. No arbitrary collection access.
+      parameters:
+        - { in: path, name: type, required: true, schema: { type: string, enum: [users, verification, listings, bookings, rentals, transactions, disputes, claims, reports, message-reports, reviews, audit-logs, generated-reports, report-schedules, referrals, reward-history, pricing-references] } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 100000, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { in: query, name: search, schema: { type: string, maxLength: 100 } }
+        - { in: query, name: status, description: A valid status for the selected collection or all, schema: { type: string } }
+        - { in: query, name: documentType, description: Verification queue only, schema: { type: string, enum: [all, mykad, driving_licence] } }
+      responses:
+        '200': { description: success and data array plus meta.page, meta.limit and filtered meta.total }
+        '401': { description: Authentication required }
+        '403': { description: Administrator required }
+        '404': { description: Unsupported record type }
+        '422': { description: Invalid pagination or filters }
+  /admin/records/{type}/{id}:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: Read-only approved detail projection for the same record-type registry. Accepts a public identifier or MongoDB identifier; users also accept an account identifier. Protected upload references retain existing access checks. Credentials, fingerprints, raw identity text and internal diagnostics are excluded. Historical omissions remain missing.
+      parameters:
+        - { in: path, name: type, required: true, schema: { type: string } }
+        - { in: path, name: id, required: true, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200': { description: success with data.recordType and data.record }
+        '401': { description: Authentication required }
+        '403': { description: Administrator required }
+        '404': { description: Record missing or unsupported type }
   /admin/pricing-references/sources:
     get:
       security: [{ bearerAuth: [] }]
@@ -326,6 +380,10 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters:
         - { in: path, name: threadId, required: true, schema: { type: string } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { in: query, name: before, description: Opaque message ID cursor for loading older messages without skipping arrivals. Use with page one., schema: { type: string } }
+      description: All booking threads between the same two participants form one visible conversation. Deleted-for-me messages are excluded before counting and paging. Recalled messages contain no text, image or location. Private originals and edit history are never returned.
       responses: { '200': { description: Conversation messages, including protected image metadata } }
     post:
       security: [{ bearerAuth: [] }]
@@ -340,6 +398,56 @@ paths:
         '201': { description: Text or protected-image message created and emitted through Socket.IO }
         '400': { description: Attachment is invalid, unowned, or has the wrong purpose }
         '403': { description: Sender is blocked or is not a conversation participant }
+  /messages/threads:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: One conversation per counterparty, across historical booking threads. Preserves original booking/thread IDs without rewriting history. Latest visible preview and unread counts are participant-specific. Stable sorting and grouping happen before pagination.
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses: { '200': { description: Grouped conversations plus filtered total, page and limit } }
+  /messages/threads/{threadId}/participant:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: threadId, required: true, schema: { type: string } }
+      description: Safe public profile of the other conversation participant. Excludes email, phone, addresses and identity documents. Blocked or inactive accounts are unavailable.
+      responses: { '200': { description: Display name, avatar, verification flag, roles and aggregate trust profile }, '404': { description: Not a participant or profile unavailable } }
+  /messages/{messageId}:
+    patch:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: messageId, required: true, schema: { type: string } }
+      description: Delete for the current participant at any time. Only the sender may edit text or recall for everyone within 15 minutes. Edits preserve attachments/pins; recall returns a placeholder. Originals and bounded revision history remain private for moderation. Expected revision prevents stale changes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action]
+              properties:
+                action: { type: string, enum: [edit, recall, delete] }
+                text: { type: string, minLength: 1, maxLength: 2000 }
+                expectedRevision: { type: integer, minimum: 0, description: Required for edit and recall }
+      responses: { '200': { description: Updated safe message or deletion acknowledgment }, '403': { description: Sender ownership or blocked-account restriction }, '409': { description: Expired window or conflicting revision } }
+  /listings/search-suggestions:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: Up to eight distinct active listing titles. Excludes own, blocked, restricted-Owner and unpublished listings. Uses stored listings only and never contacts an external catalogue provider.
+      parameters:
+        - { in: query, name: q, required: true, schema: { type: string, minLength: 2, maxLength: 100 } }
+        - { in: query, name: category, schema: { type: string } }
+      responses: { '200': { description: Title, category and public listing identifier suggestions } }
+  /rewards/entries:
+    get:
+      security: [{ bearerAuth: [] }]
+      description: Current account's complete points history with server-side paging. Summary endpoint retains its existing recent-activity preview.
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses: { '200': { description: Own entries plus page, limit and total } }
   /messages/push/devices:
     get:
       security: [{ bearerAuth: [] }]
@@ -542,7 +650,7 @@ components:
       required: [documentType, documentRefs]
       additionalProperties: false
       properties:
-        documentType: { type: string, enum: [mykad, passport, driving_licence] }
+        documentType: { type: string, enum: [mykad, driving_licence] }
         documentRefs: { type: array, minItems: 1, maxItems: 2, items: { type: string } }
     KycFrameRequest:
       type: object
@@ -551,7 +659,7 @@ components:
       properties:
         contentBase64: { type: string, minLength: 100, maxLength: 1900000 }
         contentType: { type: string, enum: [image/jpeg, image/png], default: image/jpeg }
-        documentType: { type: string, enum: [mykad, passport, driving_licence] }
+        documentType: { type: string, enum: [mykad, driving_licence] }
     KycDecision:
       type: object
       required: [status]
@@ -759,9 +867,18 @@ components:
     SendMessageRequest:
       type: object
       additionalProperties: false
-      description: At least one of text or attachmentRef is required.
+      description: At least one of text, attachmentRef or location is required. A stable clientMessageId allows retrying the same attempted send without duplicating messages or notifications. A changed payload must use a new ID.
       properties:
         text: { type: string, maxLength: 2000 }
+        clientMessageId: { type: string, minLength: 8, maxLength: 120, pattern: '^[a-zA-Z0-9:._-]+$' }
+        location:
+          type: object
+          additionalProperties: false
+          required: [latitude, longitude, label]
+          properties:
+            latitude: { type: number, minimum: -90, maximum: 90 }
+            longitude: { type: number, minimum: -180, maximum: 180 }
+            label: { type: string, minLength: 2, maxLength: 250 }
         attachmentRef:
           type: string
           pattern: '^upload://UPL-[A-Z0-9]+$'

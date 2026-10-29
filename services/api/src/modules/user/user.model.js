@@ -122,6 +122,7 @@ const userSchema = new mongoose.Schema(
     },
     activeRole: { type: String, enum: USER_ROLES, required: true },
     trustScore: { type: Number, min: 0, max: 100, default: 50 },
+    trustProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
     accountStatus: {
       type: String,
       enum: ACCOUNT_STATUSES,
@@ -236,6 +237,8 @@ const userSchema = new mongoose.Schema(
     strict: 'throw',
     toJSON: {
       transform: (_document, value) => {
+        value.trustScore = value.trustProfile?.version === 'renthub-trust-v1' && value.trustProfile.overall?.marketplace?.status === 'established'
+          ? value.trustProfile.overall.marketplace.score : 50;
         delete value.passwordHash;
         delete value.identityMatchFingerprint;
         delete value.verifiedIdentityFingerprint;

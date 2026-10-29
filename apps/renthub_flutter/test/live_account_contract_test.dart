@@ -10,13 +10,30 @@ import 'package:renthub_flutter/shared/models/domain_models.dart';
 class RecordingAccountApiClient extends ApiClient {
   RecordingAccountApiClient(this.responses) : super('http://example.invalid');
 
+  Map<String, dynamic>? adminRecord;
+  @override
+  Future<Map<String, dynamic>> requestEnvelope(String method, String path,
+      {Object? body}) async {
+    final rows = adminRecord?['verification']?['status'] == 'pending'
+        ? [adminRecord!]
+        : <Map<String, dynamic>>[];
+    return {
+      'data': rows,
+      'meta': {'page': 1, 'limit': 20, 'total': rows.length}
+    };
+  }
+
   final List<Map<String, dynamic>> responses;
   final List<(String, String, Object?)> calls = [];
 
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
+    if (path == '/admin/dashboard-summary') return <String, dynamic>{};
+    if (path.startsWith('/admin/records/')) return {'record': adminRecord};
     calls.add((method, path, body));
-    return responses.removeAt(0);
+    final result = responses.removeAt(0);
+    if (adminRecord != null) adminRecord = result;
+    return result;
   }
 }
 
@@ -25,6 +42,8 @@ class ReviewFixtureController extends LiveRentHubController {
 
   @override
   Future<void> loadAdmin() async {}
+  @override
+  Future<void> refreshAdminHealth() async {}
 }
 
 Map<String, dynamic> userJson({
@@ -200,6 +219,7 @@ void main() {
     final api = RecordingAccountApiClient([
       {...userJson(verificationStatus: 'approved'), '_id': pending['_id']},
     ]);
+    api.adminRecord = pending;
     final controller = ReviewFixtureController(api)
       ..profile = User.fromJson(userJson())
       ..users = [pending];
@@ -211,6 +231,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Verification'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('View details').first);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Approve'));
     await tester.tap(find.text('Approve'));
     await tester.pumpAndSettle();
     expect(find.text('Approve identity?'), findsOneWidget);
@@ -227,7 +250,8 @@ void main() {
       'status': 'approved',
       'attemptId': 'KYC-000000000000000000000001',
     });
-    expect(find.text('Verification queue is clear'), findsOneWidget);
+    expect(find.text('Approve'), findsNothing);
+    expect(find.text('Approved'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 

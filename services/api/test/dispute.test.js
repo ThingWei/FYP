@@ -226,9 +226,11 @@ test('handles responses, damage claims and simulated admin resolution', async ()
       renterAmount: 420,
       ownerAmount: 150,
       notes: 'The evidence supports a partial deduction for repair costs.',
+      responsibleParty: 'renter',
     });
   assert.equal(resolved.status, 200, JSON.stringify(resolved.body));
   assert.equal(resolved.body.data.status, 'resolved');
+  assert.equal(resolved.body.data.resolution.responsibleParty, 'renter');
   assert.equal(resolved.body.data.resolution.simulatedSettlement, true);
   assert.equal(
     resolved.body.data.resolution.blockchainReference,

@@ -50,7 +50,7 @@ export const bookingRepository = {
     const filter = { [field]: identityId, ...(status && { status }) };
     const [items, total] = await Promise.all([
       BookingModel.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       BookingModel.countDocuments(filter),
@@ -62,7 +62,7 @@ export const bookingRepository = {
     const filter = { ...(status && { status }) };
     const [items, total] = await Promise.all([
       BookingModel.find(filter)
-        .sort({ updatedAt: -1 })
+        .sort({ updatedAt: -1, _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       BookingModel.countDocuments(filter),

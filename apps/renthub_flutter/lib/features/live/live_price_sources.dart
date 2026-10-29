@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/user_facing_error.dart';
 import 'live_pricing_references.dart';
+import 'admin_record_models.dart';
+import 'admin_record_widgets.dart';
 
 class LivePriceSourcesPanel extends StatefulWidget {
   const LivePriceSourcesPanel({super.key, required this.api});
@@ -18,6 +20,7 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
   final sourceErrors = <String>{};
   bool loading = false, working = false;
   Timer? poll;
+  int page = 1, pageSize = 20;
 
   @override
   void initState() {
@@ -59,24 +62,6 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
         throw const FormatException('Invalid source response');
       }
       if (!mounted) return;
-      final report = result['coverageReport'];
-      if (report != null &&
-          (report is! Map ||
-              report['rows'] is! List ||
-              (report['rows'] as List).any((row) =>
-                  row is! Map ||
-                  row['category'] is! String ||
-                  row['subcategory'] is! String ||
-                  [
-                    'eligibleObservations',
-                    'uniqueOfferCount',
-                    'sourceWebsiteCount'
-                  ].any((key) =>
-                      row[key] is! num ||
-                      !(row[key] as num).isFinite ||
-                      (row[key] as num) < 0)))) {
-        throw const FormatException('Invalid coverage response');
-      }
       setState(
           () => data = {...result, 'sources': sources, 'coverage': coverage});
       poll?.cancel();
@@ -138,10 +123,10 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
       }
       if (mounted) {
         setState(() => sourceFeedback[id] = enabled == null
-            ? 'Refresh started. Source status will update while this page is open.'
+            ? 'Price update started. The status will refresh on this page.'
             : enabled
-                ? 'Source enabled. Automatic collection runs while the API is running.'
-                : 'Source disabled.');
+                ? 'Price updates turned on.'
+                : 'Price updates turned off.');
         await _load();
       }
     } catch (exception) {
@@ -170,8 +155,8 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
   }
 
   String _status(Map<String, dynamic> source) {
-    if (source['adapterAvailable'] != true) return 'Not ready yet';
-    if (source['accessApproved'] != true) return 'Access review needed';
+    if (source['adapterAvailable'] != true) return 'Setup needed';
+    if (source['accessApproved'] != true) return 'Setup needed';
     if (source['running'] == true) return 'Updating';
     if (source['enabled'] != true) return 'Disabled';
     return source['status'] == 'error' ? 'Could not update' : 'Enabled';
@@ -181,181 +166,150 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
         'ACCESS_RESTRICTED' =>
           'The source does not currently allow this collection.',
         'NO_VALID_QUOTES' =>
-          'No supported quotes found. The page or pricing format may have changed.',
-        'HTTP_403' => 'The source refused access. No bypass is attempted.',
-        'HTTP_429' =>
-          'The source requested fewer requests. Collection will wait before retrying.',
+          'No usable prices were found. The source page may have changed.',
+        'HTTP_403' =>
+          'This price page is not available to RentHub. Previous prices have been kept.',
+        'HTTP_429' => 'This source needs a longer wait before the next update.',
         null || '' => '',
         _ =>
           'The source could not be reached or read. Previous references have been kept.',
       };
 
   @override
-  Widget build(BuildContext context) => Card(
-          child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Automatic market updates',
-              style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          const Text(
-              'Approved sources are checked every 24 hours while the API is running. You do not need to upload a CSV for these updates.'),
-          if (data?['schedulerEnabled'] == false)
-            const Text(
-                'Scheduled collection is switched off. Enabled sources can still be refreshed explicitly.'),
-          if (loading) const LinearProgressIndicator(),
-          if (error != null)
-            Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(error!)),
-          TextButton.icon(
-              onPressed: loading || working ? null : _load,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Refresh source status')),
-          if (data != null) ...[
-            if (data!['coverageReport'] case final Map report)
-              ExpansionTile(
-                title: const Text('Price evidence by category'),
-                subtitle: Text(
-                    '${report['categoriesWithReferences']} of ${report['totalSubcategories']} specific categories have eligible references'),
+  Widget build(BuildContext context) {
+    final sources = (data?['sources'] as List? ?? []).whereType<Map>().toList();
+    final pages = sources.isEmpty ? 1 : (sources.length / pageSize).ceil();
+    final shownPage = page.clamp(1, pages);
+    return Card(
+        child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text(
-                          'These are advertised rental prices, not completed rentals. Having references does not establish accurate predictions. Website counts may include related businesses.')),
-                  if (report['truncated'] == true)
-                    const Text(
-                        'Only the newest 10,000 observations were checked. Counts are incomplete.'),
-                  for (final value in report['rows'] as List)
-                    Builder(builder: (context) {
-                      final row = value as Map;
-                      final count =
-                          (row['eligibleObservations'] as num).toInt();
-                      final profileDetails = count > 0 &&
-                              row['withCondition'] is num &&
-                              row['withItemAge'] is num
-                          ? '\nCondition recorded: ${row['withCondition']}/$count · Item age recorded: ${row['withItemAge']}/$count. Missing details stay unknown.'
-                          : '';
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title:
-                            Text('${row['category']} / ${row['subcategory']}'),
-                        subtitle: Text(count == 0
-                            ? 'No eligible rental-price references. Manual pricing remains available.'
-                            : '$count observations · ${row['uniqueOfferCount']} distinct offers · ${row['sourceWebsiteCount']} source websites\n'
-                                'Latest observation: ${row['freshestObservationAt']?.toString().split('T').first ?? 'Not available'}. Accuracy is not established by these counts.$profileDetails'),
-                      );
-                    }),
-                ],
-              ),
-            ExpansionTile(
-              title: Text('Sources (${(data!['sources'] as List).length})'),
-              subtitle: const Text(
-                  'Availability, last update and collection controls'),
-              children: [
-                for (final value in data!['sources'] as List)
-                  Builder(builder: (context) {
-                    final source = value as Map<String, dynamic>;
-                    final id = source['sourceId'] as String;
-                    return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${source['name']} · ${_status(source)}',
-                                style: Theme.of(context).textTheme.titleMedium),
-                            Text(
-                                (source['domains'] as List? ?? []).join(' / ')),
-                            Text('${source['limitation'] ?? ''}'),
-                            Text(
-                                'Last successful update: ${source['lastSuccessAt'] == null ? 'Not yet' : source['lastSuccessAt'].toString().split('T').first}'),
-                            Text(
-                                '${source['acceptedCount'] ?? 0} accepted · ${source['skippedCount'] ?? 0} skipped on the last successful update'),
-                            if (_problem(source).isNotEmpty)
-                              Text(_problem(source)),
-                            if (source['accessApproved'] != true &&
-                                source['adapterAvailable'] == true)
-                              const Text(
-                                  'A maintainer must check source access/reuse conditions once before enabling. Public visibility alone is not permission.'),
-                            if (workingSourceId == id)
-                              Semantics(
-                                liveRegion: true,
+                  Text('Price updates',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  Text(data?['schedulerEnabled'] == false
+                      ? 'Automatic updates are turned off. You can update each enabled source yourself.'
+                      : 'Enabled price sources are checked daily while RentHub is running.'),
+                  if (loading) const LinearProgressIndicator(),
+                  if (error != null) Text(error!),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                          onPressed: loading || working ? null : _load,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Refresh source status'))),
+                  ExpansionTile(
+                      title: Text('Price sources (${sources.length})'),
+                      subtitle:
+                          const Text('Last update and simple update controls'),
+                      children: [
+                        for (final value in sources
+                            .skip((shownPage - 1) * pageSize)
+                            .take(pageSize))
+                          Builder(builder: (context) {
+                            final source = Map<String, dynamic>.from(value),
+                                id = value['sourceId'] as String;
+                            return Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                                 child: Column(
-                                  key: ValueKey('price-source-progress-$id'),
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const LinearProgressIndicator(),
-                                    const SizedBox(height: 8),
-                                    Text(actionProgress!),
-                                  ],
-                                ),
-                              ),
-                            if (sourceFeedback.containsKey(id))
-                              Semantics(
-                                liveRegion: true,
-                                child: Padding(
-                                  key: ValueKey('price-source-feedback-$id'),
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 8),
-                                  child: Text(sourceFeedback[id]!,
-                                      style: sourceErrors.contains(id)
-                                          ? TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .error)
-                                          : null),
-                                ),
-                              ),
-                            Wrap(spacing: 8, runSpacing: 4, children: [
-                              TextButton(
-                                  onPressed: working ||
-                                          source['enabled'] != true ||
-                                          source['running'] == true
-                                      ? null
-                                      : () => _action(source),
-                                  child: const Text('Sync now')),
-                              TextButton(
-                                  onPressed: working ||
-                                          (source['enabled'] != true &&
-                                              (source['accessApproved'] !=
-                                                      true ||
-                                                  source['adapterAvailable'] !=
-                                                      true))
-                                      ? null
-                                      : () => _action(source,
-                                          enabled: source['enabled'] != true),
-                                  child: Text(source['enabled'] == true
-                                      ? 'Disable source'
-                                      : 'Enable source')),
-                            ]),
-                            const Divider(),
-                          ],
-                        ));
-                  })
-              ],
-            ),
-            ExpansionTile(
-              title: const Text('Category coverage'),
-              subtitle: const Text(
-                  'Sources and fallbacks for every supported specific category'),
-              children: [
-                for (final value in data!['coverage'] as List)
-                  Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Builder(builder: (context) {
-                        final row = value as Map;
-                        final ids = row['sourceIds'] as List? ?? [];
-                        return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(
-                                '${row['category']} / ${row['subcategory']}'),
-                            subtitle: Text(ids.isEmpty
-                                ? 'RentHub evidence only. No suitable external rental-price source verified.'
-                                : '${ids.join(', ')}. Unavailable sources fall back to RentHub evidence and a rough estimate or manual pricing.'));
-                      }))
-              ],
-            ),
-          ],
-        ]),
-      ));
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                          '${source['name']} · ${_status(source)}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium),
+                                      Text((source['domains'] as List? ?? [])
+                                          .join(', ')),
+                                      Text(
+                                          'Last updated: ${source['lastSuccessAt'] == null ? 'Not yet' : adminDate(source['lastSuccessAt'])}'),
+                                      Text(
+                                          '${source['acceptedCount'] ?? 0} prices read on the last successful update'),
+                                      if (_problem(source).isNotEmpty)
+                                        Text(_problem(source)),
+                                      if (source['accessApproved'] != true ||
+                                          source['adapterAvailable'] != true)
+                                        const Text(
+                                            'This source needs setup by the system maintainer before it can be turned on.'),
+                                      if (workingSourceId == id)
+                                        Semantics(
+                                            liveRegion: true,
+                                            child: Column(
+                                                key: ValueKey(
+                                                    'price-source-progress-$id'),
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  const LinearProgressIndicator(),
+                                                  Text(actionProgress ??
+                                                      'Updating prices…')
+                                                ])),
+                                      if (sourceFeedback.containsKey(id))
+                                        Semantics(
+                                            liveRegion: true,
+                                            child: Padding(
+                                                key: ValueKey(
+                                                    'price-source-feedback-$id'),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        vertical: 8),
+                                                child: Text(sourceFeedback[id]!,
+                                                    style: sourceErrors
+                                                            .contains(id)
+                                                        ? TextStyle(
+                                                            color: Theme.of(
+                                                                    context)
+                                                                .colorScheme
+                                                                .error)
+                                                        : null))),
+                                      Wrap(
+                                          spacing: 8,
+                                          runSpacing: 4,
+                                          children: [
+                                            TextButton(
+                                                onPressed: working ||
+                                                        source['enabled'] !=
+                                                            true ||
+                                                        source['running'] ==
+                                                            true
+                                                    ? null
+                                                    : () => _action(source),
+                                                child:
+                                                    const Text('Update now')),
+                                            TextButton(
+                                                onPressed: working ||
+                                                        (source['enabled'] !=
+                                                                true &&
+                                                            (source['accessApproved'] !=
+                                                                    true ||
+                                                                source['adapterAvailable'] !=
+                                                                    true))
+                                                    ? null
+                                                    : () => _action(source,
+                                                        enabled:
+                                                            source['enabled'] !=
+                                                                true),
+                                                child: Text(
+                                                    source['enabled'] == true
+                                                        ? 'Turn off'
+                                                        : 'Turn on'))
+                                          ]),
+                                      const Divider(),
+                                    ]));
+                          }),
+                        AdminPagination(
+                            page: shownPage,
+                            limit: pageSize,
+                            total: sources.length,
+                            loading: loading || working,
+                            onPage: (v) => setState(() => page = v),
+                            onLimit: (v) => setState(() {
+                                  pageSize = v;
+                                  page = 1;
+                                })),
+                      ]),
+                ])));
+  }
 }

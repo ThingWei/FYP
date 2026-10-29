@@ -25,11 +25,11 @@ export const rentalRepository = {
       ],
     }),
 
-  async listFor({ field, identityId, page, limit, status }) {
-    const filter = { [field]: identityId, ...(status && { status }) };
+  async listFor({ field, identityId, page, limit, status, bookingIds }) {
+    const filter = { [field]: identityId, ...(status && { status }), ...(bookingIds && { bookingId: { $in: bookingIds } }) };
     const [items, total] = await Promise.all([
       RentalModel.find(filter)
-        .sort({ updatedAt: -1 })
+        .sort({ updatedAt: -1, _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       RentalModel.countDocuments(filter),

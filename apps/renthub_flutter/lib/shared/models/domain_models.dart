@@ -1,6 +1,7 @@
 import '../../core/utils/calendar_date.dart';
 import '../../core/location/confirmed_location.dart';
 import '../../core/booking/checkout_models.dart';
+import '../../core/trust/trust_profile.dart';
 import 'package:latlong2/latlong.dart';
 
 enum UserRole { renter, owner, admin }
@@ -91,6 +92,7 @@ class User {
     required this.roles,
     this.activeRole,
     this.trustScore = 0,
+    this.trustProfile = const TrustProfile(),
     this.phone = '',
     this.verificationStatus = 'unverified',
     this.verificationTier = 'none',
@@ -114,6 +116,26 @@ class User {
   final Set<UserRole> roles;
   final UserRole? activeRole;
   final double trustScore;
+  final TrustProfile trustProfile;
+  User withTrustProfile(TrustProfile value) => User(
+      id: id,
+      email: email,
+      name: name,
+      roles: roles,
+      activeRole: activeRole,
+      trustScore: value.overall.marketplace.score?.toDouble() ?? 50,
+      trustProfile: value,
+      phone: phone,
+      verificationStatus: verificationStatus,
+      verificationTier: verificationTier,
+      verificationReason: verificationReason,
+      verificationDocumentType: verificationDocumentType,
+      verificationDocuments: verificationDocuments,
+      drivingEligibility: drivingEligibility,
+      addresses: addresses,
+      language: language,
+      pushNotifications: pushNotifications,
+      emailNotifications: emailNotifications);
   final List<UserAddress> addresses;
   final String language;
   final bool pushNotifications, emailNotifications;
@@ -131,6 +153,7 @@ class User {
           .toSet(),
       activeRole: _userRoleFromJson(json['activeRole']),
       trustScore: (json['trustScore'] as num?)?.toDouble() ?? 0,
+      trustProfile: TrustProfile.fromJson(json['trustProfile']),
       phone: json['phone'] as String? ?? '',
       verificationStatus: verification['status'] as String? ?? 'unverified',
       verificationTier: verification['tier'] as String? ?? 'none',
@@ -223,6 +246,7 @@ class Listing {
     this.condition = 'Good',
     this.ownerName = 'RentHub Owner',
     this.ownerTrustScore = 50,
+    this.ownerTrustProfile = const TrustRoleSummary(),
     this.location = 'Kuala Lumpur',
     this.latitude,
     this.longitude,
@@ -282,6 +306,7 @@ class Listing {
   final double? itemAgeYears;
   final String description, status, ownerId, priceUnit;
   final double dailyPrice, rating, ownerTrustScore;
+  final TrustRoleSummary ownerTrustProfile;
   final double securityDeposit, damageWaiverFee;
   final double deliveryFee;
   final bool verified, isService;
@@ -349,6 +374,10 @@ class Listing {
       condition: j['condition'] ?? (j['status'] == 'draft' ? '' : 'Good'),
       ownerName: j['ownerName'] ?? 'RentHub Owner',
       ownerTrustScore: (j['ownerTrustScore'] as num?)?.toDouble() ?? 50,
+      ownerTrustProfile: j['ownerTrustProfile'] is Map &&
+              j['ownerTrustProfile']['version'] == 'renthub-trust-v1'
+          ? TrustRoleSummary.fromJson(j['ownerTrustProfile'])
+          : const TrustRoleSummary(),
       location: j['location'] ?? '',
       latitude: (j['coordinates']?['latitude'] as num?)?.toDouble(),
       longitude: (j['coordinates']?['longitude'] as num?)?.toDouble(),
@@ -830,10 +859,23 @@ class Message {
     this.readAt,
     this.createdAt,
     this.attachment,
+    this.location,
+    this.editedAt,
+    this.recalledAt,
+    this.revision = 0,
+    this.deletedForMe = false,
   });
   final String id, threadId, text, senderId, recipientId;
   final DateTime? readAt, createdAt;
   final MessageAttachment? attachment;
+  final MessageLocation? location;
+  final DateTime? editedAt, recalledAt;
+  final int revision;
+  final bool deletedForMe;
+  bool get canChange =>
+      recalledAt == null &&
+      createdAt != null &&
+      DateTime.now().difference(createdAt!).inSeconds <= 900;
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
         (json['publicId'] ?? json['id'] ?? json['_id']) as String,
@@ -852,7 +894,36 @@ class Message {
             : MessageAttachment.fromJson(
                 Map<String, dynamic>.from(json['attachment'] as Map),
               ),
+        location: json['location'] is Map
+            ? MessageLocation.fromJson(
+                Map<String, dynamic>.from(json['location']))
+            : null,
+        editedAt: DateTime.tryParse('${json['editedAt'] ?? ''}'),
+        recalledAt: DateTime.tryParse('${json['recalledAt'] ?? ''}'),
+        revision: (json['revision'] as num?)?.toInt() ?? 0,
+        deletedForMe: json['deletedForMe'] == true,
       );
+}
+
+class MessageLocation {
+  const MessageLocation(this.latitude, this.longitude, this.label);
+  final double latitude, longitude;
+  final String label;
+  factory MessageLocation.fromJson(Map<String, dynamic> row) {
+    final lat = row['latitude'], lon = row['longitude'];
+    if (lat is! num ||
+        lon is! num ||
+        !lat.isFinite ||
+        !lon.isFinite ||
+        lat.abs() > 90 ||
+        lon.abs() > 180 ||
+        row['label'] is! String) {
+      throw const FormatException('Invalid shared location');
+    }
+    return MessageLocation(lat.toDouble(), lon.toDouble(), row['label']);
+  }
+  Map<String, dynamic> toJson() =>
+      {'latitude': latitude, 'longitude': longitude, 'label': label};
 }
 
 class Conversation {
@@ -864,12 +935,18 @@ class Conversation {
     required this.unreadCount,
     required this.lastMessageText,
     this.lastMessageAt,
+    this.otherParticipantId = '',
+    this.threadIds = const [],
+    this.bookingCount = 1,
   });
 
   final String id, bookingId, listingTitle, otherParticipantName;
   final int unreadCount;
   final String lastMessageText;
   final DateTime? lastMessageAt;
+  final String otherParticipantId;
+  final List<String> threadIds;
+  final int bookingCount;
 
   factory Conversation.fromJson(Map<String, dynamic> json) {
     final other = json['otherParticipant'] as Map<String, dynamic>? ?? const {};
@@ -880,6 +957,12 @@ class Conversation {
       otherParticipantName: other['displayName'] as String? ?? 'RentHub user',
       unreadCount: (json['unreadCount'] as num?)?.toInt() ?? 0,
       lastMessageText: json['lastMessageText'] as String? ?? '',
+      otherParticipantId: other['id'] as String? ?? '',
+      threadIds:
+          ((json['threadIds'] as List?) ?? [json['publicId'] ?? json['id']])
+              .whereType<String>()
+              .toList(),
+      bookingCount: (json['bookingCount'] as num?)?.toInt() ?? 1,
       lastMessageAt: json['lastMessageAt'] == null
           ? null
           : DateTime.parse(json['lastMessageAt'] as String),

@@ -18,6 +18,13 @@ class _RewardsApi extends ApiClient {
   Future<dynamic> request(String method, String path, {Object? body}) async {
     calls.add('$method $path');
     if (path == '/rewards/summary') return summary;
+    if (path.startsWith('/rewards/entries')) {
+      return ApiItems(List<dynamic>.from(summary['ledger'] as List? ?? []), {
+        'total': (summary['ledger'] as List? ?? []).length,
+        'page': 1,
+        'limit': 20
+      });
+    }
     if (path == '/rewards/referrals/apply') return summary['referral'];
     throw ApiException(404, 'Unexpected test route');
   }
@@ -103,6 +110,17 @@ Future<({LiveRentHubController marketplace, AuthController auth})> _pump(
   );
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 50));
+  final referral = summary['referral'] as Map?;
+  if (referral != null) {
+    final title = referral['status'] == 'rewarded'
+        ? 'Referral reward unlocked'
+        : referral['progressState'] == 'programme_paused'
+            ? 'Referral retained'
+            : 'Referral applied';
+    await tester.scrollUntilVisible(find.text(title), 100,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+  }
   return (marketplace: marketplace, auth: auth);
 }
 
@@ -159,7 +177,7 @@ void main() {
       ),
     );
     expect(find.text('Referral reward unlocked'), findsOneWidget);
-    expect(find.textContaining('WELCOME-ABC123'), findsOneWidget);
+    expect(find.text('RM 5.00 reward code: WELCOME-ABC123'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

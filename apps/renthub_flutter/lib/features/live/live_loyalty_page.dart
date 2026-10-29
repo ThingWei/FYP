@@ -1,3 +1,4 @@
+import 'user_record_pagination.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -220,6 +221,7 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
     final reward = controller.loyalty;
     return Scaffold(
       appBar: AppBar(title: const Text('Loyalty & Referrals')),
+      bottomNavigationBar: const UserRecordPagination(collection: 'points'),
       body: reward == null
           ? RentHubFeedbackState(
               kind: controller.error == null
@@ -377,7 +379,10 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
                   Text('Points activity',
                       style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
-                  if (reward.ledger.isEmpty)
+                  if ((controller.userRecordPages['points']?.loaded == true
+                          ? controller.rewardEntries
+                          : reward.ledger)
+                      .isEmpty)
                     const Card(
                       child: ListTile(
                         title: Text('No points activity yet'),
@@ -385,7 +390,10 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
                             Text('Completed rentals and rewards appear here.'),
                       ),
                     ),
-                  for (final entry in reward.ledger)
+                  for (final entry
+                      in (controller.userRecordPages['points']?.loaded == true
+                          ? controller.rewardEntries
+                          : reward.ledger))
                     Card(
                       child: ListTile(
                         leading: CircleAvatar(

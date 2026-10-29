@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { UserModel } from './user.model.js';
 
 const publicFields =
-  'authId displayName avatarUrl roles trustScore verification.status verification.tier';
+  'authId displayName avatarUrl roles trustScore trustProfile verification.status verification.tier';
 
 export const userRepository = {
   findByAuthId: (authId) => UserModel.findOne({ authId }),
@@ -49,6 +49,8 @@ export const userRepository = {
         .lean(),
       UserModel.countDocuments(filter),
     ]);
-    return [items, total];
+    return [items.map(item => ({ ...item, trustScore:
+      item.trustProfile?.version === 'renthub-trust-v1' && item.trustProfile.overall?.marketplace?.status === 'established'
+        ? item.trustProfile.overall.marketplace.score : 50 })), total];
   },
 };

@@ -247,16 +247,16 @@ class ListingCardSummary extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(listing.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
             Text(
                 'RM ${listing.displayPrice.toStringAsFixed(2)} / ${listing.priceUnit}',
                 maxLines: 2,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.primaryDark, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(listing.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall),
             Text('Approx. area: ${listing.location}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

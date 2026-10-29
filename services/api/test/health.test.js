@@ -10,6 +10,9 @@ test('health endpoint reports process liveness', async () => {
   assert.ok(response.body.data.capabilities.includes('pricing-daily-baseline-v1'));
   assert.ok(response.body.data.capabilities.includes('pricing-suitability-v1'));
   assert.ok(response.body.data.capabilities.includes('evidence-led-product-selection-v1'));
+  assert.ok(response.body.data.capabilities.includes('admin-record-details-v1'));
+  assert.ok(response.body.data.capabilities.includes('trust-profile-v1'));
+  assert.ok(response.body.data.capabilities.includes('user-records-messaging-v2'));
 });
 
 test('readiness endpoint detects a disconnected database', async () => {

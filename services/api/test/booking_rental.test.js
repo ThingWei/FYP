@@ -239,6 +239,8 @@ test('calculates the authoritative camera total and exposes both participant vie
     .set(owner);
   assert.equal(renterBookings.body.meta.total, 1);
   assert.equal(ownerRequests.body.meta.total, 1);
+  assert.equal(ownerRequests.status, 200);
+  assert.equal(ownerRequests.body.meta.summary.pending, 1);
 
   const adminBookings = await request(app)
     .get('/api/v1/bookings/admin?status=pending')
@@ -757,6 +759,10 @@ test('runs physical approval, handover, extension and return lifecycle', async (
   const booking = await BookingModel.findOne({ publicId: bookingId }).lean();
   assert.equal(booking.status, 'completed');
   assert.equal(booking.paymentStatus, 'settled');
+  const trust = (await UserModel.findOne({ authId: 'u-owner' }).lean()).trustProfile;
+  assert.equal(trust.version, 'renthub-trust-v1');
+  assert.equal(trust.owner.marketplace.score, null);
+  assert.equal(trust.owner.demo.completedRentals, 1);
   const paymentTypes = (
     await PaymentModel.find({ bookingId }).sort({ createdAt: 1 }).lean()
   ).map((payment) => payment.type);

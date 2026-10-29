@@ -33,7 +33,7 @@ export function resolveKycRequirement(settings, listing) {
     // Mandatory identity cannot be disabled by legacy/category/high-value settings.
     // Preserve any applicable additional document requirements.
     requiredDocumentTypes: [...new Set(['mykad', ...(applies ? rule?.documentTypes ?? [] : [])])]
-      .filter((type) => type !== 'driving_licence'),
+      .filter((type) => type === 'mykad'),
     required: true,
     highValueOnly: false,
     threshold: Number(settings?.highValueThreshold ?? 1000),

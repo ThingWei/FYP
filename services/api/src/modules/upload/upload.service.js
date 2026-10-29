@@ -25,6 +25,8 @@ function detectedType(buffer) {
 async function participantMayRead(identity, reference) {
   if (await MessageModel.exists({
     'attachment.reference': reference,
+    recalledAt: null,
+    deletedFor: { $ne: identity.authId },
     $or: [{ senderId: identity.authId }, { recipientId: identity.authId }],
   })) return true;
   if (await RentalModel.exists({
@@ -216,7 +218,11 @@ export const uploadService = {
         $or: [{ evidence: reference }, { 'responses.evidence': reference }],
       }),
       ClaimModel.exists({ evidence: reference }),
-      MessageModel.exists({ 'attachment.reference': reference }),
+      MessageModel.exists({ $or: [
+        { 'attachment.reference': reference },
+        { 'originalContent.attachment.reference': reference },
+        { 'editHistory.attachment.reference': reference },
+      ] }),
     ]);
     if (used.some(Boolean)) {
       throw new AppError('This upload is already attached to a record', 409, 'UPLOAD_IN_USE');
