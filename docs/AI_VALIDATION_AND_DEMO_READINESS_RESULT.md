@@ -1,5 +1,15 @@
 # AI validation and demonstration readiness
 
+3 November: [additional licensed-photo checks and fresh pricing diagnostics](AI_IMAGE_AND_PRICING_EVIDENCE_ROUND3_RESULT.md).
+This adds measured controller/vacuum/garment results and easier private photo-drop
+folders; it does not complete independent all-category or authenticity evaluation.
+
+1 November: [fresh frozen-model evaluation and all-category evidence audit](AI_VALIDATION_ROUND2_RESULT.md)
+reproduces the risk benchmark, measures pricing errors/abstentions and keeps
+staged recommendations separate. Independent photos and tester feedback remain
+absent, as confirmed by the user. New frozen-risk tooling supports future reviewed
+photos without retraining or replacing the running artifact.
+
 25 October: [current combined gap audit](AI_CATALOGUE_EVIDENCE_AND_RECOGNITION_GAP_REPORT.md)
 confirms local model loadability, missing real-photo evaluation and cross-layer
 peripheral/type mismatches. It separates fresh aggregate counts from historical

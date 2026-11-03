@@ -7,11 +7,28 @@ param(
     [switch]$NoApiReload,
     [switch]$SkipBlockchain,
     [switch]$CheckOnly,
+    [switch]$ServicesOnly,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ExtraFlutterArgs
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($CheckOnly -and $ServicesOnly) {
+    throw 'Choose CheckOnly for a temporary readiness check or ServicesOnly to keep the services running.'
+}
+
+function Test-RentHubKeepServicesRunning {
+    param([string]$TargetDevice, [bool]$StartedApi, [bool]$StartedAi, [bool]$StartedBlockchain)
+    return $TargetDevice -notin @('windows', 'chrome', 'edge') -and
+        ($StartedApi -or $StartedAi -or $StartedBlockchain)
+}
+
+function Wait-RentHubServiceSession {
+    Write-Host 'RentHub services remain running. You can reopen the installed Android app.' -ForegroundColor Green
+    Write-Host 'Keep this terminal open. Press Ctrl+C here when you want to stop services started by this launcher.' -ForegroundColor Cyan
+    while ($true) { Start-Sleep -Seconds 1 }
+}
 
 function Test-RentHubTcpPort {
     param(
@@ -34,6 +51,35 @@ function Test-RentHubTcpPort {
     finally {
         $client.Dispose()
     }
+}
+
+function Get-RentHubMongoTarget {
+    param([string]$ConnectionString)
+
+    # Do not print the URI: Atlas database credentials belong only in the API.
+    if ([string]::IsNullOrWhiteSpace($ConnectionString)) {
+        throw 'MONGODB_URI must be a MongoDB connection string in services/api/.env.'
+    }
+    $value = $ConnectionString.Trim()
+    if ($value -notmatch '^mongodb(?<srv>\+srv)?://(?<authority>[^/?#]+)') {
+        throw 'MONGODB_URI must be a MongoDB connection string in services/api/.env.'
+    }
+    $srv = $Matches['srv']
+    $authority = $Matches['authority']
+    $authority = $authority.Substring($authority.LastIndexOf('@') + 1)
+    if (-not $authority) { throw 'MONGODB_URI must include a database host.' }
+    # SRV discovery and multi-host selection are checked by the MongoDB driver.
+    if ($srv -or $authority.Contains(',')) { return @{ IsLocal = $false } }
+    if ($authority -notmatch '^(?:\[(?<host>[^\]]+)\]|(?<host>[^:]+))(?::(?<port>\d+))?$') {
+        throw 'MONGODB_URI contains an invalid database host or port.'
+    }
+    $mongoHost = $Matches['host'].ToLowerInvariant()
+    $mongoPort = 27017
+    if ($Matches['port'] -and (-not [int]::TryParse($Matches['port'], [ref]$mongoPort) -or
+            $mongoPort -lt 1 -or $mongoPort -gt 65535)) {
+        throw 'MONGODB_URI contains an invalid database port.'
+    }
+    return @{ IsLocal = $mongoHost -in @('localhost', '127.0.0.1', '::1'); HostName = $mongoHost; Port = $mongoPort }
 }
 
 function Test-RentHubApiReady {
@@ -329,8 +375,15 @@ $auth0DatabaseConnection = Get-RentHubEnvironmentValue `
 if (-not $SkipBlockchain -and $blockchainMode -eq 'ganache' -and -not (Test-Path -LiteralPath $ganacheCli)) {
     throw "Blockchain dependencies are missing. Run 'npm.cmd install' in $blockchainDirectory first."
 }
-if (-not (Test-RentHubTcpPort -HostName 'localhost' -Port 27017)) {
-    throw 'MongoDB is not listening on localhost:27017. Start MongoDB before running RentHub.'
+$mongoConnection = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'MONGODB_URI' -DefaultValue 'mongodb://localhost:27017/renthub'
+$mongoTarget = Get-RentHubMongoTarget -ConnectionString $mongoConnection
+if ($mongoTarget.IsLocal) {
+    if (-not (Test-RentHubTcpPort -HostName $mongoTarget.HostName -Port $mongoTarget.Port)) {
+        throw "MongoDB is not listening on $($mongoTarget.HostName):$($mongoTarget.Port). Start the configured local MongoDB service before running RentHub."
+    }
+}
+else {
+    Write-Host 'Using configured cloud/remote MongoDB. API readiness will verify database connectivity.' -ForegroundColor Cyan
 }
 
 try {
@@ -549,6 +602,11 @@ try {
         }
     }
 
+    if ($ServicesOnly) {
+        Wait-RentHubServiceSession
+        return
+    }
+
     $arguments = @('run', '-d', $Device)
     $firebaseSettings = @{}
     foreach ($setting in @('FIREBASE_ANDROID_API_KEY', 'FIREBASE_ANDROID_APP_ID', 'FIREBASE_MESSAGING_SENDER_ID', 'FIREBASE_PROJECT_ID')) {
@@ -636,8 +694,13 @@ try {
 
     Write-Host "Starting RentHub on $Device..." -ForegroundColor Cyan
     & flutter @arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Flutter exited with code $LASTEXITCODE."
+    $flutterExitCode = $LASTEXITCODE
+    if (Test-RentHubKeepServicesRunning -TargetDevice $Device -StartedApi $startedApi -StartedAi $startedAi -StartedBlockchain $startedBlockchain) {
+        Write-Warning 'The Android debug session has ended. This does not stop the local RentHub backend.'
+        Wait-RentHubServiceSession
+    }
+    if ($flutterExitCode -ne 0) {
+        throw "Flutter exited with code $flutterExitCode."
     }
 }
 finally {

@@ -328,7 +328,8 @@ def test_local_supplement_preserves_primary_and_is_never_downloaded(monkeypatch,
     assert coverage['matchingLabels'] == ['sports ball']
     assert coverage['allProductsCovered'] is False
     detections, attempts, failures = items.detect_photo(np.zeros((10, 10, 3)), {'sports ball'}, detectors)
-    assert detections[0]['source'] == 'general_pretrained'
+    assert next(d for d in detections if d['matchesCategory'])['source'] == 'general_pretrained'
+    assert any(d['label'] == 'camera' and not d['matchesCategory'] for d in detections)
     assert attempts == 2 and failures == 0  # Remaining model supplies context, not a forced target.
     monkeypatch.setenv('ITEM_ALLOW_PRETRAINED_DETECTOR', 'false')
     assert len(items.verification_detectors(primary, status)) == 1

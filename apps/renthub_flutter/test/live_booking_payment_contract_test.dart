@@ -496,7 +496,11 @@ void main() {
         'refereeDiscountAmount': 5,
       },
     };
-    final controller = LiveRentHubController(RecordingApiClient([summary]));
+    final controller = LiveRentHubController(RecordingApiClient([
+      summary,
+      ApiItems(summary['ledger'] as List<dynamic>,
+          {'page': 1, 'limit': 20, 'total': 1}),
+    ]));
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
@@ -520,8 +524,11 @@ void main() {
     expect(find.text('Share Referral Code'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('I Have a Referral Code'),
-      200,
-      scrollable: find.byType(Scrollable).first,
+      100,
+      scrollable: find
+          .descendant(
+              of: find.byType(ListView), matching: find.byType(Scrollable))
+          .first,
     );
     expect(find.text('I Have a Referral Code'), findsOneWidget);
     expect(tester.takeException(), isNull);

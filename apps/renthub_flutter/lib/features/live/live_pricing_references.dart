@@ -340,6 +340,16 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
             style: Theme.of(context).textTheme.titleLarge),
         const Text(
             'Advertised rental prices are not completed RentHub rentals. Times are shown in Malaysia time (MYT).'),
+        AdminRecordToolbar(
+            page: page,
+            limit: widget.api.pageSize,
+            total: total,
+            loading: loading || working,
+            onLimit: (value) {
+              widget.api.pageSize = value;
+              page = 1;
+              _load();
+            }),
         if (loading) const LinearProgressIndicator(),
         if (error != null && selectedCsv == null) Text(error!),
         SizedBox(
@@ -408,11 +418,6 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
             loading: loading || working,
             onPage: (value) {
               page = value;
-              _load();
-            },
-            onLimit: (value) {
-              widget.api.pageSize = value;
-              page = 1;
               _load();
             }),
         Align(
@@ -496,6 +501,16 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                                         children: [
                                           Text(
                                               '${preview!['rowCount']} rows · ${preview!['newCount']} new · ${preview!['duplicateCount']} duplicates'),
+                                          AdminRecordToolbar(
+                                              page: previewPage,
+                                              limit: previewLimit,
+                                              total: (preview!['rows'] as List)
+                                                  .length,
+                                              loading: working,
+                                              onLimit: (value) => setState(() {
+                                                    previewLimit = value;
+                                                    previewPage = 1;
+                                                  })),
                                           if ((preview!['errors'] as List)
                                               .isNotEmpty)
                                             AdminInlineHistory(
@@ -525,11 +540,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                                                   .length,
                                               loading: working,
                                               onPage: (v) => setState(
-                                                  () => previewPage = v),
-                                              onLimit: (v) => setState(() {
-                                                    previewLimit = v;
-                                                    previewPage = 1;
-                                                  })),
+                                                  () => previewPage = v)),
                                           if (preview!['valid'] == true) ...[
                                             CheckboxListTile(
                                                 contentPadding: EdgeInsets.zero,

@@ -75,7 +75,7 @@ class ListingThumbnail extends StatelessWidget {
             borderRadius: BorderRadius.circular(12)),
         child: listing.images.isEmpty
             ? fallback
-            : Image.network(api.absoluteUrl(listing.images.first),
+            : Image.network(api.publicPhotoUrl(listing.images.first),
                 semanticLabel: listing.title,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => fallback));

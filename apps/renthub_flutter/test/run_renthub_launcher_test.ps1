@@ -11,7 +11,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw "Launcher syntax errors: $($parseErrors.Count)" }
 
 # Load only these pure/testable helpers, not the launcher's executable body.
-$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess')
+$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -24,6 +24,31 @@ function Assert-Launcher {
     param([bool]$Condition, [string]$Message)
     if (-not $Condition) { throw $Message }
 }
+
+$localMongo = Get-RentHubMongoTarget 'mongodb://localhost:27017/renthub'
+Assert-Launcher ($localMongo.IsLocal -and $localMongo.Port -eq 27017) 'Local MongoDB remains supported.'
+$customMongo = Get-RentHubMongoTarget 'mongodb://user:private-test-value@127.0.0.1:27018/renthub'
+Assert-Launcher ($customMongo.IsLocal -and $customMongo.Port -eq 27018) 'Read the configured local port.'
+Assert-Launcher ((Get-RentHubMongoTarget 'mongodb://[::1]:27019/renthub').HostName -eq '::1') 'IPv6 loopback is supported.'
+Assert-Launcher (-not (Get-RentHubMongoTarget 'mongodb+srv://user:private-test-value@cluster.example.test/renthub').IsLocal) 'Atlas must not require local MongoDB.'
+Assert-Launcher (-not (Get-RentHubMongoTarget 'mongodb://db.example.test:27017/renthub').IsLocal) 'Remote databases use API readiness.'
+Assert-Launcher (-not (Get-RentHubMongoTarget 'mongodb://localhost:27017,localhost:27018/renthub?replicaSet=test').IsLocal) 'Multi-host selection belongs to the driver.'
+foreach ($badUri in @('https://private-test-value@example.test', 'mongodb://', 'mongodb://localhost:0/renthub', 'mongodb://localhost:99999/renthub')) {
+    $caught = $false
+    try { Get-RentHubMongoTarget $badUri | Out-Null }
+    catch {
+        $caught = $true
+        Assert-Launcher (-not $_.Exception.Message.Contains('private-test-value')) 'Database errors must not expose credentials.'
+    }
+    Assert-Launcher $caught 'Malformed database configuration fails clearly.'
+}
+Assert-Launcher (-not ((Get-RentHubMongoTarget 'mongodb+srv://user:private-test-value@cluster.example.test/renthub') | Out-String).Contains('private-test-value')) 'MongoDB targets never retain credentials.'
+
+Assert-Launcher (Test-RentHubKeepServicesRunning -TargetDevice 'android-device' -StartedApi $true -StartedAi $false -StartedBlockchain $false) 'An Android debug disconnect must retain its owned API.'
+Assert-Launcher (Test-RentHubKeepServicesRunning -TargetDevice 'android-device' -StartedApi $false -StartedAi $true -StartedBlockchain $false) 'An Android debug disconnect must retain its owned AI.'
+Assert-Launcher (-not (Test-RentHubKeepServicesRunning -TargetDevice 'windows' -StartedApi $true -StartedAi $true -StartedBlockchain $true)) 'Desktop cleanup must remain unchanged.'
+Assert-Launcher (-not (Test-RentHubKeepServicesRunning -TargetDevice 'android-device' -StartedApi $false -StartedAi $false -StartedBlockchain $false)) 'A launcher that owns no services must not keep another launcher open.'
+Assert-Launcher ($tree.Extent.Text.Contains('if ($ServicesOnly)')) 'Installed Android app testing needs a services-only entry point.'
 
 $googleFixture = [pscustomobject]@{
     project_info = [pscustomobject]@{ project_number = '123456'; project_id = 'demo-renthub' }

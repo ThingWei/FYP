@@ -1,5 +1,6 @@
 import { CATALOG_COVERAGE } from '../catalog/catalog.coverage.js';
 import { suitableProductComparison } from './productComparisonFacts.js';
+import { compatiblePricingSpecifications } from './pricingSpecifications.js';
 
 // Semantic identities only. No rental amounts, depreciation or manufacturer APIs.
 const rules = {
@@ -103,6 +104,7 @@ export function compatibleProductReference(item, profile) {
   const requestedType = productTypeFor(profile.category, profile.subcategory, `${profile.brand ?? ''} ${model(profile)}`, profile.productType ?? profile.product_type);
   const inferredType = productTypeFor(item.category, item.subcategory, `${item.brand ?? ''} ${model(item)}`, item.productType ?? item.product_type);
   if (!requestedType || !inferredType || requestedType !== inferredType || item.productType && item.productType !== inferredType) return false;
+  if (!compatiblePricingSpecifications(item, profile, requestedType)) return false;
   for (const attribute of [edition, variant]) {
     const offered = attribute(item), requested = attribute(profile);
     if (offered && offered !== requested) return false;

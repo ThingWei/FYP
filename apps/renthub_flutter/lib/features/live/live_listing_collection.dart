@@ -210,7 +210,7 @@ class ListingCardPhoto extends StatelessWidget {
                       context
                           .read<LiveRentHubController>()
                           .api
-                          .absoluteUrl(listing.images.first),
+                          .publicPhotoUrl(listing.images.first),
                       fit: BoxFit.cover,
                       semanticLabel: listing.title,
                       errorBuilder: (_, __, ___) => fallback)),

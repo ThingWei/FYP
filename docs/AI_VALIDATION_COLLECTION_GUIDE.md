@@ -1,5 +1,17 @@
 # RentHub real-data collection kit
 
+3 November: [new photo diagnostics and pricing error trace](AI_IMAGE_AND_PRICING_EVIDENCE_ROUND3_RESULT.md).
+The existing private `item-readiness-kit-v1` now includes `PHOTO_DROP_GUIDE.md`,
+empty category/item photo folders and 198 suggested file paths. Photos can be
+provided without filling JSON or drawing boxes first; annotation and permission
+review still precede evaluation. Five licensed public diagnostic photos were
+evaluated separately, without claiming the independent collection is complete.
+
+1 November: [latest actual evaluation results](AI_VALIDATION_ROUND2_RESULT.md).
+Earlier counts below are historical snapshots. The existing private recognition
+kit now also has a header-only `risk_reviewed_cases.csv` and `RISK_EVALUATION.md`
+for independent risk evaluation. No actual cases or permissions were filled.
+
 Latest pricing workflow: [source cleanup and automated evidence review](PRICING_SOURCE_CLEANUP_AND_READINESS_RESULT.md).
 Use `npm.cmd run review:pricing-evidence -- --run-id NEW-ID` from `services/api`
 for a fresh read-only audit and frozen evaluation. Five previously disabled source

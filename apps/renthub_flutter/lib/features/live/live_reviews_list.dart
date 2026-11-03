@@ -52,7 +52,8 @@ class _LiveReviewsListPageState extends State<LiveReviewsListPage> {
                 ? 'Listing reviews'
                 : widget.received
                     ? 'Reviews received'
-                    : 'My reviews')),
+                    : 'My reviews'),
+            bottom: UserRecordToolbar(collection: key)),
         bottomNavigationBar: UserRecordPagination(collection: key),
         body: RefreshIndicator(
             onRefresh: () => c.loadUserRecords(key),

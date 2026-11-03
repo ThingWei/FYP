@@ -110,7 +110,8 @@ def prepare(download=False, profile=world.BASELINE_PROFILE, candidate=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--download', action='store_true')
-    parser.add_argument('--profile', choices=(world.BASELINE_PROFILE, world.EXPANDED_PROFILE), default=world.BASELINE_PROFILE)
+    parser.add_argument('--profile', choices=(world.BASELINE_PROFILE, world.EXPANDED_PROFILE,
+                                            world.OBJECT_VIEWS_PROFILE), default=world.BASELINE_PROFILE)
     parser.add_argument('--candidate-output', type=Path, help='New separate .pt under .data/candidates; never activated automatically')
     args = parser.parse_args()
     print(json.dumps(prepare(args.download, args.profile, args.candidate_output), indent=2))

@@ -32,6 +32,7 @@ PROMPTS = tuple((label, label) for label in OBJECTS) + (
 
 BASELINE_PROFILE = 'baseline_v1'
 EXPANDED_PROFILE = 'expanded_v2'
+OBJECT_VIEWS_PROFILE = 'object_views_v3'
 # Explicit concrete objects, not umbrella labels invented to make coverage pass.
 # The existing vocabulary remains byte-for-byte compatible with deployed weights.
 EXPANDED_PROMPTS = PROMPTS + (
@@ -53,12 +54,32 @@ EXPANDED_PROMPTS = PROMPTS + (
     ('kurta garment', 'kurta'), ('raincoat', 'raincoat'),
 )
 
+# Isolated candidate only. Concrete whole-object views retain the same competing
+# vocabulary and canonical object labels; detail/context classes remain separate.
+# Runtime defaults and the deployed baseline vocabulary hash are unchanged.
+OBJECT_VIEW_PROMPTS = EXPANDED_PROMPTS + (
+    ('a canister vacuum cleaner with hose', 'vacuum cleaner'),
+    ('an upright vacuum cleaner', 'vacuum cleaner'),
+    ('a wet and dry vacuum cleaner', 'vacuum cleaner'),
+    ('a traditional kebaya blouse', 'kebaya'),
+    ('a baju kurung outfit on a mannequin', 'baju kurung'),
+    ('a suit on a clothes hanger', 'suit'),
+    ('a dress on a mannequin', 'dress'),
+    ('an open paperback book with visible page edges', 'book'),
+    ('a closed paperback book', 'book'),
+    ('a hardcover book', 'book'),
+    ('a computer monitor on its stand', 'computer monitor'),
+    ('an all in one desktop computer', 'desktop computer'),
+)
+
 
 def prompts_for(profile=BASELINE_PROFILE):
     if profile == BASELINE_PROFILE:
         return PROMPTS
     if profile == EXPANDED_PROFILE:
         return EXPANDED_PROMPTS
+    if profile == OBJECT_VIEWS_PROFILE:
+        return OBJECT_VIEW_PROMPTS
     raise ValueError('Unknown prepared vocabulary profile')
 
 

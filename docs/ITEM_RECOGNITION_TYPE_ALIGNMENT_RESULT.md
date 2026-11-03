@@ -1,5 +1,15 @@
 # Item recognition type alignment and evaluation readiness
 
+3 November: [isolated object-view candidate and additional licensed-photo checks](AI_IMAGE_AND_PRICING_EVIDENCE_ROUND3_RESULT.md#implementation-follow-up-specification-guards-and-recognition-candidate)
+found one additional garment localization but continuing vacuum/book/monitor
+misses. The candidate is not activated; all-category real-photo coverage and
+independent item-risk evaluation remain incomplete. No thresholds were lowered.
+
+2 November: [rotation-conflict fix and actual Android viewing checks](ITEM_RECOGNITION_ROTATION_AND_ANDROID_CHECK_RESULT.md)
+retains original scene evidence and routes ambiguous rotated detections to review.
+The known public pilot's three hybrid false matches no longer count as category
+matches; the book/desktop misses and independent all-category evaluation remain.
+
 Next increment: [expanded isolated World candidate](ITEM_WORLD_EXPANDED_CANDIDATE_RESULT.md)
 was prepared locally without deployment. Its larger vocabulary is not measured
 real-photo accuracy; the active-model inventory below remains unchanged.

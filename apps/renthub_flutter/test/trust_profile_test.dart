@@ -111,6 +111,10 @@ void main() {
           scale: 1.4));
       await t.pumpAndSettle();
       expect(find.text('Not enough rental history'), findsOneWidget);
+      expect(
+          find.textContaining(
+              'Demo payments do not count towards marketplace trust.'),
+          findsOneWidget);
       expect(api.calls, ['GET /users/me/trust']);
       expect(c.profile!.trustScore, 50);
       await t.scrollUntilVisible(find.text('Demo activity'), 300,

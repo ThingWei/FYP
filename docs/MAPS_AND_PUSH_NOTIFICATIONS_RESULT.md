@@ -349,3 +349,44 @@ feat: add precise private locations and nearby search across RentHub
 - test location privacy, snapshots, form recovery and nearby behavior
 - document backfill, precision limitations and real-device checks
 ```
+## 3 November 2026: Android hardware follow-up
+
+- On the connected Android device, Saved addresses → Add address → Choose
+  location → Use my current location obtained one foreground reading with a
+  reported accuracy of approximately 12 m. Tiles loaded and the nearest mapped
+  address lookup completed. One final confirmation populated address line, city,
+  state and postcode in the parent dialog. The address was cancelled, not saved.
+  No private coordinates/address strings are included in this committed report.
+- Firebase configuration used matching native/Admin project settings. The Owner
+  had push enabled and one registered Android device. Two clearly labelled
+  self-test deliveries linked to an existing completed demo booking were accepted
+  by FCM, without changing booking/payment state or creating new bookings. The
+  second test was observed in the Android notification shade, and tapping it opened
+  RentHub. Android allowed notifications and its RentHub updates channel was active.
+- The opened notification initially showed the connection fallback. The API was
+  confirmed unreachable at that moment despite intact USB forwarding. The existing
+  launcher previously shut down services it owned whenever its Flutter run session
+  ended, including a lost debug connection. This reproduced the unavailable message.
+  The launcher now retains its owned services after Android debug disconnection,
+  until Ctrl+C stops the launcher. Windows/browser cleanup and ownership guards
+  remain unchanged. `-ServicesOnly` starts/reuses the backend and USB forwarding
+  without launching Flutter or interrupting the installed app's browser login:
+
+  ```powershell
+  cd C:\Users\weith\FYP\apps\renthub_flutter
+  .\run-renthub.ps1 -Device 6e5141a -ServicesOnly
+  ```
+
+  Keep that terminal open during demonstrations. `-CheckOnly` remains a temporary
+  readiness check and cannot be combined with `-ServicesOnly`. An installed APK and
+  FCM delivery do not keep the PC's Express/AI services running.
+- These are specific device observations, not proof of every GPS permission,
+  reception, cold-start or notification target case. Automated denial, timeout,
+  address retry, stale-response and registration tests remain separate evidence.
+
+After the services-only restart, the account holder confirmed Auth0 sign-in
+succeeded. The same existing booking-request notification then opened its correct
+completed demo booking through the notification centre, and its agreement loaded.
+This verifies related-record retrieval with the backend running; it does not
+retroactively change the earlier background-tap connection fallback into a pass.
+The API remained ready after the subsequent trust, pagination and agreement checks.

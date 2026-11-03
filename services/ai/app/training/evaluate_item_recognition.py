@@ -136,6 +136,22 @@ def iou(a, b):
     return overlap / union if union > 0 else 0
 
 
+def ground_truth_labels(case):
+    """Accept reviewed object-type aliases, never every label in a broad domain.
+
+    A computer mouse and mouse describe the same reviewed object; a laptop in
+    the same Computers domain does not. These are the production registry's
+    explicit aliases, not fuzzy text matches or new detection labels.
+    """
+    category, subcategory = items.normalize(case['category']), items.normalize(case['subcategory'])
+    label = items.normalize(case.get('label') or '')
+    types = PRODUCT_TYPES[category][subcategory]
+    if case.get('product_type'):
+        aliases = types.get(case['product_type'], set())
+        return aliases.copy() if label in aliases else set()
+    return set().union(*(aliases for aliases in types.values() if label in aliases))
+
+
 def evaluate(cases, detectors):
     from app.services.item_photo_context import document_layout, annotate_context
 
@@ -204,7 +220,7 @@ def evaluate(cases, detectors):
                 if not boxes:
                     raise ValueError('Positive evaluation requires reviewed object boxes')
                 localized = int(any(
-                    items.normalize(d['label']) == items.normalize(case['label']) and
+                    items.normalize(d['label']) in ground_truth_labels(case) and
                     any(iou(d.get('boundingBox', [0, 0, 0, 0]), box) >= .5 for box in boxes)
                     for d in matches))
                 for target in targets:
@@ -247,7 +263,12 @@ def main():
     parser.add_argument('--training-manifest', type=Path, help='Optional training/development manifest to reject overlap')
     parser.add_argument('--world-candidate', type=Path,
                         help='Explicit separate prepared candidate under .data/candidates; never changes runtime configuration')
+    parser.add_argument('--report', type=Path,
+                        help='NEW private JSON report under .data; separate from model-library console messages')
     args = parser.parse_args()
+    if args.report and (not args.report.resolve().is_relative_to((items.ROOT / '.data').resolve())
+                        or args.report.exists()):
+        parser.error('Use a NEW private report under services/ai/.data')
     if not 1 <= args.per_class <= 20:
         parser.error('per-class must be 1–20')
     if args.coverage_only:
@@ -275,6 +296,10 @@ def main():
             'withWorld': 'candidate_hybrid_detection_with_context_checks_not_deployed',
             'worldOnly': 'candidate_world_detection_with_context_checks_not_deployed',
         })
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        with args.report.open('x', encoding='utf-8') as stream:
+            json.dump(report, stream, indent=2, allow_nan=False)
     print(json.dumps(report, indent=2))
 
 

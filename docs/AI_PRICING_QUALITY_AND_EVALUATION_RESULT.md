@@ -1,5 +1,13 @@
 # Pricing suitability, source recovery and frozen evaluation
 
+3 November: [fresh audit, three-projector error trace and source preview](AI_IMAGE_AND_PRICING_EVIDENCE_ROUND3_RESULT.md).
+The initial frozen evaluation has 377 eligible asking observations and zero
+verified completed-rental targets. Three holdout projectors initially received
+identical predictions despite different brightness specifications. The subsequent
+shared specification guard now excludes those incompatible comparisons. Replaying
+the same input/model gives abstentions rather than invented replacement prices;
+brightness remains absent from the fitted features. No retraining or deployment.
+
 28 October 2026. This follow-up implements all three requested work areas:
 safer comparisons, recovery/review of published price observations, and evaluation
 of the installed model before any retraining decision. Existing uncommitted work

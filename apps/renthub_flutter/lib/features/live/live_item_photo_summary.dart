@@ -56,11 +56,29 @@ class ItemPhotoSummary {
           map(image['photoContext'])['status'] == 'needs_review' ||
           image['objectEvidenceStatus'] == 'context_needs_review');
 
+  bool get _rotationNeedsReview => images.any((image) =>
+      map(image['photoContext'])['rotationEvidenceReviewRequired'] == true);
+
+  bool get _depictedNeedsReview => images.any((image) {
+        final context = map(image['photoContext']);
+        return context['depictedContentReviewRequired'] == true ||
+            ((context['status'] == 'needs_review' ||
+                    image['objectEvidenceStatus'] == 'context_needs_review') &&
+                context['rotationEvidenceReviewRequired'] != true);
+      });
+
   List<String> get notes {
     final result = <String>[];
-    if (_contextNeedsReview) {
+    if (_rotationNeedsReview) {
+      result.add(
+          'The item type is unclear in some photos. An admin will take a closer look.');
+    }
+    if (_depictedNeedsReview ||
+        (_contextNeedsReview && !_rotationNeedsReview)) {
       result.add(
           'Some photos may show a document, illustration or screen. Include clear photos of the actual item.');
+    }
+    if (_contextNeedsReview) {
       result.add(photoGuidance(listing.category));
     }
     if (_signals.contains('at least three')) {
@@ -156,10 +174,17 @@ class ItemPhotoSummary {
         image['riskClassifierUnavailable'] == true) {
       notes.add('Checks incomplete');
     }
-    if (map(image['photoContext'])['status'] == 'needs_review' ||
-        image['objectEvidenceStatus'] == 'context_needs_review') {
+    final context = map(image['photoContext']);
+    final rotationReview = context['rotationEvidenceReviewRequired'] == true;
+    if (rotationReview) {
+      notes.add('Item type needs a closer look');
+    }
+    if (context['depictedContentReviewRequired'] == true ||
+        (!rotationReview &&
+            (context['status'] == 'needs_review' ||
+                image['objectEvidenceStatus'] == 'context_needs_review'))) {
       notes.add('Document or on-screen content needs review');
-    } else if (image['categoryMatched'] == true) {
+    } else if (!rotationReview && image['categoryMatched'] == true) {
       notes.add('Possible item type detected; not a confirmed match');
     } else if (image['categoryMatched'] == false) {
       notes.add('Item type needs manual review');

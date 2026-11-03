@@ -135,9 +135,10 @@ def original_box(box, image, turns):
 def detect_photo(image, allowed, detectors):
     """At most three local models x four orientations; no threshold reduction.
 
-    A positive fixed-model guess receives one same-orientation context pass from
-    remaining local models before stopping. Repeated predictions never become
-    extra views or independent proof. A miss remains inconclusive.
+    Original-orientation fixed-model context is retained before searching for a
+    requested label in rotated views. Positive guesses receive original and
+    same-orientation context from remaining models. Rotation-only contradictions
+    are assessed separately; retries never become extra views or independent proof.
     """
     import numpy as np
     detections, attempts, failures = [], 0, 0
@@ -177,22 +178,40 @@ def detect_photo(image, allowed, detectors):
                     bounds = original_box(box, image, turns)
                     if bounds is not None:
                         detection['boundingBox'] = bounds
+                        if turns == 0:
+                            detection['uprightEvidence'] = [{
+                                'boundingBox': bounds, 'confidence': round(score, 4)}]
                 except (AttributeError, TypeError, ValueError, IndexError):
                     pass
                 previous = next((d for d in detections if d['label'] == label and d['source'] == source), None)
                 if previous is None:
                     detections.append(detection)
-                elif score > previous['confidence']:
-                    detections[detections.index(previous)] = detection
+                else:
+                    # A higher rotated score must not erase contradictory or
+                    # supporting evidence from the original orientation.
+                    upright = (previous.get('uprightEvidence', []) +
+                               detection.get('uprightEvidence', []))[:20]
+                    if score > previous['confidence']:
+                        detection['uprightEvidence'] = upright
+                        detections[detections.index(previous)] = detection
+                    elif upright:
+                        previous['uprightEvidence'] = upright
         except Exception:
             failures += 1
 
+    # Do not condition the original scene inspection on the requested label's
+    # vocabulary: a general model can see the mouse while a target-only model
+    # later mistakes its rotated cable for headphones.
+    for entry in detectors:
+        if entry[1] != 'yolo_world_pretrained':
+            run(0, entry)
     for turns, entry in plan:
         run(turns, entry)
         if any(d['matchesCategory'] for d in detections):
             # Keep competing paper/screen/illustration predictions even when
             # the first model guessed the requested object class.
             for other in detectors:
+                run(0, other)
                 run(turns, other)
             return detections, attempts, failures
     return detections, attempts, failures
@@ -369,7 +388,10 @@ def verify(request, decoded, errors, quality_fn, hash_fn, risk_fn):
         evidence.update({'detections': detections, 'detectionAttempts': attempts,
                          'failedDetectionAttempts': failed, 'photoContext': context})
         if context['status'] == 'needs_review':
-            indicators.append(f'Photo {index + 1} may show a document, illustration or on-screen content; review the actual item')
+            if context.get('rotationEvidenceReviewRequired'):
+                indicators.append(f'Photo {index + 1} has conflicting object detections; an administrator should check the item')
+            if context.get('depictedContentReviewRequired'):
+                indicators.append(f'Photo {index + 1} may show a document, illustration or on-screen content; review the actual item')
         labels.update(d['label'] for d in detections)
         matched = any(d['matchesCategory'] for d in detections)
         # Missing whole-object evidence is not bad quality or a wrong-item verdict.

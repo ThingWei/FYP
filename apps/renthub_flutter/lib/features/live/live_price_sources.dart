@@ -204,6 +204,15 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
                       subtitle:
                           const Text('Last update and simple update controls'),
                       children: [
+                        AdminRecordToolbar(
+                            page: shownPage,
+                            limit: pageSize,
+                            total: sources.length,
+                            loading: loading || working,
+                            onLimit: (value) => setState(() {
+                                  pageSize = value;
+                                  page = 1;
+                                })),
                         for (final value in sources
                             .skip((shownPage - 1) * pageSize)
                             .take(pageSize))
@@ -304,11 +313,7 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
                             limit: pageSize,
                             total: sources.length,
                             loading: loading || working,
-                            onPage: (v) => setState(() => page = v),
-                            onLimit: (v) => setState(() {
-                                  pageSize = v;
-                                  page = 1;
-                                })),
+                            onPage: (v) => setState(() => page = v)),
                       ]),
                 ])));
   }

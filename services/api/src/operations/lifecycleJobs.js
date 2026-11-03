@@ -7,6 +7,7 @@ import { runDueReportSchedules } from '../modules/admin/report.service.js';
 import { withOperationLock } from '../modules/booking/bookingRequestLock.js';
 import { recoverLifecycleOperations, recoverListingOperations } from './lifecycleJournal.js';
 import { expireRentalExtensions } from '../modules/rental/rental.service.js';
+import { physicalRentalDate, physicalRentalReturnDeadline } from '../core/calendarDate.js';
 
 const state = {
   enabled: env.lifecycleJobsEnabled,
@@ -136,14 +137,19 @@ async function sendStartReminders(now, reminderHours) {
 }
 
 async function sendPhysicalDueReminders(now, reminderHours) {
+  const windowEnd = addHours(now, reminderHours);
+  const firstDay = physicalRentalDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+  const lastDayExclusive = new Date(physicalRentalDate(windowEnd).getTime() + 24 * 60 * 60 * 1000);
   const rentals = await RentalModel.find({
     listingType: 'physical',
     status: 'active',
-    endDate: { $gte: now, $lte: addHours(now, reminderHours) },
+    endDate: { $gte: firstDay, $lt: lastDayExclusive },
     'automation.dueReminderSentAt': null,
   });
   let sent = 0;
   for (const rental of rentals) {
+    const deadline = physicalRentalReturnDeadline(rental.endDate);
+    if (deadline < now || deadline > windowEnd) continue;
     const title = await bookingTitle(rental);
     await Promise.all([
       notifyParticipant(
@@ -171,7 +177,9 @@ async function sendPhysicalDueReminders(now, reminderHours) {
 }
 
 async function markOverdueRentals(now, graceHours) {
-  const cutoff = new Date(now.getTime() - graceHours * 60 * 60 * 1000);
+  // endDate stores an inclusive calendar day, not its return-time instant.
+  // Only days before the current Malaysia day (after grace) have ended.
+  const cutoff = physicalRentalDate(new Date(now.getTime() - graceHours * 60 * 60 * 1000));
   const rentals = await RentalModel.find({
     listingType: 'physical',
     status: 'active',

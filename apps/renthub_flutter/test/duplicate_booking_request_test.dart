@@ -74,6 +74,47 @@ class DuplicateApi extends ApiClient {
   }
 }
 
+class NewBookingApi extends DuplicateApi {
+  NewBookingApi() : super(false);
+  int pageReads = 0;
+  Map<String, dynamic> get saved => {
+        'publicId': existingId,
+        'listingId': 'l-camera',
+        'listingTitle': 'Test camera',
+        'listingType': 'physical',
+        'renterId': 'renter',
+        'ownerId': 'owner',
+        'startDate': '2027-01-01',
+        'endDate': '2027-01-03',
+        'status': 'pending',
+        'paymentStatus': 'unpaid',
+        'expiresAt': '2099-01-01T00:00:00Z',
+        'pricing': {
+          'baseAmount': 300,
+          'securityDeposit': 0,
+          'damageWaiverFee': 0,
+          'platformFee': 0,
+          'total': 300,
+          'currency': 'MYR',
+        }
+      };
+
+  @override
+  Future<dynamic> request(String method, String path, {Object? body}) async {
+    if (method == 'POST' && path == '/bookings') {
+      creations++;
+      return saved;
+    }
+    if (path == '/bookings/$existingId') return saved;
+    if (path == '/payments/booking/$existingId') return <dynamic>[];
+    if (path == '/bookings/mine') {
+      pageReads++;
+      return ApiItems([saved], {'page': 1, 'limit': 20, 'total': 1});
+    }
+    return super.request(method, path, body: body);
+  }
+}
+
 Future<void> tapText(WidgetTester tester, String text) async {
   final target = find.text(text);
   for (int i = 0; target.evaluate().isEmpty && i < 35; i++) {
@@ -87,6 +128,59 @@ Future<void> tapText(WidgetTester tester, String text) async {
 }
 
 void main() {
+  testWidgets('leaving new checkout refreshes a previously empty booking count',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = NewBookingApi();
+    final user = User.fromJson(api.profile);
+    final auth = AuthController(MockAuthRepository())..user = user;
+    final controller = LiveRentHubController(api)..syncSession(user);
+    controller.rememberUserPage(
+        'renter-bookings', ApiItems([], {'page': 1, 'limit': 20, 'total': 0}));
+    addTearDown(auth.dispose);
+    addTearDown(controller.dispose);
+    var submitted = false;
+    await tester.pumpWidget(MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: auth),
+          ChangeNotifierProvider.value(value: controller),
+        ],
+        child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(body: Builder(builder: (context) {
+              return TextButton(
+                  onPressed: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => LiveBookingPage(
+                              listing: const Listing(
+                                  id: 'l-camera',
+                                  title: 'Test camera',
+                                  category: 'Devices',
+                                  dailyPrice: 100,
+                                  fulfilmentMethods: ['pickup']),
+                              onSubmitted: () => submitted = true))),
+                  child: const Text('Open listing'));
+            })))));
+    await tapText(tester, 'Open listing');
+    await tapText(tester, 'Review');
+    await tapText(tester, 'I have reviewed these terms');
+    await tapText(
+        tester, 'I have reviewed and accept the RentHub booking agreement.');
+    await tapText(tester, 'Continue to checkout');
+    await tapText(tester, 'Continue');
+    await tapText(tester, 'Back to Bookings');
+    expect(submitted, isTrue);
+    expect(api.creations, 1);
+    expect(api.payments, 0);
+    expect(api.pageReads, 1);
+    expect(controller.userRecordPages['renter-bookings']!.total, 1);
+    expect(controller.renterBookings.single.id, existingId);
+    expect(controller.ownerBookings, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   test('only typed, validated duplicate targets can open a booking', () {
     expect(
         ExistingBookingRequest.fromError(duplicate())!.bookingId, existingId);

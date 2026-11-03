@@ -13,6 +13,7 @@ import { adminModule } from '../src/modules/admin/index.js';
 import { NotificationModel } from '../src/modules/communication/notification.model.js';
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
+import { physicalRentalReturnDeadline } from '../src/core/calendarDate.js';
 
 let mongodb;
 
@@ -62,6 +63,72 @@ beforeEach(async () => {
     PaymentModel.deleteMany({}),
     adminModule.Model.deleteMany({}),
   ]);
+});
+
+test('physical return deadlines use the entire inclusive Malaysia calendar day', () => {
+  for (const [day, deadline] of [
+    ['2026-11-02', '2026-11-02T16:00:00.000Z'],
+    ['2026-12-31', '2026-12-31T16:00:00.000Z'],
+    ['2028-02-29', '2028-02-29T16:00:00.000Z'],
+  ]) {
+    assert.equal(physicalRentalReturnDeadline(day).toISOString(), deadline);
+  }
+});
+
+async function activeCalendarRental(endDate = '2026-11-02T00:00:00Z', listingType = 'physical') {
+  return RentalModel.create({
+    publicId: 'RH-RNT-2026-CALENDAR1',
+    bookingId: 'RH-BKG-2026-CALENDAR1',
+    listingId: 'calendar-demo',
+    listingType,
+    renterId: 'u-renter',
+    ownerId: 'u-owner',
+    startDate: new Date('2026-11-02T00:00:00Z'),
+    endDate: new Date(endDate),
+    status: 'active',
+  });
+}
+
+test('same-day physical rental stays active through Malaysia 23:59:59 and is overdue after midnight', async () => {
+  const rental = await activeCalendarRental();
+  const before = await runLifecycleJobs({ now: new Date('2026-11-02T15:59:59Z'), graceHours: 0, reminderHours: 1 });
+  assert.equal(before.overdueRentals, 0);
+  assert.equal(before.dueReminders, 2);
+  assert.equal((await RentalModel.findById(rental._id)).status, 'active');
+  const after = await runLifecycleJobs({ now: new Date('2026-11-02T16:00:00Z'), graceHours: 0 });
+  assert.equal(after.overdueRentals, 1);
+  assert.equal((await RentalModel.findById(rental._id)).status, 'overdue');
+  const replay = await runLifecycleJobs({ now: new Date('2026-11-02T16:01:00Z'), graceHours: 0 });
+  assert.equal(replay.overdueRentals, 0);
+  assert.equal(await NotificationModel.countDocuments({ type: 'rental_overdue' }), 2);
+});
+
+test('overdue grace starts at the end of the rental day, not stored UTC midnight', async () => {
+  const rental = await activeCalendarRental();
+  const before = await runLifecycleJobs({ now: new Date('2026-11-02T17:59:59Z'), graceHours: 2 });
+  assert.equal(before.overdueRentals, 0);
+  assert.equal((await RentalModel.findById(rental._id)).status, 'active');
+  const after = await runLifecycleJobs({ now: new Date('2026-11-02T18:00:00Z'), graceHours: 2 });
+  assert.equal(after.overdueRentals, 1);
+});
+
+test('return reminders respect their actual deadline window and legacy stored day', async () => {
+  const rental = await activeCalendarRental('2026-11-02T12:00:00Z');
+  const early = await runLifecycleJobs({ now: new Date('2026-11-02T08:00:00Z'), graceHours: 0, reminderHours: 1 });
+  assert.equal(early.overdueRentals, 0);
+  assert.equal(early.dueReminders, 0);
+  const due = await runLifecycleJobs({ now: new Date('2026-11-02T15:30:00Z'), graceHours: 0, reminderHours: 1 });
+  assert.equal(due.dueReminders, 2);
+  assert.equal((await RentalModel.findById(rental._id)).status, 'active');
+});
+
+test('service deadlines remain timestamps and never become physical overdue rentals', async () => {
+  const rental = await activeCalendarRental('2026-11-02T01:00:00Z', 'service');
+  const result = await runLifecycleJobs({ now: new Date('2026-11-02T08:00:00Z'), graceHours: 0 });
+  assert.equal(result.overdueRentals, 0);
+  assert.equal(result.dueReminders, 0);
+  assert.equal(result.serviceReminders, 1);
+  assert.equal((await RentalModel.findById(rental._id)).status, 'active');
 });
 
 test('exposes technology health and a guarded manual run to administrators', async () => {

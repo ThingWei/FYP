@@ -56,7 +56,7 @@ def test_prompted_matches_cannot_become_automatic_candidates(monkeypatch, catego
     assert result.extracted_fields['matchingViewCount'] == 3
 
 
-def test_ordinary_rotations_precede_world_then_context_is_checked_without_forcing_target():
+def test_ordinary_rotations_precede_world_with_upright_and_rotated_context():
     class Sideways(Detector):
         def predict(self, image, **kwargs):
             self.detected = 'book' if self.calls else ''
@@ -64,9 +64,9 @@ def test_ordinary_rotations_precede_world_then_context_is_checked_without_forcin
     primary, fallback = Sideways('book'), Detector('book')
     ds, attempts, failures = items.detect_photo(np.zeros((10, 10, 3)), {'book'},
         [(primary, 'configured_item_model', 'a.pt'), (fallback, world.SOURCE, 'b.pt')])
-    assert attempts == 3 and failures == 0
+    assert attempts == 4 and failures == 0
     assert ds[0]['source'] == 'configured_item_model'
-    assert fallback.calls == 1
+    assert fallback.calls == 2
 
 
 def test_world_runs_only_after_fixed_model_misses_and_unrelated_is_not_a_match():

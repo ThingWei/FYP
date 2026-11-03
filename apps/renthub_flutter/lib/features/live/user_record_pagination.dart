@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/user_facing_error.dart';
+import '../../shared/widgets/dot_pagination.dart';
+import '../../shared/widgets/record_list_header.dart';
 import 'live_renthub_controller.dart';
 
 class UserRecordPage {
@@ -49,6 +51,14 @@ class _LocalPagedListViewState<T> extends State<LocalPagedListView<T>> {
     final start = (page - 1) * limit,
         rows = widget.items.skip(start).take(limit).toList();
     return Column(children: [
+      RecordListHeader(
+          summary:
+              '${widget.items.isEmpty ? 0 : start + 1}–${start + rows.length} of ${widget.items.length}',
+          limit: limit,
+          onLimit: (value) => setState(() {
+                limit = value;
+                page = 1;
+              })),
       Expanded(
           child: ListView.separated(
               padding: const EdgeInsets.all(16),
@@ -57,38 +67,32 @@ class _LocalPagedListViewState<T> extends State<LocalPagedListView<T>> {
               itemBuilder: (c, i) => widget.itemBuilder(c, rows[i]))),
       SafeArea(
           top: false,
-          child: Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              alignment: WrapAlignment.center,
-              children: [
-                Text(
-                    '${widget.items.isEmpty ? 0 : start + 1}–${start + rows.length} of ${widget.items.length}'),
-                IconButton(
-                    tooltip: 'Previous page',
-                    onPressed: page > 1 ? () => setState(() => page--) : null,
-                    icon: const Icon(Icons.chevron_left)),
-                IconButton(
-                    tooltip: 'Next page',
-                    onPressed: start + rows.length < widget.items.length
-                        ? () => setState(() => page++)
-                        : null,
-                    icon: const Icon(Icons.chevron_right)),
-                DropdownButton<int>(
-                    value: limit,
-                    items: [10, 20, 50]
-                        .map((n) => DropdownMenuItem(
-                            value: n, child: Text('$n / page')))
-                        .toList(),
-                    onChanged: (n) {
-                      if (n != null) {
-                        setState(() {
-                          limit = n;
-                          page = 1;
-                        });
-                      }
-                    })
-              ]))
+          child: DotPagination(
+              page: page,
+              pageCount: (widget.items.length / limit).ceil(),
+              onPage: (value) => setState(() => page = value)))
     ]);
+  }
+}
+
+class UserRecordToolbar extends StatelessWidget implements PreferredSizeWidget {
+  const UserRecordToolbar({super.key, required this.collection});
+  final String collection;
+  @override
+  Size get preferredSize => const Size.fromHeight(76);
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<LiveRentHubController>();
+    final state =
+        controller.userRecordPages.putIfAbsent(collection, UserRecordPage.new);
+    return RecordListHeader(
+        summary: state.total == null
+            ? 'Records'
+            : '${state.total == 0 ? 0 : (state.page - 1) * state.limit + 1}–${(state.page * state.limit).clamp(0, state.total!)} of ${state.total}',
+        limit: state.limit,
+        loading: state.loading,
+        onLimit: (value) =>
+            controller.loadUserRecords(collection, page: 1, limit: value));
   }
 }
 
@@ -166,47 +170,15 @@ class _UserRecordPaginationState extends State<UserRecordPagination> {
                                   page: state.page),
                           child: const Text('Retry'))
                     ]),
-                  Wrap(
-                      spacing: 4,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        Text(state.total == null
-                            ? 'Page ${state.page}'
-                            : '${state.total == 0 ? 0 : (state.page - 1) * state.limit + 1}–${(state.page * state.limit).clamp(0, state.total!)} of ${state.total}'),
-                        IconButton(
-                            tooltip: 'Previous page',
-                            onPressed: state.loading || state.page <= 1
-                                ? null
-                                : () => controller.loadUserRecords(
-                                    widget.collection,
-                                    page: state.page - 1),
-                            icon: const Icon(Icons.chevron_left)),
-                        IconButton(
-                            tooltip: 'Next page',
-                            onPressed: state.loading || !state.hasMore
-                                ? null
-                                : () => controller.loadUserRecords(
-                                    widget.collection,
-                                    page: state.page + 1),
-                            icon: const Icon(Icons.chevron_right)),
-                        DropdownButton<int>(
-                            value: state.limit,
-                            items: [10, 20, 50]
-                                .map((n) => DropdownMenuItem(
-                                    value: n, child: Text('$n / page')))
-                                .toList(),
-                            onChanged: state.loading
-                                ? null
-                                : (n) {
-                                    if (n != null) {
-                                      controller.loadUserRecords(
-                                          widget.collection,
-                                          page: 1,
-                                          limit: n);
-                                    }
-                                  }),
-                      ]),
+                  DotPagination(
+                      page: state.page,
+                      pageCount: state.total == null
+                          ? null
+                          : (state.total! / state.limit).ceil(),
+                      hasNext: state.hasMore,
+                      loading: state.loading,
+                      onPage: (value) => controller
+                          .loadUserRecords(widget.collection, page: value)),
                 ]))));
   }
 }

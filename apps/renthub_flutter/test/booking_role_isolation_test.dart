@@ -273,6 +273,44 @@ void main() {
   });
 
   for (final width in [360.0, 390.0]) {
+    testWidgets('Owner order uses the saved item title at $width',
+        (tester) async {
+      await tester.binding.setSurfaceSize(Size(width, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final booking =
+          Booking.fromJson(row('IN', renter: 'customer', owner: 'dual'));
+      controller.ownerWorkspace.bookings = [booking];
+      controller.ownerListings = [
+        Listing(
+            id: booking.listingId,
+            title: 'Changed current listing title',
+            category: 'Devices',
+            dailyPrice: 100)
+      ];
+      controller.ownerOrderRecords = [
+        Rental.fromJson({
+          ...rentalRow('R-IN', 'IN', renter: 'customer', owner: 'dual'),
+          'listingId': booking.listingId,
+        })
+      ];
+      controller.rememberUserPage(
+          'owner-rentals', ApiItems([], {'total': 1, 'page': 1, 'limit': 20}));
+      await tester.pumpWidget(ChangeNotifierProvider.value(
+          value: controller,
+          child: MaterialApp(
+              theme: AppTheme.light,
+              builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(textScaler: const TextScaler.linear(1.4)),
+                  child: child!),
+              home: const LiveOwnerOrdersPage())));
+      await tester.pumpAndSettle();
+      expect(find.text('IN camera'), findsOneWidget);
+      expect(find.text('Changed current listing title'), findsNothing);
+      expect(find.text(booking.listingId), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets(
         'Owner/renter lists and controls stay isolated at $width with larger text',
         (tester) async {

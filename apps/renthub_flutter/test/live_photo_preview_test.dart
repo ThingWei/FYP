@@ -8,7 +8,9 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
 import 'package:renthub_flutter/features/live/live_item_verification_panel.dart';
+import 'package:renthub_flutter/features/live/live_listing_collection.dart';
 import 'package:renthub_flutter/features/live/live_photo_widgets.dart';
+import 'package:renthub_flutter/features/live/live_recommendations.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
 
@@ -37,6 +39,51 @@ Widget root(LiveRentHubController controller, Widget child) =>
     );
 
 void main() {
+  test('public listing photos resolve stored IDs without changing private URLs',
+      () {
+    final api = PhotoApi();
+    const expected =
+        'http://example.invalid/api/v1/uploads/public/UPL-ABC/content';
+    for (final ref in ['upload://UPL-ABC', ' UPL-ABC ', 'upload://upl-abc']) {
+      expect(api.publicPhotoUrl(ref), expected);
+    }
+    expect(
+        api.publicPhotoUrl('/api/v1/uploads/public/UPL-ABC/content'), expected);
+    expect(api.publicPhotoUrl('https://storage.example.test/photo.png'),
+        'https://storage.example.test/photo.png');
+    expect(api.publicPhotoUrl('/api/v1/uploads/UPL-ABC/content'),
+        'http://example.invalid/api/v1/uploads/UPL-ABC/content');
+    // General/protected reference handling is deliberately unchanged.
+    expect(api.absoluteUrl('upload://UPL-ABC'), 'upload://UPL-ABC');
+  });
+
+  for (final compact in [false, true]) {
+    testWidgets(
+        'public stored image loads in ${compact ? 'compact' : 'square'} listing card',
+        (tester) async {
+      final listing = Listing.fromJson({
+        'publicId': 'photo-card',
+        'title': 'Demo camera',
+        'category': 'Devices',
+        'dailyPrice': 50,
+        'images': ['upload://UPL-ABC']
+      });
+      await tester.pumpWidget(root(
+          LiveRentHubController(PhotoApi()),
+          SizedBox(
+              width: 240,
+              child: compact
+                  ? ListingThumbnail(listing: listing)
+                  : ListingCardPhoto(listing: listing))));
+      final image = tester.widget<Image>(find.byType(Image));
+      expect((image.image as NetworkImage).url,
+          'http://example.invalid/api/v1/uploads/public/UPL-ABC/content');
+      expect(image.fit, BoxFit.cover);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   test('public listing paths do not become private download routes', () async {
     final api = PhotoApi();
     await LiveRentHubController(api)

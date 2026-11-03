@@ -324,6 +324,98 @@ void main() {
         'Possible item type detected. Admin review is needed.');
   });
 
+  for (final width in [360.0, 390.0, 1024.0]) {
+    testWidgets('conflicting item types use neutral review wording at $width',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      const item = Listing(
+          id: 'rotation-context',
+          title: 'Audio item',
+          category: 'Devices',
+          subcategory: 'Audio',
+          dailyPrice: 10,
+          itemVerificationOutcome: 'warning',
+          itemVerification: {
+            'confidence': 0,
+            'extracted_fields': {
+              'categoryMatched': null,
+              'matchingViewCount': 0,
+              'submittedViewCount': 3,
+              'photoContextReviewRequired': true,
+              'categoryMatchStatus': 'context_needs_review',
+              'images': [
+                {
+                  'categoryMatched': null,
+                  'photoContext': {
+                    'status': 'needs_review',
+                    'rotationEvidenceReviewRequired': true,
+                    'depictedContentReviewRequired': false,
+                  }
+                }
+              ]
+            }
+          });
+      final summary = ItemPhotoSummary(item);
+      expect(summary.typeSummary, 'Photo content needs review.');
+      expect(summary.photoNote(summary.images.first),
+          'Item type needs a closer look');
+      expect(summary.notes.join(' '), isNot(contains('document')));
+      expect(summary.notes.join(' '), isNot(contains('blurry')));
+      await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!),
+          home: const Scaffold(
+              body: SingleChildScrollView(
+                  child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: ItemVerificationPanel(listing: item))))));
+      expect(find.textContaining('The item type is unclear'), findsOneWidget);
+      expect(
+          find.textContaining('Some photos may show a document'), findsNothing);
+      await tester.ensureVisible(find.text('Photo details'));
+      await tester.tap(find.text('Photo details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo content needs review.'), findsOneWidget);
+      expect(find.textContaining('looks consistent'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  test('combined document and object uncertainty retain both review notes', () {
+    final summary = ItemPhotoSummary(const Listing(
+        id: 'combined',
+        title: 'Item',
+        category: 'Devices',
+        dailyPrice: 10,
+        itemVerification: {
+          'extracted_fields': {
+            'photoContextReviewRequired': true,
+            'images': [
+              {
+                'photoContext': {
+                  'status': 'needs_review',
+                  'rotationEvidenceReviewRequired': true,
+                  'depictedContentReviewRequired': true,
+                }
+              }
+            ]
+          }
+        }));
+    expect(summary.notes.join(' '), contains('item type is unclear'));
+    expect(
+        summary.notes.join(' '), contains('document, illustration or screen'));
+    expect(summary.photoNote(summary.images.first),
+        contains('Item type needs a closer look'));
+    expect(summary.photoNote(summary.images.first),
+        contains('Document or on-screen'));
+  });
+
   for (final category in [
     'Devices',
     'Vehicles',

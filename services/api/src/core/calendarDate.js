@@ -50,3 +50,9 @@ export function calendarDateString(value) {
   const day = date.getUTCDate().toString().padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
+/** End of the inclusive physical rental day, at the next midnight in Malaysia. */
+export function physicalRentalReturnDeadline(value) {
+  const day = physicalRentalDate(calendarDateString(value));
+  return new Date(day.getTime() + 16 * 60 * 60 * 1000);
+}

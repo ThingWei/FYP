@@ -5,6 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/dot_pagination.dart';
+import '../../shared/widgets/record_list_header.dart';
 import 'admin_record_models.dart';
 import 'live_renthub_controller.dart';
 import 'live_photo_widgets.dart';
@@ -21,44 +23,38 @@ class AdminPagination extends StatelessWidget {
       required this.limit,
       required this.total,
       required this.loading,
-      required this.onPage,
+      required this.onPage});
+  final int page, limit, total;
+  final bool loading;
+  final ValueChanged<int> onPage;
+  @override
+  Widget build(BuildContext context) => DotPagination(
+      page: page,
+      pageCount: (total / limit).ceil(),
+      loading: loading,
+      onPage: onPage);
+}
+
+class AdminRecordToolbar extends StatelessWidget {
+  const AdminRecordToolbar(
+      {super.key,
+      required this.page,
+      required this.limit,
+      required this.total,
+      required this.loading,
       required this.onLimit});
   final int page, limit, total;
   final bool loading;
-  final ValueChanged<int> onPage, onLimit;
+  final ValueChanged<int> onLimit;
   @override
-  Widget build(BuildContext context) => Wrap(
-          alignment: WrapAlignment.end,
-          spacing: 12,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Text(total == 0
-                ? '0 records'
-                : '${(page - 1) * limit + 1}–${(page * limit).clamp(0, total)} of $total'),
-            const Text('Rows per page'),
-            DropdownButton<int>(
-                value: limit,
-                items: [10, 20, 50]
-                    .map((v) => DropdownMenuItem(value: v, child: Text('$v')))
-                    .toList(),
-                onChanged: loading
-                    ? null
-                    : (v) {
-                        if (v != null) onLimit(v);
-                      }),
-            IconButton(
-                tooltip: 'Previous page',
-                onPressed: loading || page <= 1 ? null : () => onPage(page - 1),
-                icon: const Icon(Icons.chevron_left)),
-            Text('Page $page of ${total == 0 ? 1 : (total / limit).ceil()}'),
-            IconButton(
-                tooltip: 'Next page',
-                onPressed: loading || page * limit >= total
-                    ? null
-                    : () => onPage(page + 1),
-                icon: const Icon(Icons.chevron_right)),
-          ]);
+  Widget build(BuildContext context) => RecordListHeader(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      summary: total == 0
+          ? '0 records'
+          : '${(page - 1) * limit + 1}–${(page * limit).clamp(0, total)} of $total',
+      limit: limit,
+      loading: loading,
+      onLimit: onLimit);
 }
 
 class AdminStatusBadge extends StatelessWidget {
@@ -299,6 +295,16 @@ class _AdminRecordsTableState extends State<AdminRecordsTable> {
                                   : 'View records and open details to review or take action.',
                               style: TextStyle(color: AppColors.secondaryText)),
                           const SizedBox(height: 12),
+                          AdminRecordToolbar(
+                              page: s.page,
+                              limit: s.limit,
+                              total: s.total,
+                              loading: s.loading,
+                              onLimit: (value) {
+                                s.limit = value;
+                                s.page = 1;
+                                _load();
+                              }),
                           Wrap(
                               spacing: 12,
                               runSpacing: 8,
@@ -539,11 +545,6 @@ class _AdminRecordsTableState extends State<AdminRecordsTable> {
                               loading: s.loading,
                               onPage: (v) {
                                 s.page = v;
-                                _load();
-                              },
-                              onLimit: (v) {
-                                s.limit = v;
-                                s.page = 1;
                                 _load();
                               }),
                         ])))));
@@ -1521,6 +1522,16 @@ class _AdminInlineHistoryState extends State<AdminInlineHistory> {
                   '${widget.rows.length} recorded update${widget.rows.length == 1 ? '' : 's'}'),
               initiallyExpanded: widget.initiallyExpanded,
               children: [
+            if (widget.rows.length > 10)
+              AdminRecordToolbar(
+                  page: page,
+                  limit: limit,
+                  total: widget.rows.length,
+                  loading: false,
+                  onLimit: (value) => setState(() {
+                        limit = value;
+                        page = 1;
+                      })),
             for (final raw in widget.rows.skip((page - 1) * limit).take(limit))
               if (raw is Map)
                 ListTile(
@@ -1555,10 +1566,6 @@ class _AdminInlineHistoryState extends State<AdminInlineHistory> {
                   limit: limit,
                   total: widget.rows.length,
                   loading: false,
-                  onPage: (v) => setState(() => page = v),
-                  onLimit: (v) => setState(() {
-                        limit = v;
-                        page = 1;
-                      })),
+                  onPage: (v) => setState(() => page = v)),
           ])));
 }

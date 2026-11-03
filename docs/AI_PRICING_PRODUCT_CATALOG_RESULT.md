@@ -1,5 +1,14 @@
 # RentHub AI pricing and product catalog result
 
+## 3 November 2026: explicit specification compatibility
+
+[Implementation and measured results](AI_IMAGE_AND_PRICING_EVIDENCE_ROUND3_RESULT.md#implementation-follow-up-specification-guards-and-recognition-candidate)
+record the shared brightness/display/memory/capacity/voltage comparison guards.
+Incompatible or missing explicit specifications no longer enter broader tiers.
+The same frozen projector cases now abstain instead of receiving identical
+unsupported estimates. XGBoost weights/features and clean-evidence rules remain
+unchanged; this does not fill missing price data or validate accuracy.
+
 ## 28 October 2026: optional catalogue and evidence-led selection
 
 [Evidence-led selection](EVIDENCE_LED_PRODUCT_SELECTION_RESULT.md) now supplies

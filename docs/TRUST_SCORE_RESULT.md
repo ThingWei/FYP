@@ -109,3 +109,21 @@ feat(trust): calculate role-based reputation from recorded rental activity
 - preserve financial outcomes when reputation refresh fails
 - test policy, API access, lifecycle updates, retry and responsive layouts
 ```
+## 3 November 2026: demo-history explanation
+
+Read-only recalculation for the tested Owner found one completed booking in the
+demo cohort, one distinct demo counterparty, one measured on-time event and zero
+published reviews. The genuine marketplace cohort has zero qualifying completions.
+The staged booking used simulated payment, so moving it into genuine reputation
+would misrepresent the demonstration as a real transaction.
+
+The details screen now explains this separation near the top and places Demo
+activity before the longer calculation explanation. The existing three-completion,
+two-counterparty maturity rule is unchanged. No scores, provenance or historical
+records were rewritten to make the display look established.
+
+Post-build Android check: normal sign-in and role switching reached Owner trust
+details. The new notice was visible at the top, and Demo activity showed one
+completion, one counterparty, zero published reviews and one of one recorded on
+time. Genuine marketplace counts remained zero, as required by the provenance
+policy. No reputation-affecting review or other transaction was created.

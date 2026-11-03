@@ -6,6 +6,18 @@ can remain indistinguishable. Book pages can legitimately be supporting views.
 """
 import math
 
+from .item_domains import PRODUCT_TYPES
+
+
+# Explicit existing object-type aliases, never fuzzy similarity or expected-only
+# prompts. The same type used in several domains retains one semantic identity.
+LABEL_TYPES = {}
+for subcategories in PRODUCT_TYPES.values():
+    for types in subcategories.values():
+        for kind, aliases in types.items():
+            for alias in aliases:
+                LABEL_TYPES.setdefault(alias, set()).add(kind)
+
 
 DEPICTED_CONTEXT = {'paper', 'poster', 'illustration', 'screen',
                     'credit card', 'detail page'}
@@ -58,11 +70,57 @@ def valid_box(value):
             and value[0] < value[2] and value[1] < value[3])
 
 
+def overlapping_region(first, second):
+    """The same or contained region, not an unrelated nearby object."""
+    if not valid_box(first) or not valid_box(second):
+        return False
+    overlap = max(0., min(first[2], second[2]) - max(first[0], second[0])) * max(
+        0., min(first[3], second[3]) - max(first[1], second[1]))
+    area = min((first[2] - first[0]) * (first[3] - first[1]),
+               (second[2] - second[0]) * (second[3] - second[1]))
+    return overlap / area >= .80
+
+
+def upright_regions(detection):
+    values = detection.get('uprightEvidence', [])
+    if not isinstance(values, list):
+        values = []
+    result = [row['boundingBox'] for row in values[:20] if isinstance(row, dict)
+              and valid_box(row.get('boundingBox'))]
+    if detection.get('rotationDegrees') == 0 and valid_box(detection.get('boundingBox')):
+        result.append(detection['boundingBox'])
+    return result
+
+
+def rotation_conflicts(detection, detections):
+    """Rotation-only matches with overlapping, different upright hypotheses.
+
+    Scores from different models are not calibrated against each other. This
+    marks ambiguous evidence for review, not a finding of wrong/fake content.
+    Legitimately sideways photos with no contradictory upright object still work.
+    """
+    if detection.get('rotationDegrees', 0) == 0 or not valid_box(detection.get('boundingBox')):
+        return []
+    family = LABEL_TYPES.get(detection['label'].casefold(), set())
+    if not family:
+        return []
+    box = detection['boundingBox']
+    if any(family & LABEL_TYPES.get(other['label'].casefold(), set()) and
+           any(overlapping_region(box, region) for region in upright_regions(other))
+           for other in detections):
+        return []
+    return sorted({other['label'] for other in detections
+                   if LABEL_TYPES.get(other['label'].casefold(), set()) and
+                   not family & LABEL_TYPES[other['label'].casefold()] and
+                   any(overlapping_region(box, region) for region in upright_regions(other))})
+
+
 def annotate_context(detections, layout):
     """Retain raw scores, but don't count a depicted/document region as a match."""
     conflicts = [d for d in detections if d['label'].casefold() in DEPICTED_CONTEXT
                  and valid_box(d.get('boundingBox'))]
     flagged = False
+    rotation_flagged = False
     for detection in detections:
         if not detection.get('matchesCategory'):
             continue
@@ -78,10 +136,19 @@ def annotate_context(detections, layout):
                 # A nearby sheet/display must not invalidate an unrelated item.
                 if overlap / area >= .80:
                     conflict = True
-        if conflict:
+        competing = rotation_conflicts(detection, detections)
+        if competing:
+            detection['rotationReviewRequired'] = True
+            detection['competingUprightLabels'] = competing
+            rotation_flagged = True
+        if conflict or competing:
             detection['matchesCategory'] = False
             detection['contextReviewRequired'] = True
+        if conflict:
             flagged = True
-    return {'status': 'needs_review' if flagged or layout.get('status') == 'possible_document_layout'
+    depicted = flagged or layout.get('status') == 'possible_document_layout'
+    return {'status': 'needs_review' if depicted or rotation_flagged
             else 'not_established', 'layout': layout,
+            'rotationEvidenceReviewRequired': rotation_flagged,
+            'depictedContentReviewRequired': depicted,
             'listingRelevanceVerified': False, 'physicalItemVerified': False}

@@ -97,7 +97,9 @@ class _LiveMessagesPageState extends State<LiveMessagesPage> {
     final controller = context.watch<LiveRentHubController>();
     final page = controller.userRecordPages['conversations'];
     return Scaffold(
-      appBar: AppBar(title: const Text('Messages')),
+      appBar: AppBar(
+          title: const Text('Messages'),
+          bottom: const UserRecordToolbar(collection: 'conversations')),
       bottomNavigationBar:
           const UserRecordPagination(collection: 'conversations'),
       body: RefreshIndicator(
@@ -211,6 +213,7 @@ class _LiveNotificationsPageState extends State<LiveNotificationsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
+        bottom: const UserRecordToolbar(collection: 'notifications'),
         actions: [
           TextButton(
             onPressed: controller.notifications.any((item) => !item.read)

@@ -42,6 +42,21 @@ def test_expanded_preparation_requires_separate_output_before_loading_or_downloa
         prepare(profile=world.EXPANDED_PROFILE)
 
 
+def test_object_view_candidate_preserves_previous_prompts_and_competing_context():
+    prompts = world.prompts_for(world.OBJECT_VIEWS_PROFILE)
+    assert prompts[:len(world.EXPANDED_PROMPTS)] == world.EXPANDED_PROMPTS
+    additions = prompts[len(world.EXPANDED_PROMPTS):]
+    assert len(additions) == 12
+    # Alternate descriptions keep existing object labels, not new authenticity
+    # or subtype claims. Each request still receives the same global vocabulary.
+    assert {label for _, label in additions} <= {label for _, label in world.EXPANDED_PROMPTS}
+    assert {'screen', 'paper', 'illustration', 'person'} <= {label for _, label in prompts}
+    assert world.prompts_for() == world.PROMPTS
+    assert world.vocabulary_hash(world.OBJECT_VIEWS_PROFILE) != world.vocabulary_hash(world.EXPANDED_PROFILE)
+    with pytest.raises(ValueError, match='isolated candidate'):
+        prepare(profile=world.OBJECT_VIEWS_PROFILE)
+
+
 def test_candidate_outputs_cannot_replace_active_artifacts_or_existing_work(tmp_path, monkeypatch):
     monkeypatch.setattr(world, 'ROOT', tmp_path)
     active = tmp_path / 'models/item_world_offline.pt'
@@ -78,8 +93,12 @@ def test_evaluation_candidate_swaps_world_only_and_does_not_change_runtime(monke
         with_world_candidate(original, tmp_path / 'unrelated.pt')
 
 
-def test_optional_prepared_candidate_loads_with_no_network_or_runtime_prompt_encoding(monkeypatch):
-    path = world.ROOT / '.data/candidates/item-world-expanded-v2/model.pt'
+@pytest.mark.parametrize('profile,relative', [
+    (world.EXPANDED_PROFILE, '.data/candidates/item-world-expanded-v2/model.pt'),
+    (world.OBJECT_VIEWS_PROFILE, '.data/candidates/item-world-object-views-v3/model.pt'),
+])
+def test_optional_prepared_candidate_loads_with_no_network_or_runtime_prompt_encoding(monkeypatch, profile, relative):
+    path = world.ROOT / relative
     if not path.is_file():
         pytest.skip('Prepared candidate is local and intentionally not committed')
     import requests
@@ -92,8 +111,8 @@ def test_optional_prepared_candidate_loads_with_no_network_or_runtime_prompt_enc
     monkeypatch.setattr(urllib.request, 'urlopen', forbidden)
     monkeypatch.setitem(sys.modules, 'clip', None)
     model = world.load_world(path, path.stat().st_mtime_ns)
-    assert model.ckpt['renthub_item_world']['profile'] == world.EXPANDED_PROFILE
-    assert len(model.names) == len(world.EXPANDED_PROMPTS)
+    assert model.ckpt['renthub_item_world']['profile'] == profile
+    assert len(model.names) == len(world.prompts_for(profile))
     monkeypatch.setattr(model, 'set_classes', forbidden)
     result = model.predict(np.full((320, 320, 3), 128, dtype=np.uint8),
                            conf=items.THRESHOLD, verbose=False, device='cpu', max_det=20)

@@ -114,6 +114,14 @@ class _LiveTrustPageState extends State<LiveTrustPage> {
                                               child: const Text('Try again'))
                                         ]))),
                               if (profile != null) ...[
+                                if (role.demo.completedRentals > 0) ...[
+                                  Card(
+                                      child: Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Text(
+                                              '${role.demo.completedRentals} completed demo rental(s) are recorded separately below. Demo payments do not count towards marketplace trust.'))),
+                                  const SizedBox(height: 8),
+                                ],
                                 TrustActivityCard(
                                     title: widget.role == 'owner'
                                         ? 'Owner rental history'
@@ -121,6 +129,13 @@ class _LiveTrustPageState extends State<LiveTrustPage> {
                                             ? 'Renter rental history'
                                             : 'Rental history',
                                     cohort: role.marketplace),
+                                if (role.demo.completedRentals > 0) ...[
+                                  const SizedBox(height: 16),
+                                  TrustActivityCard(
+                                      title: 'Demo activity',
+                                      cohort: role.demo,
+                                      demo: true)
+                                ],
                                 const SizedBox(height: 16),
                                 const Text('How it works',
                                     style:
@@ -131,13 +146,6 @@ class _LiveTrustPageState extends State<LiveTrustPage> {
                                 const SizedBox(height: 8),
                                 const Text(
                                     'A score needs at least 3 completed rentals with 2 different people. New scores grow gradually as more history becomes available. Identity verification is shown separately.'),
-                                if (role.demo.completedRentals > 0) ...[
-                                  const SizedBox(height: 24),
-                                  TrustActivityCard(
-                                      title: 'Demo activity',
-                                      cohort: role.demo,
-                                      demo: true)
-                                ],
                               ],
                             ]))));
   }

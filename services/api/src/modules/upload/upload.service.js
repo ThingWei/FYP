@@ -205,6 +205,7 @@ export const uploadService = {
       }),
       ListingModel.exists({ $or: [
         { images: publicPath },
+        { images: reference },
         { 'itemVerificationHistory.images': publicPath },
         { 'itemVerificationHistory.images': reference },
       ] }),

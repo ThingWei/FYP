@@ -7,6 +7,7 @@ import { connectDatabase, disconnectDatabase } from '../src/config/database.js';
 import { storageAdapter } from '../src/integrations/storageAdapter.js';
 import { UploadAssetModel } from '../src/modules/upload/upload.model.js';
 import { ListingModel } from '../src/modules/listing/listing.model.js';
+import { env } from '../src/config/env.js';
 
 let mongodb;
 const identity = (id = 'u-owner') => ({
@@ -76,6 +77,14 @@ test('keeps verification documents private to their uploader and administrators'
     (await request(app).get(`/api/v1/uploads/${id}/content`).set(identity('u-outsider'))).status,
     403,
   );
+  const originalAuth = env.authMode;
+  env.authMode = 'local';
+  try {
+    assert.equal((await request(app).get(`/api/v1/uploads/${id}/content`)).status, 401);
+  } finally {
+    env.authMode = originalAuth;
+  }
+  assert.equal((await request(app).get(`/api/v1/uploads/public/${id}/content`)).status, 404);
   assert.equal(
     (await request(app).get(`/api/v1/uploads/${id}/content`).set({
       ...identity('u-admin'),
@@ -112,6 +121,28 @@ test('retains item photos referenced by previous moderation evidence', async () 
     assert.equal(removed.status, 409);
     assert.equal(removed.body.error.code, 'UPLOAD_IN_USE');
     assert.equal((await request(app).get(uploaded.body.data.contentUrl)).status, 200);
+  } finally {
+    await listing.deleteOne();
+  }
+});
+
+test('retains a public photo stored as an upload reference on a current listing', async () => {
+  const uploaded = await request(app).post('/api/v1/uploads').set(identity())
+    .field('purpose', 'listing_image')
+    .attach('file', png, { filename: 'demo.png', contentType: 'image/png' });
+  assert.equal(uploaded.status, 201);
+  const listing = await ListingModel.create({
+    ownerId: 'u-owner', ownerName: 'Owner', title: 'Demo public photo',
+    category: 'Devices', listingType: 'physical', dailyPrice: 50, location: 'Kuala Lumpur',
+    condition: 'Good', fulfilmentMethods: ['pickup'], images: [uploaded.body.data.reference],
+  });
+  try {
+    const removed = await request(app).delete(`/api/v1/uploads/${uploaded.body.data.id}`).set(identity());
+    assert.equal(removed.status, 409);
+    assert.equal(removed.body.error.code, 'UPLOAD_IN_USE');
+    const content = await request(app).get(uploaded.body.data.contentUrl);
+    assert.equal(content.status, 200);
+    assert.deepEqual(content.body, png);
   } finally {
     await listing.deleteOne();
   }

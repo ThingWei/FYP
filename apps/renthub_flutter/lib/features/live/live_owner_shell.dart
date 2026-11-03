@@ -395,7 +395,9 @@ class LiveOwnerListingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
     return Scaffold(
-      appBar: AppBar(title: const Text('My Listings')),
+      appBar: AppBar(
+          title: const Text('My Listings'),
+          bottom: const UserRecordToolbar(collection: 'owner-listings')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showModalBottomSheet<void>(
           context: context,
@@ -2688,7 +2690,10 @@ class LiveOwnerRequestsPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
           title: Text(
-              focusBookingId == null ? 'Booking Requests' : 'Booking details')),
+              focusBookingId == null ? 'Booking Requests' : 'Booking details'),
+          bottom: focusBookingId == null
+              ? const UserRecordToolbar(collection: 'owner-bookings')
+              : null),
       bottomNavigationBar: focusBookingId == null
           ? const UserRecordPagination(collection: 'owner-bookings')
           : null,
@@ -2842,6 +2847,23 @@ class _OwnerRentalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<LiveRentHubController>();
+    var itemTitle =
+        rental.listingType == 'service' ? 'Service booking' : 'Rental item';
+    for (final listing in controller.ownerListings) {
+      if (listing.id == rental.listingId && listing.title.trim().isNotEmpty) {
+        itemTitle = listing.title;
+        break;
+      }
+    }
+    for (final booking in controller.ownerBookings) {
+      if (booking.id == rental.bookingId &&
+          booking.listingId == rental.listingId &&
+          booking.listingTitle.trim().isNotEmpty) {
+        itemTitle = booking.listingTitle;
+        break;
+      }
+    }
     Widget? action;
     if (rental.status == 'completed') {
       final matching = context
@@ -2858,7 +2880,7 @@ class _OwnerRentalCard extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) => LiveReviewPage(
                       rental: rental,
-                      subject: 'Renter for ${rental.listingId}',
+                      subject: 'Renter for $itemTitle',
                       existing: existing,
                       reviewingRenter: true,
                     ),
@@ -2988,19 +3010,20 @@ class _OwnerRentalCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Expanded(child: Text(rental.listingId)),
+                Expanded(child: Text(itemTitle)),
                 StatusBadge(rental.status),
               ],
             ),
             Text('Booking ${rental.bookingId}'),
             if (rental.listingType == 'physical')
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Expanded(
-                    child: Text(
-                      'Rental agreement: ${agreementStatusLabel(rental)}',
-                      style: const TextStyle(color: AppColors.secondaryText),
-                    ),
+                  Text(
+                    agreementStatusLabel(rental),
+                    style: const TextStyle(color: AppColors.secondaryText),
                   ),
                   TextButton.icon(
                     onPressed: () => showBlockchainAgreement(context, rental),
@@ -3033,7 +3056,9 @@ class LiveOwnerOrdersPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.watch<LiveRentHubController>();
     return Scaffold(
-        appBar: AppBar(title: const Text('Rental and service orders')),
+        appBar: AppBar(
+            title: const Text('Rental and service orders'),
+            bottom: const UserRecordToolbar(collection: 'owner-rentals')),
         bottomNavigationBar:
             const UserRecordPagination(collection: 'owner-rentals'),
         body: RefreshIndicator(

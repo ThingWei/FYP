@@ -78,6 +78,18 @@ class ApiClient {
     return Uri.parse(baseUrl).resolve(value).toString();
   }
 
+  /// Listing images are public assets. Stored references are identifiers, not
+  /// network URLs; private document references still use authenticated downloads.
+  String publicPhotoUrl(String value) {
+    final reference = value.trim();
+    final match =
+        RegExp(r'^(?:upload://)?(UPL-[A-Z0-9]+)$', caseSensitive: false)
+            .firstMatch(reference);
+    return absoluteUrl(match == null
+        ? reference
+        : '/api/v1/uploads/public/${match.group(1)!.toUpperCase()}/content');
+  }
+
   Future<dynamic> request(String method, String path, {Object? body}) =>
       _request(method, path, body: body, authenticated: true);
 

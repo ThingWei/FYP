@@ -220,7 +220,9 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
     final controller = context.watch<LiveRentHubController>();
     final reward = controller.loyalty;
     return Scaffold(
-      appBar: AppBar(title: const Text('Loyalty & Referrals')),
+      appBar: AppBar(
+          title: const Text('Loyalty & Referrals'),
+          bottom: const UserRecordToolbar(collection: 'points')),
       bottomNavigationBar: const UserRecordPagination(collection: 'points'),
       body: reward == null
           ? RentHubFeedbackState(

@@ -1,6 +1,8 @@
 import 'live_reviews_list.dart';
 import 'live_search_field.dart';
 import 'user_record_pagination.dart';
+import '../../shared/widgets/dot_pagination.dart';
+import '../../shared/widgets/record_list_header.dart';
 import 'live_trust_page.dart';
 import 'live_location_picker.dart';
 import 'live_location_field.dart';
@@ -362,6 +364,21 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
     return Scaffold(
       appBar: AppBar(
         title: widget.featuredOnly ? const RentHubLogo() : Text(widget.title),
+        bottom: showingAiRecommendations
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(76),
+                child: RecordListHeader(
+                    summary: controller.userRecordPages['explore']?.total ==
+                            null
+                        ? '${listings.length} results'
+                        : '${controller.userRecordPages['explore']!.total} results',
+                    limit: browseLimit,
+                    loading: searching,
+                    onLimit: (value) {
+                      setState(() => browseLimit = value);
+                      _applyFilters();
+                    })),
         actions: [
           IconButton(
             tooltip: 'Wishlist',
@@ -389,52 +406,18 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
           ? null
           : SafeArea(
               top: false,
-              child: Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    Text(
-                        'Page ${controller.userRecordPages['explore']?.page ?? 1}${controller.userRecordPages['explore']?.total == null ? '' : ' ? ${controller.userRecordPages['explore']!.total} results'}'),
-                    IconButton(
-                        tooltip: 'Previous results',
-                        onPressed: searching ||
-                                (controller.userRecordPages['explore']?.page ??
-                                        1) <=
-                                    1
-                            ? null
-                            : () => _applyFilters(
-                                page: controller
-                                        .userRecordPages['explore']!.page -
-                                    1),
-                        icon: const Icon(Icons.chevron_left)),
-                    IconButton(
-                        tooltip: 'Next results',
-                        onPressed: searching ||
-                                !(controller
-                                        .userRecordPages['explore']?.hasMore ??
-                                    controller.listings.length >= 20)
-                            ? null
-                            : () => _applyFilters(
-                                page: (controller
-                                            .userRecordPages['explore']?.page ??
-                                        1) +
-                                    1),
-                        icon: const Icon(Icons.chevron_right)),
-                    DropdownButton<int>(
-                        value: browseLimit,
-                        items: [10, 20, 50]
-                            .map((n) => DropdownMenuItem(
-                                value: n, child: Text('$n / page')))
-                            .toList(),
-                        onChanged: searching
-                            ? null
-                            : (n) {
-                                if (n != null) {
-                                  setState(() => browseLimit = n);
-                                  _applyFilters();
-                                }
-                              }),
-                  ])),
+              child: DotPagination(
+                  page: controller.userRecordPages['explore']?.page ?? 1,
+                  pageCount:
+                      controller.userRecordPages['explore']?.total == null
+                          ? null
+                          : (controller.userRecordPages['explore']!.total! /
+                                  browseLimit)
+                              .ceil(),
+                  hasNext: controller.userRecordPages['explore']?.hasMore ??
+                      controller.listings.length >= browseLimit,
+                  loading: searching,
+                  onPage: (value) => _applyFilters(page: value))),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
@@ -1324,7 +1307,11 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               (waiver ? widget.listing.damageWaiverFee : 0);
       await showLiveCheckout(context, booking.id,
           estimatedTotal: estimate, initialMethod: paymentMethod);
-      if (!mounted) return;
+      if (!mounted || bookingAccount != controller.profile?.id) return;
+      // Creation can add a row to an already-loaded empty page. Reload its
+      // server count as well as the rows when returning from checkout.
+      await controller.loadUserRecords('renter-bookings', page: 1);
+      if (!mounted || bookingAccount != controller.profile?.id) return;
       Navigator.pop(context);
       widget.onSubmitted();
     } catch (exception) {
@@ -1467,7 +1454,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     context
                         .read<LiveRentHubController>()
                         .api
-                        .absoluteUrl(listing.images.first),
+                        .publicPhotoUrl(listing.images.first),
                     fit: BoxFit.cover,
                     semanticLabel: '${listing.title} image',
                     errorBuilder: (_, __, ___) => ColoredBox(
@@ -2060,6 +2047,9 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
       appBar: AppBar(
         title: Text(
             widget.focusBookingId == null ? 'My Bookings' : 'Booking details'),
+        bottom: widget.focusBookingId == null
+            ? const UserRecordToolbar(collection: 'renter-bookings')
+            : null,
         actions: [
           IconButton(
             tooltip: 'Notifications',

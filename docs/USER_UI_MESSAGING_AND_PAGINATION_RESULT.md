@@ -1,5 +1,11 @@
 # User UI, conversations and record pagination
 
+2 November: [actual Android viewing verification](ITEM_RECOGNITION_ROTATION_AND_ANDROID_CHECK_RESULT.md)
+confirmed an existing paid-pending agreement, grouped chats, profile navigation,
+old-message menu, map cancellation, role separation and Owner pagination. The later
+[two-account payment/approval/return walkthrough](ANDROID_TWO_ACCOUNT_LIFECYCLE_CHECK.md)
+also completed; its results and follow-up fixes are recorded below.
+
 Implemented 28 October 2026. Existing uncommitted administrator, trust and pricing work is preserved.
 
 ## User-visible changes
@@ -133,4 +139,112 @@ feat(ui): paginate user records and unify booking conversations
 - add keyboard search suggestions from eligible marketplace listings
 - recover readonly agreement loads without replaying payment writes
 - test authorization, privacy, paging, retry and responsive user layouts
+```
+## 2 November: completed staged Android lifecycle
+
+The [two-account Android walkthrough](ANDROID_TWO_ACCOUNT_LIFECYCLE_CHECK.md)
+subsequently completed new checkout, agreement access from the payment result,
+actual Owner approval, handover, renter return and Owner confirmation. It found
+and corrected stale new-booking page totals, internal listing IDs on Owner order
+cards and a narrow-screen agreement-action overflow. The associated calendar
+job fix prevents same-day physical rentals becoming overdue before their final
+Malaysia day ends. Full post-fix results: 560 Flutter tests passed (three opt-in
+skips), 626 API tests passed (three opt-in skips), analysis clean, web and Android
+debug builds passed. The private screenshots and staged records are not real
+rental evidence; the configured phone app needs its normal launcher rebuild to
+display the Flutter changes.
+# 3 November 2026 follow-up: photos, trust history and page dots
+
+- Public listing cards, recommendation thumbnails and the booking summary now
+  resolve stored `upload://UPL-…` image identifiers to the existing public content
+  endpoint. General URL resolution and protected document downloads are unchanged.
+  The API also protects current listing images referenced by either supported
+  format from deletion. Private documents remain inaccessible through public URLs.
+- Read-only inspection found 12 active labelled demo listings, 12 referenced public
+  upload assets and matching configured storage providers. Two sampled stored
+  image objects matched their saved SHA-256 checksums. No listings, image objects
+  or price provenance were rewritten.
+- Shared dot pagination is used by renter/Owner server-paged records, complete
+  local collections and administrator record/history/CSV-preview controls. It
+  shows a bounded moving window, a blue current-page indicator, Previous/Next,
+  accessible page labels and retained count/page-size controls. All page changes
+  still use the existing server pagination; unknown totals do not invent pages.
+- Trust details now explain recorded demo completions near the top, and show demo
+  activity before the calculation explanation. The inspected Owner has one
+  qualifying demo completion and zero genuine marketplace completions/reviews.
+  Demo payments do not become genuine reputation, AI evidence or a fabricated score.
+- Android GPS/address-return and Firebase delivery checks are recorded in
+  `MAPS_AND_PUSH_NOTIFICATIONS_RESULT.md`. Local services still need a running PC
+  and launcher; this work does not provide hosting.
+
+Verification on 3 November: full API suite **627 passed, 3 existing opt-in skips**;
+full Flutter suite **568 passed, 3 existing skips**. Focused photo/location/push
+tests passed (80); admin/dot tests passed (39). The loyalty contract fixture now
+includes its paginated points response and scopes scrolling to the content list,
+so a fixture error does not dominate the page under the larger footer. Launcher
+syntax, owned-process guards and Android service-retention decisions passed.
+The configured Android debug build was rebuilt/installed using the normal launcher.
+Main web build passed with existing Socket.IO Wasm/Cupertino-font warnings.
+The separate administrator web build also passed, and final full Flutter analysis
+reported no issues. After the account holder completed normal Auth0 sign-in, the
+rebuilt Android app displayed the demo-history notice and one demo completion.
+The Owner's listing dots switched from rows 1–20 of 21 to row 21 of 21, and back.
+Opening the existing booking-request notification reached the correct completed
+demo booking, and View agreement loaded its saved terms and charges. No new
+booking, payment, review or dispute was created. Normal role switching and the
+selected notification's read receipt are the expected UI writes. The phone was
+returned to Owner Home with the services-only backend still ready. No credential
+bypass or fabricated session was used. Administrator layouts remain widget/build
+verified rather than a claim of Android administration testing.
+
+Suggested commit message for this follow-up:
+
+```text
+fix(ui): restore listing photos and add accessible dot pagination
+
+- resolve public upload references in listing cards and booking summaries
+- retain photos attached through stored listing references
+- share bounded page dots across renter, Owner and admin record lists
+- explain demo trust history without changing genuine reputation
+- retain local services after Android debug disconnection
+- add a services-only launcher mode for the installed Android app
+- verify GPS address autofill, Firebase delivery and protected photo access
+- extend photo, paging, trust and launcher regression coverage
+```
+
+## 3 November 2026: uncluttered pagination controls
+
+The 10/20/50 items-per-page selector now sits at the top right of each record
+list in a shared outlined dropdown labelled **Show**. The record range remains
+on its left. Bottom controls contain only page dots, Previous/Next and the page
+label. Changing page size resets that collection to page one without changing
+other collections or their filters.
+
+Coverage includes Explore, renter/Owner bookings, Owner listings and rental
+orders, conversations, notifications, reviews, reward history, saved lists,
+administrator tables, expanded detail histories, saved rental-price references,
+source lists and CSV previews. Existing server pagination and whole-file CSV
+validation remain intact. Display-style controls retain their existing behavior.
+
+Verification: **574 Flutter tests passed, 3 existing skips**; full analysis
+reported no issues. Main and administrator web builds passed with the existing
+Socket.IO Wasm/Cupertino-font warnings. Widget checks cover 360/390/1440-pixel
+widths at 1.6 text scale, top-right placement, disabled loading controls,
+collection isolation, local-list page reset and Explore filter preservation.
+On Android, changing Owner listings from 20 to 10 items updated the range from
+1–20 of 21 to 1–10 of 21 and changed the dots from two pages to three. The phone
+subsequently locked normally; no account or marketplace record was changed.
+The configured running app received the final Explore update by hot reload.
+The final Android debug build also passed (existing Kotlin plugin migration
+warning); this build-only check was not installed over the configured app.
+
+Suggested commit message for this pagination polish:
+
+```text
+style(ui): move page-size controls into top-right dropdowns
+
+- share a compact record-count and page-size toolbar across live lists
+- keep bottom pagination focused on accessible page dots and navigation
+- preserve collection filters and reset only the resized list to page one
+- cover mobile text scaling, loading states and Explore paging in tests
 ```
