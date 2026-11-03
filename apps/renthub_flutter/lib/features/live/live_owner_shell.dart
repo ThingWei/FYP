@@ -2742,7 +2742,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                                           .textTheme
                                           .titleMedium),
                                 ),
-                                StatusBadge(booking.status),
+                                StatusBadge(booking.displayStatus),
                               ],
                             ),
                             const SizedBox(height: 6),
@@ -2766,7 +2766,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                                     showBookingAgreement(context, booking.id),
                                 icon: const Icon(Icons.description_outlined),
                                 label: const Text('View agreement')),
-                            if (booking.status == 'pending' &&
+                            if (booking.displayStatus == 'pending' &&
                                 booking.paymentStatus != 'authorized')
                               const Text(
                                   'Waiting for the renter to complete demo payment.'),
@@ -2778,7 +2778,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            if (booking.status == 'pending' &&
+                            if (booking.displayStatus == 'pending' &&
                                 controller.canManageBooking(booking)) ...[
                               const SizedBox(height: 12),
                               Row(

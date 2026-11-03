@@ -730,6 +730,8 @@ String _ownerStatusLabel(String status) => switch (status.toLowerCase()) {
       'active' => 'Active',
       'rejected' => 'Rejected',
       'approved' => 'Approved',
+      'expired' => 'Expired',
+      'cancelled' => 'Cancelled',
       _ => 'Pending',
     };
 

@@ -47,5 +47,7 @@ Windows build:
 ```
 
 The launcher supplies the Auth0 Dart defines and Android manifest placeholders
-and attempts `adb reverse tcp:3000 tcp:3000`. Firebase remains optional. See
+and attempts `adb reverse tcp:3000 tcp:3000`. It finds ADB from `PATH`, the
+Android SDK environment variables, or the standard per-user Android SDK
+location. Firebase remains optional. See
 `docs/AUTH0_ANDROID_RESULT.md` for Auth0 Dashboard and LAN fallback setup.

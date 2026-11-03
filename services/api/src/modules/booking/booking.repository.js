@@ -23,7 +23,6 @@ export const bookingRepository = {
       listingType: 'physical',
       status: 'pending',
       $or: [
-        { paymentStatus: 'authorized' },
         { expiresAt: { $gt: new Date() } },
         { expiresAt: null },
       ],

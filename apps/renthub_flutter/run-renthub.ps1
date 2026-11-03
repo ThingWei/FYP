@@ -24,6 +24,38 @@ function Test-RentHubKeepServicesRunning {
         ($StartedApi -or $StartedAi -or $StartedBlockchain)
 }
 
+function Get-RentHubAdbPath {
+    param(
+        [string[]]$CandidatePaths = @(),
+        [switch]$SkipPathLookup
+    )
+
+    if (-not $SkipPathLookup) {
+        $pathCommand = Get-Command adb -ErrorAction SilentlyContinue
+        if ($null -ne $pathCommand) { return $pathCommand.Source }
+    }
+
+    if (-not $CandidatePaths.Count) {
+        if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SDK_ROOT)) {
+            $CandidatePaths += Join-Path $env:ANDROID_SDK_ROOT 'platform-tools\adb.exe'
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_HOME)) {
+            $CandidatePaths += Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            $CandidatePaths += Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
+        }
+    }
+
+    foreach ($candidate in $CandidatePaths | Select-Object -Unique) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and
+            (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+    return $null
+}
+
 function Wait-RentHubServiceSession {
     Write-Host 'RentHub services remain running. You can reopen the installed Android app.' -ForegroundColor Green
     Write-Host 'Keep this terminal open. Press Ctrl+C here when you want to stop services started by this launcher.' -ForegroundColor Cyan
@@ -590,15 +622,18 @@ try {
     $isBrowser = $Device -in @('chrome', 'edge')
     $isDesktop = $Device -in @('windows', 'chrome', 'edge')
     if (-not $isDesktop) {
-        $adb = Get-Command adb -ErrorAction SilentlyContinue
-        if ($null -ne $adb) {
-            & $adb.Source -s $Device reverse tcp:3000 tcp:3000
+        $adbPath = Get-RentHubAdbPath
+        if ($null -ne $adbPath) {
+            & $adbPath -s $Device reverse tcp:3000 tcp:3000
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning 'ADB port forwarding failed. Use your PC LAN address through API_BASE_URL and SOCKET_URL.'
             }
+            else {
+                Write-Host 'Forwarded Android localhost:3000 to the RentHub API on this PC.' -ForegroundColor Green
+            }
         }
         else {
-            Write-Warning 'ADB was not found. The Android device must be able to reach the configured API address.'
+            Write-Warning 'ADB was not found on PATH or in the standard Android SDK locations. The Android device must be able to reach the configured API address.'
         }
     }
 

@@ -210,14 +210,22 @@ test('expires abandoned bookings and marks physical rentals overdue once', async
   assert.equal(await NotificationModel.countDocuments(), 4);
 });
 
-test('payment deadlines never expire authorized pending requests, including legacy records', async () => {
+test('expires an authorized request when the Owner does not respond and releases its hold', async () => {
   const now = new Date('2026-10-15T12:00:00Z');
   await BookingModel.create(booking({ suffix: 'PAIDWAIT', title: 'Paid request waiting for Owner',
     startDate: new Date('2026-10-22T00:00:00Z'), endDate: new Date('2026-10-24T00:00:00Z'),
     status: 'pending', paymentStatus: 'authorized', expiresAt: new Date('2026-10-14T00:00:00Z') }));
+  await PaymentModel.create({
+    publicId: 'RH-TXN-PAIDWAIT', bookingId: 'RH-BKG-2026-PAIDWAIT',
+    payerId: 'u-renter', payeeId: 'u-owner', type: 'authorization', amount: 150,
+    method: 'card', status: 'authorized', gatewayReference: 'demo-paidwait',
+    idempotencyKey: 'paidwait-authorization', authorizationSlot: 'RH-BKG-2026-PAIDWAIT',
+  });
   const result = await runLifecycleJobs({ now });
-  assert.equal(result.expiredBookings, 0);
+  assert.equal(result.expiredBookings, 1);
   const saved = await BookingModel.findOne({ publicId: 'RH-BKG-2026-PAIDWAIT' });
-  assert.equal(saved.status, 'pending');
-  assert.equal(saved.paymentStatus, 'authorized');
+  assert.equal(saved.status, 'expired');
+  assert.equal(saved.paymentStatus, 'voided');
+  assert.equal((await PaymentModel.findOne({ publicId: 'RH-TXN-PAIDWAIT' })).status, 'voided');
+  assert.equal(await NotificationModel.countDocuments({ type: 'booking_expired' }), 2);
 });

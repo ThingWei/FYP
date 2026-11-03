@@ -28,6 +28,7 @@ import { agreementTerms } from './agreementTerms.js';
 import { presentBooking } from '../../core/location.js';
 import { withBookingRequestLock, withOperationLock } from './bookingRequestLock.js';
 import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
+import { expireDuePendingBookings } from './bookingExpiry.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -425,12 +426,14 @@ export const bookingService = {
     if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
     return withOperationLock('listing-decision', booking.listingId, async (ensureOwned) => {
       await recoverListingOperations(booking.listingId, ensureOwned);
+      await expireDuePendingBookings({ scope: { publicId: booking.publicId } });
       return bookingRepository.findParticipantBooking(id, identity);
     });
   },
 
   async listMine(identity, query) {
     await requireActiveUser(identity, 'renter');
+    await expireDuePendingBookings({ scope: { renterId: identity.authId } });
     const { page, limit } = pages(query);
     const status = BOOKING_STATUSES.includes(query.status) ? query.status : undefined;
     const [items, total] = await bookingRepository.listFor({
@@ -445,6 +448,7 @@ export const bookingService = {
 
   async listOwner(identity, query) {
     await requireActiveUser(identity, 'owner');
+    await expireDuePendingBookings({ scope: { ownerId: identity.authId } });
     const { page, limit } = pages(query);
     const status = BOOKING_STATUSES.includes(query.status) ? query.status : undefined;
     const [items, total] = await bookingRepository.listFor({
@@ -463,6 +467,7 @@ export const bookingService = {
   },
 
   async listAdmin(query) {
+    await expireDuePendingBookings();
     const { page, limit } = pages(query);
     const status = BOOKING_STATUSES.includes(query.status) ? query.status : undefined;
     const [items, total] = await bookingRepository.listAdmin({
@@ -482,6 +487,7 @@ export const bookingService = {
     return withOperationLock('listing-decision', context.listingId, async (ensureOwned) => {
       await recoverListingOperations(context.listingId, ensureOwned);
       await requireActiveUser(identity, 'owner');
+      await expireDuePendingBookings({ scope: { publicId: id } });
       // Re-read after acquiring the listing-scoped lock: a competing decision may
       // have expired this pending request while we waited. Pending creation is
       // deliberately not covered by this lock and remains a soft hold.
@@ -502,9 +508,6 @@ export const bookingService = {
       let newRental;
       let voidedPayment;
       if (input.status === 'approved') {
-        if (booking.paymentStatus !== 'authorized' && booking.expiresAt && booking.expiresAt <= new Date()) {
-          throw new AppError('This request has expired', 409, 'INVALID_BOOKING_STATE');
-        }
         if (booking.paymentStatus !== 'authorized') {
           throw new AppError(
             'Payment authorization is required before approval',

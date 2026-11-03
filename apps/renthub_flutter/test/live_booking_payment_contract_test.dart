@@ -174,6 +174,23 @@ void main() {
     expect(booking.start.isUtc, isFalse);
   });
 
+  test('pending booking displays as expired after its Owner decision deadline',
+      () {
+    final booking = Booking.fromJson({
+      'publicId': 'RH-BKG-2026-EXPIRED1',
+      'listingId': 'l-camera',
+      'listingType': 'physical',
+      'startDate': '2026-10-05T00:00:00.000Z',
+      'endDate': '2026-10-05T00:00:00.000Z',
+      'status': 'pending',
+      'paymentStatus': 'authorized',
+      'expiresAt': '2000-01-01T00:00:00.000Z',
+    });
+
+    expect(booking.isPastDecisionDeadline, isTrue);
+    expect(booking.displayStatus, 'expired');
+  });
+
   test('final UI submits a service review without physical condition data',
       () async {
     final api = RecordingApiClient([

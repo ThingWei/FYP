@@ -11,7 +11,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw "Launcher syntax errors: $($parseErrors.Count)" }
 
 # Load only these pure/testable helpers, not the launcher's executable body.
-$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget')
+$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget', 'Get-RentHubAdbPath')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -49,6 +49,9 @@ Assert-Launcher (Test-RentHubKeepServicesRunning -TargetDevice 'android-device' 
 Assert-Launcher (-not (Test-RentHubKeepServicesRunning -TargetDevice 'windows' -StartedApi $true -StartedAi $true -StartedBlockchain $true)) 'Desktop cleanup must remain unchanged.'
 Assert-Launcher (-not (Test-RentHubKeepServicesRunning -TargetDevice 'android-device' -StartedApi $false -StartedAi $false -StartedBlockchain $false)) 'A launcher that owns no services must not keep another launcher open.'
 Assert-Launcher ($tree.Extent.Text.Contains('if ($ServicesOnly)')) 'Installed Android app testing needs a services-only entry point.'
+Assert-Launcher ((Get-RentHubAdbPath -CandidatePaths @($launcherPath) -SkipPathLookup) -eq (Resolve-Path -LiteralPath $launcherPath).Path) 'ADB discovery accepts an installed SDK candidate outside PATH.'
+Assert-Launcher ($null -eq (Get-RentHubAdbPath -CandidatePaths @((Join-Path $PSScriptRoot 'missing-adb.exe')) -SkipPathLookup)) 'ADB discovery rejects missing SDK candidates.'
+Assert-Launcher ($tree.Extent.Text.Contains("'Android\Sdk\platform-tools\adb.exe'")) 'Launcher checks the standard per-user Android SDK location.'
 
 $googleFixture = [pscustomobject]@{
     project_info = [pscustomobject]@{ project_number = '123456'; project_id = 'demo-renthub' }

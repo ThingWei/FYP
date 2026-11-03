@@ -1,13 +1,14 @@
 import { env } from '../config/env.js';
 import { BookingModel } from '../modules/booking/booking.model.js';
 import { notifyUser } from '../modules/communication/notification.service.js';
-import { voidBookingPayment, voidTerminalPaymentHolds } from '../modules/payment/payment.service.js';
+import { voidTerminalPaymentHolds } from '../modules/payment/payment.service.js';
 import { RentalModel } from '../modules/rental/rental.model.js';
 import { runDueReportSchedules } from '../modules/admin/report.service.js';
 import { withOperationLock } from '../modules/booking/bookingRequestLock.js';
 import { recoverLifecycleOperations, recoverListingOperations } from './lifecycleJournal.js';
 import { expireRentalExtensions } from '../modules/rental/rental.service.js';
 import { physicalRentalDate, physicalRentalReturnDeadline } from '../core/calendarDate.js';
+import { expireDuePendingBookings } from '../modules/booking/bookingExpiry.js';
 
 const state = {
   enabled: env.lifecycleJobsEnabled,
@@ -23,10 +24,6 @@ let interval;
 
 function addHours(date, hours) {
   return new Date(date.getTime() + hours * 60 * 60 * 1000);
-}
-
-function subtractMinutes(date, minutes) {
-  return new Date(date.getTime() - minutes * 60 * 1000);
 }
 
 async function notifyParticipant(rental, userId, type, title, body) {
@@ -47,59 +44,6 @@ async function bookingTitle(rental) {
     .select('listingTitle')
     .lean();
   return booking?.listingTitle ?? 'your booking';
-}
-
-async function expirePendingBookings(now, expiryMinutes) {
-  const fallbackCutoff = subtractMinutes(now, expiryMinutes);
-  const bookings = await BookingModel.find({
-    status: 'pending',
-    paymentStatus: 'unpaid',
-    $or: [
-      { expiresAt: { $lte: now } },
-      { expiresAt: null, createdAt: { $lte: fallbackCutoff } },
-    ],
-  });
-
-  let expired = 0;
-  for (const booking of bookings) {
-    const claimed = await BookingModel.findOneAndUpdate({
-      _id: booking._id,
-      status: 'pending',
-      paymentStatus: 'unpaid',
-      $or: [
-        { expiresAt: { $lte: now } },
-        { expiresAt: null, createdAt: { $lte: fallbackCutoff } },
-      ],
-    }, { $set: { status: 'expired', expiredAt: now,
-      cancellationReason: 'Automatically expired because payment was not authorized in time.' } }, { new: true });
-    if (!claimed) continue;
-    await voidBookingPayment(claimed);
-    await claimed.save();
-    await Promise.all([
-      notifyUser({
-        userId: claimed.renterId,
-        category: 'booking',
-        type: 'booking_expired',
-        title: 'Booking request expired',
-        body: `${claimed.listingTitle} expired before payment authorization.`,
-        entityType: 'booking',
-        entityId: claimed.publicId,
-        dedupeKey: `booking_expired:${claimed.publicId}:${claimed.renterId}`,
-      }),
-      notifyUser({
-        userId: claimed.ownerId,
-        category: 'booking',
-        type: 'booking_expired',
-        title: 'Booking request expired',
-        body: `${claimed.listingTitle} expired before payment authorization.`,
-        entityType: 'booking',
-        entityId: claimed.publicId,
-        dedupeKey: `booking_expired:${claimed.publicId}:${claimed.ownerId}`,
-      }),
-    ]);
-    expired += 1;
-  }
-  return expired;
 }
 
 async function sendStartReminders(now, reminderHours) {
@@ -288,7 +232,7 @@ export async function runLifecycleJobs({
       scheduledReports,
     ] =
       await Promise.all([
-        expirePendingBookings(now, expiryMinutes),
+        expireDuePendingBookings({ now, expiryMinutes }),
         sendStartReminders(now, reminderHours),
         sendPhysicalDueReminders(now, reminderHours),
         markOverdueRentals(now, graceHours),

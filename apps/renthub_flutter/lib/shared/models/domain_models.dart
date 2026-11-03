@@ -594,6 +594,13 @@ class Booking {
   final double total;
   final DateTime start, end;
 
+  bool get isPastDecisionDeadline =>
+      status == 'pending' &&
+      expiresAt != null &&
+      !expiresAt!.isAfter(DateTime.now());
+
+  String get displayStatus => isPastDecisionDeadline ? 'expired' : status;
+
   factory Booking.fromJson(Map<String, dynamic> json) {
     final listingType = json['listingType'] as String? ?? 'physical';
     final startValue = (json['startDate'] ?? json['start']) as String;

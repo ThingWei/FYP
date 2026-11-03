@@ -170,24 +170,32 @@ test('rejection voids the simulated hold and preserves accepted agreement histor
   assert.equal(result.body.data.history.ownerApprovedAt, null); assert.ok(result.body.data.history.renterAcceptedAt);
 });
 
-test('a paid pending request remains approvable after its old payment deadline', async () => {
+test('the Owner request list expires an unanswered paid request and blocks late approval', async () => {
   await pay('paid-before-expiry').expect(201);
   await BookingModel.updateOne({ publicId: id }, { expiresAt: new Date(Date.now() - 1) });
-  await request(app).patch(`/api/v1/bookings/${id}/decision`).set(owner).send({ status: 'approved' }).expect(200);
-  assert.equal(await RentalModel.countDocuments({}), 1);
+  const requests = await request(app).get('/api/v1/bookings/owner').set(owner).expect(200);
+  assert.equal(requests.body.data.find((item) => item.publicId === id).status, 'expired');
+  assert.equal(requests.body.meta.summary.pending, 0);
+  await request(app).patch(`/api/v1/bookings/${id}/decision`).set(owner).send({ status: 'approved' }).expect(409);
+  const expired = await BookingModel.findOne({ publicId: id });
+  assert.equal(expired.status, 'expired');
+  assert.equal(expired.paymentStatus, 'voided');
+  assert.equal(await RentalModel.countDocuments({}), 0);
 });
 
-test('successful payment clears its deadline; a durable in-time authorization can recover after that deadline', async () => {
+test('successful payment keeps the Owner decision deadline and late recovery is rejected', async () => {
+  const originalDeadline = (await BookingModel.findOne({ publicId: id })).expiresAt;
   const success = await pay('deadline-success').expect(201);
   const saved = await BookingModel.findOne({ publicId: id });
-  assert.equal(saved.expiresAt, undefined);
+  assert.equal(saved.expiresAt.toISOString(), originalDeadline.toISOString());
   const future = new Date(Date.now() + 1000);
   await PaymentModel.collection.updateOne({ publicId: success.body.data.publicId }, { $set: { createdAt: new Date(Date.now() - 10_000) } });
   await BookingModel.updateOne({ publicId: id }, { $set: { paymentStatus: 'unpaid', paymentAuthorizationId: '', expiresAt: new Date(future.getTime() - 2000) } });
-  await pay('deadline-success').expect(201);
+  await pay('deadline-success').expect(409);
   const restored = await BookingModel.findOne({ publicId: id });
-  assert.equal(restored.paymentStatus, 'authorized');
-  assert.equal(restored.expiresAt, undefined);
+  assert.equal(restored.paymentStatus, 'unpaid');
+  assert.ok(restored.expiresAt <= new Date());
+  assert.equal((await PaymentModel.findOne({ publicId: success.body.data.publicId })).status, 'voided');
   assert.equal(await PaymentModel.countDocuments({}), 1);
 });
 
