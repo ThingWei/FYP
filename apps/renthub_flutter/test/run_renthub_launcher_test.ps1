@@ -11,7 +11,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw "Launcher syntax errors: $($parseErrors.Count)" }
 
 # Load only these pure/testable helpers, not the launcher's executable body.
-$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget', 'Get-RentHubAdbPath')
+$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget', 'Get-RentHubAdbPath', 'Test-RentHubApiPortAvailable', 'Resolve-RentHubApiPort', 'Get-RentHubApiClientArguments')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -121,7 +121,7 @@ Assert-Launcher (-not (Test-RentHubAiCompatible @{
 
 # Mock readiness: these checks do not call the running API or read credentials.
 $script:apiHealthFixture = @{ success = $true; data = @{ capabilities = @('product-catalog-v1') } }
-function Invoke-RestMethod { param($Uri, $TimeoutSec); return $script:apiHealthFixture }
+function Invoke-RestMethod { param($Uri, $TimeoutSec); $script:lastReadyUri = $Uri; return $script:apiHealthFixture }
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without capture validation must fail'
 $script:apiHealthFixture.data.capabilities += 'mykad-capture-validation-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Old API without mandatory identity must fail'
@@ -158,6 +158,85 @@ $script:apiHealthFixture.data.capabilities += 'trust-profile-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'API without grouped conversations and user record paging must fail'
 $script:apiHealthFixture.data.capabilities += 'user-records-messaging-v2'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
+Assert-Launcher (Test-RentHubApiReady -Port 4321) 'Current API can run on a custom port'
+Assert-Launcher ($script:lastReadyUri -eq 'http://localhost:4321/api/v1/ready') 'Readiness uses the selected port'
+
+# A disposable socket verifies occupied-port detection without touching real services.
+$portFixture = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::IPv6Any, 0)
+try {
+    $portFixture.Server.DualMode = $true
+    $portFixture.ExclusiveAddressUse = $true
+    $portFixture.Start()
+    $fixturePort = $portFixture.LocalEndpoint.Port
+    Assert-Launcher (-not (Test-RentHubApiPortAvailable -Port $fixturePort)) 'An existing listener cannot be selected'
+}
+finally { $portFixture.Stop() }
+Assert-Launcher (Test-RentHubApiPortAvailable -Port $fixturePort) 'A released port is available'
+
+$script:availableApiPorts = @()
+function Test-RentHubApiPortAvailable { param([int]$Port); return $Port -in $script:availableApiPorts }
+Assert-Launcher ((Resolve-RentHubApiPort -PreferredPort 3000) -eq 3000) 'A compatible existing API is reused'
+$script:apiHealthFixture.success = $false
+$script:availableApiPorts = @(3000, 3002)
+Assert-Launcher ((Resolve-RentHubApiPort -PreferredPort 3000) -eq 3000) 'The default port is retained when free'
+$script:availableApiPorts = @(3003)
+Assert-Launcher ((Resolve-RentHubApiPort -PreferredPort 3000) -eq 3003) 'An unhealthy occupied API and busy fallback are skipped'
+$script:availableApiPorts = @(4321, 3002)
+Assert-Launcher ((Resolve-RentHubApiPort -PreferredPort 4321) -eq 4321) 'A free configured port takes priority'
+$script:availableApiPorts = @(3001, 8001, 8080, 8545, 3002)
+foreach ($reservedPort in @(3001, 8001, 8080, 8545)) {
+    Assert-Launcher ((Resolve-RentHubApiPort -PreferredPort $reservedPort) -eq 3002) 'Service and browser ports remain reserved'
+}
+$script:availableApiPorts = @()
+$caught = $false
+try { Resolve-RentHubApiPort -PreferredPort 3000 | Out-Null } catch { $caught = $true }
+Assert-Launcher $caught 'An exhausted port range fails clearly'
+Remove-Item Function:\Test-RentHubApiPortAvailable
+. ([scriptblock]::Create(($helpers | Where-Object Name -eq 'Test-RentHubApiPortAvailable').Extent.Text))
+$clientArguments = @(Get-RentHubApiClientArguments -Port 4321)
+Assert-Launcher ($clientArguments -contains '--dart-define=API_BASE_URL=http://localhost:4321/api/v1') 'Flutter HTTP uses the selected API port'
+Assert-Launcher ($clientArguments -contains '--dart-define=SOCKET_URL=http://localhost:4321') 'Flutter sockets use the selected API port'
+
+# Execute the actual startup block with a mocked process launcher.
+$startupBlock = $tree.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.TryStatementAst] -and
+        $node.Finally -and $node.Finally.Extent.Text.Contains('$env:PORT = $previousApiPort')
+}, $true) | Select-Object -First 1
+Assert-Launcher ($null -ne $startupBlock) 'API startup restores the caller environment'
+$savedPort = $env:PORT
+$ApiPort = 4321
+$nodePath = 'fixture-node'
+$apiDirectory = 'fixture-directory'
+$standardLog = 'fixture-output'
+$errorLog = 'fixture-errors'
+$script:failStartup = $false
+function Start-Process {
+    param($FilePath, $ArgumentList, $WorkingDirectory, $WindowStyle, $RedirectStandardOutput, $RedirectStandardError, [switch]$PassThru)
+    $script:inheritedApiPort = $env:PORT
+    if ($script:failStartup) { throw 'Fixture startup failure' }
+    return [pscustomobject]@{ Id = 123 }
+}
+try {
+    foreach ($callerPort in @('9876', $null)) {
+        $env:PORT = $callerPort
+        $previousApiPort = $env:PORT
+        . ([scriptblock]::Create($startupBlock.Extent.Text))
+        Assert-Launcher ($script:inheritedApiPort -eq '4321') 'The child process inherits the selected port'
+        Assert-Launcher ($env:PORT -eq $callerPort) 'Successful startup restores the caller port'
+        $script:failStartup = $true
+        $caught = $false
+        try { . ([scriptblock]::Create($startupBlock.Extent.Text)) } catch { $caught = $true }
+        Assert-Launcher $caught 'Startup errors remain visible'
+        Assert-Launcher ($env:PORT -eq $callerPort) 'Failed startup also restores the caller port'
+        $script:failStartup = $false
+    }
+}
+finally {
+    $env:PORT = $savedPort
+    Remove-Item Function:\Start-Process
+}
+
 $script:apiHealthFixture.success = $false
 Assert-Launcher (-not (Test-RentHubApiReady)) 'Unready API must fail'
 Remove-Item Function:\Invoke-RestMethod
@@ -282,4 +361,4 @@ if ($Integration) {
     }
 }
 
-Write-Host 'PASS: launcher syntax, AI/API compatibility, source-watch arguments and owned-tree cleanup guards.'
+Write-Host 'PASS: launcher syntax, AI/API compatibility, automatic port selection, client URLs, child environment, source-watch arguments and owned-tree cleanup guards.'

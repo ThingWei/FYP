@@ -47,7 +47,64 @@ Windows build:
 ```
 
 The launcher supplies the Auth0 Dart defines and Android manifest placeholders
-and attempts `adb reverse tcp:3000 tcp:3000`. It finds ADB from `PATH`, the
+and forwards the selected API port with `adb reverse`. It finds ADB from `PATH`, the
 Android SDK environment variables, or the standard per-user Android SDK
 location. Firebase remains optional. See
 `docs/AUTH0_ANDROID_RESULT.md` for Auth0 Dashboard and LAN fallback setup.
+
+## API port conflicts
+
+The launcher reads `PORT` from the shell environment or `services/api/.env`
+(default `3000`). If that port hosts an outdated or unhealthy API, it automatically
+selects a free port from `3002` to `3020`. It passes the selected port to the new
+API, Flutter HTTP and Socket.io URLs, and Android forwarding. Existing processes
+keep running. Ports `3001`, `8080`, `8001` and `8545` are reserved for the web,
+AI and blockchain services.
+
+To prefer a particular API port for this session:
+
+```powershell
+.\run-renthub.ps1 -ApiPort 3002
+```
+
+The launcher prints the selected port. If you supply custom `API_BASE_URL` or
+`SOCKET_URL` Dart defines for LAN access, use that same port in both URLs.
+
+## Automatic MongoDB Atlas network access
+
+For an Atlas `mongodb+srv://...mongodb.net` connection, the launcher uses MongoDB
+Atlas CLI to allow the laptop's current public IPv4 address before starting any
+backend services. Install Atlas CLI on each laptop, restart the terminal, and run:
+
+```powershell
+atlas auth login
+.\run-renthub.ps1
+```
+
+Use an Atlas account with permission to manage this project's network access.
+The same account can be used on both of your laptops. CLI login is separate from
+the application's database credentials and RentHub sign-in. Reauthenticate with
+`atlas auth login` if the CLI session expires.
+
+The launcher matches the configured database hostname to an accessible Atlas
+cluster, so it cannot silently update a different project. Optionally set
+`ATLAS_PROJECT_ID` in `services/api/.env` or pass `-AtlasProjectId <project-id>`
+to avoid searching projects. A named CLI profile can be selected using
+`-AtlasProfile <profile-name>`.
+
+Public IPv4 detection uses `https://checkip.amazonaws.com`, with
+`https://api.ipify.org` as a fallback; no database URI or CLI credentials are sent
+to either service. New entries allow only that individual IP and expire
+after 24 hours. Existing access entries are preserved; the launcher never deletes
+the other laptop's address or adds an allow-from-anywhere rule. Laptops sharing
+one public IP reuse its entry. The launcher verifies the database connection with
+read-only connect/ping attempts while access propagates. Connection failure stops
+startup before AI or blockchain processes are launched.
+
+Rerun the launcher after changing networks or after temporary access expires.
+Both laptops need the updated launcher. Keep their configured Atlas database and
+application identity/session secrets compatible as described in
+`docs/SHARED_DATABASE_ATLAS_SETUP.md`.
+
+For manually managed Atlas access, pass `-SkipAtlasAccess`. Local MongoDB and
+non-Atlas connections do not use CLI registration.

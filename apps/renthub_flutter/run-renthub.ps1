@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
     [string]$Device = 'windows',
+    [ValidateRange(1, 65535)][int]$ApiPort,
+    [string]$AtlasProjectId,
+    [string]$AtlasProfile = 'default',
+    [switch]$SkipAtlasAccess,
     [switch]$Admin,
     [switch]$SkipAi,
     [switch]$NoAiReload,
@@ -115,9 +119,10 @@ function Get-RentHubMongoTarget {
 }
 
 function Test-RentHubApiReady {
+    param([ValidateRange(1, 65535)][int]$Port = 3000)
     try {
         $response = Invoke-RestMethod `
-            -Uri 'http://localhost:3000/api/v1/ready' `
+            -Uri "http://localhost:$Port/api/v1/ready" `
             -TimeoutSec 2
         return $response.success -eq $true -and `
             $response.data.capabilities -contains 'product-catalog-v1' -and `
@@ -143,6 +148,43 @@ function Test-RentHubApiReady {
     catch {
         return $false
     }
+}
+
+function Test-RentHubApiPortAvailable {
+    param([ValidateRange(1, 65535)][int]$Port)
+
+    # A dual-stack bind also detects IPv6 listeners and Windows excluded ports.
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::IPv6Any, $Port)
+    try {
+        $listener.Server.DualMode = $true
+        $listener.ExclusiveAddressUse = $true
+        $listener.Start()
+        return $true
+    }
+    catch [System.Net.Sockets.SocketException] { return $false }
+    finally { $listener.Stop() }
+}
+
+function Resolve-RentHubApiPort {
+    param([ValidateRange(1, 65535)][int]$PreferredPort = 3000)
+
+    # Keep the admin/browser, AI and blockchain ports available for their services.
+    $reservedPorts = @(3001, 8080, 8001, 8545)
+    if ($PreferredPort -notin $reservedPorts) {
+        if (Test-RentHubApiReady -Port $PreferredPort) { return $PreferredPort }
+        if (Test-RentHubApiPortAvailable -Port $PreferredPort) { return $PreferredPort }
+    }
+    foreach ($candidate in 3002..3020) {
+        if ($candidate -eq $PreferredPort) { continue }
+        if (Test-RentHubApiPortAvailable -Port $candidate) { return $candidate }
+    }
+    throw 'No API port is available in 3002-3020. Choose a free port with -ApiPort <port>.'
+}
+
+function Get-RentHubApiClientArguments {
+    param([ValidateRange(1, 65535)][int]$Port)
+    return @("--dart-define=API_BASE_URL=http://localhost:$Port/api/v1",
+        "--dart-define=SOCKET_URL=http://localhost:$Port")
 }
 
 function Get-RentHubAiHealth {
@@ -204,7 +246,7 @@ function Stop-RentHubOwnedApiProcess {
         }
     }
     catch {
-        Write-Warning 'API cleanup could not complete. Check port 3000 before starting another server.'
+        Write-Warning 'API cleanup could not complete. Check the selected API port before starting another server.'
     }
 }
 
@@ -276,6 +318,120 @@ function Get-RentHubEnvironmentValue {
         return $DefaultValue
     }
     return ($line -split '=', 2)[1].Trim().Trim('"').Trim("'")
+}
+
+function Get-RentHubAtlasHost {
+    param([string]$ConnectionString)
+    # Return only the Atlas SRV hostname; never retain credentials in CLI arguments.
+    if ($ConnectionString -match '^mongodb\+srv://(?:[^@/]+@)?(?<clusterHost>[a-zA-Z0-9.-]+\.mongodb\.net)(?:[/?]|$)') {
+        return $Matches.clusterHost.ToLowerInvariant()
+    }
+    return $null
+}
+
+function Invoke-RentHubAtlasJson {
+    param([string]$AtlasPath, [string[]]$Arguments, [string]$Profile = 'default')
+    # Capture native errors too: CLI diagnostics can contain private account details.
+    $ErrorActionPreference = 'Continue'
+    $output = @(& $AtlasPath @Arguments --profile $Profile --output json 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Atlas CLI failed. Run 'atlas auth login --profile $Profile' and check project permissions."
+    }
+    try { return ($output -join [Environment]::NewLine) | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw 'Atlas CLI returned an unexpected response. Check the CLI version and login.' }
+}
+
+function Resolve-RentHubAtlasProject {
+    param([string]$AtlasPath, [string]$ClusterHost, [string]$ProjectId, [string]$Profile = 'default')
+    if ($ProjectId -and $ProjectId -notmatch '^[a-fA-F0-9]{24}$') {
+        throw 'ATLAS_PROJECT_ID must be the 24-character Atlas project ID.'
+    }
+    if ($ProjectId) { $projects = @([pscustomobject]@{ id = $ProjectId }) }
+    else {
+        $response = Invoke-RentHubAtlasJson -AtlasPath $AtlasPath -Profile $Profile -Arguments @('projects', 'list', '--limit', '500')
+        $projects = @($response.results)
+    }
+    $matchedProjects = @()
+    foreach ($project in $projects) {
+        $response = Invoke-RentHubAtlasJson -AtlasPath $AtlasPath -Profile $Profile -Arguments @('clusters', 'list', '--projectId', $project.id, '--limit', '500')
+        foreach ($cluster in $response.results) {
+            $srvHost = Get-RentHubAtlasHost -ConnectionString ([string]$cluster.connectionStrings.standardSrv)
+            if ($srvHost -eq $ClusterHost) { $matchedProjects += [string]$project.id }
+        }
+    }
+    $matchedProjects = @($matchedProjects | Select-Object -Unique)
+    if ($matchedProjects.Count -ne 1) {
+        throw 'Could not uniquely match MONGODB_URI to an Atlas project. Check the CLI account or set ATLAS_PROJECT_ID in services/api/.env.'
+    }
+    return $matchedProjects[0]
+}
+
+function Get-RentHubPublicIPv4 {
+    # No credentials are sent to either public address lookup service.
+    foreach ($lookupUri in @('https://checkip.amazonaws.com', 'https://api.ipify.org?format=json')) {
+        try {
+            $ipResponse = Invoke-RestMethod -Uri $lookupUri -TimeoutSec 8 -ErrorAction Stop
+            $addressText = if ($lookupUri -like '*ipify.org*') { [string]$ipResponse.ip } else { ([string]$ipResponse).Trim() }
+            $publicAddress = $null
+            if ([System.Net.IPAddress]::TryParse($addressText, [ref]$publicAddress) -and
+                    $publicAddress.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+                return $publicAddress.ToString()
+            }
+        }
+        catch { continue }
+    }
+    throw 'Could not detect the public IPv4 address. Check internet/VPN access and rerun the launcher.'
+}
+
+function Sync-RentHubAtlasAccess {
+    param([string]$AtlasPath, [string]$ClusterHost, [string]$ProjectId, [string]$Profile = 'default')
+    $resolvedProjectId = Resolve-RentHubAtlasProject -AtlasPath $AtlasPath -ClusterHost $ClusterHost -ProjectId $ProjectId -Profile $Profile
+    $currentIp = Get-RentHubPublicIPv4
+    $entries = Invoke-RentHubAtlasJson -AtlasPath $AtlasPath -Profile $Profile -Arguments @('accessLists', 'list', '--projectId', $resolvedProjectId, '--limit', '500')
+    $existing = @($entries.results | Where-Object { $_.ipAddress -eq $currentIp -or $_.cidrBlock -eq "$currentIp/32" })
+    if ($existing.Count) {
+        Write-Host 'Atlas already allows this public IP. Existing entries were preserved.' -ForegroundColor Green
+        return
+    }
+    $expiresAt = [datetime]::UtcNow.AddDays(1).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    try {
+        $null = Invoke-RentHubAtlasJson -AtlasPath $AtlasPath -Profile $Profile -Arguments @(
+            'accessLists', 'create', $currentIp, '--type', 'ipAddress', '--projectId', $resolvedProjectId,
+            '--deleteAfter', $expiresAt, '--comment', 'RentHub launcher temporary access'
+        )
+    }
+    catch {
+        # Two laptops sharing a public IP may register it at the same time.
+        $entries = Invoke-RentHubAtlasJson -AtlasPath $AtlasPath -Profile $Profile -Arguments @('accessLists', 'list', '--projectId', $resolvedProjectId, '--limit', '500')
+        if (-not @($entries.results | Where-Object { $_.ipAddress -eq $currentIp -or $_.cidrBlock -eq "$currentIp/32" }).Count) { throw }
+    }
+    Write-Host 'Atlas access registered for this public IP (expires in 24 hours).' -ForegroundColor Green
+}
+
+function Test-RentHubAtlasDatabase {
+    param([string]$NodePath, [string]$ApiDirectory)
+    $ErrorActionPreference = 'Continue'
+    Push-Location -LiteralPath $ApiDirectory
+    try {
+        # No models, schedulers, index creation or application writes: connect/ping only.
+        $probe = 'import { connectDatabase, disconnectDatabase } from "./src/config/database.js"; try { const connection = await connectDatabase(); await connection.db.command({ping:1}); } catch { process.exitCode = 1; } finally { await disconnectDatabase(); }'
+        $null = $probe | & $NodePath --input-type=module 2>&1
+        return $LASTEXITCODE -eq 0
+    }
+    finally { Pop-Location }
+}
+
+function Wait-RentHubAtlasDatabase {
+    param([string]$NodePath, [string]$ApiDirectory)
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        Write-Host "Checking Atlas database access ($attempt/6)..." -ForegroundColor Cyan
+        if (Test-RentHubAtlasDatabase -NodePath $NodePath -ApiDirectory $ApiDirectory) {
+            Write-Host 'Atlas database connection verified.' -ForegroundColor Green
+            return
+        }
+        if ($attempt -lt 6) { Start-Sleep -Seconds 3 }
+    }
+    throw 'Atlas access was registered, but the database connection still fails. Check cluster availability, database credentials and VPN/firewall/TLS settings. No RentHub services were started.'
 }
 
 # Pure helper: client settings only, never server credentials or private keys.
@@ -407,7 +563,8 @@ $auth0DatabaseConnection = Get-RentHubEnvironmentValue `
 if (-not $SkipBlockchain -and $blockchainMode -eq 'ganache' -and -not (Test-Path -LiteralPath $ganacheCli)) {
     throw "Blockchain dependencies are missing. Run 'npm.cmd install' in $blockchainDirectory first."
 }
-$mongoConnection = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'MONGODB_URI' -DefaultValue 'mongodb://localhost:27017/renthub'
+$mongoConnection = if (-not [string]::IsNullOrWhiteSpace($env:MONGODB_URI)) { $env:MONGODB_URI }
+    else { Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'MONGODB_URI' -DefaultValue 'mongodb://localhost:27017/renthub' }
 $mongoTarget = Get-RentHubMongoTarget -ConnectionString $mongoConnection
 if ($mongoTarget.IsLocal) {
     if (-not (Test-RentHubTcpPort -HostName $mongoTarget.HostName -Port $mongoTarget.Port)) {
@@ -416,6 +573,37 @@ if ($mongoTarget.IsLocal) {
 }
 else {
     Write-Host 'Using configured cloud/remote MongoDB. API readiness will verify database connectivity.' -ForegroundColor Cyan
+}
+
+$atlasHost = Get-RentHubAtlasHost -ConnectionString $mongoConnection
+if ($atlasHost -and -not $SkipAtlasAccess) {
+    $atlasCommand = Get-Command atlas -CommandType Application -ErrorAction SilentlyContinue
+    if ($null -eq $atlasCommand) {
+        throw "Install MongoDB Atlas CLI and run 'atlas auth login', or use -SkipAtlasAccess if network access is already configured."
+    }
+    if ([string]::IsNullOrWhiteSpace($AtlasProjectId)) {
+        $AtlasProjectId = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'ATLAS_PROJECT_ID'
+    }
+    Write-Host 'Preparing temporary Atlas access for this network...' -ForegroundColor Cyan
+    Sync-RentHubAtlasAccess -AtlasPath $atlasCommand.Source -ClusterHost $atlasHost -ProjectId $AtlasProjectId -Profile $AtlasProfile
+    Wait-RentHubAtlasDatabase -NodePath $nodePath -ApiDirectory $apiDirectory
+}
+
+if (-not $PSBoundParameters.ContainsKey('ApiPort')) {
+    $configuredApiPort = if (-not [string]::IsNullOrWhiteSpace($env:PORT)) { $env:PORT }
+        else { Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'PORT' -DefaultValue '3000' }
+    if (-not [int]::TryParse($configuredApiPort, [ref]$ApiPort) -or $ApiPort -lt 1 -or $ApiPort -gt 65535) {
+        throw 'API PORT must be an integer from 1 to 65535 in the environment or services/api/.env.'
+    }
+}
+$selectedApiPort = Resolve-RentHubApiPort -PreferredPort $ApiPort
+if ($selectedApiPort -ne $ApiPort) {
+    Write-Warning "API port $ApiPort is occupied, incompatible or reserved. Using port $selectedApiPort for this session."
+}
+$ApiPort = $selectedApiPort
+if ($ApiPort -ne 3000) {
+    $standardLog = Join-Path $logDirectory "launcher-api-$ApiPort.log"
+    $errorLog = Join-Path $logDirectory "launcher-api-$ApiPort-error.log"
 }
 
 try {
@@ -562,23 +750,29 @@ try {
         }
     }
 
-    if (Test-RentHubApiReady) {
-        Write-Host 'RentHub API is already ready on port 3000. If you changed .env, restart its original terminal/launcher to load those settings.' -ForegroundColor Green
+    if (Test-RentHubApiReady -Port $ApiPort) {
+        Write-Host "RentHub API is already ready on port $ApiPort. If you changed .env, restart its original terminal/launcher to load those settings." -ForegroundColor Green
     }
     else {
-        if (Test-RentHubTcpPort -HostName 'localhost' -Port 3000) {
-            throw 'Port 3000 is occupied by an outdated or unhealthy API process. Stop its original terminal or launcher with Ctrl+C, then run this launcher again to load current catalogue, identity and multi-day pricing support. This launcher will not stop an API it did not start.'
+        if (-not (Test-RentHubApiPortAvailable -Port $ApiPort)) {
+            throw "API port $ApiPort became occupied during startup. Run this launcher again to select a free port."
         }
         New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-        Write-Host 'Starting the RentHub API...' -ForegroundColor Cyan
-        $apiProcess = Start-Process `
-            -FilePath $nodePath `
-            -ArgumentList (Get-RentHubApiArguments -DisableReload:$NoApiReload) `
-            -WorkingDirectory $apiDirectory `
-            -WindowStyle Hidden `
-            -RedirectStandardOutput $standardLog `
-            -RedirectStandardError $errorLog `
-            -PassThru
+        Write-Host "Starting the RentHub API on port $ApiPort..." -ForegroundColor Cyan
+        $previousApiPort = $env:PORT
+        try {
+            # The child (including Node watch restarts) inherits this session's port.
+            $env:PORT = [string]$ApiPort
+            $apiProcess = Start-Process `
+                -FilePath $nodePath `
+                -ArgumentList (Get-RentHubApiArguments -DisableReload:$NoApiReload) `
+                -WorkingDirectory $apiDirectory `
+                -WindowStyle Hidden `
+                -RedirectStandardOutput $standardLog `
+                -RedirectStandardError $errorLog `
+                -PassThru
+        }
+        finally { $env:PORT = $previousApiPort }
         $startedApi = $true
         $apiProcessStartedAt = $apiProcess.StartTime
 
@@ -587,7 +781,7 @@ try {
             if ($apiProcess.HasExited) {
                 break
             }
-            if (Test-RentHubApiReady) {
+            if (Test-RentHubApiReady -Port $ApiPort) {
                 $ready = $true
                 break
             }
@@ -603,7 +797,7 @@ try {
             }
             throw "The API did not become ready. Review $errorLog.`n$details"
         }
-        Write-Host 'RentHub API is ready.' -ForegroundColor Green
+        Write-Host "RentHub API is ready at http://localhost:$ApiPort." -ForegroundColor Green
     }
 
     if ($CheckOnly) {
@@ -624,12 +818,12 @@ try {
     if (-not $isDesktop) {
         $adbPath = Get-RentHubAdbPath
         if ($null -ne $adbPath) {
-            & $adbPath -s $Device reverse tcp:3000 tcp:3000
+            & $adbPath -s $Device reverse "tcp:$ApiPort" "tcp:$ApiPort"
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning 'ADB port forwarding failed. Use your PC LAN address through API_BASE_URL and SOCKET_URL.'
             }
             else {
-                Write-Host 'Forwarded Android localhost:3000 to the RentHub API on this PC.' -ForegroundColor Green
+                Write-Host "Forwarded Android localhost:$ApiPort to the RentHub API on this PC." -ForegroundColor Green
             }
         }
         else {
@@ -643,6 +837,7 @@ try {
     }
 
     $arguments = @('run', '-d', $Device)
+    $arguments += @(Get-RentHubApiClientArguments -Port $ApiPort)
     $firebaseSettings = @{}
     foreach ($setting in @('FIREBASE_ANDROID_API_KEY', 'FIREBASE_ANDROID_APP_ID', 'FIREBASE_MESSAGING_SENDER_ID', 'FIREBASE_PROJECT_ID')) {
         $firebaseSettings[$setting] = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name $setting
