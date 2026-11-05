@@ -111,3 +111,16 @@ test('points are truly paginated and account-scoped',async()=>{
   await request(app).get('/api/v1/rewards/entries?page=1.2').set(h()).expect(422);
   const previous=env.authMode;try{env.authMode='local';await request(app).get('/api/v1/messages/threads').expect(401);}finally{env.authMode=previous;}
 });
+
+
+test('location suggestions use eligible public localities, never private address text',async()=>{
+  await ListingModel.create([
+    {publicId:'l-local-one',ownerId:'u-two',ownerName:'Other',title:'Camera',status:'active',category:'Devices',subcategory:'Cameras',listingType:'physical',condition:'Good',dailyPrice:80,location:'Unit 19 Secret Street',locationDetails:{city:'Setapak',state:'Kuala Lumpur',displayAddress:'Unit 19 Secret Street',coordinates:{latitude:3.2,longitude:101.7}},state:'Kuala Lumpur',fulfilmentMethods:['pickup']},
+    {publicId:'l-local-own',ownerId:'u-one',ownerName:'Self',title:'Own',status:'active',category:'Devices',subcategory:'Cameras',listingType:'physical',condition:'Good',dailyPrice:80,location:'Private',locationDetails:{city:'Setapak Private',displayAddress:'Private',coordinates:{latitude:3.2,longitude:101.7}},state:'Selangor',fulfilmentMethods:['pickup']}
+  ]);
+  const data=(await request(app).get('/api/v1/listings/search-suggestions?q=setap&category=Devices').set(h()).expect(200)).body.data;
+  assert.deepEqual(data,[{title:'Setapak, Kuala Lumpur',kind:'location',location:'Setapak, Kuala Lumpur'}]);
+  assert.ok(!JSON.stringify(data).includes('Secret'));
+  assert.deepEqual((await request(app).get('/api/v1/listings/search-suggestions?q=Secret').set(h()).expect(200)).body.data,[]);
+  assert.deepEqual((await request(app).get('/api/v1/listings/search-suggestions?q=setap&category=Books').set(h()).expect(200)).body.data,[]);
+});

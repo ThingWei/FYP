@@ -503,7 +503,8 @@ class LiveOwnerListingsPage extends StatelessWidget {
                                       ),
                                     ),
                                   );
-                                } else if (value == 'availability') {
+                                } else if (value == 'availability' &&
+                                    listing.status == 'active') {
                                   await Navigator.push<void>(
                                     context,
                                     MaterialPageRoute(
@@ -547,10 +548,11 @@ class LiveOwnerListingsPage extends StatelessWidget {
                                     value: 'edit',
                                     child: Text('Edit listing'),
                                   ),
-                                const PopupMenuItem(
-                                  value: 'availability',
-                                  child: Text('Availability'),
-                                ),
+                                if (listing.status == 'active')
+                                  const PopupMenuItem(
+                                    value: 'availability',
+                                    child: Text('Availability'),
+                                  ),
                                 const PopupMenuItem(
                                   value: 'promotion',
                                   child: Text('Promotion'),
@@ -1869,6 +1871,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                       .toDouble(),
                                   priceRecommendation!['model_version']
                                       as String?);
+                              priceRecommendation = null;
                             }),
                           ),
                         ],
@@ -2041,6 +2044,7 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
   }
 
   Future<void> _load() async {
+    if (widget.listing.status != 'active') return;
     try {
       final data = await context
           .read<LiveRentHubController>()
@@ -2176,106 +2180,119 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Manage Availability')),
-        bottomNavigationBar: SafeArea(
-          minimum: const EdgeInsets.all(16),
-          child: RentHubActionButton(
-            label: 'Save Availability',
-            loading: saving,
-            onPressed: loading || saving ? null : _save,
+  Widget build(BuildContext context) => widget.listing.status != 'active'
+      ? Scaffold(
+          appBar: AppBar(title: const Text('Availability')),
+          body: RentHubFeedbackState(
+            kind: FeedbackKind.empty,
+            title: 'Availability opens after approval',
+            message: widget.listing.status == 'pending_review'
+                ? 'Your listing is being reviewed. You can manage its dates once it is approved.'
+                : 'Publish an approved listing before managing its dates.',
           ),
-        ),
-        body: loading
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  Text(widget.listing.title,
-                      style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: notice,
-                          keyboardType: TextInputType.number,
-                          decoration: (const InputDecoration(
-                            labelText: 'Minimum notice (hours)',
-                          )).copyWith(counterText: '', errorMaxLines: 3),
-                          validator: InputRules.minimumNoticeHours.validate,
-                          inputFormatters: InputValidation.formatters(
-                              InputRules.minimumNoticeHours, notice),
-                          autovalidateMode: AutovalidateMode.onUserInteraction,
-                          maxLength: InputRules.minimumNoticeHours.maxLength,
-                          maxLengthEnforcement:
-                              InputValidation.lengthEnforcement,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: buffer,
-                          keyboardType: TextInputType.number,
-                          decoration: (const InputDecoration(
-                            labelText: 'Buffer (hours)',
-                          )).copyWith(counterText: '', errorMaxLines: 3),
-                          validator: InputRules.bufferHours.validate,
-                          inputFormatters: InputValidation.formatters(
-                              InputRules.bufferHours, buffer),
-                          autovalidateMode: AutovalidateMode.onUserInteraction,
-                          maxLength: InputRules.bufferHours.maxLength,
-                          maxLengthEnforcement:
-                              InputValidation.lengthEnforcement,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text('Unavailable dates',
-                            style: Theme.of(context).textTheme.titleMedium),
-                      ),
-                      TextButton.icon(
-                        onPressed: _addRange,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Block Dates'),
-                      ),
-                    ],
-                  ),
-                  if (ranges.isEmpty)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text('No dates are currently blocked.'),
-                      ),
-                    )
-                  else
-                    for (var index = 0; index < ranges.length; index++)
-                      Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.event_busy_outlined),
-                          title: Text(
-                            '${_date(ranges[index]['start'] as String)} - ${_date(ranges[index]['end'] as String, exclusiveEnd: true)}',
-                          ),
-                          subtitle: Text(
-                            (ranges[index]['reason'] as String?)?.isEmpty ??
-                                    true
-                                ? 'Owner unavailable'
-                                : ranges[index]['reason'] as String,
-                          ),
-                          trailing: IconButton(
-                            tooltip: 'Remove blocked dates',
-                            onPressed: () => _removeRange(index),
-                            icon: const Icon(Icons.delete_outline),
+        )
+      : Scaffold(
+          appBar: AppBar(title: const Text('Manage Availability')),
+          bottomNavigationBar: SafeArea(
+            minimum: const EdgeInsets.all(16),
+            child: RentHubActionButton(
+              label: 'Save Availability',
+              loading: saving,
+              onPressed: loading || saving ? null : _save,
+            ),
+          ),
+          body: loading
+              ? const Center(child: CircularProgressIndicator())
+              : ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Text(widget.listing.title,
+                        style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: notice,
+                            keyboardType: TextInputType.number,
+                            decoration: (const InputDecoration(
+                              labelText: 'Minimum notice (hours)',
+                            )).copyWith(counterText: '', errorMaxLines: 3),
+                            validator: InputRules.minimumNoticeHours.validate,
+                            inputFormatters: InputValidation.formatters(
+                                InputRules.minimumNoticeHours, notice),
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            maxLength: InputRules.minimumNoticeHours.maxLength,
+                            maxLengthEnforcement:
+                                InputValidation.lengthEnforcement,
                           ),
                         ),
-                      ),
-                ],
-              ),
-      );
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            controller: buffer,
+                            keyboardType: TextInputType.number,
+                            decoration: (const InputDecoration(
+                              labelText: 'Buffer (hours)',
+                            )).copyWith(counterText: '', errorMaxLines: 3),
+                            validator: InputRules.bufferHours.validate,
+                            inputFormatters: InputValidation.formatters(
+                                InputRules.bufferHours, buffer),
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            maxLength: InputRules.bufferHours.maxLength,
+                            maxLengthEnforcement:
+                                InputValidation.lengthEnforcement,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text('Unavailable dates',
+                              style: Theme.of(context).textTheme.titleMedium),
+                        ),
+                        TextButton.icon(
+                          onPressed: _addRange,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Block Dates'),
+                        ),
+                      ],
+                    ),
+                    if (ranges.isEmpty)
+                      const Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('No dates are currently blocked.'),
+                        ),
+                      )
+                    else
+                      for (var index = 0; index < ranges.length; index++)
+                        Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.event_busy_outlined),
+                            title: Text(
+                              '${_date(ranges[index]['start'] as String)} - ${_date(ranges[index]['end'] as String, exclusiveEnd: true)}',
+                            ),
+                            subtitle: Text(
+                              (ranges[index]['reason'] as String?)?.isEmpty ??
+                                      true
+                                  ? 'Owner unavailable'
+                                  : ranges[index]['reason'] as String,
+                            ),
+                            trailing: IconButton(
+                              tooltip: 'Remove blocked dates',
+                              onPressed: () => _removeRange(index),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ),
+                        ),
+                  ],
+                ),
+        );
 }
 
 class LivePromotionPage extends StatefulWidget {

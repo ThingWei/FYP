@@ -107,9 +107,7 @@ class _LiveReviewPageState extends State<LiveReviewPage> {
       if (!mounted) return;
       showMockSuccess(
         context,
-        widget.existing == null
-            ? 'Review saved to MongoDB'
-            : 'Review updated in MongoDB',
+        widget.existing == null ? 'Review submitted' : 'Review updated',
       );
       Navigator.pop(context);
     } catch (exception) {

@@ -1,4 +1,6 @@
 import 'live_reviews_list.dart';
+import '../../core/discovery/discovery_state.dart';
+export '../../core/discovery/discovery_state.dart' show DiscoveryFilters;
 import 'live_search_field.dart';
 import 'user_record_pagination.dart';
 import '../../shared/widgets/dot_pagination.dart';
@@ -72,11 +74,13 @@ class _LiveRenterShellState extends State<LiveRenterShell> {
     final index = controller.renterTabIndex;
     final pages = [
       LiveMarketplacePage(
+        key: const ValueKey('renter-home'),
         title: 'RentHub',
         featuredOnly: true,
         onOpenBookings: () => controller.selectRenterTab(2),
       ),
       LiveMarketplacePage(
+        key: const ValueKey('renter-explore'),
         title: 'Explore',
         onOpenBookings: () => controller.selectRenterTab(2),
       ),
@@ -173,27 +177,100 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
   int searchGeneration = 0;
   String? resultQuery;
   String? _marketplaceAccount;
+  String? _restoredKey;
+  LiveRentHubController? _marketController;
+  bool _restoring = false;
+  DateTime? _successfulAt;
+  String get _cacheKey => widget.featuredOnly ? 'home-discovery' : 'explore';
   int browseLimit = 20;
   late ListingViewMode viewMode =
       widget.featuredOnly ? ListingViewMode.carousel : ListingViewMode.grid;
 
   @override
+  void initState() {
+    super.initState();
+    queryController.addListener(_remember);
+  }
+
+  void _remember() {
+    final c = _marketController;
+    if (_restoring ||
+        c == null ||
+        c.profile == null ||
+        c.profile?.id != _marketplaceAccount ||
+        _restoredKey == null) {
+      return;
+    }
+    final cached =
+        c.marketplaceViews.putIfAbsent(_restoredKey!, MarketplaceViewState.new);
+    cached.filters = filters;
+    cached.query = queryController.text;
+    cached.results = results == null ? null : List.of(results!);
+    cached.resultQuery = resultQuery;
+    cached.limit = browseLimit;
+    cached.viewMode = viewMode.name;
+    cached.pending = searching;
+    cached.successfulAt = _successfulAt;
+  }
+
+  void _restore() {
+    final c = context.read<LiveRentHubController>();
+    final account = c.profile?.id;
+    if (_marketplaceAccount == account && _restoredKey == _cacheKey) return;
+    _marketController = c;
+    _marketplaceAccount = account;
+    _restoredKey = _cacheKey;
+    _restoring = true;
+    final cached = c.marketplaceViews[_cacheKey];
+    filters = cached?.filters ?? const DiscoveryFilters();
+    queryController.text = cached?.query ?? '';
+    results = cached?.results == null ? null : List.of(cached!.results!);
+    resultQuery = cached?.resultQuery;
+    browseLimit = cached?.limit ?? 20;
+    viewMode = ListingViewMode.values
+            .where((mode) => mode.name == cached?.viewMode)
+            .firstOrNull ??
+        (widget.featuredOnly ? ListingViewMode.carousel : ListingViewMode.grid);
+    _successfulAt = cached?.successfulAt;
+    searchGeneration++;
+    searching = false;
+    _restoring = false;
+    final refresh = cached?.pending == true ||
+        cached?.resultQuery != null &&
+            (cached?.results == null ||
+                cached?.successfulAt == null ||
+                DateTime.now().difference(cached!.successfulAt!).inSeconds >=
+                    60);
+    if (refresh) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && c.profile?.id == account) {
+          _applyFilters(page: c.userRecordPages[_cacheKey]?.page ?? 1);
+        }
+      });
+    }
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final account = context.watch<LiveRentHubController>().profile?.id;
-    if (_marketplaceAccount != account) {
-      _marketplaceAccount = account;
-      results = null;
-      resultQuery = null;
-      filters = const DiscoveryFilters();
-      queryController.clear();
-      searchGeneration++;
-      searching = false;
+    context.watch<LiveRentHubController>();
+    _restore();
+  }
+
+  @override
+  void didUpdateWidget(covariant LiveMarketplacePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.featuredOnly != widget.featuredOnly) {
+      _remember();
+      _restore();
     }
   }
 
   @override
   void dispose() {
+    _remember();
+    searchGeneration++;
+    queryController.removeListener(_remember);
     queryController.dispose();
     super.dispose();
   }
@@ -205,6 +282,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
     final useRecommendations =
         widget.featuredOnly && filters.sort == 'recommended';
     setState(() => searching = true);
+    _remember();
     try {
       final parameters = <String, String>{
         'search': queryController.text,
@@ -232,6 +310,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
       if (queryKey != resultQuery) {
         setState(() {
           results = [];
+          _successfulAt = null;
           resultQuery = queryKey;
         });
       }
@@ -255,20 +334,23 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               'sort': filters.sort,
               'page': '$page',
               'limit': '$browseLimit',
-            });
+            }, collection: _cacheKey);
       if (mounted && request == searchGeneration) {
         setState(() {
           results = found;
+          _successfulAt = DateTime.now();
         });
       }
     } catch (exception) {
       if (mounted && request == searchGeneration) {
+        _successfulAt = null;
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
     } finally {
       if (mounted && request == searchGeneration) {
         setState(() => searching = false);
+        _remember();
       }
     }
   }
@@ -297,7 +379,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
       await _applyFilters(
           page: context
                   .read<LiveRentHubController>()
-                  .userRecordPages['explore']
+                  .userRecordPages[_cacheKey]
                   ?.page ??
               1);
     } else {
@@ -350,12 +432,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
     final controller = context.watch<LiveRentHubController>();
     final showingAiRecommendations =
         widget.featuredOnly && filters.sort == 'recommended';
-    var listings = ((widget.featuredOnly &&
-                    results != null &&
-                    filters.sort == 'recommended'
-                ? controller.recommendationSections['recommended']?.items
-                : null) ??
-            results ??
+    var listings = (results ??
             (widget.featuredOnly && controller.recommendedListings.isNotEmpty
                 ? controller.recommendedListings
                 : controller.listings))
@@ -369,10 +446,10 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
             : PreferredSize(
                 preferredSize: const Size.fromHeight(76),
                 child: RecordListHeader(
-                    summary: controller.userRecordPages['explore']?.total ==
+                    summary: controller.userRecordPages[_cacheKey]?.total ==
                             null
                         ? '${listings.length} results'
-                        : '${controller.userRecordPages['explore']!.total} results',
+                        : '${controller.userRecordPages[_cacheKey]!.total} results',
                     limit: browseLimit,
                     loading: searching,
                     onLimit: (value) {
@@ -407,14 +484,14 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
           : SafeArea(
               top: false,
               child: DotPagination(
-                  page: controller.userRecordPages['explore']?.page ?? 1,
+                  page: controller.userRecordPages[_cacheKey]?.page ?? 1,
                   pageCount:
-                      controller.userRecordPages['explore']?.total == null
+                      controller.userRecordPages[_cacheKey]?.total == null
                           ? null
-                          : (controller.userRecordPages['explore']!.total! /
+                          : (controller.userRecordPages[_cacheKey]!.total! /
                                   browseLimit)
                               .ceil(),
-                  hasNext: controller.userRecordPages['explore']?.hasMore ??
+                  hasNext: controller.userRecordPages[_cacheKey]?.hasMore ??
                       controller.listings.length >= browseLimit,
                   loading: searching,
                   onPage: (value) => _applyFilters(page: value))),
@@ -433,6 +510,21 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
             LiveListingSearchField(
                 controller: queryController,
                 onSearch: _applyFilters,
+                onLocationSelected: (area) {
+                  queryController.clear();
+                  filters = DiscoveryFilters(
+                      category: filters.category,
+                      type: filters.type,
+                      location: area,
+                      radiusKm: filters.radiusKm,
+                      minimumPrice: filters.minimumPrice,
+                      maximumPrice: filters.maximumPrice,
+                      verifiedOnly: filters.verifiedOnly,
+                      promotionsOnly: filters.promotionsOnly,
+                      sort: filters.sort,
+                      dates: filters.dates);
+                  _applyFilters();
+                },
                 category: filters.category,
                 busy: searching),
             const SizedBox(height: 12),
@@ -462,7 +554,10 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
               ListingViewSwitcher(
                   value: viewMode,
                   carousel: widget.featuredOnly,
-                  onChanged: (value) => setState(() => viewMode = value)),
+                  onChanged: (value) {
+                    setState(() => viewMode = value);
+                    _remember();
+                  }),
             ]),
             const SizedBox(height: 16),
             if (widget.featuredOnly && results == null)
@@ -473,7 +568,17 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
             else ...[
               if (widget.featuredOnly)
                 TextButton(
-                    onPressed: () => setState(() => results = null),
+                    onPressed: () {
+                      setState(() {
+                        results = null;
+                        resultQuery = null;
+                        filters = const DiscoveryFilters();
+                        queryController.clear();
+                      });
+                      controller.recommendationFilters = {};
+                      controller.setRecommendationArea(null, 10);
+                      _remember();
+                    },
                     child: const Text('Back to recommendations')),
               if (searching) const LinearProgressIndicator(),
               if (searching) const SizedBox(height: 8),
@@ -519,38 +624,6 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
       ),
     );
   }
-}
-
-class DiscoveryFilters {
-  const DiscoveryFilters({
-    this.category = 'All',
-    this.type = 'all',
-    this.location = '',
-    this.centre,
-    this.radiusKm = 10,
-    this.minimumPrice = '',
-    this.maximumPrice = '',
-    this.verifiedOnly = false,
-    this.promotionsOnly = false,
-    this.sort = 'recommended',
-    this.dates,
-  });
-
-  final String category, type, location, minimumPrice, maximumPrice, sort;
-  final ListingLocationSelection? centre;
-  final int radiusKm;
-  final bool verifiedOnly, promotionsOnly;
-  final DateTimeRange? dates;
-
-  int get activeCount =>
-      (category == 'All' ? 0 : 1) +
-      (type == 'all' ? 0 : 1) +
-      (location.isEmpty && centre == null ? 0 : 1) +
-      (minimumPrice.isEmpty && maximumPrice.isEmpty ? 0 : 1) +
-      (verifiedOnly ? 1 : 0) +
-      (promotionsOnly ? 1 : 0) +
-      (dates == null ? 0 : 1) +
-      (sort == 'recommended' ? 0 : 1);
 }
 
 class LiveDiscoveryFilterPage extends StatefulWidget {
@@ -693,7 +766,7 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
                   searchAreaOnly: true,
                   requirePin: false,
                   allowEmpty: true,
-                  maxLength: 100,
+                  maxLength: centre == null ? 100 : 240,
                   onChanged: (value) => setState(() => centre = value)),
               if (centre != null) ...[
                 DropdownButtonFormField<int>(
@@ -949,6 +1022,11 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   late final String checkoutIdempotencyKey = newCheckoutIdempotencyKey();
   Future<List<Review>>? reviewFuture;
 
+  bool get isOwnListing =>
+      widget.listing.ownerId.isNotEmpty &&
+      context.read<LiveRentHubController>().profile?.id ==
+          widget.listing.ownerId;
+
   @override
   void initState() {
     super.initState();
@@ -964,9 +1042,11 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
         context.read<LiveRentHubController>().listingReviews(widget.listing.id);
     if (!availabilityRequested) {
       availabilityRequested = true;
-      context
-          .read<LiveRentHubController>()
-          .recordListingView(widget.listing.id);
+      if (!isOwnListing) {
+        context
+            .read<LiveRentHubController>()
+            .recordListingView(widget.listing.id);
+      }
       _loadAvailability();
     }
   }
@@ -989,6 +1069,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       if (mounted) setState(() => availabilityLoading = false);
     }
     if (mounted &&
+        !isOwnListing &&
         widget.chooseDatesInitially &&
         !initialDatePickerOpened &&
         availability != null &&
@@ -1155,25 +1236,55 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   }
 
   Future<void> _pick(bool startDate) async {
-    final current = startDate ? start : end;
-    final today = DateTime.now();
-    final firstDate = DateTime(today.year, today.month, today.day);
-    final initial = _firstAvailableOnOrAfter(
-      current.isBefore(firstDate) ? firstDate : current,
-    );
+    if (isOwnListing || availabilityLoading) return;
+    final model = availability;
+    if (model == null) return;
+    final today = malaysiaCalendarToday();
+    final selectedStart = calendarDate(start);
+    if (!startDate &&
+        (selectedStart.isBefore(today) ||
+            !model.isDayAvailable(selectedStart))) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Choose an available start date first.')));
+      return;
+    }
+    final firstDate = startDate ? today : selectedStart;
+    final lastDate = today.add(const Duration(days: 730));
+    bool canSelect(DateTime day) => startDate
+        ? model.isDayAvailable(day)
+        : model.isRangeAvailable(selectedStart, day);
+    DateTime? initial = calendarDate(startDate ? start : end);
+    if (initial.isBefore(firstDate) ||
+        initial.isAfter(lastDate) ||
+        !canSelect(initial)) {
+      initial = null;
+      for (var day = firstDate;
+          !day.isAfter(lastDate);
+          day = DateTime(day.year, day.month, day.day + 1)) {
+        if (canSelect(day)) {
+          initial = day;
+          break;
+        }
+      }
+    }
+    if (initial == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No available dates were found. Please try later.')));
+      return;
+    }
     final selected = await showDatePicker(
       context: context,
       initialDate: initial,
       firstDate: firstDate,
-      lastDate: firstDate.add(const Duration(days: 730)),
-      selectableDayPredicate: (day) =>
-          availability?.isDayAvailable(day) ?? false,
+      lastDate: lastDate,
+      helpText: startDate ? 'Choose a start date' : 'Choose an end date',
+      selectableDayPredicate: canSelect,
     );
-    if (selected == null) return;
+    if (selected == null || !mounted || isOwnListing) return;
     setState(() {
       if (startDate) {
         start = selected;
-        if (end.isBefore(start)) end = start;
+        if (!model.isRangeAvailable(start, end)) end = start;
       } else {
         end = selected;
       }
@@ -1189,6 +1300,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   }
 
   Future<void> _submit() async {
+    if (isOwnListing) return;
     if (!InputValidation.validate(context)) return;
     if (submitting || checkingIdentity || end.isBefore(start)) return;
     setState(() => checkingIdentity = true);
@@ -1196,7 +1308,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
         action: 'submit a booking request');
     if (!mounted) return;
     setState(() => checkingIdentity = false);
-    if (!approved) return;
+    if (!approved || isOwnListing) return;
     if (!selectedDatesAvailable) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1380,7 +1492,9 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<LiveRentHubController>();
     final listing = widget.listing;
+    final ownListing = isOwnListing;
     final days = end.difference(start).inDays + 1;
     final estimate = listing.isService
         ? listing.displayPrice * 1.05
@@ -1390,61 +1504,104 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
             (waiver ? listing.damageWaiverFee : 0);
     return Scaffold(
       appBar: AppBar(
-        title: Text(listing.isService ? 'Book Service' : 'Rent Item'),
+        title: Text(ownListing
+            ? 'Your listing'
+            : listing.isService
+                ? 'Book Service'
+                : 'Rent Item'),
         actions: [
-          Consumer<LiveRentHubController>(
-            builder: (context, controller, _) => IconButton(
-              tooltip: controller.isSaved(listing.id)
-                  ? 'Remove from wishlist'
-                  : 'Save to wishlist',
-              onPressed: () => controller.toggleSavedListing(listing),
-              color: controller.isSaved(listing.id) ? AppColors.error : null,
-              icon: Icon(
-                controller.isSaved(listing.id)
-                    ? Icons.favorite
-                    : Icons.favorite_outline,
+          if (!ownListing) ...[
+            Consumer<LiveRentHubController>(
+              builder: (context, controller, _) => IconButton(
+                tooltip: controller.isSaved(listing.id)
+                    ? 'Remove from wishlist'
+                    : 'Save to wishlist',
+                onPressed: () => controller.toggleSavedListing(listing),
+                color: controller.isSaved(listing.id) ? AppColors.error : null,
+                icon: Icon(
+                  controller.isSaved(listing.id)
+                      ? Icons.favorite
+                      : Icons.favorite_outline,
+                ),
               ),
             ),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Safety actions',
-            onSelected: (value) {
-              if (value == 'listing') {
-                _reportTarget('listing', listing.id, 'listing');
-              } else if (value == 'owner') {
-                _reportTarget('user', listing.ownerId, 'Owner');
-              } else if (value == 'block') {
-                _blockOwner();
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'listing', child: Text('Report listing')),
-              PopupMenuItem(value: 'owner', child: Text('Report Owner')),
-              PopupMenuItem(value: 'block', child: Text('Block Owner')),
-            ],
-          ),
+            PopupMenuButton<String>(
+              tooltip: 'Safety actions',
+              onSelected: (value) {
+                if (value == 'listing') {
+                  _reportTarget('listing', listing.id, 'listing');
+                } else if (value == 'owner') {
+                  _reportTarget('user', listing.ownerId, 'Owner');
+                } else if (value == 'block') {
+                  _blockOwner();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'listing', child: Text('Report listing')),
+                PopupMenuItem(value: 'owner', child: Text('Report Owner')),
+                PopupMenuItem(value: 'block', child: Text('Block Owner')),
+              ],
+            ),
+          ],
         ],
       ),
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.all(16),
-        child: RentHubActionButton(
-          label: agreementAccepted
-              ? 'Continue to checkout'
-              : 'Accept Agreement to Continue',
-          loading: submitting || checkingIdentity,
-          onPressed: submitting ||
-                  checkingIdentity ||
-                  !agreementAccepted ||
-                  availabilityLoading ||
-                  !selectedDatesAvailable
-              ? null
-              : _submit,
-        ),
+        child: ownListing
+            ? OutlinedButton.icon(
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Back to Explore'),
+              )
+            : RentHubActionButton(
+                label: agreementAccepted
+                    ? 'Continue to checkout'
+                    : 'Accept Agreement to Continue',
+                loading: submitting || checkingIdentity,
+                onPressed: submitting ||
+                        checkingIdentity ||
+                        !agreementAccepted ||
+                        availabilityLoading ||
+                        !selectedDatesAvailable
+                    ? null
+                    : _submit,
+              ),
       ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
+            if (ownListing) ...[
+              Card(
+                color: AppColors.blueSurface,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.storefront_outlined,
+                          color: AppColors.primary),
+                      const SizedBox(height: 8),
+                      Text('This is your listing',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 4),
+                      const Text(
+                          'You are viewing your listing in Explore. Switch to Owner to edit it or manage requests.'),
+                      const SizedBox(height: 8),
+                      if (!listing.isService)
+                        Text(
+                            'Deposit: ${formatMoney(listing.securityDeposit)}'),
+                      if (!listing.isService &&
+                          listing.fulfilmentMethods.contains('owner_delivery'))
+                        Text(listing.deliveryFee == 0
+                            ? 'Owner delivery: Free'
+                            : 'Owner delivery: ${formatMoney(listing.deliveryFee)}'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (listing.images.isNotEmpty) ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
@@ -1530,13 +1687,15 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               ),
             ),
             const SizedBox(height: 12),
-            LiveComplementsSection(
-                listingId: listing.id,
-                onOpen: (item) => Navigator.push<void>(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => LiveBookingPage(
-                            listing: item, onSubmitted: widget.onSubmitted)))),
+            if (!ownListing)
+              LiveComplementsSection(
+                  listingId: listing.id,
+                  onOpen: (item) => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => LiveBookingPage(
+                              listing: item,
+                              onSubmitted: widget.onSubmitted)))),
             const SizedBox(height: 12),
             if (availabilityLoading)
               const Card(
@@ -1685,9 +1844,11 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     }
                     final reviews = snapshot.data ?? const <Review>[];
                     if (reviews.isEmpty) {
-                      return const Text(
-                        'No published reviews yet. Be the first after completing a booking.',
-                        style: TextStyle(color: AppColors.secondaryText),
+                      return Text(
+                        ownListing
+                            ? 'No published reviews for this listing yet.'
+                            : 'No published reviews yet. Be the first after completing a booking.',
+                        style: const TextStyle(color: AppColors.secondaryText),
                       );
                     }
                     final average = reviews
@@ -1740,228 +1901,231 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               ),
             ),
             const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                          listing.isService ? 'Service date' : 'Start date'),
-                      subtitle:
-                          Text('${start.day}/${start.month}/${start.year}'),
-                      trailing: const Icon(Icons.calendar_today_outlined),
-                      onTap: () => _pick(true),
-                    ),
-                    if (!listing.isService)
+            if (!ownListing) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('End date'),
-                        subtitle: Text('${end.day}/${end.month}/${end.year}'),
+                        title: Text(
+                            listing.isService ? 'Service date' : 'Start date'),
+                        subtitle:
+                            Text('${start.day}/${start.month}/${start.year}'),
                         trailing: const Icon(Icons.calendar_today_outlined),
-                        onTap: () => _pick(false),
+                        onTap: () => _pick(true),
                       ),
-                    if (!availabilityLoading && !selectedDatesAvailable)
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 12),
-                        child: Text(
-                          'The selected range overlaps unavailable dates.',
-                          style: TextStyle(
-                            color: AppColors.error,
-                            fontWeight: FontWeight.w700,
+                      if (!listing.isService)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('End date'),
+                          subtitle: Text('${end.day}/${end.month}/${end.year}'),
+                          trailing: const Icon(Icons.calendar_today_outlined),
+                          onTap: () => _pick(false),
+                        ),
+                      if (!availabilityLoading && !selectedDatesAvailable)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 12),
+                          child: Text(
+                            'The selected range overlaps unavailable dates.',
+                            style: TextStyle(
+                              color: AppColors.error,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
-                    if (listing.isService)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Service time'),
-                        subtitle: Text(serviceTime.format(context)),
-                        trailing: const Icon(Icons.schedule_outlined),
-                        onTap: _pickServiceTime,
-                      ),
-                    if (listing.isService &&
-                        ['flexible', 'renter_location']
-                            .contains(listing.venueMode))
-                      LiveLocationField(
-                          mapBuilder: widget.locationMapBuilder,
-                          api: ListingLocationApi(
-                              context.read<LiveRentHubController>().api),
-                          controller: venue,
-                          value: serviceLocation,
-                          label: 'Service venue',
-                          enabled: !submitting,
-                          onChanged: (value) =>
-                              setState(() => serviceLocation = value))
-                    else if (listing.isService)
-                      Text(listing.venueMode == 'online'
-                          ? 'This service is online. No physical venue is needed.'
-                          : 'The owner’s exact venue is shared after approval.')
-                    else if (listing.fulfilmentMethods.isNotEmpty)
-                      DropdownButtonFormField<String>(
-                        initialValue: fulfilmentMethod,
-                        decoration:
-                            const InputDecoration(labelText: 'Fulfilment'),
-                        items: listing.fulfilmentMethods
-                            .map(
-                              (method) => DropdownMenuItem(
-                                value: method,
-                                child: Text(
-                                  method == 'pickup'
-                                      ? 'Self pickup'
-                                      : 'Owner delivery',
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) => setState(
-                          () => fulfilmentMethod = value ?? fulfilmentMethod,
+                      if (listing.isService)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Service time'),
+                          subtitle: Text(serviceTime.format(context)),
+                          trailing: const Icon(Icons.schedule_outlined),
+                          onTap: _pickServiceTime,
                         ),
-                      ),
-                    if (!listing.isService &&
-                        fulfilmentMethod == 'owner_delivery') ...[
-                      Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Text(
-                              listing.deliveryFee == 0
-                                  ? 'Delivery: Free'
-                                  : 'Delivery fee: ${formatMoney(listing.deliveryFee)}',
-                              style: Theme.of(context).textTheme.titleSmall)),
-                      if (context
-                              .read<LiveRentHubController>()
-                              .profile
-                              ?.addresses
-                              .isNotEmpty ==
-                          true)
-                        DropdownButtonFormField<UserAddress>(
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                                labelText: 'Use a saved address'),
-                            items: context
+                      if (listing.isService &&
+                          ['flexible', 'renter_location']
+                              .contains(listing.venueMode))
+                        LiveLocationField(
+                            mapBuilder: widget.locationMapBuilder,
+                            api: ListingLocationApi(
+                                context.read<LiveRentHubController>().api),
+                            controller: venue,
+                            value: serviceLocation,
+                            label: 'Service venue',
+                            enabled: !submitting,
+                            onChanged: (value) =>
+                                setState(() => serviceLocation = value))
+                      else if (listing.isService)
+                        Text(listing.venueMode == 'online'
+                            ? 'This service is online. No physical venue is needed.'
+                            : 'The owner’s exact venue is shared after approval.')
+                      else if (listing.fulfilmentMethods.isNotEmpty)
+                        DropdownButtonFormField<String>(
+                          initialValue: fulfilmentMethod,
+                          decoration:
+                              const InputDecoration(labelText: 'Fulfilment'),
+                          items: listing.fulfilmentMethods
+                              .map(
+                                (method) => DropdownMenuItem(
+                                  value: method,
+                                  child: Text(
+                                    method == 'pickup'
+                                        ? 'Self pickup'
+                                        : 'Owner delivery',
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) => setState(
+                            () => fulfilmentMethod = value ?? fulfilmentMethod,
+                          ),
+                        ),
+                      if (!listing.isService &&
+                          fulfilmentMethod == 'owner_delivery') ...[
+                        Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(
+                                listing.deliveryFee == 0
+                                    ? 'Delivery: Free'
+                                    : 'Delivery fee: ${formatMoney(listing.deliveryFee)}',
+                                style: Theme.of(context).textTheme.titleSmall)),
+                        if (context
                                 .read<LiveRentHubController>()
-                                .profile!
-                                .addresses
-                                .map((address) => DropdownMenuItem(
-                                    value: address,
-                                    child: Text(address.label,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis)))
-                                .toList(),
-                            onChanged: (address) {
-                              if (address == null) return;
-                              setState(() {
-                                delivery.text = address.line1;
-                                deliveryLocation = address.mapLocation;
-                              });
-                            }),
-                      LiveLocationField(
-                          mapBuilder: widget.locationMapBuilder,
-                          api: ListingLocationApi(
-                              context.read<LiveRentHubController>().api),
-                          controller: delivery,
-                          value: deliveryLocation,
-                          label: 'Delivery address',
-                          enabled: !submitting,
-                          onChanged: (value) =>
-                              setState(() => deliveryLocation = value)),
-                    ],
-                    if (!listing.isService && listing.damageWaiverAvailable)
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: waiver,
-                        title: const Text('Damage waiver'),
-                        subtitle: Text(formatMoney(listing.damageWaiverFee)),
-                        onChanged: (value) => setState(() => waiver = value),
+                                .profile
+                                ?.addresses
+                                .isNotEmpty ==
+                            true)
+                          DropdownButtonFormField<UserAddress>(
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                  labelText: 'Use a saved address'),
+                              items: context
+                                  .read<LiveRentHubController>()
+                                  .profile!
+                                  .addresses
+                                  .map((address) => DropdownMenuItem(
+                                      value: address,
+                                      child: Text(address.label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis)))
+                                  .toList(),
+                              onChanged: (address) {
+                                if (address == null) return;
+                                setState(() {
+                                  delivery.text = address.line1;
+                                  deliveryLocation = address.mapLocation;
+                                });
+                              }),
+                        LiveLocationField(
+                            mapBuilder: widget.locationMapBuilder,
+                            api: ListingLocationApi(
+                                context.read<LiveRentHubController>().api),
+                            controller: delivery,
+                            value: deliveryLocation,
+                            label: 'Delivery address',
+                            enabled: !submitting,
+                            onChanged: (value) =>
+                                setState(() => deliveryLocation = value)),
+                      ],
+                      if (!listing.isService && listing.damageWaiverAvailable)
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: waiver,
+                          title: const Text('Damage waiver'),
+                          subtitle: Text(formatMoney(listing.damageWaiverFee)),
+                          onChanged: (value) => setState(() => waiver = value),
+                        ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: note,
+                        maxLength: 1000,
+                        maxLengthEnforcement: InputValidation.lengthEnforcement,
+                        maxLines: 3,
+                        decoration: (const InputDecoration(
+                          labelText: 'Note to Owner (optional)',
+                        )).copyWith(counterText: '', errorMaxLines: 3),
+                        validator: InputRules.noteToOwnerOptional.validate,
+                        inputFormatters: InputValidation.formatters(
+                            InputRules.noteToOwnerOptional, note),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                       ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: note,
-                      maxLength: 1000,
-                      maxLengthEnforcement: InputValidation.lengthEnforcement,
-                      maxLines: 3,
-                      decoration: (const InputDecoration(
-                        labelText: 'Note to Owner (optional)',
-                      )).copyWith(counterText: '', errorMaxLines: 3),
-                      validator: InputRules.noteToOwnerOptional.validate,
-                      inputFormatters: InputValidation.formatters(
-                          InputRules.noteToOwnerOptional, note),
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('Payment',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Estimated total: ${formatMoney(estimate)}',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const Text(
+                        'Review the final charges on the next page. No real money will be taken.',
+                        style: TextStyle(color: AppColors.secondaryText),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Payment',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Estimated total: ${formatMoney(estimate)}',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ListTile(
+                      leading: const Icon(Icons.gavel_outlined),
+                      title: const Text('Booking agreement'),
+                      subtitle: const Text(
+                        'Review the terms before sending this request.',
+                      ),
+                      trailing: TextButton(
+                        onPressed: () async {
+                          final terms = await showAgreementTerms(context,
+                              listingType:
+                                  listing.isService ? 'service' : 'physical',
+                              listingTitle: listing.title,
+                              dateRange: formatDateRange(start, end),
+                              total:
+                                  'Estimated total: ${formatMoney(estimate)}');
+                          if (mounted && terms != null) {
+                            setState(() {
+                              reviewedAgreementVersion = terms.version;
+                              agreementAccepted = false;
+                            });
+                          }
+                        },
+                        child: const Text('Review'),
+                      ),
                     ),
-                    const Text(
-                      'Review the final charges on the next page. No real money will be taken.',
-                      style: TextStyle(color: AppColors.secondaryText),
+                    const Divider(height: 1),
+                    CheckboxListTile(
+                      value: agreementAccepted,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text(
+                        'I have reviewed and accept the RentHub booking agreement.',
+                      ),
+                      subtitle: Text(reviewedAgreementVersion == null
+                          ? 'Review the agreement first to enable acceptance.'
+                          : 'The reviewed terms will be saved with your request.'),
+                      onChanged: submitting || reviewedAgreementVersion == null
+                          ? null
+                          : (value) => setState(
+                                () => agreementAccepted = value ?? false,
+                              ),
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.gavel_outlined),
-                    title: const Text('Booking agreement'),
-                    subtitle: const Text(
-                      'Review the terms before sending this request.',
-                    ),
-                    trailing: TextButton(
-                      onPressed: () async {
-                        final terms = await showAgreementTerms(context,
-                            listingType:
-                                listing.isService ? 'service' : 'physical',
-                            listingTitle: listing.title,
-                            dateRange: formatDateRange(start, end),
-                            total: 'Estimated total: ${formatMoney(estimate)}');
-                        if (mounted && terms != null) {
-                          setState(() {
-                            reviewedAgreementVersion = terms.version;
-                            agreementAccepted = false;
-                          });
-                        }
-                      },
-                      child: const Text('Review'),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  CheckboxListTile(
-                    value: agreementAccepted,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    title: const Text(
-                      'I have reviewed and accept the RentHub booking agreement.',
-                    ),
-                    subtitle: Text(reviewedAgreementVersion == null
-                        ? 'Review the agreement first to enable acceptance.'
-                        : 'The reviewed terms will be saved with your request.'),
-                    onChanged: submitting || reviewedAgreementVersion == null
-                        ? null
-                        : (value) => setState(
-                              () => agreementAccepted = value ?? false,
-                            ),
-                  ),
-                ],
-              ),
-            ),
+            ],
           ],
         ),
       ),

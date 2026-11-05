@@ -79,7 +79,7 @@ def test_high_detection_confidence_never_bypasses_quality(monkeypatch, kind, exp
     elif kind == 'bright':
         image = np.full_like(image, 235)
     elif kind == 'glare':
-        image[:500] = 255
+        image[450:750] = 255
     elif kind == 'small':
         image = sharp_image(320, 480)
     install_detector(monkeypatch, image)
@@ -220,3 +220,27 @@ def test_low_confidence_positive_heading_is_not_enough_for_use_image(monkeypatch
     result = inspect('front', validate_capture=True)
     assert result.ready is False
     assert result.capture_validation['status'] == 'unconfirmed'
+
+
+def test_black_background_does_not_make_readable_card_too_dark(monkeypatch):
+    image = np.zeros((1280, 720, 3), dtype=np.uint8)
+    image[500:780, 120:600] = sharp_image(480, 280)
+    install_detector(monkeypatch, image, box=[120/720, 500/1280, 600/720, 780/1280])
+    assert intelligence._quality(image)['isTooDark'] is True
+    quality = intelligence._document_quality(image, 'mykad', 'front')
+    assert quality['assessmentRegion'] == 'detected_mykad'
+    assert quality['isTooDark'] is False
+    assert quality['isBlurry'] is False
+    assert quality['width'] == 720 and quality['height'] == 1280
+    # Actual poorly lit card pixels still require rescan.
+    image[500:780, 120:600] //= 8
+    assert intelligence._document_quality(image, 'mykad', 'front')['isTooDark'] is True
+
+
+def test_missing_card_detection_does_not_guess_quality_crop(monkeypatch):
+    image = np.zeros((1280, 720, 3), dtype=np.uint8)
+    monkeypatch.setattr(intelligence, '_document_yolo_model', lambda: (None, None))
+    quality = intelligence._document_quality(image, 'mykad', 'front')
+    assert quality['isTooDark'] is True
+    assert 'assessmentRegion' not in quality
+    assert intelligence._document_quality(image, 'driving_license') == intelligence._quality(image)

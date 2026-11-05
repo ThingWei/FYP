@@ -1,5 +1,52 @@
 # Source-based demo listings for demonstration and pricing tests
 
+Later 5 November update: the catalogue now has **64 active labelled demos** after
+the all-category extension. See [Category demonstration coverage](CATEGORY_DEMO_RECORDS_RESULT.md).
+The 12/24-record counts below describe earlier checkpoints. Newly added example
+prices are presentation data, not researched market evidence; a separate
+student-affordability review is needed before describing them as reasonable rates.
+Eight earlier camera-demo rates were subsequently reduced using checked one-day
+quotes; see [Student demo price review](STUDENT_DEMO_PRICE_REVIEW_RESULT.md).
+
+## 5 November 2026: multiple-Owner presentation records
+
+Added and published 12 more labelled demo listings to the second existing,
+active, MyKad-approved demonstration Owner account. The original Owner's 12
+demo listings remain unchanged. There are now **24 active demo listings across
+two verified Owners**, covering Smartphones, Cameras, Computers, Gaming and Cars.
+No new account was created and no account verification was changed.
+
+The additional set reuses the previously reviewed 12-product manifest and its
+labelled generated illustrations. It includes example condition, age, deposit,
+delivery fee, fulfilment methods and the public demonstration pickup point.
+Advertised price observations retain their actual 27 October reference date;
+this operation did not refresh or independently revalidate source quotations.
+These records represent fictional inventory for the presentation, not additional
+independent prices, real item ownership or completed marketplace transactions.
+
+Verification performed:
+
+- Read-only preview validated all 12 listings and illustration files before any
+  database or storage writes.
+- The existing demo/provenance suites passed: 12 tests, zero failures, using an
+  isolated test database.
+- Applied changes: 12 new listing documents and 12 public upload assets; zero
+  changes to account, booking, rental or payment collection counts.
+- Public `GET /api/v1/listings?limit=50` returned all 24 demos and both Owners.
+- All 12 new images returned successfully through RentHub's public upload API;
+  their SHA-256 hashes matched the original illustration files.
+- All 24 demos remain excluded from clean pricing evidence through `demo_seed`.
+  Existing demo-interaction provenance rules continue to apply to recommendations.
+
+Private preview/application receipts and the bounded operation script are under
+`services/api/.data/evidence/multi-owner-demo-2026-11-05/` and are Git-ignored.
+Refresh Explore to see listings from both Owners. When signed in as one Owner's
+account, use the other Owner's listing for the booking demonstration; the usual
+self-booking restrictions still apply. Existing drafts and pending-review records
+were not promoted or edited by this operation.
+
+## Original 27 October publication
+
 27 October 2026, Malaysia time. **Twelve clearly labelled demo listings are now
 active in the existing active, MyKad-approved Owner account specified by the
 user.** They were first created as drafts, then completed and published following

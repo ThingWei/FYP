@@ -4,15 +4,23 @@ import '../../core/validation/input_rules.dart';
 import '../../core/validation/input_validation.dart';
 import 'live_renthub_controller.dart';
 
+class _SearchSuggestion {
+  const _SearchSuggestion(this.title, this.location);
+  final String title;
+  final String? location;
+}
+
 class LiveListingSearchField extends StatefulWidget {
   const LiveListingSearchField(
       {super.key,
       required this.controller,
       required this.onSearch,
       this.category = 'All',
+      this.onLocationSelected,
       this.busy = false});
   final TextEditingController controller;
   final VoidCallback onSearch;
+  final ValueChanged<String>? onLocationSelected;
   final String category;
   final bool busy;
   @override
@@ -41,7 +49,8 @@ class _LiveListingSearchFieldState extends State<LiveListingSearchField> {
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
-      builder: (context, box) => RawAutocomplete<String>(
+      builder: (context, box) => RawAutocomplete<_SearchSuggestion>(
+            displayStringForOption: (value) => value.title,
             textEditingController: widget.controller,
             focusNode: focus,
             optionsBuilder: (value) async {
@@ -50,9 +59,13 @@ class _LiveListingSearchFieldState extends State<LiveListingSearchField> {
                   c = context.read<LiveRentHubController>(),
                   account = context.read<LiveRentHubController>().profile?.id,
                   category = widget.category;
-              if (q.length < 2 || q.length > 100) return const <String>[];
+              if (q.length < 2 || q.length > 100) {
+                return const <_SearchSuggestion>[];
+              }
               await Future<void>.delayed(const Duration(milliseconds: 300));
-              if (!mounted || request != generation) return const <String>[];
+              if (!mounted || request != generation) {
+                return const <_SearchSuggestion>[];
+              }
               try {
                 final rows = await c.api.request(
                     'GET',
@@ -64,24 +77,34 @@ class _LiveListingSearchFieldState extends State<LiveListingSearchField> {
                     request != generation ||
                     c.profile?.id != account ||
                     rows is! List) {
-                  return const <String>[];
+                  return const <_SearchSuggestion>[];
                 }
+                final seen = <String>{};
                 return rows
                     .whereType<Map>()
-                    .map((row) => row['title'])
-                    .whereType<String>()
-                    .toSet()
+                    .where((row) => row['title'] is String)
+                    .map((row) => _SearchSuggestion(
+                        row['title'] as String,
+                        row['kind'] == 'location' && row['location'] is String
+                            ? row['location'] as String
+                            : null))
+                    .where((row) => seen.add(
+                        '${row.location == null ? 'listing' : 'location'}:${row.title}'))
                     .take(8)
                     .toList();
               } catch (_) {
-                return const <String>[];
+                return const <_SearchSuggestion>[];
               }
             },
             onSelected: (value) {
               selectionHandled = true;
-              widget.controller.text = value;
               focus.unfocus();
-              widget.onSearch();
+              if (value.location != null && widget.onLocationSelected != null) {
+                widget.onLocationSelected!(value.location!);
+              } else {
+                widget.controller.text = value.title;
+                widget.onSearch();
+              }
             },
             fieldViewBuilder: (context, controller, node, submit) =>
                 TextFormField(
@@ -149,8 +172,13 @@ class _LiveListingSearchFieldState extends State<LiveListingSearchField> {
                                       index;
                               return ListTile(
                                   selected: highlighted,
-                                  leading: const Icon(Icons.search),
-                                  title: Text(option,
+                                  leading: Icon(option.location == null
+                                      ? Icons.search
+                                      : Icons.place_outlined),
+                                  subtitle: option.location == null
+                                      ? null
+                                      : const Text('Search this area'),
+                                  title: Text(option.title,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis),
                                   onTap: () => select(option));

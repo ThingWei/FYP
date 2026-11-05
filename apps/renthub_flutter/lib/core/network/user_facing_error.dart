@@ -119,6 +119,19 @@ class UserFacingError {
             'There have been too many attempts. Wait a moment and try again.');
       }
       if (error.status == 413) {
+        final maximum =
+            error.details is Map ? (error.details as Map)['maxBytes'] : null;
+        if (maximum is num &&
+            maximum.isFinite &&
+            maximum >= 1024 &&
+            maximum <= 100 * 1024 * 1024) {
+          final mb = maximum / (1024 * 1024);
+          final limit = mb == mb.roundToDouble()
+              ? mb.toInt().toString()
+              : mb.toStringAsFixed(1);
+          return UserFacingError('File too large',
+              'Choose a photo smaller than $limit MB. Your selected documents are kept.');
+        }
         return const UserFacingError(
             'File too large', 'Choose a smaller file and try again.');
       }

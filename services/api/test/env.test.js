@@ -114,3 +114,11 @@ test('rejects an OpenStreetMap request interval below one second', () => {
     /OPENSTREETMAP_MIN_INTERVAL_MS must be an integer of at least 1000/,
   );
 });
+
+
+test('verification photo limit is bounded independently from normal uploads', () => {
+  for (const maxVerificationUploadBytes of [NaN, Infinity, -1, 1023, 1.5, 41 * 1024 * 1024]) {
+    assert.throws(() => validateEnv({...valid,maxVerificationUploadBytes}),/MAX_VERIFICATION_UPLOAD_BYTES/);
+  }
+  assert.equal(validateEnv({...valid,maxVerificationUploadBytes:20*1024*1024}).maxVerificationUploadBytes,20*1024*1024);
+});

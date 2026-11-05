@@ -115,6 +115,34 @@ class PriceSuggestionView {
       0,
       (total, row) =>
           total + (_finite(row['durationBaselineCount'])?.toInt() ?? 0));
+
+  /// Short owner-facing explanation; full diagnostics remain in [raw].
+  List<String> get calculationDetails {
+    final references = count('external_asking_price_count');
+    final listings = evidence.containsKey('marketplace_active_listing_count')
+        ? count('marketplace_active_listing_count')
+        : count('comparable_active_count');
+    final rentals = count('historical_rental_count');
+    final hasComparisons =
+        selectedComparisons.isNotEmpty || references + listings + rentals > 0;
+    final sources = <String>[
+      if (listings > 0) '$listings RentHub listing${listings == 1 ? '' : 's'}',
+      if (references > 0)
+        '$references advertised price${references == 1 ? '' : 's'}',
+      if (rentals > 0) '$rentals rental record${rentals == 1 ? '' : 's'}',
+    ];
+    return [
+      hasComparisons
+          ? 'Compares available prices for the same or similar items.'
+          : 'Uses a general estimate for this type of item.',
+      if (sources.isNotEmpty) 'Based on ${sources.join(', ')}.',
+      if (missingAge > 0 || missingCondition > 0 || uncertainDetails > 0)
+        'Some age, condition or package details are missing.',
+      if (references > 0)
+        'Advertised prices may differ from the final rental price.',
+    ];
+  }
+
   String get completedProvenance => evidence
               .containsKey('marketplace_completed_rental_count') &&
           evidence.containsKey('demo_seed_completed_rental_count')
@@ -177,44 +205,11 @@ class LivePriceSuggestion extends StatelessWidget {
               childrenPadding: const EdgeInsets.only(bottom: 12),
               expandedCrossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(view.statistical
-                    ? 'Based on comparable asking prices or completed rental prices. The price model was unavailable.'
-                    : 'Uses comparable prices and a trained price model. Product search identifies the model, not its rental value.'),
-                const SizedBox(height: 8),
-                if (view.selectedComparisons.isNotEmpty) ...[
-                  const Text(
-                      'Uses up to 12 asking-price references and 12 completed rentals. Matching models come first, followed by similar models and the same item type. Known condition, age, rental length and area help choose comparisons.'),
-                  if (view.similarSupport)
-                    const Text(
-                        'Similar models can differ in features and value.'),
-                  if (view.missingAge > 0 || view.missingCondition > 0)
-                    Text(
-                        '${view.missingAge} references have no item age; ${view.missingCondition} have no condition. Missing details are not assumed to match your item.'),
-                  if (view.uncertainDetails > 0)
-                    const Text(
-                        'Some version or package details are missing. Those references are treated as broader comparisons.'),
-                  if (view.comparisons['rangeIncludesComparables'] == true)
-                    const Text(
-                        'The range also covers the selected comparable prices. Prices may fall outside this range.'),
-                ],
-                Text(view.evidence.containsKey('external_asking_price_count')
-                    ? '${view.count('marketplace_active_listing_count')} RentHub listings, ${view.count('external_asking_price_count')} advertised rental prices and ${view.count('historical_rental_count')} completed rentals were used.'
-                    : '${view.count('comparable_active_count')} listings and ${view.count('historical_rental_count')} completed rentals were used.'),
-                if (view.count('external_asking_price_count') > 0)
-                  const Text(
-                      'Advertised prices are asking prices, not proof of completed rentals. Rates may vary with rental length and included accessories.'),
-                if (view.evidence.containsKey('automated_asking_price_count'))
-                  Text(
-                      '${view.count('automated_asking_price_count')} automatically collected prices and ${view.count('reviewed_asking_price_count')} administrator-reviewed prices. Fixed packages and duration-specific quotes are used only for compatible rental lengths.'),
-                if (view.durationBaselineCount > 0)
-                  Text(
-                      '${view.durationBaselineCount} comparisons use published daily rates as a baseline. They do not confirm the advertised total for this rental length.'),
-                Text(view.completedProvenance),
-                if (view.unseenModel)
-                  const Text(
-                      'This model wasn’t included in training. Matching rental prices matter more than its name.'),
-                const Text(
-                    'The range shows uncertainty; it is not a guaranteed market price.'),
+                for (final line in view.calculationDetails)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(line),
+                  ),
               ],
             ),
             FilledButton(onPressed: onUse, child: const Text('Use this price')),

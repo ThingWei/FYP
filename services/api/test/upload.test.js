@@ -147,3 +147,30 @@ test('retains a public photo stored as an upload reference on a current listing'
     await listing.deleteOne();
   }
 });
+
+
+test('verification accepts a camera JPEG above ordinary limit, regardless of multipart field order', async () => {
+  const photo = Buffer.alloc(env.maxUploadBytes + 1024, 0);
+  photo.set([0xff, 0xd8, 0xff]);
+  const result = await request(app).post('/api/v1/uploads').set(identity())
+    .attach('file', photo, {filename:'camera.jpg',contentType:'image/jpeg'})
+    .field('purpose','verification_document');
+  assert.equal(result.status,201);
+  assert.equal(result.body.data.visibility,'private');
+  await request(app).get(`/api/v1/uploads/${result.body.data.id}/content`).set(identity('foreign')).expect(403);
+  const ordinary = await request(app).post('/api/v1/uploads').set(identity())
+    .field('purpose','listing_image').attach('file',photo,'item.jpg');
+  assert.equal(ordinary.status,413);
+  assert.equal(ordinary.body.error.details.maxBytes,env.maxUploadBytes);
+});
+
+test('oversized verification upload is rejected with the configured limit', async () => {
+  const photo = Buffer.alloc(env.maxVerificationUploadBytes + 1,0);
+  photo.set([0xff,0xd8,0xff]);
+  const result = await request(app).post('/api/v1/uploads').set(identity())
+    .field('purpose','verification_document').attach('file',photo,'camera.jpg');
+  assert.equal(result.status,413);
+  assert.equal(result.body.error.code,'FILE_TOO_LARGE');
+  assert.equal(result.body.error.details.maxBytes,env.maxVerificationUploadBytes);
+  assert.equal(await UploadAssetModel.countDocuments(),0);
+});

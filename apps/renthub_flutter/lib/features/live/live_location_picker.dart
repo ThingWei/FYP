@@ -233,9 +233,8 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
       setState(() {
         _discardAddressLookup();
         _clearLocality();
-        // Preserve a typed draft while finding the mapped address. A nearby
-        // search centre is not a physical destination and needs no lookup.
-        if (widget.searchAreaOnly) label.text = 'Current area';
+        // Keep the draft while the user-requested GPS pin finds its mapped
+        // address. A search centre should have a readable place name too.
         selected = ListingLocationSelection(
             label: label.text,
             point: point,
@@ -245,7 +244,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
             'Device accuracy: about ${reading.accuracy.round()} m. ${reading.approximate || reading.accuracy > 50 ? 'Accuracy is limited. Adjust the pin to the actual entrance or pickup point.' : 'Check the entrance or pickup point before confirming.'}';
       });
       _moveMap(point);
-      if (!privatePin && !widget.searchAreaOnly) _scheduleAddressLookup();
+      if (!privatePin) _scheduleAddressLookup();
     } catch (exception) {
       if (mounted && request == gpsGeneration) {
         setState(() {
@@ -278,7 +277,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
       gpsFailure = null;
     });
     if (result != null) _moveMap(point);
-    if (result == null && !privatePin && !widget.searchAreaOnly) {
+    if (result == null && !privatePin) {
       _scheduleAddressLookup();
     }
   }
@@ -464,7 +463,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                               style: const TextStyle(
                                   fontWeight: FontWeight.w600))),
                     Text(widget.searchAreaOnly
-                        ? 'Search or use GPS to choose a nearby search centre, then tap Use this location. This is not a delivery address.'
+                        ? 'Search or use GPS to choose a nearby search centre. GPS and map pins ask OpenStreetMap for the nearest mapped address. Check the place name, then tap Use this location.'
                         : 'Search or use GPS, check the pin, then tap Use this location. GPS and public pins ask OpenStreetMap for the nearest mapped address. Private pin skips that lookup.'),
                     const SizedBox(height: 16),
                     TextField(
@@ -489,6 +488,38 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                         onPressed: searching ? null : _search,
                         icon: const Icon(Icons.search),
                         label: Text(searching ? 'Searching…' : 'Search')),
+                    if (results.isNotEmpty)
+                      Card(
+                          elevation: 0,
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          color: Theme.of(context).colorScheme.surface,
+                          shape: RoundedRectangleBorder(
+                              side: BorderSide(
+                                  color: Theme.of(context).dividerColor),
+                              borderRadius: BorderRadius.circular(12)),
+                          clipBehavior: Clip.antiAlias,
+                          child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 240),
+                              child: ListView.separated(
+                                  shrinkWrap: true,
+                                  padding: EdgeInsets.zero,
+                                  itemCount: results.length,
+                                  separatorBuilder: (context, index) =>
+                                      const Divider(height: 1),
+                                  itemBuilder: (context, index) {
+                                    final result = results[index];
+                                    return ListTile(
+                                        leading:
+                                            const Icon(Icons.place_outlined),
+                                        title: Text(result.label,
+                                            maxLines: 3,
+                                            overflow: TextOverflow.ellipsis),
+                                        onTap: () {
+                                          _select(result.point, result: result);
+                                          setState(() => results = []);
+                                          FocusScope.of(context).unfocus();
+                                        });
+                                  }))),
                     if (gpsAvailable)
                       OutlinedButton.icon(
                           onPressed: locating ? null : _locate,
@@ -520,22 +551,6 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                           child: Text(error!,
                               style: TextStyle(
                                   color: Theme.of(context).colorScheme.error))),
-                    for (final result in results)
-                      ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.place_outlined),
-                          title: Text(result.label),
-                          subtitle: [result.city, result.state]
-                                  .where(
-                                      (v) => v.isNotEmpty && v != result.label)
-                                  .isEmpty
-                              ? null
-                              : Text([result.city, result.state]
-                                  .where(
-                                      (v) => v.isNotEmpty && v != result.label)
-                                  .toSet()
-                                  .join(', ')),
-                          onTap: () => _select(result.point, result: result)),
                     if (!widget.searchAreaOnly) ...[
                       const Text(
                           'GPS and public pins send their coordinates to OpenStreetMap to fill the mapped address. Check the street and entrance; your exact pin stays unchanged.'),

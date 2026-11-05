@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/theme/app_theme.dart';
 
 import '../../shared/models/domain_models.dart';
 import 'live_renthub_controller.dart';
@@ -9,10 +10,14 @@ import 'live_item_photo_summary.dart';
 /// Display evidence without turning object confidence into an authenticity score.
 class ItemVerificationPanel extends StatelessWidget {
   const ItemVerificationPanel(
-      {super.key, required this.listing, this.showDiagnostics = false});
+      {super.key,
+      required this.listing,
+      this.showDiagnostics = false,
+      this.selectedPhotoIndex});
 
   final Listing listing;
   final bool showDiagnostics;
+  final int? selectedPhotoIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -23,16 +28,39 @@ class ItemVerificationPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(listing.itemPhotoCheckLabel,
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Text(summary.explanation),
-          for (final note in notes.take(3))
-            Padding(
-                padding: const EdgeInsets.only(top: 8), child: Text('• $note')),
+          Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(12)),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(listing.itemPhotoCheckLabel,
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Text(summary.explanation),
+                    for (final note in notes.take(3))
+                      Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.info_outline,
+                                    size: 20, color: AppColors.secondaryText),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text(note)),
+                              ])),
+                  ])),
           const SizedBox(height: 12),
           Text('Photos alone cannot prove an item is genuine or who owns it.',
-              style: Theme.of(context).textTheme.bodySmall),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: AppColors.secondaryText)),
+          const SizedBox(height: 8),
           if (summary.evidence.isNotEmpty)
             ExpansionTile(
                 tilePadding: EdgeInsets.zero,
@@ -46,7 +74,9 @@ class ItemVerificationPanel extends StatelessWidget {
                           children: [
                             Text(
                                 '${listing.category}${listing.subcategory.isEmpty ? '' : ' · ${listing.subcategory}'}'),
+                            const SizedBox(height: 8),
                             Text(summary.typeSummary),
+                            const SizedBox(height: 8),
                             for (final note in notes.skip(3))
                               Padding(
                                   padding: const EdgeInsets.only(top: 8),
@@ -54,10 +84,36 @@ class ItemVerificationPanel extends StatelessWidget {
                             for (var index = 0;
                                 index < summary.images.length;
                                 index++)
-                              Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                      'Photo ${_photoNumber(summary.images[index], index)}: ${summary.photoNote(summary.images[index])}')),
+                              if (selectedPhotoIndex == null ||
+                                  _photoNumber(summary.images[index], index) -
+                                          1 ==
+                                      selectedPhotoIndex)
+                                Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(top: 12),
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                        color: AppColors.surface,
+                                        borderRadius:
+                                            BorderRadius.circular(12)),
+                                    child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                              'Photo ${_photoNumber(summary.images[index], index)}',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleSmall),
+                                          const SizedBox(height: 8),
+                                          for (final note in summary
+                                              .photoNote(summary.images[index])
+                                              .split(' \u00b7 '))
+                                            Padding(
+                                                padding: const EdgeInsets.only(
+                                                    bottom: 8),
+                                                child: Text(note)),
+                                        ])),
                           ]))
                 ]),
           if (showDiagnostics && summary.evidence.isNotEmpty)
@@ -179,54 +235,150 @@ class _ItemTechnicalDetails extends StatelessWidget {
 }
 
 Future<void> showItemPhotoReview(BuildContext context, Listing listing,
-    {bool showDiagnostics = false}) {
-  final controller = context.read<LiveRentHubController>();
-  final fields =
-      ItemPhotoSummary.map(listing.itemVerification['extracted_fields']);
-  final images = ItemPhotoSummary.maps(fields['images']);
-  final evidenceByIndex = <int, Map>{
-    for (var index = 0; index < images.length; index++)
-      ItemVerificationPanel._photoNumber(images[index], index) - 1:
-          images[index],
-  };
-  return showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Item photos'),
-      content: SizedBox(
-        width: 640,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(listing.title),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (var index = 0; index < listing.images.length; index++)
-                    LivePhotoThumbnail(
-                        reference: listing.images[index],
-                        label: 'Listing photo ${index + 1}',
-                        controller: controller,
-                        evidence: evidenceByIndex[index],
-                        width: 128,
-                        height: 128),
-                ],
-              ),
-              const SizedBox(height: 16),
-              ItemVerificationPanel(
-                  listing: listing, showDiagnostics: showDiagnostics),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context), child: const Text('Close'))
-      ],
-    ),
-  );
+        {bool showDiagnostics = false}) =>
+    showDialog<void>(
+        context: context,
+        builder: (_) => _ItemPhotoReviewDialog(
+            listing: listing,
+            controller: context.read<LiveRentHubController>(),
+            showDiagnostics: showDiagnostics));
+
+class _ItemPhotoReviewDialog extends StatefulWidget {
+  const _ItemPhotoReviewDialog(
+      {required this.listing,
+      required this.controller,
+      required this.showDiagnostics});
+  final Listing listing;
+  final LiveRentHubController controller;
+  final bool showDiagnostics;
+  @override
+  State<_ItemPhotoReviewDialog> createState() => _ItemPhotoReviewDialogState();
+}
+
+class _ItemPhotoReviewDialogState extends State<_ItemPhotoReviewDialog> {
+  final pages = PageController();
+  int selected = 0;
+  @override
+  void dispose() {
+    pages.dispose();
+    super.dispose();
+  }
+
+  void move(int index) => pages.animateToPage(index,
+      duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+  @override
+  Widget build(BuildContext context) {
+    final listing = widget.listing;
+    final images = ItemPhotoSummary(listing).images;
+    final evidenceByIndex = <int, Map>{
+      for (var index = 0; index < images.length; index++)
+        ItemVerificationPanel._photoNumber(images[index], index) - 1:
+            images[index],
+    };
+    final screen = MediaQuery.sizeOf(context);
+    return Dialog(
+        backgroundColor: AppColors.background,
+        insetPadding: EdgeInsets.symmetric(
+            horizontal: screen.width < 600 ? 12 : 32, vertical: 24),
+        child: ConstrainedBox(
+            constraints:
+                BoxConstraints(maxWidth: 720, maxHeight: screen.height - 48),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 8, 8),
+                  child: Row(children: [
+                    Expanded(
+                        child: Text('Item photos',
+                            style: Theme.of(context).textTheme.titleLarge)),
+                    IconButton(
+                        tooltip: 'Close item photos',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close)),
+                  ])),
+              const Divider(height: 1),
+              Flexible(
+                  child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(listing.title,
+                                style: Theme.of(context).textTheme.titleMedium),
+                            const SizedBox(height: 16),
+                            if (listing.images.isEmpty)
+                              const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 24),
+                                  child: Text('No photos added yet.'))
+                            else ...[
+                              LayoutBuilder(
+                                  builder: (context, box) => SizedBox(
+                                      height: (box.maxWidth * 0.75).clamp(
+                                          120.0,
+                                          (screen.height * 0.42)
+                                              .clamp(120.0, 360.0)),
+                                      child: PageView.builder(
+                                        controller: pages,
+                                        itemCount: listing.images.length,
+                                        onPageChanged: (index) =>
+                                            setState(() => selected = index),
+                                        itemBuilder: (context, index) => Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 2),
+                                            child: LivePhotoThumbnail(
+                                                key: ValueKey(
+                                                    '$index:${listing.images[index]}'),
+                                                reference:
+                                                    listing.images[index],
+                                                label:
+                                                    'Listing photo ${index + 1}',
+                                                controller: widget.controller,
+                                                evidence:
+                                                    evidenceByIndex[index],
+                                                width: box.maxWidth,
+                                                height: double.infinity)),
+                                      ))),
+                              Row(children: [
+                                IconButton(
+                                    tooltip: 'Previous photo',
+                                    onPressed: selected > 0
+                                        ? () => move(selected - 1)
+                                        : null,
+                                    icon: const Icon(Icons.chevron_left)),
+                                Expanded(
+                                    child: Semantics(
+                                        liveRegion: true,
+                                        child: Text(
+                                            'Photo ${selected + 1} of ${listing.images.length}',
+                                            textAlign: TextAlign.center))),
+                                IconButton(
+                                    tooltip: 'Next photo',
+                                    onPressed:
+                                        selected + 1 < listing.images.length
+                                            ? () => move(selected + 1)
+                                            : null,
+                                    icon: const Icon(Icons.chevron_right)),
+                              ]),
+                              const Center(
+                                  child: Text(
+                                      'Swipe to browse. Tap a photo to enlarge.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                          color: AppColors.secondaryText))),
+                            ],
+                            const SizedBox(height: 24),
+                            ItemVerificationPanel(
+                                listing: listing,
+                                selectedPhotoIndex: selected,
+                                showDiagnostics: widget.showDiagnostics),
+                          ]))),
+              const Divider(height: 1),
+              Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Close')))),
+            ])));
+  }
 }

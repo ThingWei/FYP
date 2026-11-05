@@ -125,7 +125,10 @@ class CheckoutApi extends ApiClient {
 }
 
 Future<AuthController> mount(WidgetTester tester, CheckoutApi api,
-    {Widget? page, bool signedIn = true, double? estimate}) async {
+    {Widget? page,
+    bool signedIn = true,
+    double? estimate,
+    double textScale = 1.3}) async {
   await tester.pumpWidget(const SizedBox.shrink());
   final auth = AuthController(MockAuthRepository())
     ..user = signedIn ? person : null;
@@ -140,7 +143,7 @@ Future<AuthController> mount(WidgetTester tester, CheckoutApi api,
       child: MaterialApp(
           builder: (context, child) => MediaQuery(
               data: MediaQuery.of(context)
-                  .copyWith(textScaler: const TextScaler.linear(1.3)),
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
               child: child!),
           theme: AppTheme.light,
           home: LiveAuthenticatedPage(
@@ -167,6 +170,37 @@ Future<void> tapVisible(WidgetTester tester, String text) async {
 }
 
 void main() {
+  for (final size in [
+    (360.0, 'Demo Card'),
+    (390.0, 'Demo FPX'),
+    (1024.0, 'Demo Wallet'),
+  ]) {
+    testWidgets('payment dialog has a clear action layout at ${size.$1}',
+        (tester) async {
+      await tester.binding.setSurfaceSize(Size(size.$1, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final api = CheckoutApi();
+      await mount(tester, api, textScale: 1.5);
+      await tapVisible(tester, size.$2);
+      await tapVisible(tester, 'Continue demo payment');
+      final primary =
+          find.widgetWithText(FilledButton, 'Complete demo payment');
+      final cancel = find.widgetWithText(TextButton, 'Cancel');
+      final decline = find.widgetWithText(OutlinedButton, 'Simulate decline');
+      expect(primary, findsOneWidget);
+      expect(tester.getTopLeft(cancel).dy, tester.getTopLeft(decline).dy);
+      expect(tester.getBottomRight(primary).dy,
+          lessThan(tester.getTopLeft(cancel).dy));
+      expect(tester.getSize(primary).width,
+          greaterThan(tester.getSize(decline).width));
+      expect(api.writes, isEmpty);
+      expect(tester.takeException(), isNull);
+      await tester.tap(cancel);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(api.writes, isEmpty);
+    });
+  }
   testWidgets(
       'paid checkout opens the saved agreement after a dropped read connection',
       (tester) async {

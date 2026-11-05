@@ -9,6 +9,9 @@ param(
     [switch]$SkipAi,
     [switch]$NoAiReload,
     [switch]$NoApiReload,
+    [switch]$Presentation,
+    [ValidateRange(10, 600)][int]$AiStartupTimeoutSeconds = 180,
+    [ValidateRange(10, 300)][int]$ApiStartupTimeoutSeconds = 90,
     [switch]$SkipBlockchain,
     [switch]$CheckOnly,
     [switch]$ServicesOnly,
@@ -20,6 +23,102 @@ $ErrorActionPreference = 'Stop'
 
 if ($CheckOnly -and $ServicesOnly) {
     throw 'Choose CheckOnly for a temporary readiness check or ServicesOnly to keep the services running.'
+}
+if ($Presentation) {
+    $NoAiReload = $true
+    $NoApiReload = $true
+    Write-Host 'Presentation mode: stable services without development reload.' -ForegroundColor Cyan
+}
+
+function ConvertTo-RentHubProcessArguments {
+    param([AllowEmptyCollection()][string[]]$Arguments)
+    # Start-Process and .NET Framework join arguments into one Windows command line.
+    # Quote every argument using the Windows CRT backslash/quote rules.
+    return (($Arguments | ForEach-Object {
+        '"' + ([regex]::Replace([regex]::Replace($_, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1')) + '"'
+    }) -join ' ')
+}
+
+function Test-RentHubNodeVersion {
+    param([string]$Version)
+    return $Version.Trim() -match '^v?(?<major>\d+)\.\d+\.\d+(?:[-+].*)?$' -and [int]$Matches.major -ge 22
+}
+
+function Invoke-RentHubNativeCommand {
+    param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory,
+        [string]$InputText, [ValidateRange(1, 300)][int]$TimeoutSeconds = 30)
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.Arguments = ConvertTo-RentHubProcessArguments -Arguments $Arguments
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.RedirectStandardInput = $true
+    if ($WorkingDirectory) { $startInfo.WorkingDirectory = $WorkingDirectory }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $startedAt = $null
+    try {
+        $null = $process.Start()
+        $startedAt = $process.StartTime
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if ($InputText) { $process.StandardInput.WriteLine($InputText) }
+        $process.StandardInput.Close()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            return [pscustomobject]@{ ExitCode = -1; TimedOut = $true; Output = ''; Error = ''; ProcessId = $process.Id }
+        }
+        if (-not $stdout.Wait(2000) -or -not $stderr.Wait(2000)) {
+            throw 'A launcher tool exited without closing its output. Check the tool installation before retrying.'
+        }
+        return [pscustomobject]@{ ExitCode = $process.ExitCode; TimedOut = $false;
+            Output = $stdout.GetAwaiter().GetResult(); Error = $stderr.GetAwaiter().GetResult(); ProcessId = $process.Id }
+    }
+    finally {
+        if ($startedAt -and -not $process.HasExited) {
+            Stop-RentHubOwnedApiProcess -OwnedProcess $process -StartedAt $startedAt
+        }
+        $process.Dispose()
+    }
+}
+
+function Wait-RentHubReadiness {
+    param([string]$Name, [scriptblock]$Probe, [int]$TimeoutSeconds,
+        [System.Diagnostics.Process]$OwnedProcess, [string]$ErrorLogPath)
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+    $nextProgress = 0
+    while ($timer.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        if ($null -ne $OwnedProcess -and $OwnedProcess.HasExited) {
+            throw "$Name stopped before it became ready (exit code $($OwnedProcess.ExitCode)). Check the launcher error log: $ErrorLogPath"
+        }
+        $result = & $Probe
+        if ($result) { return $result }
+        if ($timer.Elapsed.TotalSeconds -ge $nextProgress) {
+            Write-Host "Waiting for $Name ($([int]$timer.Elapsed.TotalSeconds)/$TimeoutSeconds seconds)..." -ForegroundColor DarkGray
+            $nextProgress = $timer.Elapsed.TotalSeconds + 15
+        }
+        Start-Sleep -Milliseconds 750
+    }
+    return $null
+}
+
+function Sync-RentHubAndroidConnection {
+    param([string]$AdbPath, [string]$TargetDevice, [int]$HostPort, [int]$ClientPort = 3000)
+    if (-not $AdbPath) { return 'adb-missing' }
+    $state = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'get-state') -TimeoutSeconds 5
+    if ($state.TimedOut) { return 'waiting' }
+    if ($state.ExitCode -ne 0 -or $state.Output.Trim() -ne 'device') {
+        if (($state.Output + $state.Error) -match 'unauthorized') { return 'unauthorized' }
+        return 'waiting'
+    }
+    $result = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$ClientPort", "tcp:$HostPort") -TimeoutSeconds 5
+    if ($result.ExitCode -ne 0 -or $result.TimedOut) { return 'forwarding-failed' }
+    # Support older installed builds compiled with an alternate API port too.
+    if ($HostPort -ne $ClientPort) {
+        $null = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$HostPort", "tcp:$HostPort") -TimeoutSeconds 5
+    }
+    return 'connected'
 }
 
 function Test-RentHubKeepServicesRunning {
@@ -61,9 +160,40 @@ function Get-RentHubAdbPath {
 }
 
 function Wait-RentHubServiceSession {
-    Write-Host 'RentHub services remain running. You can reopen the installed Android app.' -ForegroundColor Green
+    param([string]$AdbPath, [string]$TargetDevice, [int]$HostPort,
+        [switch]$MonitorAi, [string]$BlockchainRpcUrl)
+    Write-Host 'RentHub services remain running. You can open the app.' -ForegroundColor Green
     Write-Host 'Keep this terminal open. Press Ctrl+C here when you want to stop services started by this launcher.' -ForegroundColor Cyan
-    while ($true) { Start-Sleep -Seconds 1 }
+    $lastPhoneState = ''
+    $lastHealthState = ''
+    $nextHealthCheck = [datetime]::MinValue
+    while ($true) {
+        if ($TargetDevice -and $TargetDevice -notin @('windows', 'chrome', 'edge')) {
+            try { $phoneState = Sync-RentHubAndroidConnection -AdbPath $AdbPath -TargetDevice $TargetDevice -HostPort $HostPort }
+            catch { $phoneState = 'waiting' }
+            if ($phoneState -ne $lastPhoneState) {
+                if ($phoneState -eq 'connected') { Write-Host 'Android connection ready; API forwarding restored.' -ForegroundColor Green }
+                elseif ($phoneState -eq 'unauthorized') { Write-Warning 'Unlock the phone and allow USB debugging. Services remain running.' }
+                elseif ($phoneState -eq 'adb-missing') { Write-Warning 'ADB is missing. Install Android platform-tools or use a LAN-configured app.' }
+                else { Write-Warning 'Waiting for Android to reconnect. Keep the same device selected; services remain running.' }
+                $lastPhoneState = $phoneState
+            }
+        }
+        if ([datetime]::UtcNow -ge $nextHealthCheck) {
+            $unavailable = @()
+            if (-not (Test-RentHubApiReady -Port $HostPort)) { $unavailable += 'API/database' }
+            if ($MonitorAi -and -not (Test-RentHubAiCompatible -Health (Get-RentHubAiHealth))) { $unavailable += 'AI' }
+            if ($BlockchainRpcUrl -and (Get-RentHubBlockchainHealth -RpcUrl $BlockchainRpcUrl) -ne '0x539') { $unavailable += 'rental records' }
+            $healthState = $unavailable -join ', '
+            if ($healthState -ne $lastHealthState) {
+                if ($healthState) { Write-Warning "Needs attention: $healthState. Check the launcher logs; services will not be restarted during a transaction." }
+                else { Write-Host 'RentHub service checks recovered.' -ForegroundColor Green }
+                $lastHealthState = $healthState
+            }
+            $nextHealthCheck = [datetime]::UtcNow.AddSeconds(30)
+        }
+        Start-Sleep -Seconds 5
+    }
 }
 
 function Test-RentHubTcpPort {
@@ -191,7 +321,7 @@ function Get-RentHubAiHealth {
     try {
         return Invoke-RestMethod `
             -Uri 'http://127.0.0.1:8001/health' `
-            -TimeoutSec 3
+            -TimeoutSec 10
     }
     catch {
         return $null
@@ -240,7 +370,8 @@ function Stop-RentHubOwnedApiProcess {
             return
         }
         # Node watch has a child server. Stop only this launcher's owned tree.
-        & taskkill.exe /PID $OwnedProcess.Id /T /F | Out-Null
+        $ErrorActionPreference = 'Continue'
+        & taskkill.exe /PID $OwnedProcess.Id /T /F 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0 -and -not $OwnedProcess.HasExited) {
             Write-Warning 'Could not stop the API process tree owned by this launcher.'
         }
@@ -266,7 +397,8 @@ function Stop-RentHubOwnedAiProcess {
         }
         # Uvicorn reload and the Windows venv launcher have child processes.
         # Only this invocation's verified root tree may be stopped, never all Python.
-        & taskkill.exe /PID $OwnedProcess.Id /T /F | Out-Null
+        $ErrorActionPreference = 'Continue'
+        & taskkill.exe /PID $OwnedProcess.Id /T /F 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0 -and -not $OwnedProcess.HasExited) {
             Write-Warning "Could not stop the AI tree owned by this launcher (root $($OwnedProcess.Id))."
         }
@@ -294,8 +426,13 @@ function Get-RentHubBlockchainHealth {
             -ContentType 'application/json' `
             -Body $body `
             -TimeoutSec 3
-        if ($response.result) {
-            return $response
+        if ($null -eq $response.error -and $response.result -is [string] -and
+            $response.result -match '^0x[0-9a-f]{1,64}$') {
+            # Callers compare the chain ID, not the JSON-RPC response envelope.
+            # Normalize case/leading zeros without narrowing a chain ID to Int32.
+            $chainHex = $response.result.Substring(2).TrimStart('0').ToLowerInvariant()
+            if (-not $chainHex) { $chainHex = '0' }
+            return "0x$chainHex"
         }
         return $null
     }
@@ -329,15 +466,43 @@ function Get-RentHubAtlasHost {
     return $null
 }
 
+function Get-RentHubAtlasFailureMessage {
+    param([string]$Output, [string]$Profile = 'default')
+    # Classify privately captured diagnostics; never repeat account/token/URL text.
+    $profileHint = if ($Profile -match '^[a-zA-Z0-9_.-]{1,64}$') { $Profile } else { 'YOUR_PROFILE' }
+    if ($Output -match '(?i)unknown (flag|command)|flag provided but not defined|unrecognized (option|argument)') {
+        return 'Atlas CLI does not support this command or option. Check atlas --version and update the CLI.'
+    }
+    if ($Output -match '(?i)not logged|aren.t logged|not authenticated|invalid_grant|(?:token|session|authentication)[^\r\n]*(expired|invalid)|unauthorized|\b401\b') {
+        return "Atlas CLI is not signed in, or its session needs renewal. Run 'atlas auth login --profile $profileHint' using the same Windows account, then retry."
+    }
+    if ($Output -match '(?i)forbidden|\b403\b|not authorized|insufficient[^\r\n]*(permission|role)|permission denied') {
+        return 'Atlas CLI access was denied. Check that this account/profile can view the project and manage its Network Access list; signing in again may not resolve missing permissions.'
+    }
+    if ($Output -match '(?i)profile[^\r\n]*(not found|not exist|missing)|no[^\r\n]*profile') {
+        return "The requested Atlas CLI profile is not configured. Run 'atlas auth login --profile $profileHint', or choose your existing profile with -AtlasProfile."
+    }
+    if ($Output -match '(?i)\b429\b|too many requests|rate.?limit') {
+        return 'Atlas is limiting requests. Wait briefly and rerun the launcher.'
+    }
+    if ($Output -match '(?i)timed? out|timeout|deadline exceeded|no such host|dial tcp|TLS|certificate|connection (refused|reset)|network is unreachable|could not resolve') {
+        return 'Atlas CLI could not reach Atlas. Check internet, DNS, VPN/firewall and HTTPS access, then retry. Signing in again is not the first step.'
+    }
+    if ($Output -match '(?i)keyring|credential[^\r\n]*(vault|store|storage)|secure storage[^\r\n]*(failed|denied|unavailable)') {
+        return 'Atlas CLI could not access its saved credentials. Use the same Windows account/profile as the original login and check Windows Credential Manager.'
+    }
+    return 'Atlas CLI could not complete the network-access check. Verify atlas auth whoami --profile YOUR_PROFILE, project permissions and connectivity. The failure does not necessarily mean your login expired.'
+}
+
 function Invoke-RentHubAtlasJson {
     param([string]$AtlasPath, [string[]]$Arguments, [string]$Profile = 'default')
     # Capture native errors too: CLI diagnostics can contain private account details.
-    $ErrorActionPreference = 'Continue'
-    $output = @(& $AtlasPath @Arguments --profile $Profile --output json 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Atlas CLI failed. Run 'atlas auth login --profile $Profile' and check project permissions."
+    $result = Invoke-RentHubNativeCommand -FilePath $AtlasPath -Arguments ($Arguments + @('--profile', $Profile, '--output', 'json')) -TimeoutSeconds 30
+    if ($result.TimedOut) { throw 'Atlas CLI timed out. Check internet/VPN connectivity and retry; no interactive login was started.' }
+    if ($result.ExitCode -ne 0) {
+        throw (Get-RentHubAtlasFailureMessage -Output ($result.Output + $result.Error) -Profile $Profile)
     }
-    try { return ($output -join [Environment]::NewLine) | ConvertFrom-Json -ErrorAction Stop }
+    try { return $result.Output | ConvertFrom-Json -ErrorAction Stop }
     catch { throw 'Atlas CLI returned an unexpected response. Check the CLI version and login.' }
 }
 
@@ -410,15 +575,10 @@ function Sync-RentHubAtlasAccess {
 
 function Test-RentHubAtlasDatabase {
     param([string]$NodePath, [string]$ApiDirectory)
-    $ErrorActionPreference = 'Continue'
-    Push-Location -LiteralPath $ApiDirectory
-    try {
-        # No models, schedulers, index creation or application writes: connect/ping only.
-        $probe = 'import { connectDatabase, disconnectDatabase } from "./src/config/database.js"; try { const connection = await connectDatabase(); await connection.db.command({ping:1}); } catch { process.exitCode = 1; } finally { await disconnectDatabase(); }'
-        $null = $probe | & $NodePath --input-type=module 2>&1
-        return $LASTEXITCODE -eq 0
-    }
-    finally { Pop-Location }
+    # No models, schedulers, index creation or application writes: connect/ping only.
+    $probe = 'import { connectDatabase, disconnectDatabase } from "./src/config/database.js"; try { const connection = await connectDatabase(); await connection.db.command({ping:1}); } catch { process.exitCode = 1; } finally { await disconnectDatabase(); }'
+    $result = Invoke-RentHubNativeCommand -FilePath $NodePath -Arguments @('--input-type=module') -WorkingDirectory $ApiDirectory -InputText $probe -TimeoutSeconds 20
+    return -not $result.TimedOut -and $result.ExitCode -eq 0
 }
 
 function Wait-RentHubAtlasDatabase {
@@ -432,6 +592,23 @@ function Wait-RentHubAtlasDatabase {
         if ($attempt -lt 6) { Start-Sleep -Seconds 3 }
     }
     throw 'Atlas access was registered, but the database connection still fails. Check cluster availability, database credentials and VPN/firewall/TLS settings. No RentHub services were started.'
+}
+
+function Initialize-RentHubAtlasAccess {
+    param([string]$NodePath, [string]$ApiDirectory, [string]$ClusterHost,
+        [string]$ProjectId, [string]$Profile = 'default')
+    Write-Host 'Checking the existing Atlas database connection...' -ForegroundColor Cyan
+    if (Test-RentHubAtlasDatabase -NodePath $NodePath -ApiDirectory $ApiDirectory) {
+        Write-Host 'Atlas database is reachable. No Atlas CLI login or network-access update is needed.' -ForegroundColor Green
+        return
+    }
+    $atlasCommand = Get-Command atlas -CommandType Application -ErrorAction SilentlyContinue
+    if ($null -eq $atlasCommand) {
+        throw 'Atlas database is not reachable. Install MongoDB Atlas CLI and sign in to register this network, or configure Network Access manually. Use -SkipAtlasAccess only when access is already configured.'
+    }
+    Write-Host 'Preparing temporary Atlas access for this network...' -ForegroundColor Cyan
+    Sync-RentHubAtlasAccess -AtlasPath $atlasCommand.Source -ClusterHost $ClusterHost -ProjectId $ProjectId -Profile $Profile
+    Wait-RentHubAtlasDatabase -NodePath $NodePath -ApiDirectory $ApiDirectory
 }
 
 # Pure helper: client settings only, never server credentials or private keys.
@@ -494,6 +671,7 @@ $apiProcessStartedAt = $null
 $aiProcess = $null
 $aiProcessStartedAt = $null
 $blockchainProcess = $null
+$blockchainProcessStartedAt = $null
 $startedApi = $false
 $startedAi = $false
 $startedBlockchain = $false
@@ -508,10 +686,14 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     throw 'Node.js is not available on PATH.'
 }
 $nodePath = (Get-Command node).Source
-if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
+$nodeVersion = Invoke-RentHubNativeCommand -FilePath $nodePath -Arguments @('--version') -TimeoutSeconds 5
+if ($nodeVersion.TimedOut -or $nodeVersion.ExitCode -ne 0 -or -not (Test-RentHubNodeVersion -Version $nodeVersion.Output)) {
+    throw 'RentHub requires Node.js 22 or newer for its current storage SDK. Install a supported Node version, reopen PowerShell and verify node --version.'
+}
+if (-not $ServicesOnly -and -not $CheckOnly -and -not (Get-Command flutter -ErrorAction SilentlyContinue)) {
     throw 'Flutter is not available on PATH.'
 }
-if ($Device -eq 'windows') {
+if ($Device -eq 'windows' -and -not $ServicesOnly -and -not $CheckOnly) {
     $existingRentHub = Get-Process -Name 'renthub_flutter' -ErrorAction SilentlyContinue
     if ($null -ne $existingRentHub) {
         $processIds = ($existingRentHub.Id | Sort-Object) -join ', '
@@ -577,16 +759,10 @@ else {
 
 $atlasHost = Get-RentHubAtlasHost -ConnectionString $mongoConnection
 if ($atlasHost -and -not $SkipAtlasAccess) {
-    $atlasCommand = Get-Command atlas -CommandType Application -ErrorAction SilentlyContinue
-    if ($null -eq $atlasCommand) {
-        throw "Install MongoDB Atlas CLI and run 'atlas auth login', or use -SkipAtlasAccess if network access is already configured."
-    }
     if ([string]::IsNullOrWhiteSpace($AtlasProjectId)) {
         $AtlasProjectId = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'ATLAS_PROJECT_ID'
     }
-    Write-Host 'Preparing temporary Atlas access for this network...' -ForegroundColor Cyan
-    Sync-RentHubAtlasAccess -AtlasPath $atlasCommand.Source -ClusterHost $atlasHost -ProjectId $AtlasProjectId -Profile $AtlasProfile
-    Wait-RentHubAtlasDatabase -NodePath $nodePath -ApiDirectory $apiDirectory
+    Initialize-RentHubAtlasAccess -NodePath $nodePath -ApiDirectory $apiDirectory -ClusterHost $atlasHost -ProjectId $AtlasProjectId -Profile $AtlasProfile
 }
 
 if (-not $PSBoundParameters.ContainsKey('ApiPort')) {
@@ -610,9 +786,16 @@ try {
     if (-not $SkipBlockchain -and $blockchainMode -eq 'ganache') {
         $blockchainHealth = Get-RentHubBlockchainHealth -RpcUrl $ganacheRpcUrl
         if ($null -ne $blockchainHealth) {
-            Write-Host "RentHub blockchain is already ready at $ganacheRpcUrl." -ForegroundColor Green
+            if ($blockchainHealth -ne '0x539') { throw 'The configured blockchain has the wrong chain ID. RentHub requires chain ID 1337; no existing process was stopped.' }
+            Write-Host 'RentHub blockchain is already ready (chain ID 1337).' -ForegroundColor Green
         }
         else {
+            $rpcTarget = $null
+            if (-not [uri]::TryCreate($ganacheRpcUrl, [System.UriKind]::Absolute, [ref]$rpcTarget) -or
+                $rpcTarget.Scheme -ne 'http' -or $rpcTarget.Host -notin @('localhost', '127.0.0.1') -or
+                $rpcTarget.Port -ne 8545 -or $rpcTarget.AbsolutePath -ne '/') {
+                throw 'The configured blockchain is unavailable. This launcher can start only local Ganache on port 8545; start your custom RPC separately.'
+            }
             if (-not (Test-Path -LiteralPath $contractArtifact)) {
                 Write-Host 'Compiling the RentHub rental agreement contract...' -ForegroundColor Cyan
                 & npm.cmd run compile --prefix $blockchainDirectory
@@ -626,41 +809,29 @@ try {
             Write-Host 'Starting the RentHub local blockchain...' -ForegroundColor Cyan
             $blockchainProcess = Start-Process `
                 -FilePath $nodePath `
-                -ArgumentList @(
+                -ArgumentList (ConvertTo-RentHubProcessArguments -Arguments @(
                     $ganacheCli,
                     '--server.port', '8545',
                     '--wallet.deterministic',
                     '--chain.chainId', '1337',
                     '--database.dbPath', $blockchainDataDirectory
-                ) `
+                )) `
                 -WorkingDirectory $blockchainDirectory `
                 -WindowStyle Hidden `
                 -RedirectStandardOutput $blockchainStandardLog `
                 -RedirectStandardError $blockchainErrorLog `
                 -PassThru
             $startedBlockchain = $true
+            $blockchainProcessStartedAt = $blockchainProcess.StartTime
 
-            $blockchainReady = $false
-            for ($attempt = 0; $attempt -lt 30; $attempt++) {
-                if ($blockchainProcess.HasExited) {
-                    break
-                }
+            $blockchainReady = Wait-RentHubReadiness -Name 'local blockchain' -TimeoutSeconds 45 -OwnedProcess $blockchainProcess -ErrorLogPath $blockchainErrorLog -Probe {
                 $blockchainHealth = Get-RentHubBlockchainHealth -RpcUrl $ganacheRpcUrl
-                if ($null -ne $blockchainHealth) {
-                    $blockchainReady = $true
-                    break
-                }
-                Start-Sleep -Seconds 1
+                if ($null -ne $blockchainHealth -and $blockchainHealth -ne '0x539') { throw 'The local blockchain reported the wrong chain ID; expected 1337.' }
+                return $blockchainHealth -eq '0x539'
             }
 
             if (-not $blockchainReady) {
-                $details = if (Test-Path -LiteralPath $blockchainErrorLog) {
-                    (Get-Content -LiteralPath $blockchainErrorLog -Tail 12) -join [Environment]::NewLine
-                }
-                else {
-                    'No blockchain error log was produced.'
-                }
-                throw "The local blockchain did not become ready. Review $blockchainErrorLog.`n$details"
+                throw "The local blockchain did not become ready within 45 seconds. Review $blockchainErrorLog."
             }
             Write-Host 'RentHub local blockchain is ready (chain ID 1337).' -ForegroundColor Green
         }
@@ -674,6 +845,15 @@ try {
 
     if (-not $SkipAi) {
         $aiHealth = Get-RentHubAiHealth
+        if (-not (Test-RentHubAiCompatible -Health $aiHealth) -and
+            (Test-RentHubTcpPort -HostName '127.0.0.1' -Port 8001) -and ($null -eq $aiHealth -or $aiHealth.status -ne 'ok')) {
+            Write-Host 'An AI listener is starting; waiting for its health check before deciding whether it can be reused.' -ForegroundColor Cyan
+            $aiHealth = Wait-RentHubReadiness -Name 'existing AI listener' -TimeoutSeconds $AiStartupTimeoutSeconds -Probe {
+                $health = Get-RentHubAiHealth
+                if ($null -ne $health -and $health.status -eq 'ok') { return $health }
+                return $null
+            }
+        }
         if (Test-RentHubAiCompatible -Health $aiHealth) {
             Write-Host 'RentHub AI service is already ready with current scanner, licence, recommendation and item-photo contracts on port 8001.' -ForegroundColor Green
             Write-Host 'Reusing the existing AI process. Its original owner controls reload and shutdown.' -ForegroundColor DarkGray
@@ -681,7 +861,7 @@ try {
         else {
             if (Test-RentHubTcpPort -HostName '127.0.0.1' -Port 8001) {
                 if ($null -ne $aiHealth -and $aiHealth.status -eq 'ok') {
-                    throw "The AI service on port 8001 has incompatible service contracts. Required scanner=opencv-document-yolo-v6, licence=malaysian-driving-ocr-v1, recommendation=hybrid-profile-v2, item=renthub-item-evidence-v4; reported '$($aiHealth.document_frame_contract)', '$($aiHealth.driving_licence_contract)', '$($aiHealth.recommendation_contract)', '$($aiHealth.item_verification_contract)'. Stop its original AI terminal or launcher with Ctrl+C, then rerun this launcher. No existing service was stopped."
+                    throw 'The AI service on port 8001 has incompatible service contracts. Stop its original terminal/launcher with Ctrl+C, then rerun this launcher. No existing service was stopped.'
                 }
                 throw 'Port 8001 is occupied by an unhealthy or different service. Stop the identified owning process before rerunning this launcher. Do not start a second AI server on that port.'
             }
@@ -704,33 +884,17 @@ try {
             $startedAi = $true
             $aiProcessStartedAt = $aiProcess.StartTime
 
-            $aiReady = $false
-            for ($attempt = 0; $attempt -lt 45; $attempt++) {
-                if ($aiProcess.HasExited) {
-                    break
+            $aiHealth = Wait-RentHubReadiness -Name 'AI service' -TimeoutSeconds $AiStartupTimeoutSeconds -OwnedProcess $aiProcess -ErrorLogPath $aiErrorLog -Probe {
+                $health = Get-RentHubAiHealth
+                if ($null -ne $health -and $health.status -eq 'ok' -and -not (Test-RentHubAiCompatible -Health $health)) {
+                    throw 'The AI service started with incompatible contracts. Check that this checkout and its AI code match.'
                 }
-                $aiHealth = Get-RentHubAiHealth
-                if (Test-RentHubAiCompatible -Health $aiHealth) {
-                    $aiReady = $true
-                    break
-                }
-                Start-Sleep -Seconds 1
+                if (Test-RentHubAiCompatible -Health $health) { return $health }
+                return $null
             }
 
-            if (-not $aiReady) {
-                $details = if (Test-Path -LiteralPath $aiErrorLog) {
-                    (Get-Content -LiteralPath $aiErrorLog -Tail 12) -join [Environment]::NewLine
-                }
-                else {
-                    'No AI error log was produced.'
-                }
-                $readinessDetails = if ($null -ne $aiHealth) {
-                    "Health status: '$($aiHealth.status)'; scanner='$($aiHealth.document_frame_contract)', licence='$($aiHealth.driving_licence_contract)', recommendation='$($aiHealth.recommendation_contract)', item='$($aiHealth.item_verification_contract)'. Required: opencv-document-yolo-v6, malaysian-driving-ocr-v1, hybrid-profile-v2, renthub-item-evidence-v4."
-                }
-                else {
-                    'No health response was received from http://127.0.0.1:8001/health.'
-                }
-                throw "The AI service did not become ready. $readinessDetails Review $aiErrorLog.`n$details"
+            if ($null -eq $aiHealth) {
+                throw "The AI service did not become ready within $AiStartupTimeoutSeconds seconds. Review $aiErrorLog. For slower model loading, increase -AiStartupTimeoutSeconds (maximum 600)."
             }
             Write-Host 'RentHub AI service is ready with current scanner, licence, recommendation and item-photo contracts.' -ForegroundColor Green
         }
@@ -752,6 +916,7 @@ try {
 
     if (Test-RentHubApiReady -Port $ApiPort) {
         Write-Host "RentHub API is already ready on port $ApiPort. If you changed .env, restart its original terminal/launcher to load those settings." -ForegroundColor Green
+        if ($Presentation) { Write-Host 'Reused services keep their original reload settings; presentation mode controls newly started processes only.' -ForegroundColor DarkGray }
     }
     else {
         if (-not (Test-RentHubApiPortAvailable -Port $ApiPort)) {
@@ -776,26 +941,12 @@ try {
         $startedApi = $true
         $apiProcessStartedAt = $apiProcess.StartTime
 
-        $ready = $false
-        for ($attempt = 0; $attempt -lt 30; $attempt++) {
-            if ($apiProcess.HasExited) {
-                break
-            }
-            if (Test-RentHubApiReady -Port $ApiPort) {
-                $ready = $true
-                break
-            }
-            Start-Sleep -Seconds 1
+        $ready = Wait-RentHubReadiness -Name 'API/database' -TimeoutSeconds $ApiStartupTimeoutSeconds -OwnedProcess $apiProcess -ErrorLogPath $errorLog -Probe {
+            Test-RentHubApiReady -Port $ApiPort
         }
 
         if (-not $ready) {
-            $details = if (Test-Path -LiteralPath $errorLog) {
-                (Get-Content -LiteralPath $errorLog -Tail 12) -join [Environment]::NewLine
-            }
-            else {
-                'No API error log was produced.'
-            }
-            throw "The API did not become ready. Review $errorLog.`n$details"
+            throw "The API did not become ready within $ApiStartupTimeoutSeconds seconds. Review $errorLog. Check database access and installed API dependencies."
         }
         Write-Host "RentHub API is ready at http://localhost:$ApiPort." -ForegroundColor Green
     }
@@ -815,29 +966,30 @@ try {
 
     $isBrowser = $Device -in @('chrome', 'edge')
     $isDesktop = $Device -in @('windows', 'chrome', 'edge')
+    $clientApiPort = $ApiPort
+    $adbPath = $null
+    $monitoredRpcUrl = if (-not $SkipBlockchain -and $blockchainMode -eq 'ganache') { $ganacheRpcUrl } else { '' }
     if (-not $isDesktop) {
+        # Stable device port keeps an installed APK usable even if the PC needs a fallback port.
+        $clientApiPort = 3000
         $adbPath = Get-RentHubAdbPath
-        if ($null -ne $adbPath) {
-            & $adbPath -s $Device reverse "tcp:$ApiPort" "tcp:$ApiPort"
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning 'ADB port forwarding failed. Use your PC LAN address through API_BASE_URL and SOCKET_URL.'
-            }
-            else {
-                Write-Host "Forwarded Android localhost:$ApiPort to the RentHub API on this PC." -ForegroundColor Green
-            }
+        $phoneState = Sync-RentHubAndroidConnection -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort
+        if ($phoneState -eq 'connected') {
+            Write-Host "Forwarded Android localhost:3000 to PC API port $ApiPort." -ForegroundColor Green
         }
         else {
-            Write-Warning 'ADB was not found on PATH or in the standard Android SDK locations. The Android device must be able to reach the configured API address.'
+            Write-Warning 'Android is not ready for forwarding. Check USB debugging authorization and the selected device ID. Services-only mode will wait for reconnection.'
+            if (-not $ServicesOnly) { throw 'Reconnect/authorize the Android device and rerun, or use -ServicesOnly to keep services running while reconnecting.' }
         }
     }
 
     if ($ServicesOnly) {
-        Wait-RentHubServiceSession
+        Wait-RentHubServiceSession -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort -MonitorAi:(-not $SkipAi) -BlockchainRpcUrl $monitoredRpcUrl
         return
     }
 
     $arguments = @('run', '-d', $Device)
-    $arguments += @(Get-RentHubApiClientArguments -Port $ApiPort)
+    $arguments += @(Get-RentHubApiClientArguments -Port $clientApiPort)
     $firebaseSettings = @{}
     foreach ($setting in @('FIREBASE_ANDROID_API_KEY', 'FIREBASE_ANDROID_APP_ID', 'FIREBASE_MESSAGING_SENDER_ID', 'FIREBASE_PROJECT_ID')) {
         $firebaseSettings[$setting] = Get-RentHubEnvironmentValue -Path $apiEnvironment -Name $setting
@@ -923,11 +1075,15 @@ try {
     }
 
     Write-Host "Starting RentHub on $Device..." -ForegroundColor Cyan
-    & flutter @arguments
-    $flutterExitCode = $LASTEXITCODE
+    Push-Location -LiteralPath $PSScriptRoot
+    try {
+        & flutter @arguments
+        $flutterExitCode = $LASTEXITCODE
+    }
+    finally { Pop-Location }
     if (Test-RentHubKeepServicesRunning -TargetDevice $Device -StartedApi $startedApi -StartedAi $startedAi -StartedBlockchain $startedBlockchain) {
         Write-Warning 'The Android debug session has ended. This does not stop the local RentHub backend.'
-        Wait-RentHubServiceSession
+        Wait-RentHubServiceSession -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort -MonitorAi:(-not $SkipAi) -BlockchainRpcUrl $monitoredRpcUrl
     }
     if ($flutterExitCode -ne 0) {
         throw "Flutter exited with code $flutterExitCode."
@@ -942,8 +1098,8 @@ finally {
         Write-Host 'Stopping the API process tree started by this launcher...' -ForegroundColor DarkGray
         Stop-RentHubOwnedApiProcess -OwnedProcess $apiProcess -StartedAt $apiProcessStartedAt
     }
-    if ($startedBlockchain -and $null -ne $blockchainProcess -and -not $blockchainProcess.HasExited) {
+    if ($startedBlockchain -and $null -ne $blockchainProcess -and $null -ne $blockchainProcessStartedAt) {
         Write-Host 'Stopping the blockchain process started by this launcher...' -ForegroundColor DarkGray
-        Stop-Process -Id $blockchainProcess.Id -Force
+        Stop-RentHubOwnedApiProcess -OwnedProcess $blockchainProcess -StartedAt $blockchainProcessStartedAt
     }
 }

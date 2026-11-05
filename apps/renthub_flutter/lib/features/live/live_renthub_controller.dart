@@ -1,4 +1,5 @@
 import '../../core/network/user_facing_error.dart';
+import '../../core/discovery/discovery_state.dart';
 import '../../core/booking/checkout_models.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -71,6 +72,7 @@ class LiveRentHubController extends ChangeNotifier {
       adminWorkspace.clear();
       adminRecordPages.clear();
       userRecordPages.clear();
+      marketplaceViews.clear();
       conversations = [];
       notifications = [];
       rewardEntries = [];
@@ -110,6 +112,7 @@ class LiveRentHubController extends ChangeNotifier {
   final ownerWorkspace = BookingWorkspaceState();
   final adminWorkspace = BookingWorkspaceState();
   final userRecordPages = <String, UserRecordPage>{};
+  final marketplaceViews = <String, MarketplaceViewState>{};
   Map<String, dynamic> ownerActivitySummary = {};
   String notificationCategory = 'all';
   void rememberUserPage(String key, dynamic data) {
@@ -750,8 +753,19 @@ class LiveRentHubController extends ChangeNotifier {
       ],
     );
     if (file == null) return null;
+    final maxBytes = purpose == 'verification_document'
+        ? 20 * 1024 * 1024
+        : 10 * 1024 * 1024;
+    if ((await file.length() ?? 0) > maxBytes) {
+      throw ApiException(413, 'File exceeds the upload size limit',
+          code: 'FILE_TOO_LARGE', details: {'maxBytes': maxBytes});
+    }
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) throw ApiException(400, 'The selected file is empty.');
+    if (bytes.length > maxBytes) {
+      throw ApiException(413, 'File exceeds the upload size limit',
+          code: 'FILE_TOO_LARGE', details: {'maxBytes': maxBytes});
+    }
     if (confirmSelection != null && !await confirmSelection(bytes, file.name)) {
       return null;
     }
@@ -776,6 +790,10 @@ class LiveRentHubController extends ChangeNotifier {
     required String filename,
   }) async {
     if (bytes.isEmpty) throw ApiException(400, 'The captured image is empty.');
+    if (bytes.length > 20 * 1024 * 1024) {
+      throw ApiException(413, 'File exceeds the upload size limit',
+          code: 'FILE_TOO_LARGE', details: {'maxBytes': 20 * 1024 * 1024});
+    }
     final uploaded = await _perform(
       () => api.uploadFile(
         '/uploads',
@@ -1166,19 +1184,20 @@ class LiveRentHubController extends ChangeNotifier {
         return saved != null;
       });
 
-  int _discoveryRequest = 0;
-  Future<List<Listing>> discoverListings(
-    Map<String, String> parameters,
-  ) async {
-    final account = _accountGeneration, request = ++_discoveryRequest;
+  final _discoveryRequests = <String, int>{};
+  Future<List<Listing>> discoverListings(Map<String, String> parameters,
+      {String collection = 'explore'}) async {
+    final account = _accountGeneration;
+    final request = (_discoveryRequests[collection] ?? 0) + 1;
+    _discoveryRequests[collection] = request;
     final query = Uri(queryParameters: {
       for (final entry in parameters.entries)
         if (entry.value.trim().isNotEmpty) entry.key: entry.value.trim(),
     }).query;
     final data =
         await api.request('GET', '/listings${query.isEmpty ? '' : '?$query'}');
-    if (_sameAccount(account) && request == _discoveryRequest) {
-      userRecordPages.putIfAbsent('explore', UserRecordPage.new).accept(data,
+    if (_sameAccount(account) && request == _discoveryRequests[collection]) {
+      userRecordPages.putIfAbsent(collection, UserRecordPage.new).accept(data,
           requestedPage: int.tryParse(parameters['page'] ?? '1') ?? 1,
           requestedLimit: int.tryParse(parameters['limit'] ?? '20') ?? 20);
     }

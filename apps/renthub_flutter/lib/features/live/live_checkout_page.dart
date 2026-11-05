@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/idempotency_key.dart';
 import '../../core/network/user_facing_error.dart';
+import '../../core/theme/app_theme.dart';
 import '../../modules/user/controllers/auth_controller.dart';
 import '../../shared/models/domain_models.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
@@ -161,42 +162,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
                           child: const Text('Close'))
                     ]);
               }
-              return AlertDialog(
-                  title: Text(switch (method) {
-                    'fpx' => 'Demo FPX',
-                    'wallet' => 'Demo Wallet',
-                    _ => 'Demo Card'
-                  }),
-                  content: SingleChildScrollView(
-                      child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text(switch (method) {
-                          'fpx' =>
-                            'Test bank selected. No banking login is needed.',
-                          'wallet' =>
-                            'Test wallet selected. No wallet credentials are needed.',
-                          _ =>
-                            'Test card ending 4242. Do not enter a real card number.'
-                        }),
-                        const SizedBox(height: 16),
-                        Text('Demo total: ${formatMoney(booking!.total)}'),
-                        const SizedBox(height: 8),
-                        const Text(
-                            'Choose a test outcome. No real money will be taken.'),
-                      ])),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(context, 'cancel'),
-                        child: const Text('Cancel')),
-                    OutlinedButton(
-                        onPressed: () => Navigator.pop(context, 'declined'),
-                        child: const Text('Simulate decline')),
-                    FilledButton(
-                        onPressed: () => Navigator.pop(context, 'success'),
-                        child: const Text('Complete demo payment')),
-                  ]);
+              return _DemoPaymentDialog(method: method, total: booking!.total);
             }));
     if (!mounted) return;
     setState(() => choosing = false);
@@ -425,4 +391,112 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
                                         child: Text(
                                             'You can leave now. Your unpaid request stays in Bookings until it expires.')),
                                 ])))));
+}
+
+class _DemoPaymentDialog extends StatelessWidget {
+  const _DemoPaymentDialog({required this.method, required this.total});
+  final String method;
+  final double total;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        backgroundColor: AppColors.background,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        constraints: const BoxConstraints(maxWidth: 420),
+        title: Row(children: [
+          Icon(
+              switch (method) {
+                'fpx' => Icons.account_balance_outlined,
+                'wallet' => Icons.account_balance_wallet_outlined,
+                _ => Icons.credit_card,
+              },
+              color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Text(switch (method) {
+            'fpx' => 'Demo FPX',
+            'wallet' => 'Demo Wallet',
+            _ => 'Demo Card',
+          })),
+        ]),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: AppColors.blueSurface,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Demo total'),
+                        const SizedBox(height: 4),
+                        Text(formatMoney(total),
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(switch (method) {
+                  'fpx' => 'Test bank selected. No banking login is needed.',
+                  'wallet' =>
+                    'Test wallet selected. No wallet credentials are needed.',
+                  _ =>
+                    'Test card ending 4242. Do not enter a real card number.',
+                }),
+                const SizedBox(height: 8),
+                const Text(
+                    'No real money will be taken. Owner approval is still required.',
+                    style: TextStyle(color: AppColors.secondaryText)),
+              ],
+            ),
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+        actions: [
+          SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, 'success'),
+                  child: const Text('Complete demo payment',
+                      textAlign: TextAlign.center),
+                ),
+                const SizedBox(height: 12),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context, 'cancel'),
+                      child: const Text('Cancel', textAlign: TextAlign.center),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context, 'declined'),
+                      child: const Text('Simulate decline',
+                          textAlign: TextAlign.center),
+                    ),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        ],
+      );
 }

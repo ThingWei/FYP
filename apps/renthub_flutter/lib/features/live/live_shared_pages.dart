@@ -419,12 +419,6 @@ class LiveProfilePage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             ListTile(
-              leading: const Icon(Icons.cloud_done_outlined),
-              title: const Text('Connected to RentHub API'),
-              subtitle:
-                  const Text('Profile and activity are stored in MongoDB.'),
-            ),
-            ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('Edit profile'),
               subtitle: Text(profile?.phone.isEmpty ?? true
@@ -1158,6 +1152,28 @@ class MykadPairStatus extends StatelessWidget {
       );
 }
 
+class _VerificationReviewUpdate extends StatelessWidget {
+  const _VerificationReviewUpdate({required this.title, required this.message});
+  final String title, message;
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+            color: AppColors.blueSurface,
+            borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          const Text('Update from RentHub verification',
+              style: TextStyle(color: AppColors.secondaryText)),
+          const SizedBox(height: 8),
+          Text(message),
+        ]),
+      );
+}
+
 class LiveVerificationPage extends StatefulWidget {
   const LiveVerificationPage({super.key, this.driving = false});
   final bool driving;
@@ -1587,7 +1603,9 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                         'Licence class: ${eligibility.licenceClasses.isEmpty ? 'Not reviewed' : eligibility.licenceClasses.join(', ')}'),
                     Text('Valid until: ${eligibility.validUntil}'),
                     if (eligibility.reviewNotes.isNotEmpty)
-                      Text(eligibility.reviewNotes),
+                      _VerificationReviewUpdate(
+                          title: 'Driving licence review update',
+                          message: eligibility.reviewNotes),
                     if (profile?.verificationDocuments
                             .containsKey('passport') ??
                         false)
@@ -1595,10 +1613,9 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                           'Legacy passport: ${profile!.verificationDocuments['passport']} (not required)'),
                     if (profile?.verificationReason.isNotEmpty ?? false) ...[
                       const SizedBox(height: 12),
-                      Text(
-                        profile!.verificationReason,
-                        textAlign: TextAlign.center,
-                      ),
+                      _VerificationReviewUpdate(
+                          title: 'MyKad review update',
+                          message: profile!.verificationReason),
                     ],
                   ],
                 ),
@@ -1631,6 +1648,10 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
             ),
             const SizedBox(height: 16),
             if (canSubmit) ...[
+              const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: Text(
+                      'Choose a clear JPEG, PNG or WebP photo up to 20 MB. Keep all document details visible.')),
               if (documentType == 'driving_licence') ...[
                 DropdownButtonFormField<String>(
                   initialValue: licenceDraft.source,

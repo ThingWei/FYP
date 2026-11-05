@@ -30,20 +30,18 @@ class StatusBadge extends StatelessWidget {
   final String label;
   @override
   Widget build(BuildContext context) {
-    final value = label.toLowerCase();
-    final color = value.contains('active') ||
-            value.contains('approved') ||
-            value.contains('verified') ||
-            value.contains('completed')
-        ? AppColors.success
-        : value.contains('reject') ||
-                value.contains('dispute') ||
-                value.contains('suspend') ||
-                value.contains('overdue') ||
-                value.contains('expired') ||
-                value.contains('down')
-            ? AppColors.error
-            : AppColors.warning;
+    final value = label.toLowerCase().replaceAll(RegExp(r'[_-]+'), ' ').trim();
+    bool has(String pattern) => RegExp(pattern).hasMatch(value);
+    final color = has(
+            r'\b(rejected?|disputed?|suspended?|banned|overdue|expired|down|failed|not approved)\b')
+        ? AppColors.error
+        : has(r'\b(unverified|inactive|unapproved|unpaid|cancelled|canceled|not verified|not reviewed|not submitted|not available)\b')
+            ? AppColors.secondaryText
+            : has(r'\b(pending|processing|required|review|unresolved)\b')
+                ? AppColors.warning
+                : has(r'\b(active|approved|verified|completed|paid|resolved|published|available)\b')
+                    ? AppColors.success
+                    : AppColors.secondaryText;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(

@@ -56,8 +56,9 @@ location. Firebase remains optional. See
 
 The launcher reads `PORT` from the shell environment or `services/api/.env`
 (default `3000`). If that port hosts an outdated or unhealthy API, it automatically
-selects a free port from `3002` to `3020`. It passes the selected port to the new
-API, Flutter HTTP and Socket.io URLs, and Android forwarding. Existing processes
+selects a free port from `3002` to `3020`. Desktop/browser clients use the selected
+port. Android clients keep `localhost:3000`; ADB forwards that device port to the
+selected PC port, so an installed APK still works after a PC port conflict. Existing processes
 keep running. Ports `3001`, `8080`, `8001` and `8545` are reserved for the web,
 AI and blockchain services.
 
@@ -72,9 +73,11 @@ The launcher prints the selected port. If you supply custom `API_BASE_URL` or
 
 ## Automatic MongoDB Atlas network access
 
-For an Atlas `mongodb+srv://...mongodb.net` connection, the launcher uses MongoDB
-Atlas CLI to allow the laptop's current public IPv4 address before starting any
-backend services. Install Atlas CLI on each laptop, restart the terminal, and run:
+For an Atlas `mongodb+srv://...mongodb.net` connection, the launcher first tries a
+read-only database ping. A working connection needs no CLI login or access-list
+update. If it fails, the launcher uses MongoDB Atlas CLI to allow the laptop's
+current public IPv4 address before starting backend services. Install Atlas CLI
+on each laptop, restart the terminal, and run when registration is needed:
 
 ```powershell
 atlas auth login
@@ -108,3 +111,36 @@ application identity/session secrets compatible as described in
 
 For manually managed Atlas access, pass `-SkipAtlasAccess`. Local MongoDB and
 non-Atlas connections do not use CLI registration.
+
+## Reliable local presentation
+
+Run from this directory with Node.js 22+ and your configured API `.env`:
+
+```powershell
+# Windows app, stable services without code reload
+.\run-renthub.ps1 -Presentation
+
+# Android: replace the example with the ID shown by adb devices
+.\run-renthub.ps1 -Device YOUR_DEVICE_ID -Presentation
+
+# Already-installed Android app: keep backend services and reconnection checks running
+.\run-renthub.ps1 -Device YOUR_DEVICE_ID -Presentation -ServicesOnly
+```
+
+AI startup allows 180 seconds by default; API startup allows 90. For a slower
+laptop, use `-AiStartupTimeoutSeconds 300` and/or `-ApiStartupTimeoutSeconds 120`.
+Readiness checks verify service contracts, database connectivity and chain ID;
+starting a process alone is not success. Missing trained models still produce
+warnings. Existing compatible services are reused with their original reload
+settings; close their original launcher first if you need all services stable.
+
+Services-only mode and the retained session after Android debugging ends restore
+ADB forwarding after reconnection and check service health periodically. They do
+not restart services during a booking or payment. Flutter's interactive debug
+session owns the terminal while `flutter run` is active; use `-ServicesOnly` with
+an installed app for continuous launcher monitoring. No automatic ADB pairing is
+performed; an already connected wireless ADB device can be selected by its ID.
+
+Keep the PC awake, online and the terminal open. Local hosting still depends on
+that PC; use one active backend/blockchain for the presentation. See
+`docs/LAUNCHER_RELIABILITY_RESULT.md` for tests, log paths and recovery steps.

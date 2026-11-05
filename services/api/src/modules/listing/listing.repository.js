@@ -34,7 +34,8 @@ export const listingRepository = {
         { $sort: { _trustOrder: -1, rating: -1, createdAt: -1, _id: -1 } },
         { $skip: (page - 1) * limit }, { $limit: limit }, { $unset: '_trustOrder' },
       ]).then(rows => rows.map(row => ListingModel.hydrate(row))) : ListingModel.find(criteria)
-        .sort(sort)
+        // Equal prices/ratings/batch timestamps still need a unique page order.
+        .sort({ ...sort, _id: sort._id ?? -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       ListingModel.countDocuments(criteria),

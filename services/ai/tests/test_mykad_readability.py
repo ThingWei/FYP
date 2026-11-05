@@ -218,6 +218,8 @@ def accepted_check(side, number='900101071234'):
             {'identityNumber': number, 'identityNumberFormatValid': True, 'fullName': 'TEST USER'})
 
 def install_submission(monkeypatch, mismatch=False):
+    # Isolate orchestration tests from locally installed detector artifacts.
+    monkeypatch.setattr(intelligence, '_document_yolo_model', lambda: (None, None))
     images = [IMAGE.copy(), IMAGE.copy()]
     monkeypatch.setattr(intelligence, '_decode_images', lambda request: ([(None, im) for im in images], []))
     monkeypatch.setattr(intelligence, '_quality', lambda image: {

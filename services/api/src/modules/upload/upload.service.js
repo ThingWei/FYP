@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { AppError } from '../../core/errors.js';
+import { env } from '../../config/env.js';
 import { storageAdapter } from '../../integrations/storageAdapter.js';
 import { ClaimModel } from '../dispute/claim.model.js';
 import { DisputeModel } from '../dispute/dispute.model.js';
@@ -110,6 +111,10 @@ export const uploadService = {
     }
     if (!file?.buffer?.length) {
       throw new AppError('A file is required', 400, 'FILE_REQUIRED');
+    }
+    const maxBytes = purpose === 'verification_document' ? env.maxVerificationUploadBytes : env.maxUploadBytes;
+    if (file.buffer.length > maxBytes) {
+      throw new AppError('File exceeds the upload size limit', 413, 'FILE_TOO_LARGE', { maxBytes });
     }
     const detected = detectedType(file.buffer);
     if (!detected) {

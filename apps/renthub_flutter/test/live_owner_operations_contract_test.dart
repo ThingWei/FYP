@@ -52,6 +52,44 @@ Map<String, dynamic> listingJson({
     };
 
 void main() {
+  for (final status in ['pending_review', 'draft', 'active']) {
+    testWidgets('listing $status offers availability only after approval',
+        (tester) async {
+      final api = RecordingOwnerApiClient([
+        [listingJson(status: status)]
+      ]);
+      final controller = LiveRentHubController(api)
+        ..ownerListings = [Listing.fromJson(listingJson(status: status))];
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(ChangeNotifierProvider.value(
+          value: controller,
+          child: const MaterialApp(home: LiveOwnerListingsPage())));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      expect(find.text('Availability'),
+          status == 'active' ? findsOneWidget : findsNothing);
+      expect(
+          api.calls.any((call) => call.$2.endsWith('/availability')), isFalse);
+    });
+  }
+  testWidgets(
+      'pending availability route explains approval without an API call',
+      (tester) async {
+    final api = RecordingOwnerApiClient([]);
+    final controller = LiveRentHubController(api);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: controller,
+        child: MaterialApp(
+            home: LiveAvailabilityPage(
+                Listing.fromJson(listingJson(status: 'pending_review'))))));
+    await tester.pumpAndSettle();
+    expect(find.text('Availability opens after approval'), findsOneWidget);
+    expect(find.text('Save Availability'), findsNothing);
+    expect(api.calls, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   test('listing model exposes effective promotion and bundle details', () {
     final listing = Listing.fromJson(
       listingJson(

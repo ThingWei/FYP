@@ -240,13 +240,26 @@ export const listingService = {
     if(!viewer || viewer.accountStatus!=='active')throw new AppError('Account unavailable',403,'ACCOUNT_RESTRICTED');
     const excluded=await UserModel.distinct('authId',{$or:[{accountStatus:{$ne:'active'}},{blockedUserIds:identity.authId}]});
     const pattern=escapedPattern(query.q.trim());
-    const filter={status:'active',ownerId:{$nin:[identity.authId,...(viewer.blockedUserIds??[]),...excluded]},$or:[{title:pattern},{brand:pattern},{productModel:pattern}]};
+    const filter={status:'active',ownerId:{$nin:[identity.authId,...(viewer.blockedUserIds??[]),...excluded]},$or:[{title:pattern},{brand:pattern},{productModel:pattern},{'locationDetails.city':pattern},{state:pattern}]};
     const platform=await PlatformSettingModel.findOne({key:'platform'}).select('categories').lean();
     const categories=platform?.categories?.filter(c=>c.active).map(c=>c.name);
     if(query.category)filter.category=categories&&!categories.includes(query.category)?{$in:[]}:query.category;
     else if(categories)filter.category={$in:categories};
-    const rows=await ListingModel.find(filter).select('publicId title category').sort({createdAt:-1,_id:-1}).limit(40).lean();
-    const unique=new Map();for(const row of rows){const key=row.title?.normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('en');if(key&&!unique.has(key))unique.set(key,{title:row.title,category:row.category,listingId:row.publicId});}
+    const rows=await ListingModel.find(filter).select('publicId title category brand productModel locationDetails.city state').sort({createdAt:-1,_id:-1}).limit(40).lean();
+    const unique=new Map();
+    for(const row of rows){
+      const title=row.title?.normalize('NFKC').trim().replace(/\s+/g,' ');
+      if(title && [row.title,row.brand,row.productModel].some(value=>value && pattern.test(value))){
+        const key=`listing:${title.toLocaleLowerCase('en')}`;
+        if(!unique.has(key))unique.set(key,{title,kind:'listing',category:row.category,listingId:row.publicId});
+      }
+      // Public locality only: never autocomplete private street/unit addresses.
+      const area=[...new Set([row.locationDetails?.city,row.state].filter(value=>typeof value==='string'&&value.trim()).map(value=>value.trim()))].join(', ');
+      if(area && pattern.test(area)){
+        const key=`location:${area.normalize('NFKC').toLocaleLowerCase('en')}`;
+        if(!unique.has(key))unique.set(key,{title:area,kind:'location',location:area});
+      }
+    }
     return [...unique.values()].slice(0,8);
   },
   async recommended(identity, query, options = {}) {

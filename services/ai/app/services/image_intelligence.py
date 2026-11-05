@@ -7,7 +7,7 @@ from typing import Any
 
 from .mykad_field_risk import analyse_fields
 from .mykad_document_type import assess_mykad_capture, assess_mykad_sides
-from .mykad_readability import check_side, check_pair, pixel_region, whole_card_lock, CONTRACT as MYKAD_REQUIRED_CONTRACT
+from .mykad_readability import check_side, check_pair, pixel_region, locate_card, whole_card_lock, CONTRACT as MYKAD_REQUIRED_CONTRACT
 from .driving_licence import analyse_licence, CONTRACT as DRIVING_CONTRACT
 
 from ..schemas import (
@@ -65,6 +65,35 @@ def _quality(image) -> dict[str, Any]:
         'glareRatio': round(glare_ratio, 4),
         'hasSevereGlare': glare_ratio > 0.12,
     }
+
+
+def _document_quality(image, document_type, side=None, bounds=None, detected_side=None):
+    """Measure card lighting/sharpness, not the table behind a detected MyKad.
+
+    Keep the existing capture-resolution rule and all mandatory OCR/side/pair/
+    screen checks. The full original image still goes to screen-copy screening.
+    No guessed crop or lowered quality threshold is used when detection fails.
+    """
+    quality = _quality(image)
+    if document_type != 'mykad':
+        return quality
+    try:
+        if bounds is None:
+            bounds, detected_side = locate_card(image, side, _document_yolo_model)
+        if bounds is None or detected_side not in ('front', 'back'):
+            return quality
+        left, top, right, bottom = pixel_region(bounds, (image.shape[1], image.shape[0]))
+        crop = image[top:bottom, left:right]
+        if crop.size == 0 or min(crop.shape[:2]) < 32:
+            return quality
+        card = _quality(crop)
+        for key in ('blurVariance', 'brightness', 'isBlurry', 'isTooDark',
+                    'isTooBright', 'glareRatio', 'hasSevereGlare'):
+            quality[key] = card[key]
+        quality['assessmentRegion'] = 'detected_mykad'
+    except (RuntimeError, ValueError, TypeError, IndexError, AttributeError):
+        pass  # Mandatory detector/OCR checks still determine acceptance later.
+    return quality
 
 
 def _quality_issues(quality) -> list[dict[str, str]]:
@@ -516,6 +545,11 @@ class ImageIntelligenceService:
             label = names.get(label_index, '') if isinstance(names, dict) else (
                 names[label_index] if 0 <= label_index < len(names) else '')
             detected_side = {'mykad_front': 'front', 'mykad_back': 'back'}.get(str(label).lower())
+        if confidence >= float(os.getenv('DOCUMENT_DETECTION_THRESHOLD', '0.65')):
+            quality = _document_quality(image, request.expected_type,
+                                        request.expected_side, (x1, y1, x2, y2), detected_side)
+            issues = _quality_issues(quality)
+            quality['issues'] = issues
         area = max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
         guide_area = (guide[2] - guide[0]) * (guide[3] - guide[1])
         inside_guide = (box[0] >= guide[0] - 0.01 and box[1] >= guide[1] - 0.01
@@ -612,7 +646,9 @@ class ImageIntelligenceService:
                 reasons=errors or ['At least one identity-document image is required'],
                 adapter='opencv-easyocr-spacy-v1',
             )
-        qualities = [_quality(image) for _, image in decoded]
+        qualities = [_document_quality(image, request.expected_type,
+                    ('front' if index == 0 else 'back'))
+                    for index, (_, image) in enumerate(decoded)]
         quality_reasons = []
         for index, quality in enumerate(qualities):
             quality['issues'] = _quality_issues(quality)

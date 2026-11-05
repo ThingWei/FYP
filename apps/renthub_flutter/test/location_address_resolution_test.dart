@@ -435,12 +435,17 @@ void main() {
     await revealField(tester, 'Exact address or pickup point');
     expect(text(tester, 'Exact address or pickup point'), mapped['label']);
   });
-  testWidgets('area-only pin does not request a postal address',
+  testWidgets(
+      'area-only pin fills a readable mapped label without moving the pin',
       (tester) async {
     final api = AddressApi();
     await open(tester, api, searchAreaOnly: true);
     await press(tester, 'Move test pin');
-    expect(api.lookups, 0);
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+    expect(api.lookups, 1);
+    await revealField(tester, 'Search area name');
+    expect(text(tester, 'Search area name'), mapped['label']);
     expect(find.byType(SwitchListTile), findsNothing);
   });
 }

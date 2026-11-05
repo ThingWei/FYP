@@ -7,13 +7,14 @@ import { uploadController } from './upload.controller.js';
 
 const receiveFile = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: env.maxUploadBytes, files: 1, fields: 4 },
+  limits: { fileSize: Math.max(env.maxUploadBytes, env.maxVerificationUploadBytes), files: 1, fields: 4 },
 }).single('file');
 
 const multipart = (req, res, next) => receiveFile(req, res, (error) => {
   if (!error) return next();
   if (error.code === 'LIMIT_FILE_SIZE') {
-    return next(new AppError('File exceeds the upload size limit', 413, 'FILE_TOO_LARGE'));
+    return next(new AppError('File exceeds the upload size limit', 413, 'FILE_TOO_LARGE',
+      { maxBytes: Math.max(env.maxUploadBytes, env.maxVerificationUploadBytes) }));
   }
   return next(new AppError('Invalid file upload', 400, 'INVALID_UPLOAD'));
 });

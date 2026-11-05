@@ -117,7 +117,7 @@ void main() {
     expect(find.textContaining('Photo checks'), findsNothing);
   });
 
-  for (final width in [360.0, 1024.0]) {
+  for (final width in [360.0, 390.0, 1024.0]) {
     testWidgets('photo review opens, enlarges and closes at $width',
         (tester) async {
       tester.view.physicalSize = Size(width, 844);
@@ -137,6 +137,10 @@ void main() {
         value: controller,
         child: MaterialApp(
             theme: AppTheme.light,
+            builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: const TextScaler.linear(1.5)),
+                child: child!),
             home: Builder(
                 builder: (context) => Scaffold(
                       body: TextButton(
@@ -147,9 +151,26 @@ void main() {
       await tester.tap(find.text('Review photos'));
       await tester.pumpAndSettle();
       expect(find.text('Item photos'), findsOneWidget);
-      expect(find.byType(Image), findsNWidgets(3));
+      expect(find.byType(PageView), findsOneWidget);
+      expect(find.text('Photo 1 of 3'), findsOneWidget);
+      expect(find.byType(Image).hitTestable(), findsOneWidget);
+      await tester.tap(find.byTooltip('Next photo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 2 of 3'), findsOneWidget);
+      await tester.drag(find.byType(PageView), const Offset(-400, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 3 of 3'), findsOneWidget);
+      expect(
+          tester
+              .widget<IconButton>(find.byWidgetPredicate(
+                  (w) => w is IconButton && w.tooltip == 'Next photo'))
+              .onPressed,
+          isNull);
+      await tester.tap(find.byTooltip('Previous photo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photo 2 of 3'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.byType(Image).first);
+      await tester.tap(find.byType(Image).hitTestable().first);
       await tester.pumpAndSettle();
       expect(find.byType(InteractiveViewer), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -503,7 +524,15 @@ void main() {
       await tester.ensureVisible(find.text('Photo details'));
       await tester.tap(find.text('Photo details'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Photo 2: Item type needs manual review'),
+      expect(find.text('Photo 2'), findsOneWidget);
+      expect(
+          find.descendant(
+              of: find
+                  .ancestor(
+                      of: find.text('Photo 2'),
+                      matching: find.byType(Container))
+                  .first,
+              matching: find.text('Item type needs manual review')),
           findsOneWidget);
       expect(tester.takeException(), isNull);
     });

@@ -132,6 +132,32 @@ void viewport(WidgetTester tester, double width) {
 }
 
 void main() {
+  test('calculation summary stays short and omits technical diagnostics', () {
+    final view = PriceSuggestionView({
+      ...suggestion(synthetic: true),
+      'evidence': {
+        'marketplace_active_listing_count': 2,
+        'external_asking_price_count': 3,
+        'historical_rental_count': 1
+      },
+      'comparison_summary': {
+        'active': {
+          'version': 'renthub-comparables-v2',
+          'selectedCount': 4,
+          'missingAgeCount': 4,
+          'missingConditionCount': 4
+        }
+      }
+    });
+    expect(view.calculationDetails.length, lessThanOrEqualTo(4));
+    expect(view.calculationDetails.join(' '), isNot(contains('xgboost')));
+    expect(view.calculationDetails.join(' '), isNot(contains('C:/server')));
+    expect(view.calculationDetails,
+        contains('Some age, condition or package details are missing.'));
+    final missing = PriceSuggestionView({});
+    expect(missing.calculationDetails,
+        ['Uses a general estimate for this type of item.']);
+  });
   for (final width in [360.0, 390.0]) {
     testWidgets('longer-rental baseline is visible and qualified at $width',
         (tester) async {
@@ -171,7 +197,8 @@ void main() {
       expect(find.textContaining('Some version or package details are missing'),
           findsNothing);
       await press(tester, 'How this estimate was calculated');
-      expect(find.textContaining('1 comparisons use published daily rates'),
+      expect(
+          find.text('Compares available prices for the same or similar items.'),
           findsOneWidget);
       await press(tester, 'Use this price');
       expect(used, isTrue);
@@ -242,11 +269,9 @@ void main() {
           findsOneWidget);
       expect(find.textContaining('has not been validated'), findsOneWidget);
       await press(tester, 'How this estimate was calculated');
-      expect(
-          find.textContaining('4 references have no item age'), findsOneWidget);
-      expect(find.textContaining('Some version or package details are missing'),
+      expect(find.text('Some age, condition or package details are missing.'),
           findsOneWidget);
-      expect(find.textContaining('Prices may fall outside'), findsOneWidget);
+      expect(find.textContaining('references have no item age'), findsNothing);
       await press(tester, 'Use this price');
       expect(used, isTrue);
       expect(tester.takeException(), isNull);
@@ -417,6 +442,9 @@ void main() {
       expect(input.controller!.text, '');
       await press(tester, 'Use this price');
       expect(input.controller!.text, '0.35');
+      expect(find.byType(LivePriceSuggestion), findsNothing);
+      await press(tester, 'Suggest a daily price');
+      expect(find.byType(LivePriceSuggestion), findsOneWidget);
       expect(input.validator!(input.controller!.text), isNull);
       expect(tester.takeException(), isNull);
     });
@@ -683,7 +711,7 @@ void main() {
         expect(find.textContaining('global_xgboost'), findsNothing);
         expect(find.textContaining('private technical'), findsNothing);
         await press(tester, 'How this estimate was calculated');
-        expect(find.textContaining('4 listings and 1 completed rentals'),
+        expect(find.text('Based on 4 RentHub listings, 1 rental record.'),
             findsOneWidget);
         await press(tester, 'Use this price');
         expect(used, isTrue);
@@ -745,6 +773,7 @@ void main() {
               .controller!
               .text,
           '71.44');
+      expect(find.byType(LivePriceSuggestion), findsNothing);
       await press(tester, 'Save Draft');
       expect((api.writeCalls.last as Map)['priceProvenance']['origin'],
           'ai_suggested');

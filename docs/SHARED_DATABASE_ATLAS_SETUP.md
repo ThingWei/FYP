@@ -248,3 +248,56 @@ their provenance and do not become genuine rental evidence by moving to Atlas.
 References: [Atlas Free limits](https://www.mongodb.com/docs/atlas/reference/free-shared-limitations/),
 [mongodump](https://www.mongodb.com/docs/database-tools/mongodump/),
 [mongorestore](https://www.mongodb.com/docs/database-tools/mongorestore/).
+
+## 5 November 2026: Atlas CLI session expiry and launcher recovery
+
+The launcher formerly mapped every failed Atlas CLI request to a login/permissions
+instruction and contacted the administration CLI before trying the database.
+This could force an unnecessary browser sign-in even when the current network
+already had working database access.
+
+Startup now performs a read-only connection/ping first. A successful database
+probe skips CLI discovery, CLI authentication, IP discovery and access-list
+operations entirely. If the database is unreachable, the existing temporary
+single-IP registration flow remains, followed by bounded propagation checks
+before any RentHub services start. `-SkipAtlasAccess` retains its explicit behavior.
+Existing access entries, 24-hour expiry and other laptops' entries are preserved.
+
+CLI failures now have safe, distinct guidance for expired/missing sessions,
+missing profiles, project permissions, unsupported CLI flags, rate limits,
+network/TLS failures and saved-credential access. Unknown failures do not assert
+that a login expired. Native account details, tokens and URLs are not repeated.
+
+For the reported failure, the real project-list request explicitly reported an
+expired session and requested login. `atlas auth whoami` could still display the
+remembered account when run with normal Windows credential access; that did not
+establish that its project requests remained authorized. An earlier restricted
+credential check returned signed-out status and was superseded by the actual
+project-request diagnostic. The current read-only database probe also failed;
+its boolean result alone does not prove whether the cause is expired IP access,
+connectivity or database credentials. No access entries or database records were
+changed by this diagnostic work.
+
+MongoDB documents a **12-hour timeout** for Atlas-credential sessions in Atlas CLI
+and other developer tools, potentially shorter when the main web session ends.
+That session is separate from the launcher's 24-hour network entry and from
+RentHub's database-user URI. See
+[MongoDB session timeout documentation](https://www.mongodb.com/docs/atlas/tutorial/manage-organization-settings/).
+
+Renew this user's session normally, then rerun the updated launcher:
+
+```powershell
+atlas auth login --profile default
+# Complete the browser sign-in yourself, then from apps/renthub_flutter:
+.\run-renthub.ps1
+```
+
+No passwords or device authorization codes need to be shared. Default/user-account
+sessions were not replaced with a service account or made permanent by this fix.
+
+Both standalone PowerShell suites passed: general launcher regression checks and
+Atlas-specific tests. Coverage includes a reachable database with no CLI installed,
+unreachable database with missing CLI, successful registration, failed CLI sign-in,
+profile preservation, bounded retries, precise error classification and redaction.
+All access-list mutations in tests were mocked. Real renewal and post-renewal
+launcher startup remain user sign-in/device verification steps.

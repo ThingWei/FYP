@@ -17,7 +17,8 @@ Future<bool> confirmPhotoSelection(
   final pdf = isPdfBytes(bytes);
   if (!pdf) {
     try {
-      final decoded = await ui.instantiateImageCodec(bytes);
+      final decoded = await ui.instantiateImageCodec(bytes,
+          targetWidth: 1600, allowUpscaling: false);
       final frame = await decoded.getNextFrame();
       frame.image.dispose();
       decoded.dispose();
@@ -45,7 +46,8 @@ Future<bool> confirmPhotoSelection(
                               'PDF attachment. Photo preview is not available for this document format.'))
                       : InteractiveViewer(
                           maxScale: 5,
-                          child: Image.memory(bytes, fit: BoxFit.contain))),
+                          child: Image.memory(bytes,
+                              cacheWidth: 1600, fit: BoxFit.contain))),
             ]),
           ),
           actions: [
@@ -74,7 +76,8 @@ Future<String?> pickAndPreviewUpload(
         uploadSelection: (bytes, name, upload) async {
           if (!isPdfBytes(bytes)) {
             try {
-              final codec = await ui.instantiateImageCodec(bytes);
+              final codec = await ui.instantiateImageCodec(bytes,
+                  targetWidth: 1600, allowUpscaling: false);
               final frame = await codec.getNextFrame();
               frame.image.dispose();
               codec.dispose();
@@ -147,8 +150,8 @@ class _PhotoUploadPreviewState extends State<PhotoUploadPreview> {
                               'PDF selected. A photo preview is not available.'))
                       : InteractiveViewer(
                           maxScale: 5,
-                          child:
-                              Image.memory(widget.bytes, fit: BoxFit.contain))),
+                          child: Image.memory(widget.bytes,
+                              cacheWidth: 1600, fit: BoxFit.contain))),
               if (error != null) ...[
                 const SizedBox(height: 12),
                 Text(error!, style: const TextStyle(color: AppColors.error)),

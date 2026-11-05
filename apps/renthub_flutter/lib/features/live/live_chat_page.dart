@@ -481,8 +481,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
                         ? const RentHubFeedbackState(
                             kind: FeedbackKind.empty,
                             title: 'Start the conversation',
-                            message:
-                                'Messages are stored with this booking in MongoDB.',
+                            message: 'Say hello or ask about the booking.',
                           )
                         : ListView.builder(
                             padding: const EdgeInsets.all(16),

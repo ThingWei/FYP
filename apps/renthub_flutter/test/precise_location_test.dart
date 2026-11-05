@@ -18,6 +18,8 @@ class LocationApi extends ApiClient {
   LocationApi() : super('https://example.invalid');
   final writes = <Map<String, dynamic>>[];
   bool failSave = false;
+  bool mappedAddress = false;
+  int lookups = 0;
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     if (path == '/maps/config') {
@@ -27,7 +29,19 @@ class LocationApi extends ApiClient {
       };
     }
     if (path == '/maps/resolve-pin') {
-      return {'provider': 'openstreetmap', 'item': null};
+      lookups++;
+      return {
+        'provider': 'openstreetmap',
+        'item': mappedAddress
+            ? {
+                'label': 'Jalan Test, Alor Setar, Kedah',
+                'coordinates': {'latitude': 3.2, 'longitude': 101.8},
+                'city': 'Alor Setar',
+                'state': 'Kedah',
+                'postcode': '05000'
+              }
+            : null
+      };
     }
     if (path.endsWith('/availability')) {
       return {
@@ -94,6 +108,10 @@ Future<void> tap(WidgetTester tester, String text) async {
 
 Future<void> enter(WidgetTester tester, String label, String value) async {
   final target = find.widgetWithText(TextField, label);
+  for (var count = 0; target.evaluate().isEmpty && count < 15; count++) {
+    await tester.drag(find.byType(ListView).last, const Offset(0, -200));
+    await tester.pumpAndSettle();
+  }
   await tester.ensureVisible(target);
   await tester.enterText(target, value);
   await tester.pump();
@@ -107,11 +125,15 @@ Future<void> confirm(WidgetTester tester) async {
   await tap(tester, 'Place test pin');
   await enter(
       tester,
-      find.widgetWithText(TextField, 'Search area name').evaluate().isNotEmpty
+      tester
+              .widget<LiveLocationPicker>(find.byType(LiveLocationPicker))
+              .searchAreaOnly
           ? 'Search area name'
           : 'Exact address or pickup point',
       'Entrance 12');
-  if (find.widgetWithText(TextField, 'Search area name').evaluate().isEmpty) {
+  if (!tester
+      .widget<LiveLocationPicker>(find.byType(LiveLocationPicker))
+      .searchAreaOnly) {
     await enter(tester, 'City / town', 'Alor Setar');
     await enter(tester, 'State', 'Kedah');
     await enter(tester, 'Postcode (if known)', '05000');
@@ -123,7 +145,7 @@ void main() {
   testWidgets(
       'single location entry keeps GPS explicit and needs only one final confirmation',
       (tester) async {
-    final api = LocationApi();
+    final api = LocationApi()..mappedAddress = true;
     final text = TextEditingController(text: 'Keep my draft');
     addTearDown(text.dispose);
     final gps = Gps();
@@ -144,6 +166,8 @@ void main() {
     await tap(tester, 'Choose location');
     expect(gps.calls, 0);
     await tap(tester, 'Use my current location');
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
     expect(gps.calls, 1);
     expect(selection, isNull);
     expect(text.text, 'Keep my draft');
@@ -151,7 +175,9 @@ void main() {
     expect(find.text('Use this location').hitTestable(), findsOneWidget);
     await tap(tester, 'Use this location');
     expect(selection!.point.latitude, 3.14);
-    expect(text.text, 'Current area');
+    expect(text.text, 'Jalan Test, Alor Setar, Kedah');
+    expect(api.lookups, 1);
+    expect(selection!.point.longitude, 101.68);
     expect(api.writes, isEmpty);
     expect(tester.takeException(), isNull);
   });

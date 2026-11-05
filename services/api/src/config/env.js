@@ -53,6 +53,7 @@ export const env = {
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID,
   webAppUrl: process.env.WEB_APP_URL,
   maxUploadBytes: integer(process.env.MAX_UPLOAD_BYTES, 10 * 1024 * 1024),
+  maxVerificationUploadBytes: integer(process.env.MAX_VERIFICATION_UPLOAD_BYTES, 20 * 1024 * 1024),
   mapsMode: process.env.MAPS_MODE ?? 'openstreetmap',
   mapTileUrl: process.env.MAP_TILE_URL ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   openStreetMapNominatimUrl:
@@ -233,6 +234,10 @@ export function validateEnv(config = env) {
   }
   if (!Number.isInteger(maxUploadBytes) || maxUploadBytes < 1024) {
     errors.push('MAX_UPLOAD_BYTES must be an integer of at least 1024');
+  }
+  const verificationBytes = config.maxVerificationUploadBytes ?? 20 * 1024 * 1024;
+  if (!Number.isInteger(verificationBytes) || verificationBytes < 1024 || verificationBytes > 40 * 1024 * 1024) {
+    errors.push('MAX_VERIFICATION_UPLOAD_BYTES must be an integer between 1024 and 41943040');
   }
   if (storageMode === 'firebase' && !config.firebaseStorageBucket) {
     errors.push('FIREBASE_STORAGE_BUCKET is required for Firebase storage');

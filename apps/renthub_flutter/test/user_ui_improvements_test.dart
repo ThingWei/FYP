@@ -9,10 +9,10 @@ import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
 import 'package:renthub_flutter/core/theme/app_theme.dart';
 import 'package:renthub_flutter/features/live/live_agreement.dart';
-import 'package:renthub_flutter/features/live/live_chat_page.dart';
 import 'package:renthub_flutter/features/live/live_contact_profile.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/features/live/live_search_field.dart';
+import 'package:renthub_flutter/features/live/live_shared_pages.dart';
 import 'package:renthub_flutter/features/live/live_listing_collection.dart';
 import 'package:renthub_flutter/features/live/user_record_pagination.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
@@ -87,6 +87,41 @@ void size(WidgetTester t, double width) {
 }
 
 void main() {
+  for (final width in [360.0, 390.0]) {
+    testWidgets('empty conversation uses friendly guidance at $width',
+        (t) async {
+      size(t, width);
+      final c = LiveRentHubController(UiApi())..profile = user;
+      addTearDown(c.dispose);
+      await t.pumpWidget(
+          host(const LiveChatPage(conversation: conversation), c, scale: 1.5));
+      await t.pumpAndSettle();
+      expect(find.text('Start the conversation'), findsOneWidget);
+      expect(find.text('Say hello or ask about the booking.'), findsOneWidget);
+      expect(find.textContaining('MongoDB'), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+    testWidgets('profile omits implementation and connection notices at $width',
+        (t) async {
+      size(t, width);
+      final c = LiveRentHubController(UiApi())..profile = user;
+      addTearDown(c.dispose);
+      await t.pumpWidget(host(
+          LiveProfilePage(
+              role: 'Renter',
+              canSwitch: false,
+              onSwitch: () {},
+              onLogout: () async {}),
+          c,
+          scale: 1.5));
+      await t.pumpAndSettle();
+      expect(find.text('Aisha'), findsOneWidget);
+      expect(find.text('Edit profile'), findsOneWidget);
+      expect(find.textContaining('RentHub API'), findsNothing);
+      expect(find.textContaining('MongoDB'), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+  }
   testWidgets('late events cannot restore recalled or deleted-for-me messages',
       (t) async {
     final original = msg('MSG-ORDER', 'Original content');

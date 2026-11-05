@@ -233,7 +233,7 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
                   ? 'Loading rewards'
                   : 'Rewards unavailable',
               message: controller.error ??
-                  'Checking your MongoDB loyalty account and referral activity.',
+                  'Loading your points and referral activity.',
               actionLabel: controller.error == null ? null : 'Try Again',
               onAction: controller.error == null ? null : _load,
             )

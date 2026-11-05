@@ -519,9 +519,10 @@ void main() {
     await press(tester, 'How this estimate was calculated');
     expect(
         find.text(
-            '2 RentHub listings, 3 advertised rental prices and 1 completed rentals were used.'),
+            'Based on 2 RentHub listings, 3 advertised prices, 1 rental record.'),
         findsOneWidget);
     expect(
-        find.textContaining('not proof of completed rentals'), findsOneWidget);
+        find.text('Advertised prices may differ from the final rental price.'),
+        findsOneWidget);
   });
 }
