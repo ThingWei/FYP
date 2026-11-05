@@ -1,188 +1,358 @@
 # RentHub
 
-RentHub is a multi-category rental marketplace monorepo. The Flutter client is the only public client; it calls the Node API, which coordinates MongoDB, Supabase Storage, the AI service, optional Firebase push delivery, and the local Ganache blockchain.
+RentHub is a Malaysian rental marketplace for physical items and services. Renters can find and book a listing, Owners can manage listings and requests, and administrators can review accounts, listings and disputes.
 
-## Projects
+**This README is the operating guide for students and supervisors.** Start with the daily startup instructions if this laptop has already been configured. First-time setup and developer references are further down.
 
-- `apps/renthub_flutter` - Flutter mobile/web application using Provider MVC
-- `services/api` - Express/Mongoose MVC API and Socket.io gateway
-- `services/ai` - FastAPI model-adapter service
-- `blockchain` - Solidity rental agreement and Hardhat tests
-- `packages/api_contracts` - OpenAPI contract and shared socket event names
+## Quick links
 
-## Quick start
+- [Start RentHub](#1-start-renthub-on-a-configured-laptop)
+- [Open the administrator portal](#2-open-the-administrator-portal)
+- [Supervisor walkthrough](#3-demonstrate-the-main-features)
+- [Stop RentHub safely](#4-finish-the-session)
+- [Use another laptop](#5-use-renthub-on-another-laptop)
+- [First-time setup](#6-first-time-setup)
+- [Common problems](#7-common-problems)
+- [Further documentation](#8-further-documentation)
 
-1. Copy each `.env.example` to `.env`.
-2. Run `docker compose up -d mongodb ganache ai api` for the complete backend.
-3. In `services/api`, run `npm install`, `npm run seed`, then `npm run dev`.
-4. In `services/ai`, create a virtual environment, run `pip install -r requirements.txt`, then `uvicorn app.main:app --reload --port 8001`.
-5. In `apps/renthub_flutter`, run `flutter pub get` and `flutter run`.
+## Before you start
 
-The Flutter application defaults to the live Express/MongoDB repositories. Mock
-mode is available only when explicitly launched with `--dart-define=USE_MOCKS=true`
-for isolated UI previews and tests. See `docs/architecture.md` for boundaries and
-extension points.
+Have these ready:
 
-### Combined Windows launcher
+- The configured project folder on the laptop.
+- An internet connection. Sign-in, shared records, stored photos and map searches use online services.
+- Your own RentHub sign-in. For a booking demonstration, use two separate prepared accounts: one Renter and the listing's actual Owner. An administrator account is needed for the admin portal.
+- For Android: a data-capable USB cable, USB debugging enabled, and the phone unlocked to approve the debugging prompt.
 
-After MongoDB is running and the API `.env` is configured, the Flutter launcher
-starts the local Ganache blockchain, FastAPI AI service, Express API, and Flutter
-application together. Ganache is started when `BLOCKCHAIN_MODE=ganache`:
+Use identity-verified accounts for the booking walkthrough. Vehicle rental tests may also require an approved driving licence for that vehicle.
 
-```powershell
-cd apps\renthub_flutter
-.\run-renthub.ps1
-```
+The laptop runs the application server, AI checks and demonstration blockchain. **Keep it awake and keep the launcher terminal open while testing.** Installing the APK on a phone does not keep these laptop services running by itself.
 
-The AI service uses `services\ai\.venv\Scripts\python.exe`; activating the
-virtual environment manually is not required. Use `-Device chrome`, `-Admin`,
-`-CheckOnly`, `-SkipAi`, or `-SkipBlockchain` when needed. Services already
-running on their configured ports are reused and left running. Processes created
-by the launcher are stopped when Flutter exits. Local blockchain state persists
-under `blockchain\.data\ganache`. Launcher logs are stored in each service's
-`.data\logs` directory.
+## 1. Start RentHub on a configured laptop
 
-When `AUTH_MODE=auth0` or `AUTH_MODE=hybrid`, the launcher also reads the Auth0 domain, audience,
-client ID, callback, and database connection from `services\api\.env` and adds
-the Flutter Dart defines automatically. Configure `AUTH0_WINDOWS_CLIENT_ID` for
-the Windows Native application, `AUTH0_ANDROID_CLIENT_ID` for the Android Native
-application, and `AUTH0_WEB_CLIENT_ID` for the Web SPA. The standard Windows
-command remains `.\run-renthub.ps1`; use `-Device chrome` for the Web client,
-`-Device <ANDROID_DEVICE_ID>` for Android, and add `-Admin` for the administrator
-portal. Android uses the configurable
-`AUTH0_ANDROID_CALLBACK_URL=com.weith.renthub://login-callback`; see
-[the Android Auth0 result](docs/AUTH0_ANDROID_RESULT.md) for the exact Dashboard
-and device setup.
+Open PowerShell in the project root, the folder containing this README. In VS Code, open the project and choose **Terminal > New Terminal**.
 
-Use `AUTH_MODE=hybrid` when the normal email/password forms should use RentHub's
-local MongoDB sessions while the separate **Continue with Auth0** action uses
-Auth0 Universal Login. `AUTH_MODE=local` disables the Auth0 action, while
-`AUTH_MODE=auth0` is retained for deployments that accept only Auth0 tokens.
-
-### Local account sessions
-
-For MongoDB-backed renter, Owner, and administrator accounts, use signed local
-JWT sessions instead of development identity headers:
-
-```dotenv
-AUTH_MODE=local
-LOCAL_JWT_SECRET=replace-with-a-random-secret-of-at-least-32-characters
-LOCAL_ACCESS_TOKEN_MINUTES=15
-LOCAL_REFRESH_TOKEN_DAYS=30
-```
-
-Generate a secret locally with
-`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` and
-store it only in the ignored `services/api/.env`. The Flutter client stores the
-access and rotating refresh tokens in platform secure storage, restores the
-session after restart, and refreshes short-lived access tokens automatically.
-Logout, password reset, self-deactivation, suspension, and banning revoke the
-affected MongoDB session records. `AUTH_MODE=mock` is retained only for API
-tests and explicit UI prototype runs.
-
-### Password-reset email
-
-Local MongoDB accounts can use Nodemailer with Gmail SMTP to deliver single-use
-six-digit reset codes. Enable Google two-step verification, create an App
-Password for RentHub, and add these values to `services\api\.env`:
-
-```dotenv
-EMAIL_MODE=smtp
-EMAIL_FROM=RentHub <your.personal@gmail.com>
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USERNAME=your.personal@gmail.com
-SMTP_PASSWORD=your-16-character-google-app-password
-PASSWORD_RESET_SECRET=replace-with-a-random-secret-of-at-least-32-characters
-PASSWORD_RESET_TTL_MINUTES=10
-PASSWORD_RESET_COOLDOWN_SECONDS=60
-PASSWORD_RESET_MAX_ATTEMPTS=5
-```
-
-Use the Google App Password without spaces, never the normal Gmail password.
-The SMTP password and reset secret must not be committed. Restart the API after
-changing `.env`. `EMAIL_MODE=resend` remains supported for a verified Resend
-sender, while Auth0 accounts continue to use Auth0's hosted reset email.
-
-### Supabase file storage
-
-RentHub stores uploaded listing images and protected evidence in a private
-Supabase Storage bucket while MongoDB retains the file metadata and ownership
-records. Create a private `renthub-files` bucket, then configure only the API:
-
-```dotenv
-STORAGE_MODE=supabase
-SUPABASE_URL=https://your-project-ref.supabase.co
-SUPABASE_SECRET_KEY=your-server-secret-key
-SUPABASE_STORAGE_BUCKET=renthub-files
-MAX_UPLOAD_BYTES=10485760
-```
-
-Never put `SUPABASE_SECRET_KEY` in Flutter or commit it. The mobile/web client
-continues to upload and download through authenticated RentHub API routes. Run
-`npm.cmd run preflight -- --write-probe` to verify bucket lookup, upload, and
-cleanup. Firebase remains optional for `FCM_MODE=firebase`; it is no longer
-required for file storage.
-
-### OpenStreetMap location provider
-
-Google Maps is not used. The API location boundary targets OpenStreetMap
-Nominatim and enforces the public service's one-request-per-second minimum:
-
-```dotenv
-MAPS_MODE=openstreetmap
-OPENSTREETMAP_NOMINATIM_URL=https://nominatim.openstreetmap.org
-OPENSTREETMAP_USER_AGENT=RentHub/1.0 (contact: your-email@example.com)
-OPENSTREETMAP_MIN_INTERVAL_MS=1000
-```
-
-The current Flutter screens collect text locations and do not render an
-interactive map. Any future map screen must use OpenStreetMap tiles, show
-`© OpenStreetMap contributors`, and avoid background tile downloads.
-
-## Run with the MongoDB backend
-
-Start MongoDB and the API first:
+Go to the app folder:
 
 ```powershell
-docker compose up -d mongodb
-cd services/api
-Copy-Item .env.example .env
-npm.cmd run seed
-npm.cmd run dev
+cd .\apps\renthub_flutter
 ```
 
-Run the renter and owner application on the CORS-enabled port:
+Choose **one** startup option below. These commands use presentation mode, which avoids restarting newly launched services whenever source code changes.
+
+### Windows application
 
 ```powershell
-cd apps/renthub_flutter
-flutter run -d chrome --web-port 8080 --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
+.\run-renthub.ps1 -Presentation
 ```
 
-Run the separate administrator portal:
+This opens the Renter/Owner application. Use the account's role switch to move between those two interfaces.
+
+### Android application
+
+Connect the phone and find its device ID:
 
 ```powershell
-cd apps/renthub_flutter
-flutter run -d chrome --web-port 3001 -t lib/main_admin.dart --dart-define=API_BASE_URL=http://localhost:3000/api/v1 --dart-define=SOCKET_URL=http://localhost:3000
+adb devices -l
 ```
 
-For the earlier Auth0/Firebase implementation history and Windows callback configuration, see [Backend Phase 12](docs/BACKEND_PHASE_12_RESULT.md).
+The phone must show `device`, rather than `offline` or `unauthorized`. Replace `YOUR_DEVICE_ID` below with the value shown in the first column:
 
-For the earlier Atlas/Auth0/Firebase preflight and restart-safe production E2E drill, see [Backend Phase 13](docs/BACKEND_PHASE_13_RUNBOOK.md); substitute the current Supabase settings when following its storage steps.
+```powershell
+.\run-renthub.ps1 -Device YOUR_DEVICE_ID -Presentation
+```
 
-The seeded local accounts use the password `RentHub123!` (rerun the seed
-command after pulling authentication changes):
+This starts the required services, builds/opens RentHub on the phone, and connects the phone to the laptop's server.
 
-- `renter@renthub.my`
-- `owner@renthub.my`
-- `aina@renthub.my`
-- `demo@renthub.my` for role switching
-- `admin@renthub.my` in the administrator portal
+If the current app version is already installed, you can start just the services and open RentHub on the phone yourself:
 
-Live mode persists users, listings, bookings, rentals, payments, messages, notifications, reviews, disputes, damage-waiver claims, loyalty accounts, reward ledgers, referrals, configurable loyalty rules, AI evidence, local contract references, and administrator audit entries in MongoDB. Payment-provider transfers and dispute allocations remain simulated. Ganache transactions are local prototype records only and never represent real currency.
+```powershell
+.\run-renthub.ps1 -Device YOUR_DEVICE_ID -Presentation -ServicesOnly
+```
 
-Ordinary accounts always have both Renter and Owner capabilities; the selected role is only the current interface. Administrators remain separate and admin/public mixed claims are rejected. Before deploying this invariant for existing data, run `npm.cmd run migrate:marketplace-roles` in `services/api` for a dry run, back up MongoDB, then use `npm.cmd run migrate:marketplace-roles -- --apply` after reviewing all manual-security-review counts.
+Use the build/open command after pulling app changes. **Services-only mode does not update the installed app.** It keeps checking the phone connection and attempts to restore forwarding after reconnection.
 
-The recommendation endpoint works without a trained artifact by naming its content/rating fallback. Pricing, YOLO item classification, and EfficientNet risk scoring report themselves unavailable until their training scripts produce evaluated artifacts. See `services/ai/README.md` and `blockchain/README.md`.
+An already paired and connected wireless ADB device can also be selected by its device ID. The launcher does not pair a phone or automatically reconnect an expired wireless endpoint.
 
+### What successful startup looks like
+
+The terminal checks database access, starts or reuses the local blockchain, starts or reuses AI assistance, and checks that the application server is ready. It then opens the selected app, or stays running in services-only mode.
+
+The first startup on a new laptop may take longer because dependencies or the contract compiler are not cached. Later AI startup can also take time while models load. Wait for the readiness messages; an earlier `Application startup complete` message alone does not mean every required check has passed.
+
+If startup fails, follow the specific error and the [common problems](#7-common-problems) below. Do not start extra copies of every service to try to fix it.
+
+### Do I need `atlas auth login` every morning?
+
+**No. Run the launcher first.** It checks the database connection before asking Atlas CLI to update network access.
+
+- If the database is reachable, no Atlas CLI login is needed.
+- If the laptop's network access needs updating, the launcher uses the saved CLI session.
+- Temporary IP entries created by the launcher last 24 hours. Expiry of an IP entry does not by itself mean your login has expired.
+- If the launcher specifically reports an expired or missing CLI login, run this once and retry:
+
+```powershell
+atlas auth login --profile default
+```
+
+CLI login is separate from signing into RentHub. Each laptop/Windows account needs its own saved CLI session when automatic network registration is required. Changing networks may also require a fresh IP entry.
+
+## 2. Open the administrator portal
+
+For a demonstration with a phone and administrator browser at the same time:
+
+1. Keep the phone's main launcher terminal running.
+2. Open a **second** PowerShell terminal in the project root.
+3. Run:
+
+```powershell
+cd .\apps\renthub_flutter
+.\run-renthub.ps1 -Device chrome -Admin -Presentation
+```
+
+For Microsoft Edge, replace `chrome` with `edge`.
+
+The administrator portal opens at `http://localhost:3001`. Sign in with a prepared administrator account. This second launcher reuses compatible services already running; the first terminal remains responsible for keeping its services alive.
+
+To use the Renter/Owner interface in a browser instead, run:
+
+```powershell
+.\run-renthub.ps1 -Device chrome -Presentation
+```
+
+That browser interface uses `http://localhost:8080`. Android remains the appropriate device for demonstrating camera scanning, current GPS location and phone push notifications. Windows does not offer Android GPS or phone push delivery.
+
+## 3. Demonstrate the main features
+
+Use the normal application screens. These steps create or update demonstration records, so choose prepared demo accounts and listings.
+
+### Renter and Owner booking walkthrough
+
+1. **Renter:** search for a listing owned by the other account. Check its photos, price, approximate area and reviews.
+2. Choose dates and pickup/delivery, or the appropriate service arrangements. Review the agreement and charges.
+3. Submit the request and complete **Demo Card**, **Demo FPX** or **Demo Wallet** checkout. No real banking details are required.
+4. The request remains **awaiting Owner approval**. A successful demo payment does not confirm the booking.
+5. **Actual Owner:** sign into the account that owns the listing, open Requests, review it and approve or reject it.
+6. For a physical item, the Owner uses **Confirm Handover**, the Renter uses **Submit Return**, and the Owner uses **Confirm Return** after checking the item. For a service, follow its service-completion actions instead.
+7. Open the booking's agreement to show the accepted terms and supporting record/status updates.
+
+Switching a Renter account into Owner mode does not make that account the Owner of someone else's listing. Complete handover/return actions only at the appropriate stage. Existing expiry, identity and payment rules still apply.
+
+Pending requests do not reserve physical-item dates. Different renters may request the same dates; approval resolves competing requests. The application prevents the same renter from unnecessarily submitting a duplicate request.
+
+### Owner listing and AI assistance
+
+1. Open **My Listings**, then **New Listing**. Choose a physical item or service.
+2. For a physical item, choose the category, brand and model, or enter an unlisted product manually.
+3. Add several clear photos and confirm the location. New physical locations need a map pin.
+4. Choose **Suggest a daily price**. The explanation says whether the result is a rough guide. **Use this price** fills the field and closes the suggestion; you can still edit it.
+5. Save an incomplete listing as a draft, or complete the required fields and submit it for review.
+6. Tap a physical listing to browse its photo carousel and photo-check notes. Availability controls appear once the listing is approved and active.
+
+### Administrator review
+
+Open the relevant sidebar section to review verification submissions, listings, users, bookings, transactions, disputes, reports or reviews. Use **View details** to inspect a record. Read-only viewing does not approve or change it; moderation actions have their own confirmations.
+
+Rental-price references show advertised prices from approved sources. They are separate from completed RentHub rentals. Use the existing update controls or the optional file-import section when appropriate; daily operation does not require importing a CSV.
+
+### Explain the demonstration honestly
+
+| Feature | What to explain to the supervisor |
+| --- | --- |
+| Payments | Test payment outcomes are simulated. No real money is collected. |
+| Rental records | The blockchain runs locally on a demonstration network. It records supported physical-rental events; it does not certify an entire agreement or prove a user's identity. |
+| Price suggestions | Estimates depend on available rental comparisons and the trained model. Some products have limited independent price evidence. Owners choose the final price. |
+| Photo/KYC checks | Automated checks assist administrator review. Passing a photo check does not prove authenticity or rightful ownership. |
+| Recommendations | Results use available browsing, saving and booking activity. Sparse history limits personalisation. |
+| Demo listings | Listings marked as demonstrations are examples. They must not be presented as genuine completed-marketplace evidence. |
+
+Do not submit someone else's identity document for a walkthrough. Use only documents and photos you are authorised to use.
+
+## 4. Finish the session
+
+1. Finish the action currently in progress; avoid closing the server during payment or approval.
+2. Close secondary browser/client sessions first.
+3. In each launcher terminal, use **Ctrl+C** and let cleanup finish. A Flutter debug terminal may first return control to the launcher's continuing service session; use Ctrl+C there to end it.
+4. The launcher stops service processes it started. Services reused from another terminal are still controlled by that original terminal.
+
+Closing the Android app or ending its Flutter debugging session can leave the launcher's services running. Keep that terminal open if you still need the installed app. Do not delete `.data` folders to shut down or reset the application; they contain local chain state, logs and other working files.
+
+## 5. Use RentHub on another laptop
+
+The two laptops can share account, listing and booking records through the **same MongoDB Atlas database**, and photos through the **same Supabase bucket**.
+
+| Part | Where it lives | What the other laptop needs |
+| --- | --- | --- |
+| Accounts, listings, bookings and messages | MongoDB Atlas | The same configured database connection and compatible application secrets |
+| Photos and protected documents | Supabase Storage | The same API-side storage settings and access |
+| Trained AI files and OCR resources | Laptop | Copy the required runtime files to the same relative paths |
+| Python environment and installed dependencies | Each laptop | Install locally; do not copy another laptop's `.venv` or `node_modules` |
+| Demonstration blockchain | Local host | Use one active API/blockchain host for the complete multi-device walkthrough |
+
+Copying source code alone does not copy model weights, private settings or a local blockchain. Atlas does not synchronise independent blockchain instances or live chat connections across two application servers.
+
+For a consistent presentation, run the server/AI/blockchain on **one selected laptop** and connect the demonstration clients to that host. Use the other laptop as an alternative host after completing its setup, rather than approving the same workflow independently on two local chains.
+
+Transfer private settings securely. Keep the existing identity/session secrets consistent where required; do not generate replacement identity-binding secrets simply because you changed laptops. See the [shared-database guide](docs/SHARED_DATABASE_ATLAS_SETUP.md) for the detailed checklist.
+
+## 6. First-time setup
+
+Skip this section for a laptop that already launches successfully. These steps are for the project maintainer; a supervisor using a prepared laptop can go directly to startup.
+
+### Install/check the required tools
+
+| Tool | Purpose |
+| --- | --- |
+| Flutter and its Dart SDK | Build and run the application |
+| Node.js 22 or newer | Run the application server and local blockchain; the launcher checks this version |
+| Python 3.11 | Create the AI environment used with this project's pinned requirements |
+| Android SDK/ADB | Build and connect the Android app |
+| Windows development tools reported by `flutter doctor` | Needed when building the Windows desktop app |
+| Atlas CLI | Automatic Atlas network registration when the database is not already reachable |
+
+Check the tools in a new PowerShell terminal:
+
+```powershell
+flutter doctor -v
+node --version
+py -3.11 --version
+```
+
+If Python says no suitable runtime is found, install Python 3.11 and reopen the terminal. Another Python version being installed does not make `py -3.11` available.
+
+### Install project dependencies
+
+Run these commands from the **project root**. Each `Push-Location` enters a folder and `Pop-Location` returns to the root.
+
+```powershell
+Push-Location .\services\api
+npm.cmd ci
+Pop-Location
+
+Push-Location .\blockchain
+npm.cmd ci
+Pop-Location
+
+Push-Location .\services\ai
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Pop-Location
+
+Push-Location .\apps\renthub_flutter
+flutter pub get
+Pop-Location
+```
+
+Creating the environment and installing dependencies are separate steps. The launcher expects the Python executable at `services\ai\.venv\Scripts\python.exe`; manually activating it every day is unnecessary.
+
+Optional YOLO-World support has additional setup described in the [AI guide](services/ai/README.md). The launcher does not download missing weights. Install/build output should be checked before proceeding when a command fails.
+
+### Restore the private configuration
+
+For an existing RentHub setup, obtain the working private configuration from the project maintainer. On a completely new setup, `services/api/.env.example` is a template for creating `services/api/.env`. **Do not overwrite an existing `.env` with the template.**
+
+The important groups of settings are:
+
+| Settings | What they control |
+| --- | --- |
+| `MONGODB_URI` | The Atlas database used for shared records |
+| Auth0 client settings and local-session settings | Sign-in for Windows, Android and browser clients |
+| `KYC_IDENTITY_MATCH_SECRET` | Stable private identity matching across accounts |
+| Supabase settings | Uploaded photos and protected documents |
+| AI settings and local model paths | Pricing, recommendations and image checks |
+| `BLOCKCHAIN_MODE` / `GANACHE_RPC_URL` | The configured local rental-record network |
+| Firebase server credentials and Android configuration | Optional Android push notifications |
+| Email delivery settings | Password-reset email |
+
+After changing configuration, close the original launcher normally and restart it. A service reused from an older session keeps its previous settings until that service is restarted.
+
+The launcher reads the API configuration and supplies the client startup values. You do not need to type the long Auth0/API `--dart-define` command manually. Normal sign-in and **Continue with Auth0** retain their configured behaviour.
+
+For Android push, the client uses `apps/renthub_flutter/android/app/google-services.json`. The application server separately needs Firebase Admin credentials. These are different files; keep private server keys out of Git and Flutter's public configuration.
+
+For document uploads, the API's verification-photo limit is 20 MiB by default. The Supabase bucket must allow at least that size. Ordinary uploads retain the 10 MiB default. Changing the limit does not bypass readability or identity checks.
+
+### Restore AI runtime files
+
+Copy the trained runtime files and the EasyOCR resources from the working laptop to the same relative locations. The usual model directory is `services/ai/models`, including its `easyocr` folder; custom paths must match the original runtime configuration.
+
+Training datasets are **not required for ordinary demonstrations**. Trained model files and OCR resources are required for their corresponding AI features. Git does not include the generated weights or the Python environment. You do not need to retrain simply to start on another laptop.
+
+AI configuration examples are in `services/ai/.env.example`. The current launcher starts Uvicorn using its inherited environment and model-path defaults; it does not automatically load that AI example file as runtime configuration. Preserve any custom AI environment settings used on the working laptop. See the [AI guide](services/ai/README.md) before changing model paths or retraining.
+
+### Check the setup
+
+From the project root:
+
+```powershell
+.\apps\renthub_flutter\run-renthub.ps1 -Presentation -CheckOnly
+```
+
+This performs startup/readiness checks and then stops services created for the check. It does not open the app or keep a new demonstration server running. After a successful check, choose the normal Windows, Android or administrator startup command above.
+
+Missing optional-model warnings still need review before promising that feature in the presentation. A running server does not mean every AI artifact is installed or independently validated.
+
+**Do not run database seed/import commands as a routine startup step.** They change data and are not a fix for an empty or incorrectly configured database. Ask the maintainer before replacing records or importing demonstrations.
+
+## 7. Common problems
+
+| What you see | What to do |
+| --- | --- |
+| RentHub cannot connect | Check that the main launcher is still running and reports its server ready. On Android, check the selected device ID and debugging connection. An installed app alone cannot start the laptop's server. |
+| Atlas asks for login | Run `atlas auth login --profile default` only when the launcher identifies a missing/expired CLI session. For permission or network errors, follow that specific guidance. |
+| Accounts or listings are missing on the other laptop | Check that its API uses the same Atlas connection **and database name**. Restart after configuration changes. Do not seed new data to mask a wrong connection. |
+| Photos are missing | Check the API's Supabase configuration and internet connection. Shared database rows alone do not provide access to a different storage bucket. |
+| Android shows `unauthorized` or `offline` | Unlock the phone, approve debugging, and reconnect the data cable. Check `adb devices -l` again. Use the currently connected ID; a wireless ID may change. |
+| The phone disconnects | Keep the services terminal open. Reconnect/authorise the same device. Services-only mode checks reconnection; a different device ID requires restarting with that ID. |
+| Python environment is missing | Create `.venv` inside `services/ai` with Python 3.11 and install `requirements.txt` there. Reopen the terminal after installing Python. |
+| AI startup is slow | Wait for readiness. For a slower laptop, use `-AiStartupTimeoutSeconds 300 -ApiStartupTimeoutSeconds 120`. If a process exits, check its log rather than repeatedly extending the deadline. |
+| A model or OCR check is unavailable | Check the runtime files and paths. Do not start training or enable automatic downloads just to suppress a warning. |
+| Price suggestion is unavailable | Enter a price manually. Some products lack suitable rental comparisons. Adding demo listings does not establish real rental-price accuracy. |
+| A pending listing cannot manage availability | Availability opens after the listing is approved and active. Pending listings are still under review. |
+| A verification photo is rejected | Check the specific rescan message. Clear details, correct sides and matching numbers are required. Verification photos up to 20 MiB are supported with the matching bucket limit. Do not send an unmasked identity photo in a bug report. |
+| No current-location button on Windows | The GPS shortcut is for Android. On Windows, search the map and select a pin. |
+| No phone push notification | Use Android, enable notifications in the app/phone, and check Firebase configuration. Windows retains in-app notifications rather than Android push delivery. |
+| Wrong blockchain chain ID | RentHub expects local chain ID 1337. Check which program owns the configured network and close that program normally if appropriate, then rerun the launcher. Do not delete chain data or kill an unidentified process. |
+| A port is already in use | Read the launcher's message. It can choose an alternative API port while keeping Android's app-facing port stable. For incompatible AI/blockchain listeners, close the identified original service before retrying. |
+| Windows build fails | Run `flutter doctor -v` and resolve its Windows toolchain findings. Refer to the first meaningful compiler error, rather than only the final "build failed" line. |
+
+The usual private logs are:
+
+- API: `services/api/.data/logs/launcher-api-error.log` (or `launcher-api-PORT-error.log`).
+- AI: `services/ai/.data/logs/launcher-ai-error.log`.
+- Blockchain: `blockchain/.data/logs/launcher-ganache-error.log`.
+
+For help, provide the first relevant error and whether you used Windows, Android or the admin browser. Remove passwords, connection strings, tokens, identity data and other private details before sharing logs.
+
+## 8. Further documentation
+
+| Guide | Use it for |
+| --- | --- |
+| [Launcher reliability](docs/LAUNCHER_RELIABILITY_RESULT.md) | Startup checks, presentation mode, reconnection and process ownership |
+| [Shared database setup](docs/SHARED_DATABASE_ATLAS_SETUP.md) | Atlas, another laptop, compatible private settings and storage |
+| [Flutter application](apps/renthub_flutter/README.md) | App commands and client-specific configuration |
+| [Android Auth0](docs/AUTH0_ANDROID_RESULT.md) | Native sign-in callbacks and Android setup |
+| [Maps and notifications](docs/MAPS_AND_PUSH_NOTIFICATIONS_RESULT.md) | Map/push integration and its limits |
+| [Checkout and agreements](docs/SIMULATED_CHECKOUT_AND_AGREEMENT_RESULT.md) | Payment simulation, approval and supporting rental records |
+| [AI service](services/ai/README.md) | Model files, evaluation, training and missing-model behaviour |
+| [AI readiness](docs/AI_VALIDATION_AND_DEMO_READINESS_RESULT.md) | Measured results and remaining real-data gaps |
+| [Blockchain](blockchain/README.md) | Local contract setup and technical demonstration limits |
+| [Latest UI improvements](docs/FRIENDLY_COPY_AND_LISTING_PHOTO_REVIEW_RESULT.md) | Pricing copy, photo carousel and availability controls |
+
+### For developers
+
+The main folders are:
+
+```text
+apps/renthub_flutter/   Renter, Owner and administrator interfaces
+services/api/          Application rules, shared data access and live messaging
+services/ai/           Pricing, recommendation and image-check assistance
+blockchain/            Local physical-rental record contract
+packages/api_contracts/ API and event contracts
+```
+
+The live Flutter app calls RentHub's Express API. The API handles database, storage, AI and blockchain access. Keep server credentials out of the Flutter app.
+
+For isolated UI preview, the explicit `--dart-define=USE_MOCKS=true` option uses the mock application. Those screens do not demonstrate live persistence, AI, phone push or blockchain integration. Use the normal launcher flow for the supervisor's integrated-system walkthrough.
+
+After code changes, use the relevant Flutter/API/AI/blockchain tests. Do not run production-data scripts or real account actions as a substitute for isolated regression tests.
