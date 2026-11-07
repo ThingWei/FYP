@@ -28,6 +28,8 @@ import { agreementTerms } from './agreementTerms.js';
 import { presentBooking } from '../../core/location.js';
 import { withBookingRequestLock, withOperationLock } from './bookingRequestLock.js';
 import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
+import { PAYMENT_WINDOW_MINUTES } from './bookingDeadlines.js';
+import { notifyPaymentDue } from './bookingPaymentReminders.js';
 import { expireDuePendingBookings } from './bookingExpiry.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
@@ -358,6 +360,7 @@ async function createBooking(input, identity, ensureLockOwned) {
             ...pricingSnapshot(listing), productType: await catalogItemType(listing),
           } }),
           status: 'pending',
+          paymentDueAt: new Date(Date.now() + PAYMENT_WINDOW_MINUTES * 60_000),
           expiresAt: new Date(
             Date.now() + env.pendingBookingExpiryMinutes * 60 * 1000,
           ),
@@ -379,12 +382,13 @@ async function createBooking(input, identity, ensureLockOwned) {
       throw error;
     }
     await ensureBookingThread(booking);
+    await notifyPaymentDue(booking);
     await notifyUser({
       userId: booking.ownerId,
       category: 'booking',
       type: 'booking_created',
-      title: 'New booking request',
-      body: `${booking.renterName} requested ${booking.listingTitle}.`,
+      title: 'Checkout started',
+      body: `${booking.renterName} is arranging payment for ${booking.listingTitle}. Wait for payment before reviewing it.`,
       entityType: 'booking',
       entityId: booking.publicId,
     });
@@ -442,6 +446,7 @@ export const bookingService = {
       page,
       limit,
       status,
+      filters: query,
     });
     return { items, meta: { page, limit, total } };
   },
@@ -457,9 +462,10 @@ export const bookingService = {
       page,
       limit,
       status,
+      filters: query,
     });
     const [pending, activeOrders, listings] = await Promise.all([
-      BookingModel.countDocuments({ownerId:identity.authId,status:'pending'}),
+      BookingModel.countDocuments({ownerId:identity.authId,status:'pending',paymentStatus:'authorized'}),
       RentalModel.countDocuments({ownerId:identity.authId,status:{$in:['active','overdue']}}),
       ListingModel.countDocuments({ownerId:identity.authId}),
     ]);
@@ -474,6 +480,7 @@ export const bookingService = {
       page,
       limit,
       status,
+      filters: query,
     });
     return { items, meta: { page, limit, total } };
   },

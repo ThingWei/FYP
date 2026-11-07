@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'user_record_pagination.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
@@ -57,7 +58,7 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
     final code = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: const Text('Apply referral code'),
         content: TextFormField(
           controller: code,

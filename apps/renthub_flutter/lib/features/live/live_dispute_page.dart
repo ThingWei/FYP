@@ -1,3 +1,8 @@
+import '../../shared/widgets/renthub_dialog.dart';
+import '../../core/booking/dispute_eligibility.dart';
+import '../../core/network/api_client.dart';
+import 'live_dispute_progress.dart';
+import 'live_rental_progress.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -27,11 +32,15 @@ class LiveDisputePage extends StatefulWidget {
 
 class _LiveDisputePageState extends State<LiveDisputePage> {
   final formKey = GlobalKey<FormState>();
+  final responseFormKey = GlobalKey<FormState>();
   final summary = TextEditingController();
   final description = TextEditingController();
   final response = TextEditingController();
   late String category;
   final List<String> evidenceRefs = [];
+  bool refreshing = true, checked = false, closedByServer = false;
+  String? refreshError;
+  int refreshGeneration = 0;
 
   Future<void> pickEvidence() async {
     try {
@@ -87,6 +96,55 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   void initState() {
     super.initState();
     category = categories.first;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Historical case access must not depend on a new-case eligibility check.
+      if (context
+              .read<LiveRentHubController>()
+              .disputeForRental(widget.rental.id) !=
+          null) {
+        setState(() {
+          refreshing = false;
+          checked = true;
+        });
+      } else {
+        refreshEligibility();
+      }
+    });
+  }
+
+  Future<void> refreshEligibility() async {
+    final generation = ++refreshGeneration;
+    final id = widget.rental.id;
+    setState(() {
+      refreshing = true;
+      refreshError = null;
+    });
+    try {
+      await context
+          .read<LiveRentHubController>()
+          .refreshDisputeEligibility(widget.rental);
+      if (mounted &&
+          generation == refreshGeneration &&
+          id == widget.rental.id) {
+        setState(() => checked = true);
+      }
+    } catch (exception) {
+      if (mounted &&
+          generation == refreshGeneration &&
+          id == widget.rental.id) {
+        setState(() {
+          checked = false;
+          refreshError = friendlyError(exception);
+        });
+      }
+    } finally {
+      if (mounted &&
+          generation == refreshGeneration &&
+          id == widget.rental.id) {
+        setState(() => refreshing = false);
+      }
+    }
   }
 
   @override
@@ -97,13 +155,17 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     super.dispose();
   }
 
-  String label(String value) => value
-      .split('_')
-      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
-      .join(' ');
+  String label(String value) => disputeLabel(value);
 
   Future<void> create() async {
-    if (!formKey.currentState!.validate()) return;
+    final controller = context.read<LiveRentHubController>();
+    if (!checked ||
+        refreshing ||
+        closedByServer ||
+        controller.disputeCreationBlockReason(widget.rental) != null) {
+      return;
+    }
+    if (!(formKey.currentState?.validate() ?? false)) return;
     try {
       await context.read<LiveRentHubController>().createDispute(
             rental: widget.rental,
@@ -116,6 +178,10 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
       if (mounted) showMockSuccess(context, 'Dispute submitted for review');
     } catch (exception) {
       if (mounted) {
+        if (exception is ApiException &&
+            exception.code == 'DISPUTE_WINDOW_CLOSED') {
+          setState(() => closedByServer = true);
+        }
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
@@ -123,7 +189,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   }
 
   Future<void> respond(Dispute dispute) async {
-    if (!InputValidation.validate(context)) return;
+    if (!(responseFormKey.currentState?.validate() ?? false)) return;
     if (response.text.trim().length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter at least 5 characters.')),
@@ -152,7 +218,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     final details = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: const Text('Submit damage-waiver claim'),
         content: SizedBox(
           width: 440,
@@ -262,23 +328,45 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
     final dispute = controller.disputeForRental(widget.rental.id);
+    final blocked = closedByServer
+        ? disputeWindowClosedMessage
+        : controller.disputeCreationBlockReason(widget.rental);
     return Scaffold(
       appBar: AppBar(
-        title: Text(dispute == null ? 'Raise a Dispute' : 'Dispute Tracking'),
+        title: Text(dispute == null ? 'Report a rental issue' : 'Your case'),
       ),
       body: SafeArea(
         child: dispute == null
-            ? _createForm(controller.loading)
-            : _details(dispute, controller.claimForRental(widget.rental.id)),
+            ? _createForm(controller.loading, blocked)
+            : _details(dispute, controller.claimForRental(widget.rental.id),
+                controller.loading),
       ),
     );
   }
 
-  Widget _createForm(bool loading) => Form(
+  Widget _createForm(bool loading, String? blocked) => Form(
         key: formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (refreshing) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 8),
+              const Text('Checking this rental…'),
+              const SizedBox(height: 16),
+            ],
+            if (blocked != null) ...[
+              Card(
+                  child: Padding(
+                      padding: const EdgeInsets.all(16), child: Text(blocked))),
+              const SizedBox(height: 16),
+            ] else if (refreshError != null) ...[
+              Text(refreshError!),
+              TextButton(
+                  onPressed: refreshing ? null : refreshEligibility,
+                  child: const Text('Try again')),
+              const SizedBox(height: 16),
+            ],
             Text(
               widget.rental.listingType == 'physical'
                   ? 'Physical-item rental issue'
@@ -290,13 +378,19 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               'Rental ${widget.rental.id}',
               style: const TextStyle(color: AppColors.secondaryText),
             ),
+            const SizedBox(height: 16),
+            const DisputeProgressPanel(),
+            if (widget.rental.listingType == 'physical') _conditionRecords(),
             const SizedBox(height: 20),
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: category,
               decoration: const InputDecoration(labelText: 'Issue category'),
               items: categories
-                  .map((item) =>
-                      DropdownMenuItem(value: item, child: Text(label(item))))
+                  .map((item) => DropdownMenuItem(
+                      value: item,
+                      child: Text(label(item),
+                          maxLines: 1, overflow: TextOverflow.ellipsis)))
                   .toList(),
               onChanged: (value) => setState(() => category = value!),
             ),
@@ -344,7 +438,13 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                   const Text('JPEG, PNG, WebP, or PDF; maximum 10 files.'),
               trailing: IconButton(
                 tooltip: 'Upload evidence',
-                onPressed: evidenceRefs.length >= 10 ? null : pickEvidence,
+                onPressed: loading ||
+                        refreshing ||
+                        !checked ||
+                        blocked != null ||
+                        evidenceRefs.length >= 10
+                    ? null
+                    : pickEvidence,
                 icon: const Icon(Icons.upload_file_outlined),
               ),
             ),
@@ -355,36 +455,51 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                   onRemove: () => removeEvidence(index)),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: loading ? null : create,
+              onPressed: loading || refreshing || !checked || blocked != null
+                  ? null
+                  : create,
               icon: const Icon(Icons.gavel_outlined),
-              label: const Text('Submit Dispute'),
+              label: const Text('Send for review'),
             ),
           ],
         ),
       );
 
-  Widget _details(Dispute dispute, InsuranceClaim? claim) => ListView(
+  Widget _conditionRecords() => ExpansionTile(
+          title: const Text('Handover & return photos'),
+          subtitle: const Text('Compare the saved condition records.'),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          childrenPadding: const EdgeInsets.all(12),
+          children: [
+            RentalConditionSection(
+                title: 'Before handover', record: widget.rental.handover),
+            const SizedBox(height: 16),
+            RentalConditionSection(
+                title: 'At return', record: widget.rental.returnSubmission),
+          ]);
+
+  Widget _details(Dispute dispute, InsuranceClaim? claim, bool loading) => Form(
+      key: responseFormKey,
+      child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          DisputeProgressPanel(dispute: dispute),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          dispute.reason,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                      StatusBadge(dispute.status.replaceAll('_', ' ')),
-                    ],
-                  ),
+                  Text(dispute.reason,
+                      style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
-                  Text('${label(dispute.category)} • ${dispute.id}'),
+                  StatusBadge(disputeLabel(dispute.status)),
+                  const SizedBox(height: 8),
+                  Text(label(dispute.category)),
+                  const SizedBox(height: 4),
+                  SelectableText('Case reference: ${dispute.id}',
+                      style: const TextStyle(color: AppColors.secondaryText)),
                   const SizedBox(height: 8),
                   Text(dispute.description),
                   if (dispute.adminNote.isNotEmpty) ...[
@@ -396,22 +511,24 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                   ],
                   if (dispute.outcome != null) ...[
                     const Divider(height: 24),
-                    Text('Decision: ${label(dispute.outcome!)}'),
-                    Text(
-                      'Simulated allocation — Renter ${formatMoney(dispute.renterAmount)}, Owner ${formatMoney(dispute.ownerAmount)}',
-                    ),
-                    if (dispute.blockchainReference != null)
-                      Text(
-                        'Local blockchain: ${dispute.blockchainStatus} · ${dispute.blockchainReference!}',
-                        style: const TextStyle(color: AppColors.secondaryText),
-                      ),
+                    DisputeDecisionPanel(dispute: dispute),
                   ],
                 ],
               ),
             ),
           ),
           const SizedBox(height: 16),
-          Text('Case responses',
+          if (dispute.evidence.isNotEmpty) ...[
+            Text('Photos and documents sent with the report',
+                style: Theme.of(context).textTheme.titleMedium),
+            for (var i = 0; i < dispute.evidence.length; i++)
+              PhotoAttachmentTile(
+                  reference: dispute.evidence[i],
+                  label: 'Report attachment ${i + 1}'),
+            const SizedBox(height: 16),
+          ],
+          if (widget.rental.listingType == 'physical') _conditionRecords(),
+          Text('Updates from both parties',
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           if (dispute.responses.isEmpty)
@@ -421,14 +538,23 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             ),
           for (final item in dispute.responses)
             Card(
-              child: ListTile(
-                leading: const Icon(Icons.chat_bubble_outline),
-                title: Text(label(item.role)),
-                subtitle: Text(item.text),
-                trailing:
-                    item.evidence.isEmpty ? null : const Icon(Icons.attachment),
-              ),
-            ),
+                child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(label(item.role),
+                              style: Theme.of(context).textTheme.titleSmall),
+                          Text(rentalEventTime(item.submittedAt),
+                              style: const TextStyle(
+                                  color: AppColors.secondaryText)),
+                          const SizedBox(height: 8),
+                          Text(item.text),
+                          for (var i = 0; i < item.evidence.length; i++)
+                            PhotoAttachmentTile(
+                                reference: item.evidence[i],
+                                label: 'Response attachment ${i + 1}'),
+                        ]))),
           if (!dispute.closed) ...[
             const SizedBox(height: 16),
             TextFormField(
@@ -444,8 +570,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               autovalidateMode: AutovalidateMode.onUserInteraction,
               maxLength: InputRules.addInformationOrAResponse.maxLength,
               maxLengthEnforcement: InputValidation.lengthEnforcement,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: TextInputType.multiline,
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
@@ -460,9 +585,9 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                   onRemove: () => removeEvidence(index)),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: () => respond(dispute),
+              onPressed: loading ? null : () => respond(dispute),
               icon: const Icon(Icons.send_outlined),
-              label: const Text('Add Response'),
+              label: const Text('Send update'),
             ),
           ],
           if (widget.rental.listingType == 'physical' &&
@@ -473,9 +598,9 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             const SizedBox(height: 8),
             if (widget.owner && claim == null && !dispute.closed)
               FilledButton.tonalIcon(
-                onPressed: () => submitClaim(dispute),
+                onPressed: loading ? null : () => submitClaim(dispute),
                 icon: const Icon(Icons.health_and_safety_outlined),
-                label: const Text('Submit Insurance Claim'),
+                label: const Text('Request damage-waiver review'),
               )
             else if (claim != null)
               Card(
@@ -484,12 +609,12 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                   subtitle: Text(
                     claim.decisionReason.isEmpty
                         ? claim.description
-                        : '${claim.decisionReason}${claim.payoutStatus == 'pending_funding' ? '\nPayout pending — no funded demo protection pool is available. No money has been paid.' : ''}',
+                        : '${claim.decisionReason}${claim.payoutStatus == 'pending_funding' ? '\nDemo payout is waiting for funding. No payment has been made.' : ''}',
                   ),
                   trailing: StatusBadge(claim.status),
                 ),
               ),
           ],
         ],
-      );
+      ));
 }

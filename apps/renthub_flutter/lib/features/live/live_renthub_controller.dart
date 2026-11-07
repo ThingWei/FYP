@@ -1,3 +1,5 @@
+import '../../core/booking/booking_list_filters.dart';
+import '../../core/booking/dispute_eligibility.dart' as dispute_policy;
 import '../../core/network/user_facing_error.dart';
 import '../../core/discovery/discovery_state.dart';
 import '../../core/booking/checkout_models.dart';
@@ -72,6 +74,7 @@ class LiveRentHubController extends ChangeNotifier {
       adminWorkspace.clear();
       adminRecordPages.clear();
       userRecordPages.clear();
+      bookingFilters.clear();
       marketplaceViews.clear();
       conversations = [];
       notifications = [];
@@ -112,6 +115,39 @@ class LiveRentHubController extends ChangeNotifier {
   final ownerWorkspace = BookingWorkspaceState();
   final adminWorkspace = BookingWorkspaceState();
   final userRecordPages = <String, UserRecordPage>{};
+  final bookingFilters = <String, BookingListFilters>{};
+  BookingListFilters filtersForBookings(String key) =>
+      bookingFilters[key] ?? const BookingListFilters();
+
+  Future<void> filterBookings(String key, BookingListFilters filters) async {
+    if (!const ['renter-bookings', 'owner-bookings'].contains(key)) {
+      throw ArgumentError('Invalid booking collection');
+    }
+    bookingFilters[key] = filters;
+    final workspace =
+        key == 'owner-bookings' ? ownerWorkspace : renterWorkspace;
+    workspace.generation++;
+    workspace.loading = false;
+    workspace.error = null;
+    workspace.bookings = [];
+    final page = userRecordPages.putIfAbsent(key, UserRecordPage.new);
+    page.generation++;
+    page.page = 1;
+    page.loaded = false;
+    page.total = null;
+    page.hasMore = false;
+    await loadUserRecords(key, page: 1);
+  }
+
+  List<Booking> bookingPageRecords({required bool owner}) {
+    final key = owner ? 'owner-bookings' : 'renter-bookings';
+    final state = userRecordPages[key];
+    final rows = owner ? ownerBookings : renterBookings;
+    return state?.loaded == true
+        ? rows.where((row) => state!.recordIds.contains(row.id)).toList()
+        : rows;
+  }
+
   final marketplaceViews = <String, MarketplaceViewState>{};
   Map<String, dynamic> ownerActivitySummary = {};
   String notificationCategory = 'all';
@@ -154,7 +190,8 @@ class LiveRentHubController extends ChangeNotifier {
     final state = userRecordPages[key];
     final query = {
       if (state != null && state.page != 1) 'page': '${state.page}',
-      if (state != null && state.limit != 20) 'limit': '${state.limit}'
+      if (state != null && state.limit != 20) 'limit': '${state.limit}',
+      if (key.endsWith('-bookings')) ...filtersForBookings(key).parameters
     };
     return '$path${query.isEmpty ? '' : '?${Uri(queryParameters: query).query}'}';
   }
@@ -162,6 +199,15 @@ class LiveRentHubController extends ChangeNotifier {
   Future<void> loadUserRecords(String key, {int? page, int? limit}) async {
     final state = userRecordPages.putIfAbsent(key, UserRecordPage.new);
     if (state.loading && page == null && limit == null) return;
+    final bookingWorkspace = key.endsWith('-bookings')
+        ? (key == 'owner-bookings' ? ownerWorkspace : renterWorkspace)
+        : null;
+    if (bookingWorkspace != null) {
+      final workspace = bookingWorkspace;
+      workspace.generation++;
+      workspace.loading = true;
+      workspace.error = null;
+    }
     final account = _accountGeneration, request = ++state.generation;
     final nextPage = page ?? state.page, nextLimit = limit ?? state.limit;
     final path = switch (key) {
@@ -184,6 +230,7 @@ class LiveRentHubController extends ChangeNotifier {
     final query = <String, String>{
       if (nextPage != 1) 'page': '$nextPage',
       if (nextLimit != 20) 'limit': '$nextLimit',
+      if (key.endsWith('-bookings')) ...filtersForBookings(key).parameters,
       if (key == 'notifications' && notificationCategory != 'all')
         'category': notificationCategory
     };
@@ -264,6 +311,7 @@ class LiveRentHubController extends ChangeNotifier {
                 _models(data, Review.fromJson);
           }
       }
+      if (bookingWorkspace != null) bookingWorkspace.loaded = true;
       state.accept(data, requestedPage: nextPage, requestedLimit: nextLimit);
       if (key == 'owner-bookings' &&
           data is ApiItems &&
@@ -271,10 +319,14 @@ class LiveRentHubController extends ChangeNotifier {
         ownerActivitySummary = Map<String, dynamic>.from(data.meta['summary']);
       }
     } catch (e) {
-      if (_sameAccount(account) && request == state.generation) state.error = e;
+      if (_sameAccount(account) && request == state.generation) {
+        state.error = e;
+        if (bookingWorkspace != null) bookingWorkspace.error = e;
+      }
     } finally {
       if (_sameAccount(account) && request == state.generation) {
         state.loading = false;
+        if (bookingWorkspace != null) bookingWorkspace.loading = false;
         notifyListeners();
       }
     }
@@ -818,6 +870,28 @@ class LiveRentHubController extends ChangeNotifier {
     if (reference is! String || reference.isEmpty) {
       throw ApiException(502, 'Photo upload could not be confirmed.',
           code: 'INVALID_RESPONSE');
+    }
+    return reference;
+  }
+
+  Future<String> uploadConditionPhoto(Uint8List bytes, String filename,
+      {required String purpose}) async {
+    if (!const ['handover_evidence', 'return_evidence'].contains(purpose)) {
+      throw ArgumentError('Unsupported condition photo purpose');
+    }
+    if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
+      throw ApiException(400, 'Choose a photo smaller than 10 MB.',
+          code: 'INVALID_PHOTO');
+    }
+    final account = _accountGeneration;
+    final uploaded = await _perform(() => api.uploadFile('/uploads',
+        bytes: bytes, filename: filename, purpose: purpose));
+    if (!_sameAccount(account)) {
+      throw ApiException(401, 'Session changed', code: 'SESSION_CHANGED');
+    }
+    final reference = uploaded['reference'];
+    if (reference is! String || reference.isEmpty) {
+      throw ApiException(502, 'Upload unavailable', code: 'INVALID_RESPONSE');
     }
     return reference;
   }
@@ -1504,6 +1578,33 @@ class LiveRentHubController extends ChangeNotifier {
     return null;
   }
 
+  Rental currentDisputeRental(Rental fallback) =>
+      rentals.where((item) => item.id == fallback.id).firstOrNull ?? fallback;
+
+  String? disputeCreationBlockReason(Rental rental) {
+    final current = currentDisputeRental(rental);
+    final booking =
+        bookings.where((item) => item.id == current.bookingId).firstOrNull;
+    // A stale active cache must never undo completion on the supplied record.
+    if (rental.status == 'completed') {
+      return dispute_policy.disputeWindowClosedMessage;
+    }
+    return dispute_policy.disputeCreationBlockReason(current, booking: booking);
+  }
+
+  bool canStartDispute(Rental rental) =>
+      disputeCreationBlockReason(rental) == null;
+
+  Future<void> refreshDisputeEligibility(Rental rental) async {
+    final account = _accountGeneration;
+    await refreshFocusedBooking(rental.bookingId, rental.id);
+    if (!_sameAccount(account)) {
+      throw ApiException(
+          401, 'Your session changed. Reopen this rental after signing in.',
+          code: 'SESSION_CHANGED');
+    }
+  }
+
   InsuranceClaim? claimForRental(String rentalId) {
     for (final claim in claims) {
       if (claim.rentalId == rentalId) return claim;
@@ -1522,6 +1623,13 @@ class LiveRentHubController extends ChangeNotifier {
     List<String> evidence = const [],
   }) =>
       _perform(() async {
+        final blocked = disputeCreationBlockReason(rental);
+        if (blocked != null) {
+          throw ApiException(409, blocked,
+              code: blocked == dispute_policy.disputeWindowClosedMessage
+                  ? 'DISPUTE_WINDOW_CLOSED'
+                  : 'INVALID_RENTAL_STATE');
+        }
         final account = _accountGeneration;
         final dispute = Dispute.fromJson(
           await api.request(
@@ -1552,6 +1660,8 @@ class LiveRentHubController extends ChangeNotifier {
                     end: item.end,
                     extensionStatus: item.extensionStatus,
                     extension: item.extension,
+                    handover: item.handover,
+                    returnSubmission: item.returnSubmission,
                     blockchainStatus: item.blockchainStatus,
                     contractAddress: item.contractAddress,
                     blockchainTransactionHash: item.blockchainTransactionHash,

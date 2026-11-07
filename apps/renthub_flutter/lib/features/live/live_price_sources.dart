@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/network/api_client.dart';
@@ -86,7 +87,7 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
             : 'Stop using this source?';
     final confirmed = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => rentHubDialog(
               scrollable: true,
               title: Text(title),
               content: Text(enabled == false

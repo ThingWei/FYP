@@ -183,16 +183,18 @@ void main() {
       await mount(tester, api, textScale: 1.5);
       await tapVisible(tester, size.$2);
       await tapVisible(tester, 'Continue demo payment');
-      final primary =
-          find.widgetWithText(FilledButton, 'Complete demo payment');
+      final primary = find.widgetWithText(FilledButton, 'Pay demo');
       final cancel = find.widgetWithText(TextButton, 'Cancel');
-      final decline = find.widgetWithText(OutlinedButton, 'Simulate decline');
+      final decline = find.widgetWithText(OutlinedButton, 'Decline');
       expect(primary, findsOneWidget);
       expect(tester.getTopLeft(cancel).dy, tester.getTopLeft(decline).dy);
-      expect(tester.getBottomRight(primary).dy,
-          lessThan(tester.getTopLeft(cancel).dy));
+      expect(tester.getTopLeft(primary).dy, tester.getTopLeft(cancel).dy);
+      expect(tester.getBottomRight(cancel).dx + 10,
+          lessThan(tester.getTopLeft(decline).dx));
+      expect(tester.getBottomRight(decline).dx + 10,
+          lessThan(tester.getTopLeft(primary).dx));
       expect(tester.getSize(primary).width,
-          greaterThan(tester.getSize(decline).width));
+          closeTo(tester.getSize(decline).width, 1));
       expect(api.writes, isEmpty);
       expect(tester.takeException(), isNull);
       await tester.tap(cancel);
@@ -297,7 +299,7 @@ void main() {
     expect(api.saved['status'], 'pending');
     expect(api.saved['paymentStatus'], 'unpaid');
     await tapVisible(tester,
-        'Payment cancelled. Your unpaid request is kept; continue from Bookings later.');
+        'Payment cancelled. Continue from Bookings before the countdown ends.');
     expect(find.textContaining('Payment cancelled.'), findsOneWidget);
   });
   for (final method in ['card', 'fpx', 'wallet']) {
@@ -314,7 +316,7 @@ void main() {
             _ => 'Demo Card'
           });
       await tapVisible(tester, 'Continue demo payment');
-      await tapVisible(tester, 'Complete demo payment');
+      await tapVisible(tester, 'Pay demo');
       expect(api.writes, hasLength(1));
       expect(api.writes.single['method'], method);
       expect(api.writes.single.containsKey('amount'), isFalse);
@@ -329,14 +331,14 @@ void main() {
     final api = CheckoutApi();
     await mount(tester, api);
     await tapVisible(tester, 'Continue demo payment');
-    await tapVisible(tester, 'Simulate decline');
+    await tapVisible(tester, 'Decline');
     expect(api.saved['paymentStatus'], 'unpaid');
     await tapVisible(tester,
         'The demo payment was declined. Your request is still unpaid; you can try again.');
     expect(find.textContaining('declined.'), findsOneWidget);
     await tapVisible(tester, 'Demo Wallet');
     await tapVisible(tester, 'Continue demo payment');
-    await tapVisible(tester, 'Complete demo payment');
+    await tapVisible(tester, 'Pay demo');
     expect(api.writes, hasLength(2));
     expect(api.writes[0]['idempotencyKey'],
         isNot(api.writes[1]['idempotencyKey']));
@@ -347,7 +349,7 @@ void main() {
     final api = CheckoutApi()..lostResponse = true;
     await mount(tester, api);
     await tapVisible(tester, 'Continue demo payment');
-    await tapVisible(tester, 'Complete demo payment');
+    await tapVisible(tester, 'Pay demo');
     expect(api.writes, hasLength(1));
     expect(find.text('Demo payment complete — awaiting Owner approval'),
         findsOneWidget);
@@ -359,7 +361,7 @@ void main() {
     final api = CheckoutApi()..failReadsAfterWrite = true;
     await mount(tester, api);
     await tapVisible(tester, 'Continue demo payment');
-    await tapVisible(tester, 'Complete demo payment');
+    await tapVisible(tester, 'Pay demo');
     expect(api.writes, hasLength(1));
     await tapVisible(tester, 'Continue demo payment');
     final button = tester.widget<FilledButton>(
@@ -394,7 +396,7 @@ void main() {
     final api = CheckoutApi()..changeOnSecondRead = true;
     await mount(tester, api);
     await tapVisible(tester, 'Continue demo payment');
-    await tapVisible(tester, 'Complete demo payment');
+    await tapVisible(tester, 'Pay demo');
     expect(api.writes, isEmpty);
     expect(find.text('I have reviewed the final charges'), findsOneWidget);
     expect(
@@ -483,7 +485,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Session changed'), findsOneWidget);
     expect(find.textContaining('Test card ending'), findsNothing);
-    expect(find.text('Complete demo payment'), findsNothing);
+    expect(find.text('Pay demo'), findsNothing);
     expect(api.writes, isEmpty);
     await tapVisible(tester, 'Close');
     expect(find.text('Sign in required'), findsOneWidget);

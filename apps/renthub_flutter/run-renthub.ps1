@@ -55,6 +55,10 @@ function Invoke-RentHubNativeCommand {
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $startInfo.RedirectStandardInput = $true
+    # Node/Atlas JSON is UTF-8 even when Windows PowerShell has no interactive
+    # console or uses a different regional code page.
+    $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+    $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     if ($WorkingDirectory) { $startInfo.WorkingDirectory = $WorkingDirectory }
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
@@ -64,7 +68,12 @@ function Invoke-RentHubNativeCommand {
         $startedAt = $process.StartTime
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
-        if ($InputText) { $process.StandardInput.WriteLine($InputText) }
+        if ($InputText) {
+            # .NET Framework PowerShell lacks ProcessStartInfo.StandardInputEncoding.
+            $inputBytes = [Text.Encoding]::UTF8.GetBytes($InputText + "`n")
+            $process.StandardInput.BaseStream.Write($inputBytes, 0, $inputBytes.Length)
+            $process.StandardInput.BaseStream.Flush()
+        }
         $process.StandardInput.Close()
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             return [pscustomobject]@{ ExitCode = -1; TimedOut = $true; Output = ''; Error = ''; ProcessId = $process.Id }
@@ -78,6 +87,8 @@ function Invoke-RentHubNativeCommand {
     finally {
         if ($startedAt -and -not $process.HasExited) {
             Stop-RentHubOwnedApiProcess -OwnedProcess $process -StartedAt $startedAt
+            # taskkill can return before the terminated root has fully exited.
+            $null = $process.WaitForExit(2000)
         }
         $process.Dispose()
     }
@@ -134,7 +145,7 @@ function Get-RentHubAdbPath {
     )
 
     if (-not $SkipPathLookup) {
-        $pathCommand = Get-Command adb -ErrorAction SilentlyContinue
+        $pathCommand = Get-Command adb -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($null -ne $pathCommand) { return $pathCommand.Source }
     }
 
@@ -466,20 +477,54 @@ function Get-RentHubAtlasHost {
     return $null
 }
 
+function Resolve-RentHubAtlasProfile {
+    param([string]$ExplicitProfile, [bool]$WasExplicit, [string]$ConfiguredProfile)
+    $selected = if ($WasExplicit) { $ExplicitProfile } elseif (-not [string]::IsNullOrWhiteSpace($ConfiguredProfile)) { $ConfiguredProfile.Trim() } else { 'default' }
+    if ($selected -notmatch '^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}$') {
+        throw 'ATLAS_PROFILE must be a profile name of 1-64 letters, numbers, dots, underscores or hyphens, and cannot start with a dot or hyphen.'
+    }
+    return $selected
+}
+
+function Get-RentHubAtlasProfileInfo {
+    param([string]$AtlasPath, [string]$Profile)
+    # Modern CLI versions include redacted secure-store markers. Discard all values;
+    # never relay its raw output, including an insecure legacy configuration.
+    try {
+        $result = Invoke-RentHubNativeCommand -FilePath $AtlasPath -Arguments @('config', 'describe', $Profile, '--output', 'json') -TimeoutSeconds 10
+        if ($result.TimedOut -or $result.ExitCode -ne 0) { return $null }
+        $data = $result.Output | ConvertFrom-Json -ErrorAction Stop
+        return [pscustomobject]@{ AuthType = [string]$data.auth_type; ProjectId = [string]$data.project_id; OrgId = [string]$data.org_id;
+            InsecureCredentials = ((-not [string]::IsNullOrWhiteSpace([string]$data.client_secret)) -and $data.client_secret -ne '[redacted - source: secure storage]') -or
+                ($result.Error -match '(?i)falling back to insecure storage|secure storage is not available') }
+    }
+    catch { return $null }
+}
+
 function Get-RentHubAtlasFailureMessage {
-    param([string]$Output, [string]$Profile = 'default')
+    param([string]$Output, [string]$Profile = 'default', [string]$AuthType = '')
     # Classify privately captured diagnostics; never repeat account/token/URL text.
     $profileHint = if ($Profile -match '^[a-zA-Z0-9_.-]{1,64}$') { $Profile } else { 'YOUR_PROFILE' }
     if ($Output -match '(?i)unknown (flag|command)|flag provided but not defined|unrecognized (option|argument)') {
         return 'Atlas CLI does not support this command or option. Check atlas --version and update the CLI.'
     }
+    if ($Output -match '(?i)IP[_ ]?(?:ADDRESS[_ ]?)?ACCESS[_ ]?LIST|IP_NOT_ALLOWED|IP_ADDRESS_NOT_ON_ACCESS_LIST|access.*from.*(?:IP|address).*not (?:allowed|permitted)') {
+        return 'Atlas automation is blocked by its administration-API network policy. Complete the one-time RentHub-only organization/service-account setup; do not widen database network access.'
+    }
+    if ($Output -match '(?i)invalid_client|client.?secret[^\r\n]*(expired|invalid|revoked)|service.?account[^\r\n]*(expired|disabled|revoked)') {
+        return 'Atlas automation credentials are invalid, expired or revoked. Review the dedicated service account and renew its secret with setup-renthub-atlas.ps1 -Apply -RenewSecret. Personal browser login is not a repair for this automation profile.'
+    }
     if ($Output -match '(?i)not logged|aren.t logged|not authenticated|invalid_grant|(?:token|session|authentication)[^\r\n]*(expired|invalid)|unauthorized|\b401\b') {
+        if ($AuthType -eq 'service_account' -or $Profile -like 'renthub-*') {
+            return 'Atlas automation could not authenticate. Check the saved service-account credentials and expiry. Renew using setup-renthub-atlas.ps1 -Apply -RenewSecret; no personal browser login was started.'
+        }
         return "Atlas CLI is not signed in, or its session needs renewal. Run 'atlas auth login --profile $profileHint' using the same Windows account, then retry."
     }
     if ($Output -match '(?i)forbidden|\b403\b|not authorized|insufficient[^\r\n]*(permission|role)|permission denied') {
         return 'Atlas CLI access was denied. Check that this account/profile can view the project and manage its Network Access list; signing in again may not resolve missing permissions.'
     }
-    if ($Output -match '(?i)profile[^\r\n]*(not found|not exist|missing)|no[^\r\n]*profile') {
+    if ($Output -match '(?i)profile[^\r\n]*(not found|not exist|missing)|no[^\r\n]*profile|don.t have a profile') {
+        if ($Profile -like 'renthub-*') { return 'The RentHub automation profile is missing. Complete setup-renthub-atlas.ps1 -Apply once on this laptop.' }
         return "The requested Atlas CLI profile is not configured. Run 'atlas auth login --profile $profileHint', or choose your existing profile with -AtlasProfile."
     }
     if ($Output -match '(?i)\b429\b|too many requests|rate.?limit') {
@@ -500,7 +545,8 @@ function Invoke-RentHubAtlasJson {
     $result = Invoke-RentHubNativeCommand -FilePath $AtlasPath -Arguments ($Arguments + @('--profile', $Profile, '--output', 'json')) -TimeoutSeconds 30
     if ($result.TimedOut) { throw 'Atlas CLI timed out. Check internet/VPN connectivity and retry; no interactive login was started.' }
     if ($result.ExitCode -ne 0) {
-        throw (Get-RentHubAtlasFailureMessage -Output ($result.Output + $result.Error) -Profile $Profile)
+        $profileInfo = Get-RentHubAtlasProfileInfo -AtlasPath $AtlasPath -Profile $Profile
+        throw (Get-RentHubAtlasFailureMessage -Output ($result.Output + $result.Error) -Profile $Profile -AuthType $profileInfo.AuthType)
     }
     try { return $result.Output | ConvertFrom-Json -ErrorAction Stop }
     catch { throw 'Atlas CLI returned an unexpected response. Check the CLI version and login.' }
@@ -553,7 +599,10 @@ function Sync-RentHubAtlasAccess {
     $resolvedProjectId = Resolve-RentHubAtlasProject -AtlasPath $AtlasPath -ClusterHost $ClusterHost -ProjectId $ProjectId -Profile $Profile
     $currentIp = Get-RentHubPublicIPv4
     $entries = Invoke-RentHubAtlasJson -AtlasPath $AtlasPath -Profile $Profile -Arguments @('accessLists', 'list', '--projectId', $resolvedProjectId, '--limit', '500')
-    $existing = @($entries.results | Where-Object { $_.ipAddress -eq $currentIp -or $_.cidrBlock -eq "$currentIp/32" })
+    $existing = @($entries.results | Where-Object {
+        ($_.ipAddress -eq $currentIp -or $_.cidrBlock -eq "$currentIp/32") -and
+        (-not $_.deleteAfterDate -or [datetimeoffset]::Parse($_.deleteAfterDate).UtcDateTime -gt [datetime]::UtcNow)
+    })
     if ($existing.Count) {
         Write-Host 'Atlas already allows this public IP. Existing entries were preserved.' -ForegroundColor Green
         return
@@ -568,7 +617,10 @@ function Sync-RentHubAtlasAccess {
     catch {
         # Two laptops sharing a public IP may register it at the same time.
         $entries = Invoke-RentHubAtlasJson -AtlasPath $AtlasPath -Profile $Profile -Arguments @('accessLists', 'list', '--projectId', $resolvedProjectId, '--limit', '500')
-        if (-not @($entries.results | Where-Object { $_.ipAddress -eq $currentIp -or $_.cidrBlock -eq "$currentIp/32" }).Count) { throw }
+        if (-not @($entries.results | Where-Object {
+            ($_.ipAddress -eq $currentIp -or $_.cidrBlock -eq "$currentIp/32") -and
+            (-not $_.deleteAfterDate -or [datetimeoffset]::Parse($_.deleteAfterDate).UtcDateTime -gt [datetime]::UtcNow)
+        }).Count) { throw }
     }
     Write-Host 'Atlas access registered for this public IP (expires in 24 hours).' -ForegroundColor Green
 }
@@ -602,7 +654,7 @@ function Initialize-RentHubAtlasAccess {
         Write-Host 'Atlas database is reachable. No Atlas CLI login or network-access update is needed.' -ForegroundColor Green
         return
     }
-    $atlasCommand = Get-Command atlas -CommandType Application -ErrorAction SilentlyContinue
+    $atlasCommand = Get-Command atlas -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $atlasCommand) {
         throw 'Atlas database is not reachable. Install MongoDB Atlas CLI and sign in to register this network, or configure Network Access manually. Use -SkipAtlasAccess only when access is already configured.'
     }
@@ -685,7 +737,7 @@ if (-not (Test-Path -LiteralPath $apiModules)) {
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     throw 'Node.js is not available on PATH.'
 }
-$nodePath = (Get-Command node).Source
+$nodePath = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 $nodeVersion = Invoke-RentHubNativeCommand -FilePath $nodePath -Arguments @('--version') -TimeoutSeconds 5
 if ($nodeVersion.TimedOut -or $nodeVersion.ExitCode -ne 0 -or -not (Test-RentHubNodeVersion -Version $nodeVersion.Output)) {
     throw 'RentHub requires Node.js 22 or newer for its current storage SDK. Install a supported Node version, reopen PowerShell and verify node --version.'
@@ -757,6 +809,7 @@ else {
     Write-Host 'Using configured cloud/remote MongoDB. API readiness will verify database connectivity.' -ForegroundColor Cyan
 }
 
+$AtlasProfile = Resolve-RentHubAtlasProfile -ExplicitProfile $AtlasProfile -WasExplicit $PSBoundParameters.ContainsKey('AtlasProfile') -ConfiguredProfile (Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'ATLAS_PROFILE')
 $atlasHost = Get-RentHubAtlasHost -ConnectionString $mongoConnection
 if ($atlasHost -and -not $SkipAtlasAccess) {
     if ([string]::IsNullOrWhiteSpace($AtlasProjectId)) {

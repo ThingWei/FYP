@@ -335,7 +335,7 @@ void main() {
     await tester.tap(find.text('Open notification'));
     await tester.pumpAndSettle();
     expect(find.byType(LiveDisputePage), findsOneWidget);
-    expect(find.text('Dispute Tracking'), findsOneWidget);
+    expect(find.text('Your case'), findsOneWidget);
     expect(c.claims.single.id, 'CLM-TEST');
     expect(c.claims.single.approvedAmount, 10);
     expect(

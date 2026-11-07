@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -279,7 +280,7 @@ class ListingCardSummary extends StatelessWidget {
                       minimumSize: const Size(48, 48)),
                   onPressed: () => showDialog<void>(
                       context: context,
-                      builder: (context) => AlertDialog(
+                      builder: (context) => rentHubDialog(
                               title: const Text('Why this item?'),
                               content: SingleChildScrollView(
                                   child: Text([

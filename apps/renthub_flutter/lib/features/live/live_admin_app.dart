@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'live_trust_page.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
@@ -98,7 +99,8 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
               ),
               IconButton(
                 tooltip: 'Log out',
-                onPressed: () => context.read<AuthController>().logout(),
+                onPressed: () => confirmLogout(
+                    context, context.read<AuthController>().logout),
                 icon: const Icon(Icons.logout),
               ),
               const SizedBox(width: 12),
@@ -385,7 +387,7 @@ class _AdminRecordSection extends StatelessWidget {
               action(row['enabled'] == true ? 'Turn off' : 'Turn on', () async {
                 final accepted = await showDialog<bool>(
                     context: context,
-                    builder: (ctx) => AlertDialog(
+                    builder: (ctx) => rentHubDialog(
                             title: const Text('Change this report schedule?'),
                             content: Text(row['enabled'] == true
                                 ? 'Automatic reports for this schedule will stop.'
@@ -616,7 +618,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
     final controller = context.read<LiveRentHubController>();
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => rentHubDialog(
         title: const Text('Protected verification documents'),
         content: SizedBox(
           width: 760,
@@ -686,7 +688,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => rentHubDialog(
           title: Text(
             status == 'approved'
                 ? (driving
@@ -1137,7 +1139,7 @@ class _AdminUsers extends StatelessWidget {
   ) async {
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: Text('Reactivate ${user['displayName']}?'),
         content: const Text(
           'The user can sign in again with a new session. Listings hidden '
@@ -1182,7 +1184,7 @@ class _AdminUsers extends StatelessWidget {
     final reason = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: Text('Suspend ${user['displayName']}?'),
         content: TextFormField(
           controller: reason,
@@ -1281,7 +1283,7 @@ class _AdminListings extends StatelessWidget {
     final reason = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: Text('${status == 'active' ? 'Approve' : 'Reject'} listing?'),
         content: status == 'rejected'
             ? TextFormField(
@@ -1424,7 +1426,7 @@ class _AdminBookingsTransactions extends StatelessWidget {
     final reason = TextEditingController(text: 'Administrator-approved refund');
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: const Text('Issue simulated refund?'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1571,7 +1573,7 @@ class _AdminDisputesClaims extends StatelessWidget {
           inspection['returnSubmission'] as Map<String, dynamic>? ?? const {};
       await showDialog<void>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => rentHubDialog(
           title: Text('Case file ${dispute.id}'),
           content: SizedBox(
             width: 680,
@@ -1661,7 +1663,7 @@ class _AdminDisputesClaims extends StatelessWidget {
     final note = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: Text(
           status == 'escalated'
               ? 'Escalate dispute?'
@@ -1729,7 +1731,7 @@ class _AdminDisputesClaims extends StatelessWidget {
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setState) => rentHubDialog(
           title: const Text('Record dispute decision'),
           content: SizedBox(
             width: 480,
@@ -1913,7 +1915,7 @@ class _AdminDisputesClaims extends StatelessWidget {
     );
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: Text('${status == 'approved' ? 'Approve' : 'Reject'} claim?'),
         content: SizedBox(
           width: 440,
@@ -2135,7 +2137,7 @@ class _AdminReportingPanel extends StatelessWidget {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => rentHubDialog(
           title: const Text('Generate CSV report'),
           content: SizedBox(
             width: 460,
@@ -2209,7 +2211,7 @@ class _AdminReportingPanel extends StatelessWidget {
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => rentHubDialog(
           title: const Text('Create report schedule'),
           content: SizedBox(
             width: 460,
@@ -2459,7 +2461,7 @@ class _AdminMessageReports extends StatelessWidget {
     final resolution = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title:
             Text(status == 'resolved' ? 'Resolve report?' : 'Dismiss report?'),
         content: TextFormField(
@@ -2684,7 +2686,7 @@ class _AdminReviews extends StatelessWidget {
     final reason = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: Text(status == 'hidden' ? 'Hide review?' : 'Restore review?'),
         content: status == 'hidden'
             ? TextFormField(

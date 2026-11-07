@@ -201,11 +201,14 @@ export const rentalService = {
 
   async confirmHandover(id, input, identity) {
     return mutateRental(id, identity, 'owner', async (rental, ensureOwned) => {
-      await uploadService.assertOwnedReferences(identity, input.evidence, ['handover_evidence']);
       if (rental.listingType !== 'physical' || rental.status !== 'scheduled') {
         throw new AppError('Handover is unavailable', 409, 'INVALID_RENTAL_STATE');
       }
       await assertVehicleCredential(rental, rental.endDate);
+      if (rental.startDate > physicalRentalDate(new Date())) {
+        throw new AppError('Wait until the booked start date before handing over the item', 409, 'HANDOVER_TOO_EARLY');
+      }
+      await uploadService.assertOwnedImageReferences(identity, input.evidence, ['handover_evidence']);
       rental.handover = {
         condition: input.condition,
         notes: input.notes ?? '',
@@ -418,7 +421,7 @@ export const rentalService = {
 
   async submitReturn(id, input, identity) {
     return mutateRental(id, identity, 'renter', async (rental) => {
-      await uploadService.assertOwnedReferences(identity, input.evidence, ['return_evidence']);
+      await uploadService.assertOwnedImageReferences(identity, input.evidence, ['return_evidence']);
       if (
         rental.listingType !== 'physical' ||
         !['active', 'overdue'].includes(rental.status)

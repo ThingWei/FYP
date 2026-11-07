@@ -152,3 +152,13 @@ Read-only verification against the running local RPC returned `0x539` (1337),
 and the corrected launcher helper accepted it. All three standalone launcher
 suites passed after the correction. No blockchain restart, reset, transaction,
 database write or live full-launcher startup was performed for this follow-up.
+
+## Full-platform regression follow-up — 7 November 2026
+
+The platform test pack exposed multiple executable matches on PATH and
+noninteractive native Unicode/timeout edge cases. The launcher now selects the
+first executable, uses explicit UTF-8 native JSON I/O and waits briefly for an
+owned timed-out root to exit after cleanup. All four launcher suites pass with
+their disposable-process/credential-store integration fixtures. No live startup,
+Atlas policy or credential change was performed. See
+[the full testing result](testing/PLATFORM_TEST_EXECUTION_RESULT.md).

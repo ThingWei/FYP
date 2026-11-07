@@ -1,4 +1,4 @@
-import test, { after, before, beforeEach } from 'node:test';
+import test, { after, afterEach, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
@@ -21,8 +21,16 @@ import {
 import { RentalModel } from '../src/modules/rental/rental.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
+import { blockchainAdapter } from '../src/integrations/blockchainAdapter.js';
+import { LifecycleOperationModel } from '../src/operations/lifecycleJournal.js';
 
 let mongodb;
+const originalOpenDispute = blockchainAdapter.openDispute;
+const originalComplete = blockchainAdapter.complete;
+afterEach(() => {
+  blockchainAdapter.openDispute = originalOpenDispute;
+  blockchainAdapter.complete = originalComplete;
+});
 
 const identity = (id, roles, name) => ({
   'x-user-id': id,
@@ -119,6 +127,7 @@ beforeEach(async () => {
     LoyaltyConfigModel.deleteMany({}),
     ReferralModel.deleteMany({}),
     RewardLedgerModel.deleteMany({}),
+    LifecycleOperationModel.deleteMany({}),
   ]);
   await seedProfiles();
 });
@@ -272,4 +281,108 @@ test('keeps service disputes free of physical-item claims and categories', async
     });
   assert.equal(claim.status, 409);
   assert.equal(claim.body.error.code, 'CLAIM_NOT_AVAILABLE');
+});
+
+const issue = (rentalId, type = 'physical') => ({ rentalId,
+  category: type === 'physical' ? 'return_condition' : 'service_quality',
+  summary: 'Condition needs review', description: 'Please review the item or service before confirming completion.' });
+const raise = (rentalId, type = 'physical', headers = renter) =>
+  request(app).post('/api/v1/disputes').set(headers).send(issue(rentalId, type));
+async function prepareCompletion(rentalId, type) {
+  await RentalModel.updateOne({ publicId: rentalId }, { $set: {
+    status: type === 'physical' ? 'return_submitted' : 'completion_pending',
+  } });
+}
+const finish = (rentalId, type) => type === 'physical'
+  ? request(app).post(`/api/v1/rentals/${rentalId}/return/confirm`).set(owner)
+    .send({ condition: 'Good', notes: 'Inspected the returned item.', depositDeduction: 0 })
+  : request(app).post(`/api/v1/rentals/${rentalId}/service-completion`).set(renter);
+
+for (const type of ['physical', 'service']) {
+  test(`${type}: final completion closes new cases for both participants without side effects`, async () => {
+    const { rentalId, bookingId } = await seedRental(type);
+    await prepareCompletion(rentalId, type);
+    await finish(rentalId, type).expect(200);
+    const before = {
+      rental: await RentalModel.findOne({ publicId: rentalId }).lean(),
+      booking: await BookingModel.findOne({ publicId: bookingId }).lean(),
+      payments: await PaymentModel.find({ bookingId }).sort({ publicId: 1 }).lean(),
+      notifications: await NotificationModel.countDocuments(),
+      operations: await LifecycleOperationModel.countDocuments(),
+    };
+    let chainCalls = 0;
+    blockchainAdapter.openDispute = async (...args) => { chainCalls++; return originalOpenDispute.apply(blockchainAdapter, args); };
+    for (const participant of [renter, owner]) {
+      const result = await raise(rentalId, type, participant).expect(409);
+      assert.equal(result.body.error.code, 'DISPUTE_WINDOW_CLOSED');
+      assert.equal(result.body.error.message, 'This rental is complete, so a new dispute can no longer be opened.');
+    }
+    await raise(rentalId, type, outsider).expect(404);
+    assert.deepEqual(await RentalModel.findOne({ publicId: rentalId }).lean(), before.rental);
+    assert.deepEqual(await BookingModel.findOne({ publicId: bookingId }).lean(), before.booking);
+    assert.deepEqual(await PaymentModel.find({ bookingId }).sort({ publicId: 1 }).lean(), before.payments);
+    assert.equal(await DisputeModel.countDocuments(), 0);
+    assert.equal(await NotificationModel.countDocuments(), before.notifications);
+    assert.equal(await LifecycleOperationModel.countDocuments(), before.operations);
+    assert.equal(chainCalls, 0);
+  });
+
+  for (const completedRecord of ['booking', 'rental']) {
+    test(`${type}: a completed ${completedRecord} blocks cases even with a stale linked state`, async () => {
+      const { rentalId, bookingId } = await seedRental(type);
+      await (completedRecord === 'booking' ? BookingModel : RentalModel).updateOne(
+        { publicId: completedRecord === 'booking' ? bookingId : rentalId }, { $set: { status: 'completed' } });
+      for (const participant of [renter, owner]) {
+        const result = await raise(rentalId, type, participant).expect(409);
+        assert.equal(result.body.error.code, 'DISPUTE_WINDOW_CLOSED');
+      }
+      assert.equal(await DisputeModel.countDocuments(), 0);
+    });
+  }
+
+  test(`${type}: completion racing a new case cannot reopen or settle a disputed rental`, async () => {
+    const { rentalId, bookingId } = await seedRental(type);
+    await prepareCompletion(rentalId, type);
+    const results = await Promise.all([finish(rentalId, type), raise(rentalId, type)]);
+    const saved = await RentalModel.findOne({ publicId: rentalId });
+    if (results[0].status === 200) {
+      assert.equal(results[1].status, 409);
+      assert.equal(results[1].body.error.code, 'DISPUTE_WINDOW_CLOSED');
+      assert.equal(saved.status, 'completed');
+      assert.equal(await DisputeModel.countDocuments(), 0);
+    } else {
+      assert.equal(results[0].status, 409);
+      assert.equal(results[1].status, 201);
+      assert.equal(saved.status, 'disputed');
+      assert.equal(await DisputeModel.countDocuments(), 1);
+      assert.equal(await PaymentModel.countDocuments({ bookingId }), 1);
+    }
+    assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, saved.status);
+  });
+}
+
+for (const [type, status] of [['physical', 'active'], ['physical', 'overdue'],
+  ['physical', 'return_submitted'], ['service', 'active'], ['service', 'completion_pending']]) {
+  test(`${type}: ${status} remains disputable after its calendar end with captured payment`, async () => {
+    const { rentalId } = await seedRental(type);
+    await RentalModel.updateOne({ publicId: rentalId }, { $set: { status } });
+    await raise(rentalId, type).expect(201);
+    assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'disputed');
+  });
+}
+
+test('completed rental retains authorized access to its existing resolved case', async () => {
+  const { rentalId, bookingId } = await seedRental();
+  const opened = await raise(rentalId).expect(201);
+  const id = opened.body.data.id;
+  await DisputeModel.updateOne({ publicId: id }, { $set: { status: 'resolved' } });
+  await RentalModel.updateOne({ publicId: rentalId }, { $set: { status: 'completed' } });
+  await BookingModel.updateOne({ publicId: bookingId }, { $set: { status: 'completed' } });
+  for (const participant of [renter, owner, admin]) {
+    const read = await request(app).get(`/api/v1/disputes/${id}`).set(participant).expect(200);
+    assert.equal(read.body.data.status, 'resolved');
+  }
+  await request(app).get(`/api/v1/disputes/${id}`).set(outsider).expect(404);
+  await raise(rentalId).expect(409);
+  assert.equal(await DisputeModel.countDocuments(), 1);
 });

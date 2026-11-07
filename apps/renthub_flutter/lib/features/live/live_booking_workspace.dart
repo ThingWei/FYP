@@ -15,17 +15,23 @@ class LiveBookingWorkspace extends StatelessWidget {
     required this.hasRecords,
     required this.onRetry,
     required this.child,
+    this.header,
   });
 
   final BookingWorkspaceState state;
   final bool hasRecords;
   final Future<void> Function() onRetry;
   final Widget child;
+  final Widget? header;
 
   void _retry() => unawaited(onRetry().catchError((Object _) {}));
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => header == null
+      ? _body(context)
+      : Column(children: [header!, Expanded(child: _body(context))]);
+
+  Widget _body(BuildContext context) {
     final failure =
         state.error == null ? null : UserFacingError.from(state.error);
     if (!hasRecords && state.loading) {

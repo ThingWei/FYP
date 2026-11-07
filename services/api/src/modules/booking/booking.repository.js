@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { paymentDeadlineExpression } from './bookingDeadlines.js';
+import { bookingListFilter, bookingListSort } from './bookingFilters.js';
 import { AvailabilityModel } from '../listing/availability.model.js';
 import { blockingBookingCriteria } from '../listing/availabilityRules.js';
 import { BookingModel } from './booking.model.js';
@@ -22,9 +24,9 @@ export const bookingRepository = {
       listingId,
       listingType: 'physical',
       status: 'pending',
-      $or: [
-        { expiresAt: { $gt: new Date() } },
-        { expiresAt: null },
+      $and: [
+        { $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: null }] },
+        { $or: [{ paymentStatus: { $ne: 'unpaid' } }, { $expr: { $gt: [paymentDeadlineExpression, new Date()] } }] },
       ],
       startDate: { $lte: endDate },
       endDate: { $gte: startDate },
@@ -45,11 +47,11 @@ export const bookingRepository = {
       ],
     }),
 
-  async listFor({ field, identityId, page, limit, status }) {
-    const filter = { [field]: identityId, ...(status && { status }) };
+  async listFor({ field, identityId, page, limit, status, filters = {} }) {
+    const filter = { ...bookingListFilter({ ...filters, ...(status && { status }) }), [field]: identityId };
     const [items, total] = await Promise.all([
       BookingModel.find(filter)
-        .sort({ createdAt: -1, _id: -1 })
+        .sort(bookingListSort(filters.sort))
         .skip((page - 1) * limit)
         .limit(limit),
       BookingModel.countDocuments(filter),
@@ -57,11 +59,11 @@ export const bookingRepository = {
     return [items, total];
   },
 
-  async listAdmin({ page, limit, status }) {
-    const filter = { ...(status && { status }) };
+  async listAdmin({ page, limit, status, filters = {} }) {
+    const filter = bookingListFilter({ ...filters, ...(status && { status }) });
     const [items, total] = await Promise.all([
       BookingModel.find(filter)
-        .sort({ updatedAt: -1, _id: -1 })
+        .sort(filters.sort ? bookingListSort(filters.sort) : { updatedAt: -1, _id: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       BookingModel.countDocuments(filter),

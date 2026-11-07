@@ -296,6 +296,7 @@ test('sends a protected image that only conversation participants can read', asy
 
 test('supports notification filters, read state, individual removal and clear all', async () => {
   const { threadId } = await setupConversation();
+  const before = await NotificationModel.countDocuments({ userId: 'u-renter', readAt: null });
   await request(app)
     .post(`/api/v1/messages/threads/${threadId}/messages`)
     .set(owner)
@@ -305,8 +306,8 @@ test('supports notification filters, read state, individual removal and clear al
     .get('/api/v1/messages/notifications?read=false')
     .set(renter);
   assert.equal(notifications.status, 200);
-  assert.equal(notifications.body.meta.unread, 1);
-  const notificationId = notifications.body.data[0].id;
+  assert.equal(notifications.body.meta.unread, before + 1);
+  const notificationId = notifications.body.data.find((item) => item.category === 'message').id;
 
   const marked = await request(app)
     .post(`/api/v1/messages/notifications/${notificationId}/read`)

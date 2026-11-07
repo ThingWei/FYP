@@ -9,6 +9,7 @@ RentHub is a Malaysian rental marketplace for physical items and services. Rente
 - [Start RentHub](#1-start-renthub-on-a-configured-laptop)
 - [Open the administrator portal](#2-open-the-administrator-portal)
 - [Supervisor walkthrough](#3-demonstrate-the-main-features)
+- [Full-platform test plan and execution sheets](docs/testing/README.md)
 - [Stop RentHub safely](#4-finish-the-session)
 - [Use another laptop](#5-use-renthub-on-another-laptop)
 - [First-time setup](#6-first-time-setup)
@@ -16,6 +17,11 @@ RentHub is a Malaysian rental marketplace for physical items and services. Rente
 - [Further documentation](#8-further-documentation)
 
 ## Before you start
+
+For checking all modules in priority order, use the [testing guide](docs/testing/README.md).
+It includes the full manual cases, blank private result sheets and an isolated
+regression command. Automated passes and the real-device walkthrough are recorded
+separately.
 
 Have these ready:
 
@@ -84,18 +90,35 @@ If startup fails, follow the specific error and the [common problems](#7-common-
 
 ### Do I need `atlas auth login` every morning?
 
-**No. Run the launcher first.** It checks the database connection before asking Atlas CLI to update network access.
+**No, after the one-time Atlas setup below.** Each laptop uses its own saved automation account instead of a personal browser session. Run your normal launcher command; no extra daily sign-in command is needed.
 
-- If the database is reachable, no Atlas CLI login is needed.
-- If the laptop's network access needs updating, the launcher uses the saved CLI session.
-- Temporary IP entries created by the launcher last 24 hours. Expiry of an IP entry does not by itself mean your login has expired.
-- If the launcher specifically reports an expired or missing CLI login, run this once and retry:
+The launcher checks the database first. If this network needs access, it registers only the current public IP for 24 hours. The message **Atlas access registered for this public IP (expires in 24 hours)** is still expected: the network entry is temporary, while the automation credential lasts up to 365 days.
+
+### One-time Atlas setup on each laptop
+
+Pull/copy the updated launcher, `setup-renthub-atlas.ps1` and its `scripts` folder. Keep the existing private `services/api/.env` pointing to the shared RentHub database. Run these commands from `apps/renthub_flutter`:
 
 ```powershell
+# One-time administrator sign-in; complete it yourself in the browser
 atlas auth login --profile default
+
+# Check the intended project without changing anything
+.\setup-renthub-atlas.ps1
+
+# Configure this laptop's separate automation account
+.\setup-renthub-atlas.ps1 -Apply
+
+# Everyday startup remains unchanged
+.\run-renthub.ps1 -Presentation
 ```
 
-CLI login is separate from signing into RentHub. Each laptop/Windows account needs its own saved CLI session when automatic network registration is required. Changing networks may also require a fresh IP entry.
+Setup checks that the organization contains only RentHub's matched project. It permits its administration API to be used from changing networks, creates a laptop-specific **Project Network Access Manager** account and stores the credential in **Windows Credential Manager**. Database access remains restricted to individual IPs. The other laptop must run setup separately; do not copy CLI credential files or reuse another laptop's automation secret.
+
+Setup selects `ATLAS_PROFILE=renthub-launcher` and the verified project ID in the private API `.env`; it does not change the database URI or other application secrets. An explicit `-AtlasProfile NAME` overrides this setting. Without either setting, older setups retain `default` and may still need personal login renewal.
+
+This laptop's new secret expires **6 November 2027**. Other laptops show their own renewal date when configured. Before expiry, sign into the administrator profile once and run `.\setup-renthub-atlas.ps1 -Apply -RenewSecret`. Test normal startup, then retire the previous secret for that laptop in Atlas. Never paste secrets into chat or terminal commands. Do not disable the laptop service account while it is still in use.
+
+After switching Wi-Fi during a running session, rerun the launcher. Internet access, Atlas availability and a valid saved credential are still required. See the [Atlas automation guide](docs/ATLAS_AUTOMATION_SETUP_RESULT.md) for recovery and verification limits.
 
 ## 2. Open the administrator portal
 
@@ -130,11 +153,15 @@ Use the normal application screens. These steps create or update demonstration r
 
 1. **Renter:** search for a listing owned by the other account. Check its photos, price, approximate area and reviews.
 2. Choose dates and pickup/delivery, or the appropriate service arrangements. Review the agreement and charges.
-3. Submit the request and complete **Demo Card**, **Demo FPX** or **Demo Wallet** checkout. No real banking details are required.
+3. Start checkout and complete **Demo Card**, **Demo FPX** or **Demo Wallet** payment within **10 minutes**. No real banking details are required. An unpaid checkout shows **Awaiting payment**, with no rental progress steps; reopening it does not restart the timer.
 4. The request remains **awaiting Owner approval**. A successful demo payment does not confirm the booking.
 5. **Actual Owner:** sign into the account that owns the listing, open Requests, review it and approve or reject it.
-6. For a physical item, the Owner uses **Confirm Handover**, the Renter uses **Submit Return**, and the Owner uses **Confirm Return** after checking the item. For a service, follow its service-completion actions instead.
+6. For a future physical rental, wait until the booked day. The Owner uses **Record handover** to review the actual condition and photos, the Renter uses **Submit Return**, and the Owner uses **Confirm Return** after inspecting the item. For a service, follow its service-completion actions instead.
 7. Open the booking's agreement to show the accepted terms and supporting record/status updates.
+
+Report any issue **before confirming final return or service completion**. After completion, neither participant can open a new dispute. Existing cases and reviews remain accessible. The booked end date alone does not close the dispute window: an overdue rental or a return still awaiting inspection may still need review. See the [dispute cutoff guide](docs/DISPUTE_COMPLETION_CUTOFF_RESULT.md).
+
+Bookings and Owner Requests have compact cards: open **View details** for status, agreement and actions. They also have search, filter and sorting icons. Press Search/Enter after typing; use X to clear it. Filter by status, item/service, category, payment and rental dates. The filter dialog controls bookings per page. After payment, a horizontal icon strip shows rental progress in details; swipe sideways on the phone to see all steps. Log Out asks for confirmation. See the [booking interface guide](docs/BOOKING_INTERFACE_AND_CONFIRMATIONS_RESULT.md) and [payment countdown and details guide](docs/PAYMENT_WINDOW_AND_BOOKING_DETAILS_RESULT.md).
 
 Switching a Renter account into Owner mode does not make that account the Owner of someone else's listing. Complete handover/return actions only at the appropriate stage. Existing expiry, identity and payment rules still apply.
 
@@ -256,6 +283,7 @@ The important groups of settings are:
 | Settings | What they control |
 | --- | --- |
 | `MONGODB_URI` | The Atlas database used for shared records |
+| `ATLAS_PROFILE` / `ATLAS_PROJECT_ID` | The local Atlas automation profile and verified project; no credential values |
 | Auth0 client settings and local-session settings | Sign-in for Windows, Android and browser clients |
 | `KYC_IDENTITY_MATCH_SECRET` | Stable private identity matching across accounts |
 | Supabase settings | Uploaded photos and protected documents |
@@ -299,7 +327,7 @@ Missing optional-model warnings still need review before promising that feature 
 | What you see | What to do |
 | --- | --- |
 | RentHub cannot connect | Check that the main launcher is still running and reports its server ready. On Android, check the selected device ID and debugging connection. An installed app alone cannot start the laptop's server. |
-| Atlas asks for login | Run `atlas auth login --profile default` only when the launcher identifies a missing/expired CLI session. For permission or network errors, follow that specific guidance. |
+| Atlas asks for login | Complete the one-time automation setup on this laptop. A personal `default` profile can expire; a configured automation profile needs its own credential renewal, not daily browser login. Follow the specific permission/network guidance. |
 | Accounts or listings are missing on the other laptop | Check that its API uses the same Atlas connection **and database name**. Restart after configuration changes. Do not seed new data to mask a wrong connection. |
 | Photos are missing | Check the API's Supabase configuration and internet connection. Shared database rows alone do not provide access to a different storage bucket. |
 | Android shows `unauthorized` or `offline` | Unlock the phone, approve debugging, and reconnect the data cable. Check `adb devices -l` again. Use the currently connected ID; a wireless ID may change. |

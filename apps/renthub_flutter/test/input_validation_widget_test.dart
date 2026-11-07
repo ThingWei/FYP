@@ -237,7 +237,10 @@ void main() {
         const LiveDisputePage(
             rental: Rental('RH-RNT-2026-ABC', 'disputed'), owner: true),
         controller));
-    await press(tester, 'Submit Insurance Claim');
+    await tester.scrollUntilVisible(
+        find.text('Request damage-waiver review'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await press(tester, 'Request damage-waiver review');
     await enter(tester, 'Amount requested (RM)', '0');
     await enter(tester, 'Damage and repair details', 'short');
     await press(tester, 'Submit Claim');

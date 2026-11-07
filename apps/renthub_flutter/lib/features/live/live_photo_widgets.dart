@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import '../../core/network/user_facing_error.dart';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -30,7 +31,7 @@ Future<bool> confirmPhotoSelection(
   if (!context.mounted) return false;
   return await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => rentHubDialog(
           title: Text(pdf ? 'Confirm evidence file' : 'Preview selected photo'),
           content: SizedBox(
             width: 600,
@@ -132,7 +133,7 @@ class _PhotoUploadPreviewState extends State<PhotoUploadPreview> {
   @override
   Widget build(BuildContext context) => PopScope(
         canPop: !busy,
-        child: AlertDialog(
+        child: rentHubDialog(
           title:
               Text(isPdfBytes(widget.bytes) ? 'Preview file' : 'Preview photo'),
           content: SizedBox(

@@ -1,3 +1,4 @@
+import { physicalRentalDate } from '../../core/calendarDate.js';
 import { validateLocation } from '../../core/location.js';
 import { textInput } from '../../core/inputValidation.js';
 import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
@@ -63,6 +64,20 @@ export const listBookingsValidation = [
   query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
   query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
   query('status').optional().isIn(BOOKING_STATUSES),
+  query('q').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
+  query('listingType').optional().isIn(['physical', 'service']),
+  query('paymentStatus').optional().isIn(['unpaid', 'authorized', 'captured', 'partially_refunded', 'refunded', 'voided', 'settled']),
+  query('category').optional().isIn(['Devices', 'Vehicles', 'Equipment', 'Books', 'Clothing', 'Services']),
+  query('sort').optional().isIn(['newest', 'oldest', 'start_soonest', 'start_latest']),
+  ...['fromDate', 'toDate'].map((key) => query(key).optional().custom((value) => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Use a valid calendar date');
+    physicalRentalDate(value);
+    return true;
+  })),
+  query().custom((value) => {
+    if (value.fromDate && value.toDate && value.fromDate > value.toDate) throw new Error('The end date must not be before the start date');
+    return true;
+  }),
 ];
 
 export const decisionValidation = [

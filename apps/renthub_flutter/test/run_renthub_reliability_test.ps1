@@ -148,7 +148,7 @@ Remove-Item Function:\Start-Sleep
 
 if ($Integration) {
     # Disposable native processes only; no ports, dependencies, database or services.
-    $node = (Get-Command node -CommandType Application).Source
+    $node = (Microsoft.PowerShell.Core\Get-Command node -CommandType Application | Select-Object -First 1).Source
     $argsFixture = @('ordinary', 'with spaces', 'quote"inside', 'C:\folder with spaces\', '', ('Unicode-' + [char]0x4e2d + [char]0x6587), 'literal-$HOME-`text', 'slash\"quote')
     $native = Invoke-RentHubNativeCommand -FilePath $node -Arguments (@('-e', 'console.log(JSON.stringify(process.argv.slice(1)))') + $argsFixture)
     Assert-Reliability ($native.ExitCode -eq 0 -and -not $native.TimedOut) 'Quoted command must run successfully.'
@@ -159,6 +159,9 @@ if ($Integration) {
     }
     $native = Invoke-RentHubNativeCommand -FilePath $node -Arguments @('--input-type=module') -InputText 'console.log("stdin-fixture"); console.error("stderr-fixture");'
     Assert-Reliability ($native.Output.Trim() -eq 'stdin-fixture' -and $native.Error.Trim() -eq 'stderr-fixture') 'Stdin works and stderr cannot corrupt JSON output.'
+    $unicodeFixture = 'stdin-' + [char]0x4e2d + [char]0x6587
+    $native = Invoke-RentHubNativeCommand -FilePath $node -Arguments @('--input-type=module') -InputText ('console.log("' + $unicodeFixture + '");')
+    Assert-Reliability ($native.Output.Trim() -ceq $unicodeFixture) 'UTF-8 stdin and stdout must survive non-interactive Windows PowerShell.'
     $native = Invoke-RentHubNativeCommand -FilePath $node -Arguments @('-e', 'process.stdout.write("x".repeat(200000)); process.stderr.write("y".repeat(200000));')
     Assert-Reliability ($native.Output.Length -eq 200000 -and $native.Error.Length -eq 200000) 'Parallel pipe draining must avoid deadlocks.'
     $clock.Restart()
@@ -189,10 +192,12 @@ function Test-Path { param($LiteralPath, $PathType); return $true }
 function New-Item { param($ItemType, $Path, [switch]$Force) }
 function Get-Command { param($Name, $ErrorAction)
     if ($Name -eq 'flutter') { $script:flutterLookups++ }
+    if ($Name -eq 'node') { return @(@{ Source = 'fixture-node' }, @{ Source = 'second-node-on-path' }) }
     return @{ Source = 'fixture-node' }
 }
 function Get-Process { param($Name, $ErrorAction); return $null }
 function Invoke-RentHubNativeCommand { param($FilePath, $Arguments, $TimeoutSeconds)
+    Assert-Reliability ($FilePath -eq 'fixture-node') 'Select one executable when PATH contains multiple Node installations.'
     Assert-Reliability (($Arguments -join ' ') -eq '--version') 'Full-body fixture cannot execute native service commands.'
     return @{ ExitCode = 0; Output = 'v24.0.0'; TimedOut = $false }
 }

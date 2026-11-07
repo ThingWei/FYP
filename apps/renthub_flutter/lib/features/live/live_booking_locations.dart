@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:provider/provider.dart';
@@ -35,7 +36,7 @@ class _BookingLocationsButtonState extends State<BookingLocationsButton> {
       if (!mounted) return;
       await showDialog<void>(
           context: context,
-          builder: (dialogContext) => AlertDialog(
+          builder: (dialogContext) => rentHubDialog(
                   title: const Text('Booking locations'),
                   content: SizedBox(
                       width: 440,

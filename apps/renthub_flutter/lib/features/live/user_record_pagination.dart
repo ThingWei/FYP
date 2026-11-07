@@ -11,6 +11,7 @@ class UserRecordPage {
   int? total;
   bool loading = false, loaded = false, hasMore = false;
   Object? error;
+  Set<String> recordIds = {};
   void accept(dynamic data, {int requestedPage = 1, int requestedLimit = 20}) {
     final meta = data is ApiItems ? data.meta : const <String, dynamic>{};
     final count = meta['total'];
@@ -18,6 +19,13 @@ class UserRecordPage {
         (count is! num || !count.isFinite || count < 0 || count % 1 != 0)) {
       throw const FormatException('Invalid record count');
     }
+    recordIds = data is List
+        ? data
+            .whereType<Map>()
+            .map((row) => row['publicId'] ?? row['id'] ?? row['_id'])
+            .whereType<String>()
+            .toSet()
+        : {};
     page = requestedPage;
     limit = requestedLimit;
     loaded = true;
@@ -128,7 +136,12 @@ class _UserRecordPaginationState extends State<UserRecordPagination> {
         workspace?.loading != true) {
       attempted = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !state.loaded && !state.loading) {
+        if (mounted &&
+            !state.loaded &&
+            !state.loading &&
+            workspace?.error == null &&
+            workspace?.loading != true &&
+            (workspace == null || controller.profile != null)) {
           controller.loadUserRecords(widget.collection);
         }
       });

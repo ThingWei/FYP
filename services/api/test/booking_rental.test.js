@@ -22,8 +22,13 @@ import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { NotificationModel } from '../src/modules/communication/notification.model.js';
 import { ThreadModel } from '../src/modules/communication/thread.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
+import { UploadAssetModel } from '../src/modules/upload/upload.model.js';
+import { uploadService } from '../src/modules/upload/upload.service.js';
+import { physicalRentalDate } from '../src/core/calendarDate.js';
 import { ReviewModel } from '../src/modules/review/review.model.js';
 import { UserModel } from '../src/modules/user/user.model.js';
+import { runPaymentDeadlineJobs } from '../src/operations/lifecycleJobs.js';
+import { paymentAdapter } from '../src/integrations/paymentAdapter.js';
 import { blockchainAdapter } from '../src/integrations/blockchainAdapter.js';
 
 let mongodb;
@@ -185,6 +190,7 @@ beforeEach(async () => {
   bookingSequence = 0;
   await Promise.all([
     LifecycleOperationModel.deleteMany({}),
+    UploadAssetModel.deleteMany({}),
     UserModel.deleteMany({}),
     ListingModel.deleteMany({}),
     AvailabilityModel.deleteMany({}),
@@ -240,7 +246,7 @@ test('calculates the authoritative camera total and exposes both participant vie
   assert.equal(renterBookings.body.meta.total, 1);
   assert.equal(ownerRequests.body.meta.total, 1);
   assert.equal(ownerRequests.status, 200);
-  assert.equal(ownerRequests.body.meta.summary.pending, 1);
+  assert.equal(ownerRequests.body.meta.summary.pending, 0);
 
   const adminBookings = await request(app)
     .get('/api/v1/bookings/admin?status=pending')
@@ -415,6 +421,10 @@ test('vehicle requests enforce MyKad, independent eligibility, validity through 
   assert.equal(handover.body.error.code, 'DRIVING_ELIGIBILITY_EXPIRED');
   assert.equal((await RentalModel.findById(rental._id)).status, 'scheduled');
   await UserModel.updateOne({ authId: 'u-renter' }, { $set: { 'drivingEligibility.expiresAt': new Date('2035-01-01') } });
+  // The credential test hands over on a reached start day; future handover has
+  // its own independent regression below.
+  rental.startDate = physicalRentalDate(new Date());
+  await rental.save();
   const validHandover = await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
     .send({ condition: 'Good', notes: 'Synthetic handover', evidence: ['local://handover/test.jpg'] });
   assert.equal(validHandover.status, 200);
@@ -554,11 +564,16 @@ test('elapsed pending expiry is not a duplicate, while legacy undated expiry sti
   assert.equal((await createCameraBooking()).status, 201);
 });
 
-test('legacy paid pending requests block duplicates after their payment timer, ahead of newer unpaid duplicates', async () => {
+test('legacy paid pending requests block duplicates after payment time, before the Owner deadline', async () => {
   const first = await createCameraBooking();
   const id = first.body.data.id;
   await authorizeBooking(id);
-  await BookingModel.updateOne({ publicId: id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+  // Legacy rows have no explicit paymentDueAt. Paid requests use the independent
+  // Owner deadline, even when creation + ten minutes has elapsed.
+  await BookingModel.collection.updateOne({ publicId: id }, {
+    $unset: { paymentDueAt: 1 },
+    $set: { createdAt: new Date(Date.now() - 11 * 60_000), expiresAt: new Date(Date.now() + 60_000) },
+  });
   let duplicate = await createCameraBooking();
   assert.equal(duplicate.status, 409);
   assert.equal(duplicate.body.error.details.bookingId, id);
@@ -570,6 +585,22 @@ test('legacy paid pending requests block duplicates after their payment timer, a
   assert.equal(duplicate.status, 409);
   assert.equal(duplicate.body.error.details.bookingId, id);
   assert.equal(await BookingModel.countDocuments(), 2);
+});
+
+test('paid pending requests expire at the Owner deadline and release their hold before a fresh request', async () => {
+  const first = await createCameraBooking();
+  const id = first.body.data.id;
+  await authorizeBooking(id);
+  await BookingModel.updateOne({ publicId: id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+  await request(app).get(`/api/v1/bookings/${id}`).set(renter).expect(200);
+  const next = await createCameraBooking();
+  assert.equal(next.status, 201, JSON.stringify(next.body));
+  assert.notEqual(next.body.data.id, id);
+  const expired = await BookingModel.findOne({ publicId: id });
+  assert.equal(expired.status, 'expired');
+  assert.equal(expired.paymentStatus, 'voided');
+  assert.equal((await PaymentModel.findOne({ bookingId: id, type: 'authorization' })).status, 'voided');
+  assert.equal(await PaymentModel.countDocuments({ bookingId: id }), 1);
 });
 
 for (const partial of [false, true]) {
@@ -1404,4 +1435,199 @@ test('rejects booking dates blocked by Owner availability', async () => {
   const response = await createCameraBooking();
   assert.equal(response.status, 409);
   assert.equal(response.body.error.code, 'AVAILABILITY_CONFLICT');
+});
+
+
+test('future approval waits for the Malaysian start day and does not capture payment early', async () => {
+  const created = await createCameraBooking();
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId);
+  await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner).send({ status: 'approved' }).expect(200);
+  const rental = await RentalModel.findOne({ bookingId });
+  rental.startDate = new Date('2099-01-01T00:00:00Z');
+  rental.endDate = new Date('2099-01-02T00:00:00Z');
+  await rental.save();
+  const response = await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Good', notes: 'A small mark on the base', evidence: ['local://handover/future.jpg'] });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error.code, 'HANDOVER_TOO_EARLY');
+  assert.equal((await RentalModel.findOne({ bookingId })).status, 'scheduled');
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 0);
+  rental.startDate = physicalRentalDate(new Date());
+  await rental.save();
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Good', notes: 'A small mark on the base', evidence: ['local://handover/future.jpg'] }).expect(200);
+});
+
+test('handover requires owned photo evidence and preserves the actual condition for both parties', async () => {
+  const created = await createCameraBooking();
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId);
+  await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner).send({ status: 'approved' }).expect(200);
+  const rental = await RentalModel.findOne({ bookingId });
+  async function asset(id, overrides = {}) {
+    await UploadAssetModel.create({ publicId: `UPL-${id}`, uploadedBy: 'u-owner', purpose: 'handover_evidence',
+      visibility: 'private', originalName: 'condition.jpg', contentType: 'image/jpeg', size: 100,
+      storageProvider: 'local', storagePath: `private/test-${id}`, sha256: 'a'.repeat(64), ...overrides });
+    return `upload://UPL-${id}`;
+  }
+  const foreign = await asset('FOREIGN', { uploadedBy: 'u-renter' });
+  const wrongPurpose = await asset('PURPOSE', { purpose: 'listing_image' });
+  const pdf = await asset('PDF', { contentType: 'application/pdf', originalName: 'file.pdf' });
+  const photo = await asset('PHOTO');
+  for (const evidence of [[], [foreign], [wrongPurpose], [pdf], [photo, photo]]) {
+    const response = await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+      .send({ condition: 'Fair', notes: 'Visible scratch on the base', evidence });
+    assert.ok([400, 422].includes(response.status), JSON.stringify(response.body));
+    assert.equal((await RentalModel.findOne({ bookingId })).status, 'scheduled');
+  }
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(renter)
+    .send({ condition: 'Fair', evidence: [photo] }).expect(404);
+  const response = await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Fair', notes: 'Visible scratch on the base', evidence: [photo] }).expect(200);
+  assert.equal(response.body.data.handover.condition, 'Fair');
+  assert.equal(response.body.data.handover.notes, 'Visible scratch on the base');
+  assert.ok(response.body.data.handover.recordedAt);
+  for (const headers of [renter, owner]) {
+    const record = await request(app).get(`/api/v1/rentals/${rental.publicId}`).set(headers).expect(200);
+    assert.deepEqual(record.body.data.handover.evidence, [photo]);
+  }
+  await request(app).get(`/api/v1/rentals/${rental.publicId}`).set(serviceOwner).expect(404);
+  const photoId = photo.split('://')[1];
+  await uploadService.getPrivate({ authId: 'u-renter', roles: ['renter'] }, photoId);
+  await assert.rejects(() => uploadService.getPrivate({ authId: 'u-aina', roles: ['owner'] }, photoId),
+    (error) => error.code === 'FORBIDDEN');
+  await assert.rejects(() => uploadService.remove({ authId: 'u-owner', roles: ['owner'] }, photoId),
+    (error) => error.code === 'UPLOAD_IN_USE');
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
+    .send({ condition: 'Excellent', evidence: [photo] }).expect(409);
+  assert.equal((await RentalModel.findOne({ bookingId })).handover.condition, 'Fair');
+});
+
+
+test('booking search and filters apply before pagination/counting and retain participant isolation', async () => {
+  const first = await createCameraBooking();
+  const template = (await BookingModel.findOne({ publicId: first.body.data.id })).toObject();
+  delete template._id;
+  delete template.__v;
+  const rows = Array.from({ length: 34 }, (_, i) => ({ ...template,
+    publicId: `RH-BKG-2026-FILTER${String(i).padStart(3, '0')}`, listingTitle: `Filter camera ${i}`,
+    status: i % 2 ? 'completed' : 'approved', paymentStatus: i % 2 ? 'captured' : 'authorized',
+    category: i % 2 ? 'Equipment' : 'Devices',
+    startDate: new Date('2026-11-20T00:00:00Z'), endDate: new Date('2026-11-24T00:00:00Z'),
+    createdAt: new Date(Date.UTC(2026, 10, 1, 0, i)),
+  }));
+  rows[33].listingTitle = 'Needle [Pro]+ camera';
+  rows.push({ ...rows[33], publicId: 'RH-BKG-2026-FOREIGN01', renterId: 'someone-else', ownerId: 'another-owner' });
+  await BookingModel.create(rows);
+  const second = await request(app).get('/api/v1/bookings/mine?q=Filter&limit=10&page=2&sort=oldest').set(renter).expect(200);
+  assert.equal(second.body.meta.total, 34);
+  assert.equal(second.body.data.length, 10);
+  assert.equal(second.body.data[0].id, 'RH-BKG-2026-FILTER010');
+  const literalSearch = await request(app).get('/api/v1/bookings/mine').query({ q: '[Pro]+', limit: 10 }).set(renter).expect(200);
+  assert.equal(literalSearch.body.meta.total, 1);
+  assert.equal(literalSearch.body.data[0].id, 'RH-BKG-2026-FILTER033');
+  const filtered = await request(app).get('/api/v1/bookings/owner').query({ q: 'Filter', status: 'approved', category: 'Devices', listingType: 'physical', paymentStatus: 'authorized', fromDate: '2026-11-22', toDate: '2026-11-22', limit: 10 }).set(owner).expect(200);
+  assert.equal(filtered.body.meta.total, 17);
+  assert.ok(filtered.body.data.every((row) => row.ownerId === 'u-owner' && row.status === 'approved'));
+  const absent = await request(app).get('/api/v1/bookings/mine?fromDate=2026-11-25&toDate=2026-11-26&q=Filter').set(renter).expect(200);
+  assert.equal(absent.body.meta.total, 0);
+  for (const query of [{ q: 'a'.repeat(101) }, { status: 'wrong' }, { listingType: 'wrong' }, { sort: 'wrong' },
+    { fromDate: '2026-02-30' }, { fromDate: '2026-12-01', toDate: '2026-11-01' }, { paymentStatus: 'wrong' }, { q: { $ne: '' } }]) {
+    await request(app).get('/api/v1/bookings/mine').query(query).set(renter).expect(422);
+  }
+});
+
+
+test('unpaid checkout has one fixed ten-minute window, initial notice and one reminder', async () => {
+  const created = await createCameraBooking();
+  assert.equal(created.status, 201);
+  const id = created.body.data.id;
+  const booking = await BookingModel.findOne({ publicId: id });
+  const remaining = booking.paymentDueAt - booking.createdAt;
+  assert.ok(remaining > 599_000 && remaining <= 600_100);
+  assert.ok(created.body.data.serverNow);
+  assert.equal(await NotificationModel.countDocuments({ userId: 'u-renter', type: 'booking_payment_due' }), 1);
+  const oldDue = booking.paymentDueAt.toISOString();
+  await request(app).get(`/api/v1/bookings/${id}`).set(renter).expect(200);
+  assert.equal((await BookingModel.findOne({ publicId: id })).paymentDueAt.toISOString(), oldDue);
+  const reminderTime = new Date(booking.paymentDueAt.getTime() - 120_000);
+  await runPaymentDeadlineJobs({ now: reminderTime });
+  await runPaymentDeadlineJobs({ now: reminderTime });
+  assert.equal(await NotificationModel.countDocuments({ type: 'booking_payment_reminder' }), 1);
+  assert.equal((await BookingModel.findOne({ publicId: id })).status, 'pending');
+  await authorizeBooking(id);
+  const ownerRequests = await request(app).get('/api/v1/bookings/owner').set(owner).expect(200);
+  assert.equal(ownerRequests.body.meta.summary.pending, 1);
+  await runPaymentDeadlineJobs({ now: new Date(booking.paymentDueAt.getTime() + 1) });
+  const paid = await BookingModel.findOne({ publicId: id });
+  assert.equal(paid.status, 'pending');
+  assert.equal(paid.paymentStatus, 'authorized');
+});
+
+test('unpaid checkout expires at ten minutes and cannot be paid or revived by reopening', async () => {
+  const created = await createCameraBooking();
+  const id = created.body.data.id;
+  const booking = await BookingModel.findOne({ publicId: id });
+  const due = booking.paymentDueAt;
+  await runPaymentDeadlineJobs({ now: new Date(due.getTime() - 1) });
+  assert.equal((await BookingModel.findOne({ publicId: id })).status, 'pending');
+  await runPaymentDeadlineJobs({ now: due });
+  await runPaymentDeadlineJobs({ now: new Date(due.getTime() + 1) });
+  const expired = await BookingModel.findOne({ publicId: id });
+  assert.equal(expired.status, 'expired');
+  assert.equal(expired.paymentStatus, 'unpaid');
+  assert.match(expired.cancellationReason, /10 minutes/);
+  assert.equal(await PaymentModel.countDocuments({ bookingId: id }), 0);
+  assert.equal(await NotificationModel.countDocuments({ userId: 'u-renter', type: 'booking_expired' }), 1);
+  const attempt = await request(app).post('/api/v1/payments/authorizations').set(renter)
+    .send({ bookingId: id, method: 'card', idempotencyKey: `authorize:${id}` });
+  assert.equal(attempt.status, 409);
+  assert.equal(attempt.body.error.code, 'PAYMENT_WINDOW_EXPIRED');
+  const reopened = await request(app).get(`/api/v1/bookings/${id}`).set(renter).expect(200);
+  assert.equal(reopened.body.data.status, 'expired');
+  assert.equal(reopened.body.data.paymentDueAt, due.toISOString());
+});
+
+test('legacy unpaid deadlines derive from original creation, with lazy expiry on read', async () => {
+  const created = await createCameraBooking();
+  const id = created.body.data.id;
+  const old = new Date(Date.now() - 11 * 60_000);
+  await BookingModel.collection.updateOne({ publicId: id }, { $unset: { paymentDueAt: 1 }, $set: { createdAt: old } });
+  const response = await request(app).get(`/api/v1/bookings/${id}`).set(renter).expect(200);
+  assert.equal(response.body.data.status, 'expired');
+  assert.equal(new Date(response.body.data.paymentDueAt).getTime(), old.getTime() + 600_000);
+});
+
+test('payment crossing its deadline cannot commit an authorization', async () => {
+  const created = await createCameraBooking();
+  const id = created.body.data.id;
+  const original = paymentAdapter.authorize;
+  try {
+    paymentAdapter.authorize = async (input) => {
+      const result = await original.call(paymentAdapter, input);
+      await BookingModel.updateOne({ publicId: id }, { $set: { paymentDueAt: new Date(Date.now() - 1) } });
+      return result;
+    };
+    const response = await request(app).post('/api/v1/payments/authorizations').set(renter)
+      .send({ bookingId: id, method: 'card', idempotencyKey: `authorize:${id}` });
+    assert.equal(response.status, 409);
+    assert.equal((await BookingModel.findOne({ publicId: id })).status, 'expired');
+    assert.equal(await PaymentModel.countDocuments({ bookingId: id, status: 'authorized' }), 0);
+  } finally { paymentAdapter.authorize = original; }
+});
+
+test('a durable timely payment is recovered instead of expiring as unpaid', async () => {
+  const created = await createCameraBooking();
+  const id = created.body.data.id;
+  await authorizeBooking(id);
+  const payment = await PaymentModel.findOne({ bookingId: id, type: 'authorization' });
+  const due = new Date(payment.createdAt.getTime() + 1000);
+  await BookingModel.updateOne({ publicId: id }, { $set: { paymentStatus: 'unpaid', paymentDueAt: due }, $unset: { paymentAuthorizationId: 1 } });
+  await runPaymentDeadlineJobs({ now: new Date(due.getTime() + 1) });
+  const recovered = await BookingModel.findOne({ publicId: id });
+  assert.equal(recovered.status, 'pending');
+  assert.equal(recovered.paymentStatus, 'authorized');
+  assert.equal(recovered.paymentAuthorizationId, payment.publicId);
+  assert.equal(await NotificationModel.countDocuments({ type: 'payment_authorized' }), 1);
 });

@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -23,7 +24,7 @@ class _AdminSystemStatusState extends State<AdminSystemStatus> {
   Future<void> _run() async {
     final accepted = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => rentHubDialog(
                 title: const Text('Run scheduled tasks?'),
                 content: const Text(
                     'This checks due tasks and may expire unpaid booking requests or update rental statuses under the existing rules. It does not collect a real payment.'),

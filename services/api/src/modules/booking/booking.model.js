@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { bookingPaymentDeadline } from './bookingDeadlines.js';
 import { locationSchema } from '../../core/location.js';
 
 export const BOOKING_STATUSES = [
@@ -104,6 +105,7 @@ const bookingSchema = new mongoose.Schema(
     decidedAt: Date,
     cancelledAt: Date,
     expiresAt: Date,
+    paymentDueAt: Date,
     expiredAt: Date,
     activatedAt: Date,
     completedAt: Date,
@@ -115,6 +117,8 @@ const bookingSchema = new mongoose.Schema(
       virtuals: true,
       transform: (_document, value) => {
         value.id = value.publicId;
+        value.paymentDueAt = bookingPaymentDeadline(value)?.toISOString() ?? null;
+        value.serverNow = new Date().toISOString();
         value.start = value.startDate;
         value.end = value.endDate;
         value.total = value.pricing?.total;

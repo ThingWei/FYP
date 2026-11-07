@@ -1,3 +1,8 @@
+import 'live_booking_summary.dart';
+import 'live_booking_filters.dart';
+import '../../shared/widgets/renthub_dialog.dart';
+import 'live_condition_record_page.dart';
+import 'live_rental_progress.dart';
 import 'live_reviews_list.dart';
 import '../../core/discovery/discovery_state.dart';
 export '../../core/discovery/discovery_state.dart' show DiscoveryFilters;
@@ -28,7 +33,6 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_renthub_controller.dart';
-import 'live_photo_widgets.dart';
 import 'live_agreement.dart';
 import 'live_checkout_page.dart';
 import 'live_extension_checkout.dart';
@@ -1122,7 +1126,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => rentHubDialog(
           title: Text('Report $label'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1362,7 +1366,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       context,
       title: 'Continue to checkout?',
       message:
-          'Your pending request will be saved. Review the final charges and complete a demo payment on the next page. The Owner must still approve your booking.',
+          'Your checkout will be saved for 10 minutes. Review the final charges and complete a demo payment to send your request to the Owner.',
       action: 'Continue',
     );
     if (!accepted || !mounted) return;
@@ -1457,7 +1461,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
           final driving = details['nextAction'] == 'driving_eligibility';
           final proceed = await showDialog<bool>(
             context: context,
-            builder: (context) => AlertDialog(
+            builder: (context) => rentHubDialog(
               icon: const Icon(Icons.verified_user_outlined),
               title: const Text('Verification required'),
               content: Text(exception.message),
@@ -2159,27 +2163,38 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
     final reason = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: const Text('Cancel booking?'),
-        content: TextFormField(
-          controller: reason,
-          decoration: (const InputDecoration(labelText: 'Cancellation reason'))
-              .copyWith(counterText: '', errorMaxLines: 3),
-          validator: InputRules.cancellationReason.validate,
-          inputFormatters:
-              InputValidation.formatters(InputRules.cancellationReason, reason),
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          maxLength: InputRules.cancellationReason.maxLength,
-          maxLengthEnforcement: InputValidation.lengthEnforcement,
-        ),
+        scrollable: true,
+        content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                  'This cancels your request or scheduled booking. Any eligible demo payment will follow the cancellation rules.'),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: reason,
+                decoration:
+                    (const InputDecoration(labelText: 'Cancellation reason'))
+                        .copyWith(counterText: '', errorMaxLines: 3),
+                validator: InputRules.cancellationReason.validate,
+                inputFormatters: InputValidation.formatters(
+                    InputRules.cancellationReason, reason),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                maxLength: InputRules.cancellationReason.maxLength,
+                maxLengthEnforcement: InputValidation.lengthEnforcement,
+              )
+            ]),
         actions: [
-          TextButton(
+          OutlinedButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Keep Booking'),
+            child: const Text('Keep Booking', textAlign: TextAlign.center),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             onPressed: () => InputValidation.popIfValid(context, true),
-            child: const Text('Cancel Booking'),
+            child: const Text('Cancel Booking', textAlign: TextAlign.center),
           ),
         ],
       ),
@@ -2202,7 +2217,9 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
-    final visibleBookings = controller.renterBookings
+    final visibleBookings = (widget.focusBookingId == null
+            ? controller.bookingPageRecords(owner: false)
+            : controller.renterBookings)
         .where((booking) =>
             widget.focusBookingId == null ||
             booking.id == widget.focusBookingId)
@@ -2211,9 +2228,6 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
       appBar: AppBar(
         title: Text(
             widget.focusBookingId == null ? 'My Bookings' : 'Booking details'),
-        bottom: widget.focusBookingId == null
-            ? const UserRecordToolbar(collection: 'renter-bookings')
-            : null,
         actions: [
           IconButton(
             tooltip: 'Notifications',
@@ -2231,25 +2245,29 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
           ? const UserRecordPagination(collection: 'renter-bookings')
           : null,
       body: LiveBookingWorkspace(
+        header: widget.focusBookingId == null
+            ? const BookingFiltersToolbar(collection: 'renter-bookings')
+            : null,
         state: controller.renterWorkspace,
         hasRecords: visibleBookings.isNotEmpty,
         onRetry: _refresh,
         child: RefreshIndicator(
           onRefresh: _refresh,
           child: visibleBookings.isEmpty
-              ? ListView(
-                  children: const [
-                    SizedBox(
-                      height: 520,
-                      child: RentHubFeedbackState(
-                        kind: FeedbackKind.empty,
-                        title: 'No bookings yet',
-                        message:
-                            'Items and services you book will appear here.',
-                      ),
-                    ),
-                  ],
-                )
+              ? ListView(children: [
+                  if (controller
+                      .filtersForBookings('renter-bookings')
+                      .isFiltered)
+                    const BookingFilterEmpty(collection: 'renter-bookings')
+                  else
+                    const SizedBox(
+                        height: 360,
+                        child: RentHubFeedbackState(
+                            kind: FeedbackKind.empty,
+                            title: 'No bookings yet',
+                            message:
+                                'Items and services you book will appear here.')),
+                ])
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: visibleBookings.length,
@@ -2261,24 +2279,39 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                         .toList();
                     final rental =
                         matchingRentals.isEmpty ? null : matchingRentals.first;
+                    if (widget.focusBookingId == null) {
+                      return LiveBookingSummaryCard(
+                          booking: booking,
+                          rental: rental,
+                          onExpired: () =>
+                              controller.loadUserRecords('renter-bookings'),
+                          onPay: () {
+                            if (booking.canContinuePayment) {
+                              showLiveCheckout(context, booking.id);
+                            }
+                          },
+                          onDetails: () => openBookingDetails(context,
+                              booking: booking,
+                              rental: rental,
+                              owner: false,
+                              page: LiveRenterBookingsPage(
+                                  focusBookingId: booking.id,
+                                  focusRentalId: rental?.id)));
+                    }
                     return Card(
                       child: Padding(
                         padding: const EdgeInsets.all(14),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    booking.listingTitle,
-                                    style:
-                                        Theme.of(context).textTheme.titleMedium,
-                                  ),
-                                ),
-                                StatusBadge(booking.status),
-                              ],
-                            ),
+                            BookingStatusHeader(
+                                booking: booking,
+                                rental: rental,
+                                onExpired: () =>
+                                    controller.refreshFocusedBooking(
+                                        booking.id, rental?.id)),
+                            Text(booking.listingTitle,
+                                style: Theme.of(context).textTheme.titleMedium),
                             const SizedBox(height: 6),
                             Text(formatDateRange(booking.start, booking.end)),
                             if (widget.payment != null)
@@ -2290,29 +2323,25 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                                       showBookingAgreement(context, booking.id),
                                   icon: const Icon(Icons.description_outlined),
                                   label: const Text('View agreement')),
-                              if (booking.status == 'pending' &&
-                                  booking.paymentStatus == 'unpaid' &&
-                                  (booking.expiresAt == null ||
-                                      booking.expiresAt!
-                                          .isAfter(DateTime.now())))
+                              if (booking.canContinuePayment)
                                 FilledButton.tonal(
                                     onPressed: () =>
                                         showLiveCheckout(context, booking.id),
                                     child: const Text('Continue payment')),
                             ]),
                             Text(
-                              '${formatMoney(booking.total)} · Payment ${booking.paymentStatus}',
+                              '${formatMoney(booking.total)} · ${rentalPaymentLabel(booking.paymentStatus)}',
                               style: const TextStyle(
                                 color: AppColors.primaryDark,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            if (booking.status == 'pending' &&
-                                booking.paymentStatus == 'authorized')
-                              const Text('Awaiting Owner approval'),
+                            RentalProgressPanel(
+                                booking: booking,
+                                rental: rental,
+                                showSummary: false),
                             if (rental != null) ...[
                               const Divider(height: 22),
-                              Text('Rental/order status: ${rental.status}'),
                               const SizedBox(height: 8),
                               _RenterRentalActions(rental: rental),
                             ],
@@ -2348,6 +2377,13 @@ class _RenterRentalActions extends StatelessWidget {
     Map<String, dynamic>? body,
     String success,
   ) async {
+    if (action == 'service-completion') {
+      final accepted = await confirmAction(context,
+          title: 'Confirm service completion?',
+          message:
+              'Review the delivered service first. Report any issue before confirming. Once you confirm completion, you cannot open a new dispute.');
+      if (!accepted || !context.mounted) return;
+    }
     try {
       await context
           .read<LiveRentHubController>()
@@ -2363,20 +2399,24 @@ class _RenterRentalActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final existingDispute =
-        context.watch<LiveRentHubController>().disputeForRental(rental.id);
-    final disputeButton = OutlinedButton.icon(
-      onPressed: () => Navigator.push<void>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LiveDisputePage(rental: rental, owner: false),
-        ),
-      ),
-      icon: Icon(existingDispute == null
-          ? Icons.gavel_outlined
-          : Icons.manage_search_outlined),
-      label: Text(existingDispute == null ? 'Raise Dispute' : 'Track Dispute'),
-    );
+    final controller = context.watch<LiveRentHubController>();
+    final existingDispute = controller.disputeForRental(rental.id);
+    final disputeButton = existingDispute != null ||
+            controller.canStartDispute(rental)
+        ? OutlinedButton.icon(
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => LiveDisputePage(rental: rental, owner: false),
+              ),
+            ),
+            icon: Icon(existingDispute == null
+                ? Icons.gavel_outlined
+                : Icons.manage_search_outlined),
+            label:
+                Text(existingDispute == null ? 'Raise Dispute' : 'View case'),
+          )
+        : null;
     if (rental.status == 'completed') {
       final matching = context
           .watch<LiveRentHubController>()
@@ -2410,7 +2450,7 @@ class _RenterRentalActions extends StatelessWidget {
                       : 'Review Submitted',
             ),
           ),
-          disputeButton,
+          if (disputeButton != null) disputeButton,
         ],
       );
     }
@@ -2430,7 +2470,7 @@ class _RenterRentalActions extends StatelessWidget {
             icon: const Icon(Icons.task_alt),
             label: const Text('Confirm Service Completion'),
           ),
-          disputeButton,
+          if (disputeButton != null) disputeButton,
         ],
       );
     }
@@ -2492,48 +2532,19 @@ class _RenterRentalActions extends StatelessWidget {
               rental.extension?.paymentStatus == 'authorized')
             const Text('Extra-day payment ready — awaiting Owner approval'),
           FilledButton(
-            onPressed: () async {
-              final accepted = await confirmAction(
-                context,
-                title: 'Submit item return?',
-                message:
-                    'Select a condition photo after confirming. The file will be stored privately with the rental.',
-                action: 'Submit Return',
-              );
-              if (accepted && context.mounted) {
-                try {
-                  final evidence = await pickAndPreviewUpload(context,
-                      purpose: 'return_evidence');
-                  if (evidence != null && context.mounted) {
-                    await _action(
-                      context,
-                      'return',
-                      {
-                        'condition': 'Good',
-                        'notes': 'Returned through the live Flutter flow.',
-                        'evidence': [evidence],
-                      },
-                      'Return evidence submitted',
-                    );
-                  }
-                } catch (exception) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(friendlyError(exception))),
-                    );
-                  }
-                }
-              }
-            },
+            onPressed: () =>
+                openConditionRecord(context, rental, handover: false),
             child: const Text('Submit Return'),
           ),
-          disputeButton,
+          if (disputeButton != null) disputeButton,
         ],
       );
     }
-    if (rental.status == 'disputed') return disputeButton;
+    if (rental.status == 'disputed') {
+      return disputeButton ?? const SizedBox.shrink();
+    }
     if (!['cancelled', 'scheduled'].contains(rental.status)) {
-      return disputeButton;
+      return disputeButton ?? const SizedBox.shrink();
     }
     return const SizedBox.shrink();
   }

@@ -273,6 +273,42 @@ void main() {
   });
 
   for (final width in [360.0, 390.0]) {
+    testWidgets(
+        'Owner Home shows order identity and counts only paid decisions at $width',
+        (tester) async {
+      await tester.binding.setSurfaceSize(Size(width, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      controller.ownerWorkspace.bookings = [
+        Booking.fromJson({
+          ...row('IN', renter: 'customer', owner: 'dual'),
+          'paymentStatus': 'unpaid',
+        })
+      ];
+      controller.ownerWorkspace.rentals = [
+        Rental.fromJson({
+          ...rentalRow('R-IN', 'IN', renter: 'customer', owner: 'dual'),
+          'listingId': 'listing-IN',
+        })
+      ];
+      Widget app() => ChangeNotifierProvider.value(
+          value: controller,
+          child: MaterialApp(
+              theme: AppTheme.light,
+              home: LiveOwnerDashboard(onOpenRequests: () {})));
+      await tester.pumpWidget(app());
+      expect(find.text('0 booking requests need a decision'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('IN camera'), 250,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('IN camera'), findsOneWidget);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 1200));
+      await tester.pumpAndSettle();
+      controller.ownerWorkspace.bookings = [
+        Booking.fromJson(row('IN', renter: 'customer', owner: 'dual'))
+      ];
+      await tester.pumpWidget(app());
+      expect(find.text('1 booking requests need a decision'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
     testWidgets('Owner order uses the saved item title at $width',
         (tester) async {
       await tester.binding.setSurfaceSize(Size(width, 1000));
@@ -331,6 +367,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('OUT camera'), findsNothing);
       expect(find.text('IN camera'), findsOneWidget);
+      expect(find.text('Approve'), findsNothing);
+      expect(find.text('View details'), findsOneWidget);
+      await tester
+          .pumpWidget(app(const LiveOwnerRequestsPage(focusBookingId: 'IN')));
+      await tester.pumpAndSettle();
       expect(find.text('Approve'), findsOneWidget);
       expect(find.text('Reject'), findsOneWidget);
       expect(tester.takeException(), isNull);

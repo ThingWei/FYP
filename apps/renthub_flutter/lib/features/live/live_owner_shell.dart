@@ -1,3 +1,8 @@
+import 'live_booking_summary.dart';
+import 'live_booking_filters.dart';
+import '../../shared/widgets/renthub_dialog.dart';
+import 'live_condition_record_page.dart';
+import 'live_rental_progress.dart';
 import 'live_reviews_list.dart';
 import 'user_record_pagination.dart';
 import 'live_trust_page.dart';
@@ -158,7 +163,7 @@ class LiveOwnerDashboard extends StatelessWidget {
     final reason = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: const Text('Flag suspicious review?'),
         content: TextFormField(
           controller: reason,
@@ -206,7 +211,9 @@ class LiveOwnerDashboard extends StatelessWidget {
     final controller = context.watch<LiveRentHubController>();
     final pending = controller.ownerActivitySummary['pending'] ??
         controller.ownerBookings
-            .where((item) => item.status == 'pending')
+            .where((item) =>
+                item.displayStatus == 'pending' &&
+                item.paymentStatus == 'authorized')
             .length;
     final active = controller.ownerActivitySummary['activeOrders'] ??
         controller.ownerRentals
@@ -2095,7 +2102,7 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
     final reason = TextEditingController();
     final value = await InputValidation.showFormDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => rentHubDialog(
         title: const Text('Block these dates?'),
         content: TextFormField(
           controller: reason,
@@ -2639,7 +2646,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
     final reason = TextEditingController();
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
         title: Text('${status == 'approved' ? 'Approve' : 'Reject'} booking?'),
         content: status == 'rejected'
             ? TextFormField(
@@ -2655,7 +2662,7 @@ class LiveOwnerRequestsPage extends StatelessWidget {
               )
             : Text(
                 booking.listingType == 'physical'
-                    ? 'Confirm ${booking.listingTitle}. Approval creates the protected rental agreement. Payment will be captured at handover.'
+                    ? 'Approve the booked dates for ${booking.listingTitle}. Prepare the item and record its condition before handing it over on the booked day. Demo payment is captured at handover.'
                     : 'Confirm ${booking.listingTitle}. Payment will be captured when the service starts.',
               ),
         actions: [
@@ -2700,21 +2707,24 @@ class LiveOwnerRequestsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
-    final visibleBookings = controller.ownerBookings
+    final visibleBookings = (focusBookingId == null
+            ? controller.bookingPageRecords(owner: true)
+            : controller.ownerBookings)
         .where(
             (booking) => focusBookingId == null || booking.id == focusBookingId)
         .toList();
     return Scaffold(
       appBar: AppBar(
-          title: Text(
-              focusBookingId == null ? 'Booking Requests' : 'Booking details'),
-          bottom: focusBookingId == null
-              ? const UserRecordToolbar(collection: 'owner-bookings')
-              : null),
+        title: Text(
+            focusBookingId == null ? 'Booking Requests' : 'Booking details'),
+      ),
       bottomNavigationBar: focusBookingId == null
           ? const UserRecordPagination(collection: 'owner-bookings')
           : null,
       body: LiveBookingWorkspace(
+        header: focusBookingId == null
+            ? const BookingFiltersToolbar(collection: 'owner-bookings')
+            : null,
         state: controller.ownerWorkspace,
         hasRecords: visibleBookings.isNotEmpty,
         onRetry: focusBookingId == null
@@ -2727,41 +2737,58 @@ class LiveOwnerRequestsPage extends StatelessWidget {
               : () => controller.refreshFocusedBooking(
                   focusBookingId!, focusRentalId),
           child: visibleBookings.isEmpty
-              ? ListView(
-                  children: const [
-                    SizedBox(
-                      height: 520,
-                      child: RentHubFeedbackState(
-                        kind: FeedbackKind.empty,
-                        title: 'No booking requests',
-                        message: 'Renter requests will appear here.',
-                      ),
-                    ),
-                  ],
-                )
+              ? ListView(children: [
+                  if (controller
+                      .filtersForBookings('owner-bookings')
+                      .isFiltered)
+                    const BookingFilterEmpty(collection: 'owner-bookings')
+                  else
+                    const SizedBox(
+                        height: 360,
+                        child: RentHubFeedbackState(
+                            kind: FeedbackKind.empty,
+                            title: 'No booking requests',
+                            message: 'Renter requests will appear here.')),
+                ])
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: visibleBookings.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     final booking = visibleBookings[index];
+                    final rental = controller.ownerRentals
+                        .where((r) => r.bookingId == booking.id)
+                        .firstOrNull;
+                    if (focusBookingId == null) {
+                      return LiveBookingSummaryCard(
+                          booking: booking,
+                          rental: rental,
+                          owner: true,
+                          onExpired: () =>
+                              controller.loadUserRecords('owner-bookings'),
+                          onDetails: () => openBookingDetails(context,
+                              booking: booking,
+                              rental: rental,
+                              owner: true,
+                              page: LiveOwnerRequestsPage(
+                                  focusBookingId: booking.id,
+                                  focusRentalId: rental?.id)));
+                    }
                     return Card(
                       child: Padding(
                         padding: const EdgeInsets.all(14),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(booking.listingTitle,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium),
-                                ),
-                                StatusBadge(booking.displayStatus),
-                              ],
-                            ),
+                            BookingStatusHeader(
+                                booking: booking,
+                                rental: rental,
+                                owner: true,
+                                onExpired: () =>
+                                    controller.refreshFocusedBooking(
+                                        booking.id, rental?.id)),
+                            Text(booking.listingTitle,
+                                style: Theme.of(context).textTheme.titleMedium),
                             const SizedBox(height: 6),
                             Text('${booking.renterName} · ${booking.id}'),
                             TextButton.icon(
@@ -2777,7 +2804,8 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                               for (final rental in controller.ownerRentals
                                   .where((rental) =>
                                       rental.bookingId == booking.id))
-                                _OwnerRentalCard(rental: rental),
+                                _OwnerRentalCard(
+                                    rental: rental, embedded: true),
                             TextButton.icon(
                                 onPressed: () =>
                                     showBookingAgreement(context, booking.id),
@@ -2787,9 +2815,14 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                                 booking.paymentStatus != 'authorized')
                               const Text(
                                   'Waiting for the renter to complete demo payment.'),
+                            RentalProgressPanel(
+                                booking: booking,
+                                rental: rental,
+                                owner: true,
+                                showSummary: false),
                             Text(formatDateRange(booking.start, booking.end)),
                             Text(
-                              '${formatMoney(booking.total)} · ${booking.paymentStatus}',
+                              '${formatMoney(booking.total)} · ${rentalPaymentLabel(booking.paymentStatus)}',
                               style: const TextStyle(
                                 color: AppColors.primaryDark,
                                 fontWeight: FontWeight.w700,
@@ -2837,7 +2870,8 @@ class LiveOwnerRequestsPage extends StatelessWidget {
 }
 
 class _OwnerRentalCard extends StatelessWidget {
-  const _OwnerRentalCard({required this.rental});
+  const _OwnerRentalCard({required this.rental, this.embedded = false});
+  final bool embedded;
 
   final Rental rental;
 
@@ -2846,6 +2880,30 @@ class _OwnerRentalCard extends StatelessWidget {
     String action, {
     Map<String, dynamic>? body,
   }) async {
+    final confirmation = switch (action) {
+      'start-service' => (
+          'Start this service?',
+          'Confirm only when the booked service is actually starting.'
+        ),
+      'service-delivered' => (
+          'Mark this service delivered?',
+          'The renter will be asked to review and confirm completion.'
+        ),
+      'return-confirm' => (
+          'Confirm the item has been returned?',
+          'Inspect the item and compare the condition photos first. This confirms return with no deposit deduction. Report any issue before confirming: once completed, neither participant can open a new dispute.'
+        ),
+      'extension-decision' => (
+          'Confirm the extension decision?',
+          'This updates the renter’s extra-day request. Only approved, paid extra days extend the rental.'
+        ),
+      _ => null,
+    };
+    if (confirmation != null) {
+      final accepted = await confirmAction(context,
+          title: confirmation.$1, message: confirmation.$2);
+      if (!accepted || !context.mounted) return;
+    }
     try {
       await context.read<LiveRentHubController>().runRentalAction(
             rental,
@@ -2919,31 +2977,13 @@ class _OwnerRentalCard extends StatelessWidget {
             await _run(context, 'start-service');
             return;
           }
-          try {
-            final evidence = await pickAndPreviewUpload(context,
-                purpose: 'handover_evidence');
-            if (evidence != null && context.mounted) {
-              await _run(
-                context,
-                'handover',
-                body: {
-                  'condition': 'Excellent',
-                  'notes': 'Confirmed through the live Owner interface.',
-                  'evidence': [evidence],
-                },
-              );
-            }
-          } catch (exception) {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(friendlyError(exception))),
-              );
-            }
-          }
+          await openConditionRecord(context, rental, handover: true);
         },
         child: Text(rental.listingType == 'service'
             ? 'Start Service'
-            : 'Confirm Handover'),
+            : handoverDayReached(rental)
+                ? 'Record handover'
+                : 'Prepare handover'),
       );
     } else if (rental.listingType == 'service' && rental.status == 'active') {
       action = FilledButton(
@@ -3002,7 +3042,8 @@ class _OwnerRentalCard extends StatelessWidget {
     }
     final existingDispute =
         context.watch<LiveRentHubController>().disputeForRental(rental.id);
-    final canDispute = !['cancelled', 'scheduled'].contains(rental.status);
+    final canDispute =
+        existingDispute != null || controller.canStartDispute(rental);
     final disputeAction = canDispute
         ? OutlinedButton.icon(
             onPressed: () => Navigator.push<void>(
@@ -3015,7 +3056,7 @@ class _OwnerRentalCard extends StatelessWidget {
                 ? Icons.gavel_outlined
                 : Icons.manage_search_outlined),
             label: Text(
-              existingDispute == null ? 'Raise Dispute' : 'Manage Dispute',
+              existingDispute == null ? 'Raise Dispute' : 'View case',
             ),
           )
         : null;
@@ -3025,14 +3066,37 @@ class _OwnerRentalCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(child: Text(itemTitle)),
-                StatusBadge(rental.status),
-              ],
-            ),
-            Text('Booking ${rental.bookingId}'),
-            if (rental.listingType == 'physical')
+            if (!embedded) ...[
+              StatusBadge(rentalStatusLabel(rental.status)),
+              const SizedBox(height: 8),
+              Text(itemTitle, style: Theme.of(context).textTheme.titleMedium),
+              if (rental.start != null && rental.end != null)
+                Text(formatDateRange(rental.start!, rental.end!)),
+              TextButton.icon(
+                  icon: const Icon(Icons.chevron_right),
+                  label: const Text('View details'),
+                  onPressed: () async {
+                    try {
+                      final booking =
+                          await controller.getBooking(rental.bookingId);
+                      if (context.mounted) {
+                        await openBookingDetails(context,
+                            booking: booking,
+                            rental: rental,
+                            owner: true,
+                            page: LiveOwnerRequestsPage(
+                                focusBookingId: rental.bookingId,
+                                focusRentalId: rental.id));
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(friendlyError(e))));
+                      }
+                    }
+                  }),
+            ],
+            if (rental.listingType == 'physical' && !embedded)
               Wrap(
                 spacing: 8,
                 runSpacing: 4,

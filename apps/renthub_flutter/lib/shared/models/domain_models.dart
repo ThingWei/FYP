@@ -569,6 +569,8 @@ class Booking {
     this.charges,
     this.extensionCharges = const [],
     this.expiresAt,
+    this.paymentDueAt,
+    this.serverClockOffset = Duration.zero,
     this.paymentStatus = 'unpaid',
     this.total = 0,
     this.fulfilmentMethod,
@@ -584,7 +586,17 @@ class Booking {
   final String ownerName, renterId;
   final BookingCharges? charges;
   final List<RentalExtension> extensionCharges;
-  final DateTime? expiresAt;
+  final DateTime? expiresAt, paymentDueAt;
+  final Duration serverClockOffset;
+  DateTime get serverAdjustedNow =>
+      DateTime.now().toUtc().add(serverClockOffset);
+  bool get awaitingPayment => status == 'pending' && paymentStatus == 'unpaid';
+  bool get paymentWindowExpired =>
+      awaitingPayment &&
+      paymentDueAt != null &&
+      !paymentDueAt!.isAfter(serverAdjustedNow);
+  bool get canContinuePayment =>
+      awaitingPayment && !paymentWindowExpired && !isPastDecisionDeadline;
   final String? fulfilmentMethod, serviceVenue;
   final ListingLocationSelection? pickupLocation,
       serviceLocation,
@@ -597,9 +609,10 @@ class Booking {
   bool get isPastDecisionDeadline =>
       status == 'pending' &&
       expiresAt != null &&
-      !expiresAt!.isAfter(DateTime.now());
+      !expiresAt!.isAfter(serverAdjustedNow);
 
-  String get displayStatus => isPastDecisionDeadline ? 'expired' : status;
+  String get displayStatus =>
+      isPastDecisionDeadline || paymentWindowExpired ? 'expired' : status;
 
   factory Booking.fromJson(Map<String, dynamic> json) {
     final listingType = json['listingType'] as String? ?? 'physical';
@@ -632,6 +645,13 @@ class Booking {
       expiresAt: json['expiresAt'] is String
           ? DateTime.parse(json['expiresAt'])
           : null,
+      paymentDueAt: DateTime.tryParse(json['paymentDueAt'] as String? ?? ''),
+      serverClockOffset: json['serverNow'] is String &&
+              DateTime.tryParse(json['serverNow'] as String) != null
+          ? DateTime.parse(json['serverNow'] as String)
+              .toUtc()
+              .difference(DateTime.now().toUtc())
+          : Duration.zero,
       pickupLocation: json['pickupLocationSnapshot'] is Map
           ? ListingLocationSelection.fromJson(
               Map<String, dynamic>.from(json['pickupLocationSnapshot']))
@@ -679,6 +699,8 @@ class Booking {
         charges: charges,
         extensionCharges: extensionCharges,
         expiresAt: expiresAt,
+        paymentDueAt: paymentDueAt,
+        serverClockOffset: serverClockOffset,
         paymentStatus: paymentStatus,
         total: total,
         fulfilmentMethod: fulfilmentMethod,
@@ -689,6 +711,25 @@ class Booking {
         agreementVersion: agreementVersion,
         agreementAcceptedAt: agreementAcceptedAt,
       );
+}
+
+class RentalConditionRecord {
+  const RentalConditionRecord(
+      {required this.condition,
+      this.notes = '',
+      this.photos = const [],
+      this.recordedAt});
+  final String condition, notes;
+  final List<String> photos;
+  final DateTime? recordedAt;
+  factory RentalConditionRecord.fromJson(Map<String, dynamic> json) =>
+      RentalConditionRecord(
+          condition: json['condition'] as String? ?? '',
+          notes: json['notes'] as String? ?? '',
+          photos: (json['evidence'] as List? ?? const [])
+              .whereType<String>()
+              .toList(),
+          recordedAt: DateTime.tryParse(json['recordedAt'] as String? ?? ''));
 }
 
 class Rental {
@@ -704,6 +745,8 @@ class Rental {
     this.end,
     this.extensionStatus = 'none',
     this.extension,
+    this.handover,
+    this.returnSubmission,
     this.blockchainStatus = 'unavailable',
     this.contractAddress = '',
     this.blockchainTransactionHash = '',
@@ -717,6 +760,7 @@ class Rental {
   final DateTime? start, end;
   final String extensionStatus;
   final RentalExtension? extension;
+  final RentalConditionRecord? handover, returnSubmission;
   final String blockchainStatus, contractAddress, blockchainTransactionHash;
   final String blockchainDeploymentHash, blockchainState, blockchainNetwork;
   final List<String> blockchainSignatureHashes;
@@ -748,6 +792,14 @@ class Rental {
               'none',
       extension: json['extension'] is Map<String, dynamic>
           ? RentalExtension.fromJson(json['extension'] as Map<String, dynamic>)
+          : null,
+      handover: json['handover'] is Map
+          ? RentalConditionRecord.fromJson(
+              Map<String, dynamic>.from(json['handover'] as Map))
+          : null,
+      returnSubmission: json['returnSubmission'] is Map
+          ? RentalConditionRecord.fromJson(
+              Map<String, dynamic>.from(json['returnSubmission'] as Map))
           : null,
       blockchainStatus: blockchain['status'] as String? ?? 'unavailable',
       contractAddress: blockchain['contractAddress'] as String? ??

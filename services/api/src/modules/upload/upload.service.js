@@ -59,6 +59,25 @@ async function participantMayRead(identity, reference) {
 }
 
 export const uploadService = {
+  async assertOwnedImageReferences(identity, references, purposes) {
+    if (!Array.isArray(references) || references.length < 1 || references.length > 10 ||
+        new Set(references).size !== references.length) {
+      throw new AppError('Add one to ten distinct condition photos', 400, 'CONDITION_PHOTOS_REQUIRED');
+    }
+    await this.assertOwnedReferences(identity, references, purposes);
+    const ids = references.filter((reference) => reference.startsWith('upload://'))
+      .map((reference) => reference.match(/UPL-[A-Z0-9]+/i)?.[0]);
+    if (references.some((reference) => /\.pdf$/i.test(reference))) {
+      throw new AppError('Condition evidence must be photos', 400, 'CONDITION_PHOTOS_REQUIRED');
+    }
+    if (ids.length && await UploadAssetModel.countDocuments({
+      publicId: { $in: ids }, uploadedBy: identity.authId, purpose: { $in: purposes },
+      contentType: { $in: ['image/jpeg', 'image/png', 'image/webp'] },
+    }) !== ids.length) {
+      throw new AppError('Condition evidence must be photos', 400, 'CONDITION_PHOTOS_REQUIRED');
+    }
+  },
+
   async readOwnedReferences(identity, references, purposes) {
     const stored = (references ?? []).filter(
       (item) => item.startsWith('upload://') || item.startsWith('/api/v1/uploads/'),

@@ -332,7 +332,7 @@ Remove-Item Function:\taskkill.exe
 
 if ($Integration) {
     # Disposable Node parent/child, no RentHub startup and no bound ports.
-    $fixtureNode = (Get-Command node -ErrorAction Stop).Source
+    $fixtureNode = (Get-Command node -ErrorAction Stop | Select-Object -First 1).Source
     $nodeTree = Start-Process -FilePath $fixtureNode -ArgumentList @(
         '-e', '"require(''node:child_process'').spawn(process.execPath,[''-e'',''setInterval(()=>{},1000)'']);setInterval(()=>{},1000)"'
     ) -WindowStyle Hidden -PassThru

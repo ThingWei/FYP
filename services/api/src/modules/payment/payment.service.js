@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { bookingPaymentDeadline, payableBookingFilter } from '../booking/bookingDeadlines.js';
+import { expireDuePendingBookings } from '../booking/bookingExpiry.js';
 import { paymentAdapter } from '../../integrations/paymentAdapter.js';
 import { AppError } from '../../core/errors.js';
 import { BookingModel } from '../booking/booking.model.js';
@@ -182,21 +184,21 @@ export async function voidTerminalPaymentHolds() {
 export const paymentService = {
   async authorize(input, identity) {
     await requireActiveUser(identity, 'renter');
+    await expireDuePendingBookings({ scope: { publicId: input.bookingId, renterId: identity.authId } });
     const outcome = input.simulationOutcome ?? 'success';
     const booking = await BookingModel.findOne({ publicId: input.bookingId, renterId: identity.authId });
     if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
     const existing = await paymentRepository.findByIdempotencyKey(input.idempotencyKey);
     assertAttemptMatches(existing, input, identity, outcome);
-    const eligible = { publicId: booking.publicId, renterId: identity.authId, status: 'pending',
-      $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: { $exists: false } }] };
+    const eligible = () => ({ publicId: booking.publicId, renterId: identity.authId, ...payableBookingFilter(new Date()) });
     // Recover a durable authorization whose booking update was interrupted.
     const authorization = existing?.status === 'authorized' ? existing
       : await paymentRepository.findAuthorization(booking.publicId);
     if (authorization?.status === 'authorized') {
       // A durable authorization written before the request deadline can recover,
       // but Owner approval must still happen before that same deadline.
-      const recordedInTime = !booking.expiresAt ||
-        authorization.createdAt instanceof Date && authorization.createdAt <= booking.expiresAt;
+      const due = bookingPaymentDeadline(booking);
+      const recordedInTime = due && authorization.createdAt instanceof Date && authorization.createdAt < due;
       const requestStillCurrent = !booking.expiresAt || booking.expiresAt > new Date();
       const restored = recordedInTime && requestStillCurrent && await BookingModel.findOneAndUpdate({
         publicId: booking.publicId, renterId: identity.authId, status: 'pending', paymentStatus: 'unpaid',
@@ -206,12 +208,20 @@ export const paymentService = {
       await paymentRepository.updateStatus(authorization._id, 'voided');
       throw new AppError('This request is no longer payable', 409, 'INVALID_BOOKING_STATE');
     }
-    if (existing) return existing;
-    if (booking.status !== 'pending' || booking.expiresAt && booking.expiresAt <= new Date() || booking.paymentStatus !== 'unpaid') {
+    if (existing) {
+      if (existing.status === 'voided' && booking.status === 'expired') {
+        throw new AppError('This checkout has expired and its payment hold was released', 409, 'INVALID_BOOKING_STATE');
+      }
+      return existing;
+    }
+    if (booking.status === 'expired' && booking.cancellationReason?.includes('Payment')) {
+      throw new AppError('The ten-minute payment window has expired', 409, 'PAYMENT_WINDOW_EXPIRED');
+    }
+    if (booking.status !== 'pending' || !bookingPaymentDeadline(booking) || bookingPaymentDeadline(booking) <= new Date() || booking.paymentStatus !== 'unpaid') {
       throw new AppError('Only current unpaid requests can be paid', 409, 'INVALID_BOOKING_STATE');
     }
     const token = new mongoose.Types.ObjectId().toString();
-    const claim = await BookingModel.findOneAndUpdate({ ...eligible, paymentStatus: 'unpaid',
+    const claim = await BookingModel.findOneAndUpdate({ ...eligible(), paymentStatus: 'unpaid',
       $and: [{ $or: [{ paymentLeaseUntil: { $exists: false } }, { paymentLeaseUntil: { $lte: new Date() } }] }] },
       { $set: { paymentLeaseToken: token, paymentLeaseUntil: new Date(Date.now() + 60_000) } });
     if (!claim) throw new AppError('Check payment status before trying again', 409, 'PAYMENT_IN_PROGRESS');
@@ -223,7 +233,9 @@ export const paymentService = {
         return recorded;
       }
       const gateway = await paymentAdapter.authorize({ amount: booking.pricing.total, method: input.method, simulationOutcome: outcome });
-      if (!await BookingModel.exists({ ...eligible, paymentLeaseToken: token, paymentLeaseUntil: { $gt: new Date() } })) {
+      if (!await BookingModel.exists({ ...eligible(), paymentLeaseToken: token, paymentLeaseUntil: { $gt: new Date() } })) {
+        if (gateway.status === 'authorized') await paymentAdapter.voidAuthorization({ amount: booking.pricing.total });
+        await expireDuePendingBookings({ scope: { publicId: booking.publicId } });
         throw new AppError('The request changed during checkout. Check its status.', 409, 'INVALID_BOOKING_STATE');
       }
       let payment;
@@ -243,7 +255,7 @@ export const paymentService = {
         if (!payment) throw error;
       }
       if (payment.status === 'authorized') {
-        const updated = await BookingModel.findOneAndUpdate({ ...eligible, paymentLeaseToken: token, paymentStatus: 'unpaid' },
+        const updated = await BookingModel.findOneAndUpdate({ ...eligible(), paymentLeaseToken: token, paymentStatus: 'unpaid' },
           { $set: { paymentStatus: 'authorized', paymentAuthorizationId: payment.publicId } });
         if (!updated) {
           const latest = await BookingModel.findOne({ publicId: booking.publicId });
@@ -255,7 +267,7 @@ export const paymentService = {
         }
         await notifyUser({ userId: booking.ownerId, category: 'payment', type: 'payment_authorized',
           title: 'Demo payment ready', body: 'The simulated payment for ' + booking.listingTitle + ' is ready. Owner approval is still required.',
-          entityType: 'payment', entityId: payment.publicId });
+          entityType: 'payment', entityId: payment.publicId, dedupeKey: `payment-authorized:${payment.publicId}` });
       }
       return payment;
     } finally {

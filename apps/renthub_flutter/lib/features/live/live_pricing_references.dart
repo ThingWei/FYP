@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -260,7 +261,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
     if (working) return;
     final accepted = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => rentHubDialog(
               scrollable: true,
               title: const Text('Import reviewed prices?'),
               content: const Text(
@@ -295,7 +296,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
     if (working) return;
     final accepted = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => rentHubDialog(
               scrollable: true,
               title: const Text('Stop using this price reference?'),
               content: Text('${item['brand']} ${item['productModel']}'),

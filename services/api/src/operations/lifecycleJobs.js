@@ -8,6 +8,7 @@ import { withOperationLock } from '../modules/booking/bookingRequestLock.js';
 import { recoverLifecycleOperations, recoverListingOperations } from './lifecycleJournal.js';
 import { expireRentalExtensions } from '../modules/rental/rental.service.js';
 import { physicalRentalDate, physicalRentalReturnDeadline } from '../core/calendarDate.js';
+import { sendUnpaidPaymentReminders } from '../modules/booking/bookingPaymentReminders.js';
 import { expireDuePendingBookings } from '../modules/booking/bookingExpiry.js';
 
 const state = {
@@ -21,6 +22,19 @@ const state = {
 };
 
 let interval;
+let paymentInterval;
+let paymentJobsRunning = false;
+const paymentIntervalMs = 30_000;
+
+export async function runPaymentDeadlineJobs({ now = new Date() } = {}) {
+  if (paymentJobsRunning) return { skipped: true };
+  paymentJobsRunning = true;
+  try {
+    const expired = await expireDuePendingBookings({ now, scope: { paymentStatus: 'unpaid' } });
+    const reminders = await sendUnpaidPaymentReminders(now);
+    return { expired, reminders };
+  } finally { paymentJobsRunning = false; }
+}
 
 function addHours(date, hours) {
   return new Date(date.getTime() + hours * 60 * 60 * 1000);
@@ -267,6 +281,12 @@ export function startLifecycleScheduler() {
   runLifecycleJobs().catch((error) =>
     console.error(`Lifecycle automation failed: ${error.message}`),
   );
+  // Payment deadlines need a short heartbeat without rerunning reports and
+  // unrelated rental tasks every 30 seconds.
+  paymentInterval = setInterval(() => {
+    runPaymentDeadlineJobs().catch(() => console.error('Payment deadline check failed; it will be retried.'));
+  }, paymentIntervalMs);
+  paymentInterval.unref();
   interval = setInterval(() => {
     runLifecycleJobs().catch((error) =>
       console.error(`Lifecycle automation failed: ${error.message}`),
@@ -277,6 +297,8 @@ export function startLifecycleScheduler() {
 
 export function stopLifecycleScheduler() {
   if (interval) clearInterval(interval);
+  if (paymentInterval) clearInterval(paymentInterval);
+  paymentInterval = undefined;
   interval = undefined;
   state.running = false;
 }
@@ -285,6 +307,7 @@ export function lifecycleSchedulerStatus() {
   return {
     ...state,
     intervalMs: env.lifecycleJobIntervalMs,
+    paymentIntervalMs,
     expiryMinutes: env.pendingBookingExpiryMinutes,
     reminderHours: env.lifecycleReminderHours,
     overdueGraceHours: env.overdueGraceHours,

@@ -1,3 +1,5 @@
+import 'live_payment_countdown.dart';
+import '../../shared/widgets/renthub_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
@@ -57,10 +59,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
           (widget.estimatedTotal! - booking!.total).abs() > .01);
   bool get payable =>
       booking != null &&
-      booking!.status == 'pending' &&
-      booking!.paymentStatus == 'unpaid' &&
-      (booking!.expiresAt == null ||
-          booking!.expiresAt!.isAfter(DateTime.now())) &&
+      booking!.canContinuePayment &&
       booking!.charges != null &&
       !blocked;
   bool get ready =>
@@ -152,7 +151,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
               if (!auth.authenticated ||
                   auth.user?.id != sessionUserId ||
                   auth.selectedRole != UserRole.renter) {
-                return AlertDialog(
+                return rentHubDialog(
                     title: const Text('Session changed'),
                     content: const Text(
                         'Return to the app before continuing payment.'),
@@ -162,14 +161,16 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
                           child: const Text('Close'))
                     ]);
               }
-              return _DemoPaymentDialog(method: method, total: booking!.total);
+              return _DemoPaymentDialog(
+                  method: method, total: booking!.total, booking: booking!);
             }));
     if (!mounted) return;
     setState(() => choosing = false);
     if (selected == null) return;
     if (selected == 'cancel') {
-      setState(() => message =
-          'Payment cancelled. Your unpaid request is kept; continue from Bookings later.');
+      setState(() => message = booking!.canContinuePayment
+          ? 'Payment cancelled. Continue from Bookings before the countdown ends.'
+          : 'Your payment window expired. No payment was taken.');
       return;
     }
     await _pay(selected);
@@ -250,156 +251,191 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: children)));
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Checkout')),
-      body: SafeArea(
-          child: Center(
-              child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: blocked
-                      ? Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(error ??
-                              'Sign in again to access this checkout.'))
-                      : loading && booking == null
-                          ? const Center(child: CircularProgressIndicator())
-                          : ListView(
-                              padding: const EdgeInsets.all(16),
-                              children: [
-                                  card([
-                                    Text('RentHub demo checkout',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .headlineSmall),
-                                    const SizedBox(height: 8),
-                                    const Text(
-                                        'No real money is taken. Payment does not confirm the booking; the Owner must still approve your request.')
-                                  ]),
-                                  if (loading || paying)
-                                    const LinearProgressIndicator(),
-                                  if (error != null)
-                                    card([
-                                      Text(error!),
-                                      OutlinedButton(
-                                          onPressed:
-                                              loading || paying ? null : _load,
-                                          child: const Text(
-                                              'Check payment status'))
-                                    ]),
-                                  if (message != null)
-                                    card([
-                                      Text(message!,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w600))
-                                    ]),
-                                  if (booking != null) ...[
-                                    card([
-                                      Text(booking!.listingTitle,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge),
-                                      const SizedBox(height: 8),
-                                      Text('Booking ${booking!.id}'),
-                                      Text(formatDateRange(
-                                          booking!.start, booking!.end)),
-                                      const SizedBox(height: 16),
-                                      LiveBookingCharges(booking: booking!),
-                                      if (changedTotal) ...[
-                                        const SizedBox(height: 12),
-                                        Text(widget.estimatedTotal == null
-                                            ? 'The saved total changed. Review the final charges above before paying.'
-                                            : 'Your earlier estimate was ${formatMoney(widget.estimatedTotal!)}. The final total above is saved with this request.'),
-                                        CheckboxListTile(
-                                            contentPadding: EdgeInsets.zero,
-                                            value: acceptedFinalTotal,
-                                            onChanged: paying
-                                                ? null
-                                                : (v) => setState(() =>
-                                                    acceptedFinalTotal =
-                                                        v ?? false),
-                                            title: const Text(
-                                                'I have reviewed the final charges'))
-                                      ],
-                                      TextButton(
-                                          onPressed: () => showBookingAgreement(
-                                              context, widget.bookingId),
-                                          child: const Text('View agreement'))
-                                    ]),
-                                    if (payable)
+  Widget build(BuildContext context) => booking == null
+      ? _body(context, null, false)
+      : BookingPaymentClock(
+          booking: booking!,
+          onExpired: _load,
+          builder: (context, remaining, expired) =>
+              _body(context, remaining, expired));
+
+  Widget _body(BuildContext context, Duration? remaining, bool expired) =>
+      Scaffold(
+          appBar: AppBar(title: const Text('Checkout')),
+          body: SafeArea(
+              child: Center(
+                  child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: blocked
+                          ? Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(error ??
+                                  'Sign in again to access this checkout.'))
+                          : loading && booking == null
+                              ? const Center(child: CircularProgressIndicator())
+                              : ListView(
+                                  padding: const EdgeInsets.all(16),
+                                  children: [
                                       card([
-                                        Text('Choose a demo payment method',
+                                        Text('RentHub demo checkout',
                                             style: Theme.of(context)
                                                 .textTheme
-                                                .titleMedium),
+                                                .headlineSmall),
                                         const SizedBox(height: 8),
-                                        for (final entry in const [
-                                          (
-                                            'card',
-                                            'Demo Card',
-                                            Icons.credit_card
-                                          ),
-                                          (
-                                            'fpx',
-                                            'Demo FPX',
-                                            Icons.account_balance_outlined
-                                          ),
-                                          (
-                                            'wallet',
-                                            'Demo Wallet',
-                                            Icons
-                                                .account_balance_wallet_outlined
-                                          )
-                                        ])
-                                          ListTile(
-                                              contentPadding: EdgeInsets.zero,
-                                              leading: Icon(entry.$3),
-                                              title: Text(entry.$2),
-                                              trailing: Icon(method == entry.$1
-                                                  ? Icons.radio_button_checked
-                                                  : Icons.radio_button_off),
-                                              onTap: paying ||
-                                                      loading ||
-                                                      attemptKey != null
-                                                  ? null
-                                                  : () => setState(
-                                                      () => method = entry.$1)),
-                                        const SizedBox(height: 16),
-                                        FilledButton(
-                                            onPressed: ready ? _openDemo : null,
-                                            child: Text(recorded
-                                                ? 'Finish recording payment'
-                                                : 'Continue demo payment'))
+                                        const Text(
+                                            'No real money is taken. Payment does not confirm the booking; the Owner must still approve your request.')
                                       ]),
-                                    if (booking!.charges == null)
-                                      const Text(
-                                          'The saved charge breakdown is unavailable. Please contact support before paying.'),
-                                  ],
-                                  if (uncertain && error == null)
-                                    OutlinedButton(
-                                        onPressed:
-                                            paying || loading ? null : _load,
-                                        child:
-                                            const Text('Check payment status')),
-                                  OutlinedButton(
-                                      onPressed: paying
-                                          ? null
-                                          : () => Navigator.pop(context),
-                                      child: const Text('Back to Bookings')),
-                                  if (payable)
-                                    const Padding(
-                                        padding: EdgeInsets.all(8),
-                                        child: Text(
-                                            'You can leave now. Your unpaid request stays in Bookings until it expires.')),
-                                ])))));
+                                      if (booking?.awaitingPayment == true)
+                                        card([
+                                          PaymentCountdownLabel(
+                                              remaining: remaining,
+                                              expired: expired),
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                              'Complete payment within 10 minutes of starting checkout. Leaving this page does not restart the timer.'),
+                                        ]),
+                                      if (loading || paying)
+                                        const LinearProgressIndicator(),
+                                      if (error != null)
+                                        card([
+                                          Text(error!),
+                                          OutlinedButton(
+                                              onPressed: loading || paying
+                                                  ? null
+                                                  : _load,
+                                              child: const Text(
+                                                  'Check payment status'))
+                                        ]),
+                                      if (message != null)
+                                        card([
+                                          Text(message!,
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w600))
+                                        ]),
+                                      if (booking != null) ...[
+                                        card([
+                                          Text(booking!.listingTitle,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleLarge),
+                                          const SizedBox(height: 8),
+                                          Text('Booking ${booking!.id}'),
+                                          Text(formatDateRange(
+                                              booking!.start, booking!.end)),
+                                          const SizedBox(height: 16),
+                                          LiveBookingCharges(booking: booking!),
+                                          if (changedTotal) ...[
+                                            const SizedBox(height: 12),
+                                            Text(widget.estimatedTotal == null
+                                                ? 'The saved total changed. Review the final charges above before paying.'
+                                                : 'Your earlier estimate was ${formatMoney(widget.estimatedTotal!)}. The final total above is saved with this request.'),
+                                            CheckboxListTile(
+                                                contentPadding: EdgeInsets.zero,
+                                                value: acceptedFinalTotal,
+                                                onChanged: paying
+                                                    ? null
+                                                    : (v) => setState(() =>
+                                                        acceptedFinalTotal =
+                                                            v ?? false),
+                                                title: const Text(
+                                                    'I have reviewed the final charges'))
+                                          ],
+                                          TextButton(
+                                              onPressed: () =>
+                                                  showBookingAgreement(context,
+                                                      widget.bookingId),
+                                              child:
+                                                  const Text('View agreement'))
+                                        ]),
+                                        if (payable)
+                                          card([
+                                            Text('Choose a demo payment method',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium),
+                                            const SizedBox(height: 8),
+                                            for (final entry in const [
+                                              (
+                                                'card',
+                                                'Demo Card',
+                                                Icons.credit_card
+                                              ),
+                                              (
+                                                'fpx',
+                                                'Demo FPX',
+                                                Icons.account_balance_outlined
+                                              ),
+                                              (
+                                                'wallet',
+                                                'Demo Wallet',
+                                                Icons
+                                                    .account_balance_wallet_outlined
+                                              )
+                                            ])
+                                              ListTile(
+                                                  contentPadding:
+                                                      EdgeInsets.zero,
+                                                  leading: Icon(entry.$3),
+                                                  title: Text(entry.$2),
+                                                  trailing: Icon(method ==
+                                                          entry.$1
+                                                      ? Icons
+                                                          .radio_button_checked
+                                                      : Icons.radio_button_off),
+                                                  onTap: paying ||
+                                                          loading ||
+                                                          attemptKey != null
+                                                      ? null
+                                                      : () => setState(() =>
+                                                          method = entry.$1)),
+                                            const SizedBox(height: 16),
+                                            FilledButton(
+                                                onPressed:
+                                                    ready ? _openDemo : null,
+                                                child: Text(recorded
+                                                    ? 'Finish recording payment'
+                                                    : 'Continue demo payment'))
+                                          ]),
+                                        if (booking!.charges == null)
+                                          const Text(
+                                              'The saved charge breakdown is unavailable. Please contact support before paying.'),
+                                      ],
+                                      if (uncertain && error == null)
+                                        OutlinedButton(
+                                            onPressed: paying || loading
+                                                ? null
+                                                : _load,
+                                            child: const Text(
+                                                'Check payment status')),
+                                      OutlinedButton(
+                                          onPressed: paying
+                                              ? null
+                                              : () => Navigator.pop(context),
+                                          child:
+                                              const Text('Back to Bookings')),
+                                      if (payable)
+                                        const Padding(
+                                            padding: EdgeInsets.all(8),
+                                            child: Text(
+                                                'You can leave now. Your unpaid request stays in Bookings until it expires.')),
+                                    ])))));
 }
 
 class _DemoPaymentDialog extends StatelessWidget {
-  const _DemoPaymentDialog({required this.method, required this.total});
+  const _DemoPaymentDialog(
+      {required this.method, required this.total, required this.booking});
+  final Booking booking;
   final String method;
   final double total;
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => BookingPaymentClock(
+      booking: booking,
+      builder: (context, remaining, expired) =>
+          _dialog(context, remaining, expired));
+
+  Widget _dialog(BuildContext context, Duration? remaining, bool expired) =>
+      rentHubDialog(
         backgroundColor: AppColors.background,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -427,6 +463,10 @@ class _DemoPaymentDialog extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (booking.awaitingPayment) ...[
+                  PaymentCountdownLabel(remaining: remaining, expired: expired),
+                  const SizedBox(height: 12)
+                ],
                 DecoratedBox(
                   decoration: BoxDecoration(
                     color: AppColors.blueSurface,
@@ -466,37 +506,17 @@ class _DemoPaymentDialog extends StatelessWidget {
         ),
         actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
         actions: [
-          SizedBox(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, 'success'),
-                  child: const Text('Complete demo payment',
-                      textAlign: TextAlign.center),
-                ),
-                const SizedBox(height: 12),
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context, 'cancel'),
-                      child: const Text('Cancel', textAlign: TextAlign.center),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context, 'declined'),
-                      child: const Text('Simulate decline',
-                          textAlign: TextAlign.center),
-                    ),
-                  ),
-                ]),
-              ],
-            ),
-          ),
+          TextButton(
+              onPressed: () => Navigator.pop(context, 'cancel'),
+              child: const Text('Cancel', textAlign: TextAlign.center)),
+          OutlinedButton(
+              onPressed:
+                  expired ? null : () => Navigator.pop(context, 'declined'),
+              child: const Text('Decline', textAlign: TextAlign.center)),
+          FilledButton(
+              onPressed:
+                  expired ? null : () => Navigator.pop(context, 'success'),
+              child: const Text('Pay demo', textAlign: TextAlign.center)),
         ],
       );
 }

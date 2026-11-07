@@ -193,7 +193,9 @@ test('successful payment keeps the Owner decision deadline and late recovery is 
   await BookingModel.updateOne({ publicId: id }, { $set: { paymentStatus: 'unpaid', paymentAuthorizationId: '', expiresAt: new Date(future.getTime() - 2000) } });
   await pay('deadline-success').expect(409);
   const restored = await BookingModel.findOne({ publicId: id });
-  assert.equal(restored.paymentStatus, 'unpaid');
+  // Expiry now reconciles the saved authorization before handling the retry.
+  assert.equal(restored.status, 'expired');
+  assert.equal(restored.paymentStatus, 'voided');
   assert.ok(restored.expiresAt <= new Date());
   assert.equal((await PaymentModel.findOne({ publicId: success.body.data.publicId })).status, 'voided');
   assert.equal(await PaymentModel.countDocuments({}), 1);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'renthub_dialog.dart';
 import '../../core/theme/app_theme.dart';
 import '../models/domain_models.dart';
 
@@ -162,7 +163,7 @@ Future<bool> confirmAction(
 }) async =>
     await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (_) => rentHubDialog(
         title: Text(title),
         content: Text(message),
         actions: [

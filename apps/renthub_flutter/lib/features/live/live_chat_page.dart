@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -234,7 +235,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
       final draft = TextEditingController(text: message.text);
       edited = await InputValidation.showFormDialog<String>(
           context: context,
-          builder: (dialog) => AlertDialog(
+          builder: (dialog) => rentHubDialog(
                   title: const Text('Edit message'),
                   content: TextFormField(
                       controller: draft,
@@ -343,7 +344,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => rentHubDialog(
           title: const Text('Report message'),
           content: Column(
             mainAxisSize: MainAxisSize.min,

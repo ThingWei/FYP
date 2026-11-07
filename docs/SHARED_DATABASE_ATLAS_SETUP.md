@@ -73,7 +73,7 @@ updates made through the Atlas-connected API.
    Keep the other settings, with compatible identity/session secrets and Supabase
    credentials as described below. The private `atlas-target.env` can be used as
    the source for the single setting; it is not a public transfer artifact.
-3. Add that laptop/network's public outbound IP in Atlas Network Access if needed.
+3. Complete the [one-time Atlas automation setup](ATLAS_AUTOMATION_SETUP_RESULT.md) on that laptop. It registers its current individual IP when needed; daily browser login and manual IP approval are unnecessary after setup.
 4. Stop/restart its API through the usual launcher, then refresh/reopen RentHub.
    Accounts and saved records should come from the shared database. No restore,
    seed command or model retraining is needed on that laptop.
@@ -301,3 +301,20 @@ unreachable database with missing CLI, successful registration, failed CLI sign-
 profile preservation, bounded retries, precise error classification and redaction.
 All access-list mutations in tests were mocked. Real renewal and post-renewal
 launcher startup remain user sign-in/device verification steps.
+
+
+## 6 November 2026: per-laptop automation replaces daily personal login
+
+The earlier session-expiry section documents the previous personal-profile recovery.
+For everyday operation, use the new [Atlas automation setup](ATLAS_AUTOMATION_SETUP_RESULT.md).
+The original laptop has a verified `renthub-launcher` service-account profile in
+Windows Credential Manager; its secret expires on 6 November 2027. The organization
+was confirmed to contain exactly the configured RentHub project before its
+administration-API IP-list requirement was disabled. The dedicated service account
+has only Project Network Access Manager permissions and an empty administration-API
+IP list. Database network entries remain separate and narrowly scoped.
+
+No database records, shared storage configuration or application secrets were
+changed. The second laptop requires its own one-time setup and device verification.
+Do not copy the original laptop's credential store. The database remains shared;
+API, AI and blockchain hosting remain local as described above.

@@ -17,6 +17,14 @@ class UserFacingError {
     }
     if (error is ApiException) {
       final known = <String, String>{
+        'DISPUTE_WINDOW_CLOSED':
+            'This rental is complete, so a new dispute can no longer be opened.',
+        'PAYMENT_WINDOW_EXPIRED':
+            'Your 10-minute payment window has expired. No payment was taken. Choose dates again to start a new checkout.',
+        'HANDOVER_TOO_EARLY':
+            'This rental starts on a future date. Prepare the item now and confirm handover on the booked day.',
+        'CONDITION_PHOTOS_REQUIRED':
+            'Add clear, separate photos showing the item condition. PDF files cannot be used as condition photos.',
         'LISTING_PHOTO_TOO_LARGE':
             'Choose listing photos that are 10 MB or smaller.',
         'DUPLICATE_PENDING_BOOKING':

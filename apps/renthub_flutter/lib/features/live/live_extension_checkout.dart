@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/idempotency_key.dart';
@@ -67,7 +68,7 @@ class _LiveExtensionCheckoutState extends State<LiveExtensionCheckout> {
     final userId = context.read<AuthController>().user?.id;
     final accepted = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => rentHubDialog(
               title: const Text('Simulate extension payment?'),
               content: Text(
                   '${formatMoney(rental!.extension!.amount)} for extra days only. No real payment details are needed. Owner approval is still required.'),

@@ -9,7 +9,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw 'Launcher syntax errors.' }
 $helperNames = @('Get-RentHubAtlasHost', 'Invoke-RentHubAtlasJson', 'Resolve-RentHubAtlasProject', 'Get-RentHubPublicIPv4',
     'Sync-RentHubAtlasAccess', 'Test-RentHubAtlasDatabase', 'Wait-RentHubAtlasDatabase',
-    'Get-RentHubAtlasFailureMessage', 'Initialize-RentHubAtlasAccess')
+    'Get-RentHubAtlasFailureMessage', 'Initialize-RentHubAtlasAccess', 'Get-RentHubAtlasProfileInfo', 'Resolve-RentHubAtlasProfile')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $helperNames
@@ -131,6 +131,21 @@ Assert-Atlas (@($script:entries | Where-Object ipAddress -eq '198.51.100.4').Cou
 $script:cliCalls = @()
 Sync-RentHubAtlasAccess -AtlasPath fixture -ClusterHost $script:clusterHost
 Assert-Atlas (-not @($script:cliCalls | Where-Object { $_[1] -eq 'create' }).Count) 'Shared public IPs reuse the existing entry.'
+
+$script:entries = @(@{ ipAddress = $script:currentIp; deleteAfterDate = [datetime]::UtcNow.AddHours(-1).ToString('o') })
+$script:cliCalls = @()
+Sync-RentHubAtlasAccess -AtlasPath fixture -ClusterHost $script:clusterHost
+Assert-Atlas (@($script:cliCalls | Where-Object { $_[1] -eq 'create' }).Count -eq 1) 'An expired same-IP entry cannot skip registration.'
+$script:entries = @(@{ cidrBlock = "$script:currentIp/32"; deleteAfterDate = [datetime]::UtcNow.AddHours(1).ToString('o') })
+$script:cliCalls = @()
+Sync-RentHubAtlasAccess -AtlasPath fixture -ClusterHost $script:clusterHost
+Assert-Atlas (-not @($script:cliCalls | Where-Object { $_[1] -eq 'create' }).Count) 'A current narrow CIDR entry can be reused.'
+$script:createFail = $true
+$script:entries = @(@{ ipAddress = $script:currentIp; deleteAfterDate = [datetime]::UtcNow.AddHours(-1).ToString('o') })
+$caught = $false
+try { Sync-RentHubAtlasAccess -AtlasPath fixture -ClusterHost $script:clusterHost } catch { $caught = $true }
+Assert-Atlas $caught 'A failed create cannot use an expired entry as evidence of a successful race.'
+$script:createFail = $false
 
 $script:entries = @()
 $script:createRace = $true

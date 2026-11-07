@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'live_reviews_list.dart';
 export 'live_chat_page.dart';
 import 'live_chat_page.dart';
@@ -38,7 +39,7 @@ Future<bool> ensureMarketplaceIdentity(BuildContext context,
     if (marketplaceIdentityApproved(profile)) return true;
     final proceed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => rentHubDialog(
         icon: const Icon(Icons.verified_user_outlined),
         title: const Text('Identity verification required'),
         content: Text(marketplaceIdentityMessage(profile.mykadStatus, action)),
@@ -523,7 +524,7 @@ class LiveProfilePage extends StatelessWidget {
               ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
-              onPressed: () => onLogout(),
+              onPressed: () => confirmLogout(context, onLogout),
               icon: const Icon(Icons.logout),
               label: const Text('Log Out'),
             ),
@@ -665,7 +666,7 @@ class _LiveAddressesPage extends StatelessWidget {
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) => StatefulBuilder(
-            builder: (dialogContext, refresh) => AlertDialog(
+            builder: (dialogContext, refresh) => rentHubDialog(
                   title: Text(initial == null
                       ? 'Add Malaysian address'
                       : 'Edit Malaysian address'),
@@ -958,7 +959,7 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => rentHubDialog(
           icon: const Icon(Icons.person_off_outlined, color: AppColors.error),
           title: const Text('Deactivate your account?'),
           content: SizedBox(
@@ -1526,7 +1527,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
             'approved') {
       final confirmed = await showDialog<bool>(
           context: context,
-          builder: (dialogContext) => AlertDialog(
+          builder: (dialogContext) => rentHubDialog(
                 title: const Text('Submit updated driving evidence?'),
                 content: const Text(
                     'Your previous review stays in history. Driving eligibility becomes pending until an administrator reviews the renewed licence or changed classes.'),

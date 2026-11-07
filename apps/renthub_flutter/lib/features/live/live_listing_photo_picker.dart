@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
@@ -16,8 +17,12 @@ bool get listingCameraSupported =>
     const [TargetPlatform.android, TargetPlatform.iOS]
         .contains(defaultTargetPlatform);
 
-Future<List<String>> pickListingPhotos(
-    BuildContext context, int remaining) async {
+Future<List<String>> pickListingPhotos(BuildContext context, int remaining,
+    {String purpose = 'listing_image'}) async {
+  if (!const ['listing_image', 'handover_evidence', 'return_evidence']
+      .contains(purpose)) {
+    throw ArgumentError('Unsupported photo purpose');
+  }
   if (remaining <= 0) return [];
   final controller = context.read<LiveRentHubController>();
   final account = controller.profile?.id;
@@ -84,14 +89,21 @@ Future<List<String>> pickListingPhotos(
           barrierDismissible: false,
           builder: (_) => LiveAuthenticatedPage(
                 child: ListingPhotoBatchPreview(
+                    title: purpose == 'listing_image'
+                        ? 'Review listing photos'
+                        : 'Review condition photos',
                     photos: selections,
                     upload: (photo) async {
                       if (account != controller.profile?.id) {
                         throw ApiException(401, 'Your account changed.',
                             code: 'SESSION_CHANGED');
                       }
-                      return controller.uploadListingPhoto(
-                          photo.bytes, photo.filename);
+                      return purpose == 'listing_image'
+                          ? controller.uploadListingPhoto(
+                              photo.bytes, photo.filename)
+                          : controller.uploadConditionPhoto(
+                              photo.bytes, photo.filename,
+                              purpose: purpose);
                     }),
               )) ??
       [];
@@ -105,7 +117,11 @@ class _PhotoUpload {
 
 class ListingPhotoBatchPreview extends StatefulWidget {
   const ListingPhotoBatchPreview(
-      {super.key, required this.photos, required this.upload});
+      {super.key,
+      required this.photos,
+      required this.upload,
+      this.title = 'Review listing photos'});
+  final String title;
   final List<ListingPhotoSelection> photos;
   final Future<String> Function(ListingPhotoSelection) upload;
   @override
@@ -176,8 +192,8 @@ class _ListingPhotoBatchPreviewState extends State<ListingPhotoBatchPreview> {
         onPopInvokedWithResult: (didPop, _) {
           if (!didPop && !busy) _finish();
         },
-        child: AlertDialog(
-          title: const Text('Review listing photos'),
+        child: rentHubDialog(
+          title: Text(widget.title),
           content: SizedBox(
               width: 560,
               height: MediaQuery.sizeOf(context).height * .55,
@@ -201,7 +217,8 @@ class _ListingPhotoBatchPreviewState extends State<ListingPhotoBatchPreview> {
                                       InkWell(
                                           onTap: () => showDialog<void>(
                                               context: context,
-                                              builder: (context) => AlertDialog(
+                                              builder: (context) =>
+                                                  rentHubDialog(
                                                       content: InteractiveViewer(
                                                           child: Image.memory(
                                                               entry.photo.bytes,

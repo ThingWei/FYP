@@ -4,6 +4,10 @@ RentHub has a Renter/Owner app and a separate administrator portal. For the full
 
 These commands run from `apps/renthub_flutter`. The laptop must already have the project's private configuration, dependencies and AI runtime files.
 
+For the complete priority-ordered platform test cases, manual execution sheets and
+isolated automated checks, see the [testing guide](../../docs/testing/README.md).
+Run its commands from the project root, not this application folder.
+
 ## Everyday commands
 
 ### Windows
@@ -51,19 +55,37 @@ The Renter/Owner browser command is `.\run-renthub.ps1 -Device chrome -Presentat
 
 Presentation mode disables development reload for services this launcher starts. Compatible services started elsewhere retain their existing settings. Use one main backend host during a multi-device demonstration.
 
-## Atlas login
+## Atlas: set up once per laptop
 
-Run the launcher first. If the database is already reachable, it skips Atlas CLI entirely. Otherwise it uses the saved CLI session to register the current network where permitted.
-
-Only when it reports a missing or expired login, run:
+Normal startup does not need daily Atlas browser login after this setup. Keep the shared database connection in the private API `.env`. From this folder:
 
 ```powershell
+# One-time administrator sign-in, completed in your browser
 atlas auth login --profile default
+
+# Read-only preview, then configure this laptop
+.\setup-renthub-atlas.ps1
+.\setup-renthub-atlas.ps1 -Apply
+
+# Normal daily startup
+.\run-renthub.ps1 -Presentation
 ```
 
-Temporary IP access created by the launcher lasts 24 hours. This is separate from your RentHub sign-in and from the CLI's saved login. Each laptop/Windows account maintains its own CLI session.
+Run setup separately on the other laptop after copying the updated scripts. Each laptop gets a separate, narrowly permitted automation account, stored in Windows Credential Manager. Do not copy credential files or put secrets in `.env`. Setup requires an administrator who can manage the existing RentHub project and its RentHub-only organization.
 
-For an existing named profile, pass `-AtlasProfile YOUR_PROFILE`. `-SkipAtlasAccess` is only for access managed separately; it cannot make an unreachable database work.
+The launcher checks database connectivity first. If needed, it registers this network's individual IP for 24 hours using the saved automation account. **The 24-hour access message is normal and does not mean you must log in tomorrow.** Other laptops' entries remain untouched. Rerun the launcher after changing Wi-Fi.
+
+Setup writes `ATLAS_PROFILE=renthub-launcher` and the verified `ATLAS_PROJECT_ID` in `services/api/.env`. Selection order is explicit `-AtlasProfile`, configured `ATLAS_PROFILE`, then `default`. Legacy personal profiles retain their usual login expiry; no browser login is opened automatically.
+
+The original laptop's new secret expires **6 November 2027**. Each laptop displays its own date. To renew, sign into the administrator profile once and run:
+
+```powershell
+.\setup-renthub-atlas.ps1 -Apply -RenewSecret
+```
+
+After testing normal startup, retire the prior secret for this laptop in Atlas. An expired/revoked credential, missing permissions or unavailable Windows credential store still needs repair; the launcher explains which check failed. `-SkipAtlasAccess` is only for access managed separately and cannot fix an unreachable database.
+
+See the [complete one-time setup and recovery guide](../../docs/ATLAS_AUTOMATION_SETUP_RESULT.md). Administration-API network access and database network access are separate: setup changes the former only after verifying the dedicated organization, and never opens database access to all IPs.
 
 ## Startup checks and slower laptops
 

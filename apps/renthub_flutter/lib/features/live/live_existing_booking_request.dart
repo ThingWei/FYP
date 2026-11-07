@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/network/api_client.dart';
@@ -27,7 +28,7 @@ Future<bool> offerExistingBookingRequest(BuildContext context, Object error,
   if (existing == null) return false;
   final open = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => rentHubDialog(
             title: const Text('You already have a request'),
             content: const Text(
                 'You have a pending request for this item on overlapping dates. '

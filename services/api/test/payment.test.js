@@ -1,3 +1,4 @@
+import { physicalRentalDate } from '../src/core/calendarDate.js';
 import test, { after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -121,6 +122,7 @@ async function createCapture() {
   await authorize(bookingId);
   await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner).send({ status: 'approved' }).expect(200);
   const rental = await RentalModel.findOne({ bookingId });
+  await RentalModel.updateOne({ _id: rental._id }, { $set: { startDate: physicalRentalDate(new Date()) } });
   await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
     .send({ condition: 'Excellent', evidence: ['local://handover/camera.jpg'] }).expect(200);
   return PaymentModel.findOne({ bookingId, type: 'capture' });
@@ -226,6 +228,7 @@ test('captures on handover and supports monitored partial and full refunds', asy
     .set(owner)
     .send({ status: 'approved' });
   const rental = await RentalModel.findOne({ bookingId }).lean();
+  await RentalModel.updateOne({ _id: rental._id }, { $set: { startDate: physicalRentalDate(new Date()) } });
   await request(app)
     .post(`/api/v1/rentals/${rental.publicId}/handover`)
     .set(owner)

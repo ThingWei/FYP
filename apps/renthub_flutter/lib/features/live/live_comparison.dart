@@ -1,3 +1,4 @@
+import '../../shared/widgets/renthub_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/recommendations/recommendation_models.dart';
@@ -23,7 +24,7 @@ Future<void> toggleLiveComparison(BuildContext context, Listing listing) async {
                 comparisonGroup(listing))) {
       final replace = await showDialog<bool>(
           context: context,
-          builder: (dialog) => AlertDialog(
+          builder: (dialog) => rentHubDialog(
                   title: const Text('Start a new comparison?'),
                   content: Text(
                       'Compare only ${listing.subcategory} with ${listing.subcategory}. Starting again removes your current selection.'),

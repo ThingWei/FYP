@@ -172,11 +172,27 @@ test('partial refund blocks automatic full settlement; dispute allocates only re
   assert.equal((await PaymentModel.findOne({ type: 'owner_settlement' })).amount, 230);
 });
 
-test('dispute after completed settlement records a zero remaining allocation without clawback', async () => {
+test('completed settlement blocks a new dispute without clawback or another payout', async () => {
   await RentalModel.updateOne({ publicId: rentalId }, { $set: { status: 'return_submitted' } });
   await request(app).post(`${path}/return/confirm`).set(owner).send({ condition: 'Good', depositDeduction: 0 }).expect(200);
   const before = await PaymentModel.countDocuments();
+  const notifications = await NotificationModel.countDocuments();
+  const result = await request(app).post('/api/v1/disputes').set(renter).send({ rentalId, category: 'other',
+    summary: 'Please review this rental', description: 'An attempt after final completion must not reopen this transaction.' }).expect(409);
+  assert.equal(result.body.error.code, 'DISPUTE_WINDOW_CLOSED');
+  assert.equal(await DisputeModel.countDocuments(), 0);
+  assert.equal(await NotificationModel.countDocuments(), notifications);
+  assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'completed');
+  assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, 'completed');
+  assert.equal(await PaymentModel.countDocuments(), before);
+});
+
+test('an unfinished refunded rental can resolve its existing case with zero remaining allocation', async () => {
+  const capture = await PaymentModel.findOne({ type: 'capture' });
+  await request(app).post(`/api/v1/payments/${capture.publicId}/refunds`).set(admin)
+    .send({ amount: 430, reason: 'Agreed full refund before rental completion', idempotencyKey: 'unfinished-full-refund' }).expect(201);
   const dispute = await openDispute();
+  const before = await PaymentModel.countDocuments();
   const result = await resolve(dispute).expect(200);
   assert.equal(result.body.data.resolution.renterAmount, 0);
   assert.equal(await PaymentModel.countDocuments(), before);

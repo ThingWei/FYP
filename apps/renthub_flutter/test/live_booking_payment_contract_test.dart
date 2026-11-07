@@ -344,9 +344,9 @@ void main() {
       ),
     );
 
-    expect(find.text('Dispute Tracking'), findsOneWidget);
+    expect(find.text('Your case'), findsOneWidget);
     expect(find.text('Damage-waiver claim'), findsNothing);
-    expect(find.text('Submit Insurance Claim'), findsNothing);
+    expect(find.text('Request damage-waiver review'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -387,7 +387,7 @@ void main() {
     );
 
     await tester.scrollUntilVisible(
-      find.text('Submit Insurance Claim'),
+      find.text('Request damage-waiver review'),
       250,
       scrollable: find
           .byWidgetPredicate(
@@ -398,7 +398,7 @@ void main() {
           .first,
     );
     expect(find.text('Damage-waiver claim'), findsOneWidget);
-    expect(find.text('Submit Insurance Claim'), findsOneWidget);
+    expect(find.text('Request damage-waiver review'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

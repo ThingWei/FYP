@@ -99,16 +99,20 @@ export const disputeService = {
     return withOperationLock('listing-decision', context.listingId, async (ensureOwned) => {
       await recoverListingOperations(context.listingId, ensureOwned);
       const rental = await RentalModel.findById(context._id);
+      if (!rental) throw new AppError('Rental not found', 404, 'NOT_FOUND');
       const role = participantRole(rental, identity.authId);
       if (!role) throw new AppError('Rental not found', 404, 'NOT_FOUND');
+      const booking = await BookingModel.findOne({ publicId: rental.bookingId });
+      if (!booking) throw new AppError('Linked booking not found', 409, 'BOOKING_MISSING');
+      if (rental.status === 'completed' || booking.status === 'completed') {
+        throw new AppError('This rental is complete, so a new dispute can no longer be opened.', 409, 'DISPUTE_WINDOW_CLOSED');
+      }
       if (rental.status === 'cancelled') {
         throw new AppError('A cancelled rental cannot be disputed', 409, 'INVALID_RENTAL_STATE');
       }
       if (await disputeRepository.findByRental(rental.publicId)) {
         throw new AppError('A dispute already exists for this rental', 409, 'DISPUTE_EXISTS');
       }
-      const booking = await BookingModel.findOne({ publicId: rental.bookingId });
-      if (!booking) throw new AppError('Linked booking not found', 409, 'BOOKING_MISSING');
       const respondentId = role === 'renter' ? rental.ownerId : rental.renterId;
       const respondent = await UserModel.findOne({ authId: respondentId });
       if (!respondent) throw new AppError('Other participant not found', 409, 'USER_MISSING');
