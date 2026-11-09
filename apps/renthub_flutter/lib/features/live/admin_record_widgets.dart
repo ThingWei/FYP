@@ -289,10 +289,7 @@ class _AdminRecordsTableState extends State<AdminRecordsTable> {
                         children: [
                           if (widget.header != null) widget.header!,
                           RentHubSectionHeader(
-                              adminRecordTitles[widget.type] ?? 'Records',
-                              help: widget.type == 'verification'
-                                  ? 'All submitted documents, including completed reviews. Filter by status to find requests that need attention.'
-                                  : 'View records and open details to review or take action.'),
+                              adminRecordTitles[widget.type] ?? 'Records'),
                           const SizedBox(height: 12),
                           AdminRecordToolbar(
                               page: s.page,

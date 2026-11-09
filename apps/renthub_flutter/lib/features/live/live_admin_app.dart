@@ -489,8 +489,6 @@ class _AdminDashboard extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         children: [
           RentHubSectionHeader('Platform overview',
-              help:
-                  'Review requests, manage records and check how RentHub is running.',
               style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 20),
           Wrap(
@@ -2399,8 +2397,6 @@ class _AdminReportingPanel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   RentHubSectionHeader('Operational reports',
-                      help:
-                          'Generate auditable CSV exports or automate recurring snapshots.',
                       style: Theme.of(context).textTheme.headlineSmall),
                 ],
               ),
@@ -2565,8 +2561,6 @@ class _AdminMessageReports extends StatelessWidget {
         const _AdminReportingPanel(),
         const SizedBox(height: 32),
         RentHubSectionHeader('Safety reports',
-            help:
-                'Review safety reports about accounts, listings, reviews and messages.',
             style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 16),
         if (moderationReports.isEmpty && messageReports.isEmpty)
@@ -3100,8 +3094,6 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
               padding: const EdgeInsets.all(24),
               children: [
                 RentHubSectionHeader('Platform Settings',
-                    help:
-                        'Manage fees, identity checks, support messages and rewards. Changes take effect after you save.',
                     style: Theme.of(context).textTheme.headlineSmall),
                 const SizedBox(height: 16),
                 Form(
@@ -3393,9 +3385,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const RentHubSectionHeader('Listing categories',
-                                  help:
-                                      'Choose which categories are available to Owners and renters. Category names stay the same.'),
+                              const RentHubSectionHeader('Listing categories'),
                               for (final entry in categoryStates.entries)
                                 SwitchListTile(
                                   contentPadding: EdgeInsets.zero,

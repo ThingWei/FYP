@@ -832,7 +832,7 @@ void main() {
     addTearDown(controller.dispose);
     await tester.pumpWidget(form(controller));
     await press(tester, 'Suggest a daily price');
-    expect(find.text('Price suggestion unavailable'), findsOneWidget);
+    expect(find.text('Let’s try your price guide again'), findsOneWidget);
     expect(
         tester
             .widget<TextFormField>(field('Daily price (RM)'))

@@ -100,7 +100,7 @@ function rentism(root) {
     let label = match[1].replace(/\s*\((?:body only|black|wire|wireless)\)\s*/gi, ' ').trim();
     let subcategory;
     if (/Samsung S\d|Galaxy|iPhone/i.test(label)) subcategory = 'Smartphones';
-    else if (/microfone|microphone/i.test(label)) subcategory = 'Audio';
+    else if (productTypeFor('Devices', 'Audio', label)) subcategory = 'Audio';
     else if (/walkie|video capture|atem|mars 400/i.test(label)) subcategory = 'Other devices';
     else if (/godox.*sk\d|lighting|video light/i.test(label)) subcategory = 'Event equipment';
     else if (bodySection && /^\d{1,4}d\b/i.test(label) || /\b(?:ef|rf|fe|af-s|af-p)\b.*\d.*mm|\blens\b|\beos\b|\bd\d{3,4}\b|\bnikon z\d|\bsony (?:alpha|a[679]|fdr|hxr|pxw)|\bfujifilm x[- ]|go\s?pro|insta360|osmo pocket/i.test(label)) subcategory = 'Cameras';

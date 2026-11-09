@@ -26,6 +26,7 @@ import { catalogItemType, withCatalogTypes } from '../catalog/catalog.itemType.j
 import { PricingReferenceModel } from './pricingReference.model.js';
 import { compatiblePriceReferences, enabledPriceSourceIds } from './priceSync.service.js';
 import { reviewedComparisonFacts } from './productComparisonFacts.js';
+import { demonstrationBookingReason, limitedPriceGuide, priceRecovery } from './pricingRecovery.js';
 import {
   buildRecommendationInteractions,
   modelInteraction,
@@ -442,6 +443,8 @@ export const listingService = {
     const evidenceStart = new Date(
       Date.now() - PRICING_EVIDENCE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
     );
+    const allowDemonstration = env.nodeEnv !== 'production' &&
+      (env.pricingEvidenceMode === 'demonstration' || env.pricingIncludeDemoSeed);
     const [platformCandidates, completedBookings, ownerRating, externalReferences] =
       await Promise.all([
         ListingModel.find({
@@ -464,7 +467,7 @@ export const listingService = {
       BookingModel.find({
         listingType: 'physical',
         status: 'completed',
-        ...(env.pricingIncludeDemoSeed
+        ...(allowDemonstration
           ? { sourceType: { $in: ['marketplace', 'demo_seed'] } }
           : { sourceType: { $ne: 'demo_seed' } }),
         paymentStatus: { $in: PRICING_COMPLETED_PAYMENT_STATUSES },
@@ -474,7 +477,7 @@ export const listingService = {
           { completedAt: { $exists: false }, createdAt: { $gte: evidenceStart } },
         ],
       })
-        .select('publicId ownerId listingId startDate endDate pricing.baseAmount pricing.originalRentalDays completedAt sourceType status pricingEvidenceSnapshot')
+        .select('publicId ownerId listingId listingType startDate endDate pricing.baseAmount pricing.originalRentalDays paymentStatus completedAt sourceType status pricingEvidenceSnapshot')
         .sort({ completedAt: -1 })
         .limit(PRICING_EVIDENCE_QUERY_LIMIT)
         .lean(),
@@ -513,8 +516,10 @@ export const listingService = {
       bookingId: { $in: completedBookings.map((b) => b.publicId) }, type: { $in: ['authorization', 'capture'] },
     }).select('bookingId simulated type status amount currency gatewayReference createdAt').limit(PRICING_EVIDENCE_QUERY_LIMIT * 4).lean() : [];
     const activeTier = selectComparableTier(activeCandidates, profile);
-    const completedCandidates = completedBookings.flatMap((booking) => {
-      if (bookingEvidenceReason(booking, paymentEvidence)) return [];
+    const cleanBookings = completedBookings.filter((b) => !bookingEvidenceReason(b, paymentEvidence));
+    const demonstrationBookings = allowDemonstration ? completedBookings.filter((b) =>
+      bookingEvidenceReason(b, paymentEvidence) && !demonstrationBookingReason(b, paymentEvidence)) : [];
+    const completedCandidates = await withCatalogTypes([...cleanBookings, ...demonstrationBookings].flatMap((booking) => {
       const listing = booking.pricingEvidenceSnapshot;
       const dailyPrice = booking.pricing.baseAmount / rentalDays(booking);
       return Number.isFinite(dailyPrice) && dailyPrice > 0
@@ -523,19 +528,24 @@ export const listingService = {
             dailyPrice,
             rentalDurationDays: rentalDays(booking),
             observedAt: booking.completedAt,
-            sourceType: booking.sourceType ?? 'marketplace',
+            sourceType: demonstrationBookings.includes(booking) ? 'simulated_completed_rental' : 'marketplace',
+            demonstrationSeed: booking.sourceType === 'demo_seed',
           }]
         : [];
-    });
-    const historicalTier = selectComparableTier(completedCandidates, profile);
+    }));
+    const cleanHistoricalTier = selectComparableTier(completedCandidates.filter((r) => r.sourceType === 'marketplace'), profile);
+    // Prefer independent comparisons. Never mix simulated history into a clean cohort.
+    const historicalTier = activeTier.items.length || cleanHistoricalTier.items.length
+      ? cleanHistoricalTier : selectComparableTier(completedCandidates.filter((r) => r.sourceType === 'simulated_completed_rental'), profile);
     const activeEvidenceCounts = evidenceCounts(activeTier.items, profile);
     const historicalEvidenceCounts = evidenceCounts(historicalTier.items, profile);
     const marketplaceCompletedCount = historicalTier.items.filter(
-      (item) => item.sourceType !== 'demo_seed',
+      (item) => item.sourceType === 'marketplace',
     ).length;
     const demoSeedCompletedCount = historicalTier.items.filter(
-      (item) => item.sourceType === 'demo_seed',
+      (item) => item.demonstrationSeed && item.sourceType === 'simulated_completed_rental',
     ).length;
+    const simulatedCompletedCount = historicalTier.items.filter((r) => r.sourceType === 'simulated_completed_rental').length;
     const activeStats = robustPriceStats(
       activeTier.items.map((listing) => listing.dailyPrice),
     );
@@ -570,6 +580,11 @@ export const listingService = {
       similar_completed_rental_count: historicalEvidenceCounts.similar,
       marketplace_completed_rental_count: marketplaceCompletedCount,
       demo_seed_completed_rental_count: demoSeedCompletedCount,
+      simulated_completed_rental_count: simulatedCompletedCount,
+      demonstration_completed_rental_count: simulatedCompletedCount,
+      eligible_demonstration_completed_count: demonstrationBookings.length,
+      evidence_mode: allowDemonstration ? 'demonstration' : 'clean',
+      evidence_cohort: simulatedCompletedCount ? 'demonstration' : 'independent_comparisons',
       market_freshness_days: freshest === null
         ? null
         : Math.max(0, Math.floor((Date.now() - freshest) / 86_400_000)),
@@ -592,12 +607,18 @@ export const listingService = {
       prediction_month: new Date().getUTCMonth() + 1,
     });
     const disclosure = pricingEvidenceDisclosure(marketEvidence);
-    const present = (result) => withComparablePresentation(result, activeTier, historicalTier);
+    const present = (result) => withComparablePresentation({ ...result,
+      ...(simulatedCompletedCount ? { confidence: Math.min(result.confidence ?? 0, 0.49), confidence_label: 'low' } : {}),
+    }, activeTier, historicalTier);
     if (recommendation.available && disclosure.evidence_status !== 'insufficient') {
       return present({ ...recommendation, ...disclosure, evidence: marketEvidence, product_match: productMatch });
     }
     const fallback = statisticalFallback(activeStats, historicalStats, profile.category);
     if (!fallback) {
+      const guide = limitedPriceGuide(activeTier, historicalTier, profile.category);
+      if (guide) return present({ ...guide, ...disclosure, currency: 'MYR',
+        evidence: marketEvidence, product_match: productMatch, evaluation: {},
+        warnings: ['A limited comparable-price guide, not an independently validated model prediction.'] });
       return present({
         ...recommendation,
         ...disclosure,
@@ -608,6 +629,8 @@ export const listingService = {
         model_source: 'insufficient_data',
         evidence: marketEvidence,
         product_match: productMatch,
+        pricing_guidance: priceRecovery(profile, activeCandidates.length + completedCandidates.length,
+          activeTier.items.length + historicalTier.items.length, Boolean(recommendation.error)),
         warnings: [
           ...(recommendation.warnings ?? []),
           'Not enough current marketplace evidence for a statistical fallback.',

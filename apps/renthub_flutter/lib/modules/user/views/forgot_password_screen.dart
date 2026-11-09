@@ -122,10 +122,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           ),
                         ),
                         const SizedBox(height: 18),
-                        RentHubSectionHeader(_title,
-                            help: step == _ResetStep.email ? _message : null),
-                        if (step != _ResetStep.email &&
-                            _message.isNotEmpty) ...[
+                        RentHubSectionHeader(_title),
+                        if (_message.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           Text(
                             _message,

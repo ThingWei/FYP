@@ -12,7 +12,7 @@ const source = (id, name, urls, domains, options = {}) => Object.freeze({
 // URLs are code-owned. Administrators cannot submit a URL or crawl arbitrary sites.
 export const PRICE_SOURCES = Object.freeze([
   source('rentism', 'RENTISM', ['https://www.rentism.com.my/price-list/'],
-    ['Smartphones', 'Cameras', 'Audio', 'Other devices', 'Event equipment']),
+    ['Smartphones', 'Cameras', 'Audio', 'Other devices', 'Event equipment'], { parserVersion: '4' }),
   source('itpa', 'ITPA', ['https://itpa.my/pc-rental.php'], ['Computers']),
   source('cilt', 'Cilt Tech', ['https://cilttech.com/ms/sewaan'], ['Gaming']),
   source('drivor', 'DRIVOR', ['https://drivor.my/vehicle/toyota-camry/'], ['Cars'],
@@ -22,7 +22,7 @@ export const PRICE_SOURCES = Object.freeze([
   source('ecocana', 'Ecocana Sports', ['https://ecocanasports.com/rent'], ['Bicycles'],
     { limitation: 'Only catalogue products explicitly labelled daily rental; retail entries excluded.' }),
   source('rental-guy', 'The Rental Guy', ['https://therentalguy.com.my/av-solution/'], ['Event equipment'],
-    { limitation: 'Specification-only one-day reference prices; before tax; delivery/setup quoted separately.' }),
+    { parserVersion: '4', limitation: 'Specification-only one-day reference prices; before tax; delivery/setup quoted separately.' }),
   source('pc-rent', 'PC Rent', ['https://www.pcrent.com.my/home/rental_rates'], ['Event equipment'],
     { limitation: 'Brightness-specification projector rates, not exact manufacturer/model prices.' }),
   source('jomrent', 'JomRentPro', ['https://jomrentpro.com/'], ['Tools', 'Other equipment'],

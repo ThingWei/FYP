@@ -18,6 +18,7 @@
     "audit:identity-bindings": "node src/scripts/auditIdentityBindings.js",
     "inspect:price-sources": "node src/scripts/inspectPriceSources.js",
     "audit:price-coverage": "node src/scripts/auditPriceCoverage.js",
+    "audit:pricing-readiness": "node src/scripts/auditPricingReadiness.js",
     "audit:pricing-real-world": "node src/scripts/auditPricingRealWorld.js",
     "review:pricing-evidence": "node src/scripts/reviewPricingEvidence.js",
     "preflight:production": "node src/scripts/preflight.js --require-production --write-probe"

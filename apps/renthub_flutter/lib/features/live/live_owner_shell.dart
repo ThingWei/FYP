@@ -244,7 +244,6 @@ class LiveOwnerDashboard extends StatelessWidget {
           children: [
             RentHubSectionHeader(
               'Welcome, ${controller.profile?.name ?? 'Owner'}',
-              help: 'Your marketplace activity',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 20),
@@ -606,6 +605,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   final modelFieldKey = GlobalKey<FormFieldState<String>>();
   final ageFieldKey = GlobalKey<FormFieldState<String>>();
   final daysFieldKey = GlobalKey<FormFieldState<String>>();
+  final priceFocus = FocusNode();
   late final title = TextEditingController(text: widget.listing?.title);
   late final description =
       TextEditingController(text: widget.listing?.description);
@@ -1234,6 +1234,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
     title.dispose();
     description.dispose();
     price.dispose();
+    priceFocus.dispose();
     location.dispose();
     deposit.dispose();
     deliveryFee.dispose();
@@ -1458,8 +1459,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const ListingSectionHeading(
-                          'Details', 'Help renters understand what you offer.'),
+                      const ListingSectionHeading('Details'),
                       TextFormField(
                         controller: title,
                         decoration: (const InputDecoration(labelText: 'Title'))
@@ -1490,8 +1490,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                         maxLengthEnforcement: InputValidation.lengthEnforcement,
                       ),
                       const SizedBox(height: 12),
-                      const ListingSectionHeading('Photos',
-                          'Show your listing clearly, from different angles.'),
+                      const ListingSectionHeading('Photos'),
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -1546,8 +1545,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                       ),
                       const SizedBox(height: 12),
                       if (!widget.isService)
-                        const ListingSectionHeading('Product',
-                            'Choose the item type, brand and model.'),
+                        const ListingSectionHeading('Product'),
                       if (!widget.isService)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
@@ -1825,10 +1823,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
                         ),
                         const SizedBox(height: 12),
                       ],
-                      const ListingSectionHeading('Pricing',
-                          'You choose the final price renters will pay.'),
+                      const ListingSectionHeading('Pricing'),
                       TextFormField(
                         controller: price,
+                        focusNode: priceFocus,
                         onChanged: (_) => _clearPriceRecommendation(),
                         keyboardType: const TextInputType.numberWithOptions(
                             decimal: true),
@@ -1867,6 +1865,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                             suggestion:
                                 PriceSuggestionView(priceRecommendation!),
                             onRetry: suggestingPrice ? null : _suggestPrice,
+                            onManual: priceFocus.requestFocus,
                             onUse: () => setState(() {
                               price.text =
                                   PriceSuggestionView(priceRecommendation!)
@@ -1926,8 +1925,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                           autovalidateMode: AutovalidateMode.onUserInteraction,
                         ),
                       ],
-                      const ListingSectionHeading('Location and availability',
-                          'Tell renters where your listing is offered. Manage dates after saving.'),
+                      const ListingSectionHeading('Location and availability'),
                       if (widget.isService)
                         DropdownButtonFormField<String>(
                             isExpanded: true,

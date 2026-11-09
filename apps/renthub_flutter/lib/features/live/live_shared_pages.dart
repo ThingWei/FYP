@@ -492,7 +492,6 @@ class LiveProfilePage extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.settings_outlined),
               title: RentHubSectionHeader('Application settings',
-                  help: 'Notification preferences and account settings',
                   style: Theme.of(context).textTheme.titleMedium),
               trailing: const Icon(Icons.chevron_right),
               onTap: profile == null

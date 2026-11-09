@@ -67,9 +67,6 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               RentHubSectionHeader(
                 widget.administrator ? 'Administrator sign-in' : 'Sign in',
-                help: widget.administrator
-                    ? 'Administrator portal. Sign in with your RentHub account.'
-                    : 'Welcome back. Please enter your details.',
               ),
               const SizedBox(height: 24),
               if (!widget.administrator) ...[

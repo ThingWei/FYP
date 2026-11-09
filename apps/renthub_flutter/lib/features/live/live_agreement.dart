@@ -217,8 +217,6 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
                                           service
                                               ? 'Service booking agreement'
                                               : 'Rental agreement',
-                                          help:
-                                              'Your booking details, responsibilities and recorded acceptance, together in one place.',
                                           style: Theme.of(context)
                                               .textTheme
                                               .headlineSmall),

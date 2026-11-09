@@ -15,6 +15,7 @@ import 'catalog_reference_ui_test.dart' as references;
 import 'listing_pricing_clarity_test.dart' as owner;
 
 Future<void> openHelp(WidgetTester t, String title) async {
+  await t.pumpAndSettle();
   final button = find.byTooltip('About $title');
   if (button.evaluate().isEmpty) {
     await t.scrollUntilVisible(button, 250,
@@ -34,7 +35,9 @@ Future<void> closeHelp(WidgetTester t) async {
 
 void main() {
   for (final width in [360.0, 390.0, 1024.0, 1440.0]) {
-    testWidgets('listing help preserves the real form at $width', (t) async {
+    testWidgets(
+        'basic listing headings stay clean and useful help remains at $width',
+        (t) async {
       owner.viewport(t, width);
       final api = owner.PricingApi();
       final c = LiveRentHubController(api);
@@ -42,22 +45,23 @@ void main() {
       await t.pumpWidget(owner.form(c, scale: 1.5));
       await t.pumpAndSettle();
       await t.enterText(owner.field('Title'), 'My unchanged phone draft');
-      await openHelp(t, 'Details');
-      expect(
-          find.text('Help renters understand what you offer.'), findsOneWidget);
-      await closeHelp(t);
-      expect(t.widget<TextFormField>(owner.field('Title')).controller!.text,
-          'My unchanged phone draft');
-      await openHelp(t, 'Photos');
-      expect(find.text('Show your listing clearly, from different angles.'),
-          findsOneWidget);
-      await closeHelp(t);
+      for (final title in [
+        'Details',
+        'Photos',
+        'Product',
+        'Pricing',
+        'Location and availability'
+      ]) {
+        expect(find.byTooltip('About $title'), findsNothing);
+      }
       expect(find.text('Image 1'), findsOneWidget);
       expect(find.textContaining('Add at least 3 clear views'), findsOneWidget);
       await openHelp(t, 'Product details for price comparisons');
       expect(find.textContaining('Optional: help avoid comparing'),
           findsOneWidget);
       await closeHelp(t);
+      expect(t.widget<TextFormField>(owner.field('Title')).controller!.text,
+          'My unchanged phone draft');
       // The help tap must not also expand its containing tile.
       expect(owner.field('Version or capacity (optional)').hitTestable(),
           findsNothing);
@@ -65,7 +69,7 @@ void main() {
       expect(api.writeCalls, isEmpty);
       expect(t.takeException(), isNull);
     });
-    testWidgets('admin help retains loaded records and filters at $width',
+    testWidgets('basic admin record headings have no redundant help at $width',
         (t) async {
       admin.width(t, width);
       final api = admin.AdminApi();
@@ -80,10 +84,9 @@ void main() {
       final records = List.of(page.items);
       expect(
           find.textContaining('View records and open details'), findsNothing);
-      await openHelp(t, 'Users');
-      expect(
-          find.textContaining('View records and open details'), findsOneWidget);
-      await closeHelp(t);
+      expect(find.text('Users'), findsOneWidget);
+      expect(find.byTooltip('About Users'), findsNothing);
+      expect(find.text('View details'), findsWidgets);
       expect(page.items, orderedEquals(records));
       expect(page.page, 1);
       expect(page.search, isEmpty);
@@ -107,8 +110,7 @@ void main() {
         findsOneWidget);
     expect(t.takeException(), isNull);
   });
-  testWidgets('profile help does not navigate away from the profile',
-      (t) async {
+  testWidgets('application settings has a clean navigation label', (t) async {
     admin.width(t, 390);
     final c = LiveRentHubController(owner.PricingApi())
       ..profile = User.fromJson({
@@ -126,14 +128,15 @@ void main() {
         c,
         scale: 1.5));
     await t.pumpAndSettle();
-    await openHelp(t, 'Application settings');
+    await t.scrollUntilVisible(find.text('Application settings'), 250,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.byTooltip('About Application settings'), findsNothing);
     expect(find.text('Notification preferences and account settings'),
-        findsOneWidget);
-    await closeHelp(t);
+        findsNothing);
     expect(find.byType(LiveProfilePage), findsOneWidget);
     expect(t.takeException(), isNull);
   });
-  testWidgets('sign-in help preserves credentials without submitting',
+  testWidgets('sign-in has no help icon and keeps entered credentials',
       (t) async {
     admin.width(t, 390);
     final c = AuthController(MockAuthRepository());
@@ -143,8 +146,7 @@ void main() {
     final fields = find.byType(TextFormField);
     await t.enterText(fields.first, 'tester@example.test');
     await t.enterText(fields.last, 'Do not change me 123!');
-    await openHelp(t, 'Sign in');
-    await closeHelp(t);
+    expect(find.byTooltip('About Sign in'), findsNothing);
     final values = t.widgetList<TextFormField>(fields).toList();
     expect(values.first.controller!.text, 'tester@example.test');
     expect(values.last.controller!.text, 'Do not change me 123!');

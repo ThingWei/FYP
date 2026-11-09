@@ -1,5 +1,7 @@
 # Automatic rental-price sources — implementation result
 
+Latest follow-up: [All-category pricing coverage and recovery](PRICING_COVERAGE_AND_RECOVERY_RESULT.md).
+
 Current implementation: [source cleanup and automated evidence review](PRICING_SOURCE_CLEANUP_AND_READINESS_RESULT.md).
 iRent, RentSmart, 12RENT, Goritta and AVM are removed. The older onboarding notes
 below are historical; do not use them to re-enable those sources.
@@ -267,3 +269,7 @@ now explicit rather than silent. No live source was enabled or imported.
 Flutter analysis is now clean after matching Auth0 constructor signatures. Full
 verification: API 389 passed/3 skipped; AI 482 passed; Flutter 407 passed/3 skipped;
 Web and Android debug builds passed. Existing Wasm/Kotlin warnings remain.
+
+## Current pricing recovery follow-up — 9 November 2026
+
+The [all-category coverage and recovery result](PRICING_COVERAGE_AND_RECOVERY_RESULT.md) records the current aggregate database counts and missing product types. Audio has microphone references but no portable-speaker prices. Parsing now supports additional explicit Audio quotes and separates projector screens from projectors; sources still need eligible published quotes and their existing access gates. No source was enabled or observation imported in this follow-up.

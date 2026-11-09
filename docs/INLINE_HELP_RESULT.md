@@ -1,6 +1,6 @@
 # Tap-to-read help
 
-Implemented on 9 November 2026 for RentHub's live interfaces. Optional section introductions now use a question-mark button beside the heading. Existing working changes have been retained. This change adds no dependency, endpoint, database change or model change.
+Implemented on 9 November 2026 for RentHub's live interfaces, then simplified following the user's feedback. Question-mark help is reserved for explanations that are useful to request; basic headings stay plain. Redundant introductory copy is omitted rather than restored as another paragraph. Existing working changes have been retained. This change adds no dependency, endpoint, database change or model change.
 
 ## Interaction
 
@@ -15,25 +15,25 @@ Implemented on 9 November 2026 for RentHub's live interfaces. Optional section i
 
 | Live area | Description moved to help |
 |---|---|
-| Sign-in and administrator sign-in | Welcome/account instructions |
-| Registration | Create Account, Security & Contact and Choose Role introductions |
-| Password reset | Initial email-step introduction; later code/password instructions stay visible |
-| Owner Home | Marketplace overview beside the greeting |
-| Physical/service listing forms | Details, Photos, Product when applicable, Pricing, Location and availability |
+| Sign-in and administrator sign-in | Plain headings, **no help icon** or redundant welcome paragraph |
+| Registration | Plain Create Account, Security & Contact and Choose Role headings; requirements/role information stay visible |
+| Password reset | Plain heading, **no help icon**; email/code/password instructions stay visible |
+| Owner Home | Plain greeting; no help icon |
+| Physical/service listing forms | Plain Details, Photos, Product, Pricing and Location and availability headings; no help icons |
 | Product comparison details in the listing form | Optional version/package explanation; help does not expand the containing tile |
 | Price suggestion | How this estimate was calculated; the amount, range and important limitations stay visible |
-| Listing camera | Photo-taking guidance in a question-mark action |
-| Public contact profile | Before you book advice |
-| Profile | Application settings explanation; tapping help does not navigate |
+| Listing camera | Plain app bar; no introductory help action |
+| Public contact profile | Verification/history remain; redundant Before you book help removed |
+| Profile | Plain Application settings navigation label, **no help icon** |
 | Trust page | How it works and minimum-history explanation; actual scores and insufficient-history states stay visible |
 | Handover/return evidence | Optional introductory photo advice; required evidence remains visible |
-| Agreement page | Document introduction; saved terms and acceptance history remain visible |
+| Agreement page | Plain document title; saved terms and acceptance history remain visible |
 | Dispute progress | Initial explanation before a case exists; an existing case's next action stays visible |
-| Admin record lists | Shared record/verification introduction across all supported collections |
+| Admin record lists | Plain record/verification headings across all supported collections; no generic help icons |
 | Admin detail sections | Extended the existing shared heading with optional help support; record fields remain visible |
-| Admin dashboard | Platform overview, booking-chart scope and monthly demo-payout explanation |
-| Admin reports | Operational-report and safety-report introductions |
-| Platform settings | Introduction, Maintenance mode, listing-category guidance and rewards introduction |
+| Admin dashboard | Plain Platform overview; help retained for booking-chart scope and monthly demo-payout explanation |
+| Admin reports | Plain Operational reports and Safety reports headings |
+| Platform settings | Plain Platform Settings and Listing categories; help retained for Maintenance mode and rewards policy |
 | Rental-price updates | Update schedule and source-list introduction; disabled/update-failure reasons remain visible |
 | Manual price import | Optional CSV preparation introduction; required format and confirmation instructions remain visible |
 
@@ -57,11 +57,11 @@ The existing review-edit deadline remains visible, with its wording simplified t
 Verification uses isolated fixtures, not personal documents or live account changes. No manual result in the existing P0 sheets was marked passed.
 
 - `section_help_test.dart`: popup/dialog selection, persistent display, 48-pixel targets, outside dismissal, Close, Enter/Space, Escape/Back, named semantics, focus restoration, repeated taps/close, resize, four screen edges, scroll retention and long text.
-- `inline_help_coverage_test.dart`: real listing form and admin record list at 360/390/1024/1440 pixels with 150% text; retained draft values/photos and records; no API writes or extra reads from help. Tests also cover nested import/profile controls and unchanged sign-in input.
+- `inline_help_coverage_test.dart`: real listing form and admin record list at 360/390/1024/1440 pixels with 150% text; plain basic headings, retained draft values/photos and records, and useful product-comparison help. No API writes from help. Tests also cover nested import controls, the plain Application settings label and unchanged sign-in input.
 - Existing account, pricing and CSV widget tests were updated to open the new help button. They continue to check important visible warnings, explicit price acceptance, unavailable estimates, preserved photos/drafts and file retry.
 - Full Flutter run and builds: see final verification below.
 
-### Final verification
+### Initial rollout verification
 
 Command: `./scripts/test-renthub.ps1 -Suites flutter -Builds`
 
@@ -79,13 +79,19 @@ Private execution pack: `.data/testing/20261109-210528-b6bf2349/`.
 
 The shared component has 14 interaction/layout tests; live coverage adds 11 more. Separate fixture renders cover listing help and administrator records at 390/1440 pixels with 130% text, plus sign-in at 390 pixels. Five render cases passed; the resulting images were inspected for readable help, alignment and clipping. Preview images are private under `apps/renthub_flutter/build/ui-checks/inline-help-*.png`; they contain only test fixtures. The mobile/desktop coverage tests additionally exercise 360/1024 widths at 150% text, and the component tests exercise 180% mobile text and long desktop help.
 
-No new unrelated test or analyzer failures were observed in this run. The three skips remain recorded in the execution pack; they are not counted as passes. Real Android touch, TalkBack and a browser screen reader were not exercised during this change. API/AI suites were not rerun for this presentation-only task; no server code or model files were changed by it.
+No new unrelated test or analyzer failures were observed in that run. The three skips remain recorded in the execution pack; they are not counted as passes. Real Android touch, TalkBack and a browser screen reader were not exercised during this change. API/AI suites were not rerun for this presentation-only task; no server code or model files were changed by it.
+
+### Simplified-heading follow-up
+
+The full follow-up run `.data/testing/20261109-222929-b4fbe676/` passed: **712 tests, 3 existing skips**, clean analysis and unchanged model checksums. The first follow-up found four test scroll-timing failures after typing; settling the keyboard layout before scrolling fixed the test helper, without relaxing assertions. Main/admin web and Android builds above were verified for the initial rollout; they were not repeated for the removal of redundant help buttons. Initial screenshots describe the broader rollout and are not the current basic-header design.
+
+Five follow-up fixture-render cases passed. Current captures use `build/ui-checks/inline-help-simplified-*.png`; the 390-pixel sign-in and listing captures were inspected to confirm the basic headings are uncluttered.
 
 ## Walkthrough
 
-1. Open an Owner listing and tap the question mark beside **Details**, **Product** or **Pricing**. Close help and confirm the draft is unchanged.
+1. Open sign-in, Profile or an Owner listing: basic headings have no question marks. In the listing, optional **Product details for price comparisons** still provides help without expanding the tile or changing the draft.
 2. Open a price suggestion. Its amount and limitations remain visible; use the question mark beside **How this estimate was calculated** for the supporting explanation.
-3. Open an administrator record list or **Platform Settings**. Short desktop help appears beside its heading; narrow the window or increase text size to check dialog recovery.
+3. Open an administrator record list or **Platform Settings**: basic headings stay plain. Try the contextual chart or Maintenance mode help; narrow the window or increase text size to check dialog recovery.
 4. On Android, confirm Back closes only help. Check a real screen reader and device keyboard during the final device walkthrough; widget semantics and keyboard tests do not replace assistive-technology testing.
 
 ## Commit message

@@ -83,6 +83,7 @@ export const env = {
     process.env.PRICING_INCLUDE_DEMO_SEED,
     false,
   ),
+  pricingEvidenceMode: process.env.PRICING_EVIDENCE_MODE ?? 'clean',
   priceSyncJobsEnabled: boolean(process.env.PRICE_SYNC_JOBS_ENABLED, true),
   priceSyncApprovedSources: (process.env.PRICE_SYNC_APPROVED_SOURCES ?? '').split(',').map((id) => id.trim()).filter(Boolean),
   recommendationIncludeDemoSeed: boolean(
@@ -316,6 +317,12 @@ export function validateEnv(config = env) {
   }
   if (config.nodeEnv === 'production' && pricingIncludeDemoSeed) {
     errors.push('PRICING_INCLUDE_DEMO_SEED must be false in production');
+  }
+  if (!['clean', 'demonstration'].includes(config.pricingEvidenceMode ?? 'clean')) {
+    errors.push('PRICING_EVIDENCE_MODE must be clean or demonstration');
+  }
+  if (config.nodeEnv === 'production' && config.pricingEvidenceMode === 'demonstration') {
+    errors.push('Demonstration pricing evidence is not allowed in production');
   }
   if (config.nodeEnv === 'production' && recommendationIncludeDemoSeed) {
     errors.push(

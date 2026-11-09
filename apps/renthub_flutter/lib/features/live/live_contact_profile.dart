@@ -1,4 +1,3 @@
-import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/user_facing_error.dart';
@@ -114,12 +113,6 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
                                                                 'trustProfile'])
                                                             .overall),
                                               ]))),
-                                      const Padding(
-                                          padding: EdgeInsets.all(12),
-                                          child: RentHubSectionHeader(
-                                              'Before you book',
-                                              help:
-                                                  'Review the person’s verification and rental history alongside your conversation before deciding on a booking.')),
                                     ]))));
   }
 }

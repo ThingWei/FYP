@@ -127,10 +127,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _heading(String title, String subtitle) => Column(
+  Widget _heading(String title) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          RentHubSectionHeader(title, help: subtitle),
+          RentHubSectionHeader(title),
           const SizedBox(height: 20),
         ],
       );
@@ -140,8 +140,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _heading(
-                'Create Account', 'Join RentHub to start renting and listing.'),
+            _heading('Create Account'),
             RentHubTextField(
               controller: name,
               label: 'Full Name',
@@ -188,8 +187,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _heading('Security & Contact',
-                'Keep your account secure and reachable.'),
+            _heading('Security & Contact'),
             RentHubTextField(
               controller: phone,
               label: 'Mobile Number',
@@ -241,8 +239,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _roleStep(AuthController auth) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _heading(
-              'Choose Role', 'Select how you want to start using RentHub.'),
+          _heading('Choose Role'),
           const Text(
             'Every marketplace account can use both Renter and Owner. This choice only selects the first view.',
             style: TextStyle(color: AppColors.secondaryText),

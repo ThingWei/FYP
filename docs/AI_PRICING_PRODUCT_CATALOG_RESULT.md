@@ -1,5 +1,7 @@
 # RentHub AI pricing and product catalog result
 
+Latest follow-up: [All-category pricing coverage and recovery](PRICING_COVERAGE_AND_RECOVERY_RESULT.md).
+
 ## 3 November 2026: explicit specification compatibility
 
 [Implementation and measured results](AI_IMAGE_AND_PRICING_EVIDENCE_ROUND3_RESULT.md#implementation-follow-up-specification-guards-and-recognition-candidate)
@@ -781,3 +783,7 @@ separate target-source metrics; additional completed-rental evidence and stricte
 forward-time evaluation remain necessary. Earlier dataset figures above are historical.
 Verification: full AI suite 482 passed; full API suite 375 passed and three
 optional tests skipped. Flutter source was unchanged and builds were not rerun.
+
+## Pricing coverage follow-up — 9 November 2026
+
+See [Pricing coverage and recovery](PRICING_COVERAGE_AND_RECOVERY_RESULT.md) for the latest all-22 read-only audit, separate completed-simulation fallback, factual guides from sparse compatible quotes and friendly manual-pricing states. Current stored coverage is 391 eligible observations across 16 subcategories; it does not guarantee per-model suggestions. XGBoost features and deployed weights remain unchanged. This follow-up supersedes older counts and the earlier blanket exclusion of simulations **only for the explicit development demonstration fallback**, not clean training/evaluation.

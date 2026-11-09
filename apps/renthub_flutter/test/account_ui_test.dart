@@ -55,10 +55,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
         find.text('Join RentHub to start renting and listing.'), findsNothing);
-    await tester.tap(find.byTooltip('About Create Account'));
-    await tester.pumpAndSettle();
-    expect(find.text('Join RentHub to start renting and listing.'),
-        findsOneWidget);
+    expect(find.byTooltip('About Create Account'), findsNothing);
   });
 
   testWidgets('role selection gates Continue until a role is selected',

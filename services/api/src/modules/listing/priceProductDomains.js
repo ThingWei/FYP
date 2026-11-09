@@ -1,5 +1,5 @@
 import { CATALOG_COVERAGE } from '../catalog/catalog.coverage.js';
-import { suitableProductComparison } from './productComparisonFacts.js';
+import { samePricingIdentity, suitableProductComparison } from './productComparisonFacts.js';
 import { compatiblePricingSpecifications } from './pricingSpecifications.js';
 
 // Semantic identities only. No rental amounts, depreciation or manufacturer APIs.
@@ -16,7 +16,8 @@ const rules = {
     ['desktop', /desktop|\bpc\b|imac|mac mini/], ['laptop', /laptop|notebook|macbook|latitude|thinkpad|\bxps\b|ideapad/]],
   Audio: [['microphone', /microphone|microfone|\bmic\b|by-m|by-wm|ecm-|wm820/],
     ['headphones', /headphone|earphone|earbud|wh-|wf-|tune |quietcomfort/],
-    ['speaker', /speaker|partybox|srs-|charge \d|flip \d|soundlink|xtreme/],
+    ['pa_speaker', /\bpa speaker\b|powered (?:speaker|loudspeaker)|passive (?:speaker|loudspeaker)|stage monitor/],
+    ['speaker', /speaker|loudspeaker|partybox|srs-|charge \d|flip \d|soundlink|xtreme|boombox/],
     ['audio_mixer', /mixer|\bmg\d{1,2}xu\b/]],
   Gaming: [['controller', /controller|dualshock|dualsense|joy-con/], ['vr_headset', /vr headset|meta quest|oculus/],
     ['console', /playstation|\bps[345]\b|xbox|switch/]],
@@ -26,8 +27,9 @@ const rules = {
   Cars: [['car', /./]], Motorcycles: [['motorcycle', /./]], Bicycles: [['bicycle', /./]],
   'Other vehicles': [['electric_scooter', /electric scooter|ninebot|\bhx x[79]\b|\be(?:100|300)\b|\bscooter\b/],
     ['mobility_scooter', /mobility scooter/], ['electric_unicycle', /electric unicycle/]],
-  'Event equipment': [['projector', /projector|\beb-[a-z0-9]|\bth575\b|\btk700\b/], ['television', /\btv\b|television/],
-    ['pa_set', /speaker.*mic|pa system|stagepas/], ['lighting', /light|godox|sk[34]00/],
+  'Event equipment': [['projector_screen', /projector screen|projection screen/],
+    ['projector', /projector|\beb-[a-z0-9]|\bth575\b|\btk700\b/], ['television', /\btv\b|television/],
+    ['pa_set', /speaker.*mic|pa system|sound system|stagepas/], ['lighting', /light|godox|sk[34]00/],
     ['audio_mixer', /mixer|\bmg\d{1,2}xu\b/], ['tripod', /tripod|\bc-stand\b/],
     ['event_tent', /marquee|canopy/], ['event_table', /\btable\b/], ['event_chair', /\bchair\b/]],
   Tools: [['drill', /drill|\bgsb\b|\bgsr\b|\bdhp\d/], ['hammer', /hammer|\bgbh\b/],
@@ -103,7 +105,12 @@ export function compatibleProductReference(item, profile) {
   if (item.category !== profile.category || item.subcategory !== profile.subcategory) return false;
   const requestedType = productTypeFor(profile.category, profile.subcategory, `${profile.brand ?? ''} ${model(profile)}`, profile.productType ?? profile.product_type);
   const inferredType = productTypeFor(item.category, item.subcategory, `${item.brand ?? ''} ${model(item)}`, item.productType ?? item.product_type);
-  if (!requestedType || !inferredType || requestedType !== inferredType || item.productType && item.productType !== inferredType) return false;
+  // A missing keyword/type must not discard an otherwise exact named product.
+  // This does not permit cross-model fallback or turn a display key into an ID.
+  if ((!requestedType || !inferredType) && !samePricingIdentity(item, profile)) return false;
+  if (requestedType && inferredType && requestedType !== inferredType) return false;
+  if (item.productType && inferredType && item.productType !== inferredType) return false;
+  if (item.productType && profile.productType && item.productType !== profile.productType) return false;
   if (!compatiblePricingSpecifications(item, profile, requestedType)) return false;
   for (const attribute of [edition, variant]) {
     const offered = attribute(item), requested = attribute(profile);

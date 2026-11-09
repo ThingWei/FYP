@@ -51,7 +51,7 @@ for (const [id, content] of Object.entries(SOURCE_FIXTURES)) {
       assert.equal(row.currency, 'MYR');
       assert.equal(row.validationStatus, 'accepted');
       assert.ok(['daily_rate','fixed_period','duration_band'].includes(row.rateBasis));
-      assert.equal(row.parserVersion,'3');
+      assert.equal(row.parserVersion,priceSource(id).parserVersion);
       assert.equal(row.reviewedBy, undefined);
       assert.equal(row.canonicalProductId, null);
       assert.equal(row.condition, null);

@@ -28,7 +28,7 @@ export function pricingSpecifications(item, productType) {
     add('brightness', new RegExp(String.raw`${start}${quantity}\s*(ansi|iso|led)?[-\s]*lumens?\b`, 'gu'),
       (match) => match[3] || 'unspecified_lumen_standard');
   }
-  if (['monitor', 'television', 'laptop', 'desktop'].includes(productType)) {
+  if (['monitor', 'television', 'laptop', 'desktop', 'projector_screen'].includes(productType)) {
     add('displayInches', new RegExp(String.raw`${start}${quantity}\s*-?\s*(?:inch(?:es)?\b|["″])`, 'gu'));
   }
   if (['laptop', 'desktop'].includes(productType)) {
@@ -41,6 +41,10 @@ export function pricingSpecifications(item, productType) {
   }
   if (productType === 'drill') {
     add('voltage', new RegExp(String.raw`${start}${quantity}\s*-?\s*v(?:olts?)?\b`, 'gu'));
+  }
+  if (['speaker', 'pa_speaker', 'pa_set'].includes(productType)) {
+    add('powerWatts', new RegExp(String.raw`${start}${quantity}\s*(?:w|watts?)\b(?:\s*(rms|peak))?`, 'gu'),
+      (match) => match[3] || 'unspecified_power_standard');
   }
   return facts;
 }

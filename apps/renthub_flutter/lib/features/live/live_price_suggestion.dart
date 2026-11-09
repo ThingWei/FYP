@@ -16,6 +16,8 @@ class PriceSuggestionView {
       raw['available'] == true && amount != null && amount! > 0;
   bool get productSpecific => raw['product_specific_evidence'] == true;
   bool get rough =>
+      demonstrationHistory ||
+      referenceGuide ||
       !productSpecific ||
       durationBaselineCount > 0 ||
       raw['confidence_label'] != 'high' ||
@@ -50,9 +52,56 @@ class PriceSuggestionView {
     return total > 0 && synthetic > 0 && synthetic >= total / 2;
   }
 
-  bool get statistical => {'completed_rental_median', 'active_listing_median'}
-      .contains(raw['model_source']);
-  String get title => rough ? 'Rough daily estimate' : 'Suggested daily price';
+  bool get referenceGuide => raw['estimate_kind'] == 'reference_guide';
+  bool get demonstrationHistory =>
+      count('demonstration_completed_rental_count') > 0 ||
+      count('simulated_completed_rental_count') > 0 ||
+      count('demo_seed_completed_rental_count') > 0;
+  Map get guidance => raw['pricing_guidance'] is Map
+      ? raw['pricing_guidance'] as Map
+      : const {};
+  bool get needsReferences => {
+        'building_price_coverage',
+        'no_compatible_prices',
+        'product_details_needed'
+      }.contains(guidance['status']);
+  bool get canRetry => guidance.isEmpty || guidance['canRetry'] == true;
+  String get emptyTitle => needsReferences
+      ? 'Set your daily price'
+      : 'Let’s try your price guide again';
+  String get emptyExplanation => needsReferences
+      ? guidance['status'] == 'product_details_needed'
+          ? 'Add the item type or check the selected model and package. You can still enter your own price and continue.'
+          : 'We’re still collecting suitable rental prices for this type of item. Enter your own price for now—you can change it later.'
+      : evidence['product_comparison_policy'] == 'reviewed-class-v1'
+          ? 'We don’t have suitable rental prices for this model and package. Enter your own price, or check the selected package. Your entered price has not changed.'
+          : 'Your entered price has not changed. Enter your own price, or try again in a moment.';
+  String get pricingTip => switch (guidance['category']) {
+        'Devices' when guidance['subcategory'] == 'Audio' =>
+          'Compare the same audio type and power. Portable speakers, PA speakers and sound-system packages need different comparisons.',
+        'Devices' =>
+          'Compare the same item type, model, capacity and included accessories for a similar rental length.',
+        'Vehicles' =>
+          'Compare the same vehicle type and rental length. Check mileage, insurance and other included charges.',
+        'Equipment' =>
+          'Compare the same function, capacity and quantity. Keep delivery and setup charges separate.',
+        'Books' =>
+          'Compare the same title and edition for a similar rental length. A sale price is not a rental rate.',
+        'Clothing' =>
+          'Compare the same garment type and rental period. Check whether cleaning and accessories are included.',
+        _ =>
+          'Compare similar items and what is included. Choose a price you are comfortable offering.'
+      };
+  bool get statistical => {
+        'completed_rental_median',
+        'active_listing_median',
+        'limited_comparable_reference'
+      }.contains(raw['model_source']);
+  String get title => referenceGuide
+      ? 'Rental price guide'
+      : rough
+          ? 'Rough daily estimate'
+          : 'Suggested daily price';
   String? get range {
     final lower = _finite(raw['lower_bound']);
     final upper = _finite(raw['upper_bound']);
@@ -85,6 +134,9 @@ class PriceSuggestionView {
             'same_product_type'
           }.contains(value['basis']));
   String get basisExplanation {
+    if (referenceGuide) {
+      return 'A starting point from the available ${productSpecific ? 'matching' : 'similar'} rental prices. Limited references—not a confirmed market price.';
+    }
     if (productSpecific) {
       return 'This estimate uses prices for the same product. You choose the final price.';
     }
@@ -130,7 +182,8 @@ class PriceSuggestionView {
       if (listings > 0) '$listings RentHub listing${listings == 1 ? '' : 's'}',
       if (references > 0)
         '$references advertised price${references == 1 ? '' : 's'}',
-      if (rentals > 0) '$rentals rental record${rentals == 1 ? '' : 's'}',
+      if (rentals > 0)
+        '$rentals ${demonstrationHistory ? 'demo rental' : 'rental'} record${rentals == 1 ? '' : 's'}',
     ];
     return [
       hasComparisons
@@ -146,8 +199,9 @@ class PriceSuggestionView {
 
   String get completedProvenance => evidence
               .containsKey('marketplace_completed_rental_count') &&
-          evidence.containsKey('demo_seed_completed_rental_count')
-      ? '${count('marketplace_completed_rental_count')} marketplace rentals; ${count('demo_seed_completed_rental_count')} demonstration rentals.'
+          (evidence.containsKey('simulated_completed_rental_count') ||
+              evidence.containsKey('demo_seed_completed_rental_count'))
+      ? '${count('marketplace_completed_rental_count')} marketplace rentals; ${count(evidence.containsKey('simulated_completed_rental_count') ? 'simulated_completed_rental_count' : 'demo_seed_completed_rental_count')} demonstration rentals.'
       : 'The source of the rental examples was not supplied.';
 }
 
@@ -156,10 +210,12 @@ class LivePriceSuggestion extends StatelessWidget {
       {super.key,
       required this.suggestion,
       required this.onUse,
-      required this.onRetry});
+      required this.onRetry,
+      this.onManual});
   final PriceSuggestionView suggestion;
   final VoidCallback onUse;
   final VoidCallback? onRetry;
+  final VoidCallback? onManual;
 
   @override
   Widget build(BuildContext context) {
@@ -169,7 +225,7 @@ class LivePriceSuggestion extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(view.available ? view.title : 'Price suggestion unavailable',
+          Text(view.available ? view.title : view.emptyTitle,
               style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           if (view.available) ...[
@@ -178,7 +234,9 @@ class LivePriceSuggestion extends StatelessWidget {
                     .textTheme
                     .headlineSmall
                     ?.copyWith(fontWeight: FontWeight.w700)),
-            if (view.range != null) Text('Estimated range: ${view.range}'),
+            if (view.range != null)
+              Text(
+                  '${view.referenceGuide ? 'Observed range' : 'Estimated range'}: ${view.range}'),
             const SizedBox(height: 12),
             Text(view.basisExplanation),
             if (view.durationBaselineCount > 0) ...[
@@ -195,21 +253,28 @@ class LivePriceSuggestion extends StatelessWidget {
               const Text(
                   'We don’t have enough information to confirm how reliable this estimate is.'),
             ],
-            if (view.count('demo_seed_completed_rental_count') > 0) ...[
+            if (view.demonstrationHistory) ...[
               const SizedBox(height: 8),
               const Text(
-                  'Includes demonstration examples, not just marketplace rentals.'),
+                  'Based on completed demo rentals with simulated payment, not verified paid rentals.'),
             ],
             RentHubSectionHeader('How this estimate was calculated',
                 help: view.calculationDetails.join('\n\n'),
                 style: Theme.of(context).textTheme.titleMedium),
             FilledButton(onPressed: onUse, child: const Text('Use this price')),
           ] else ...[
-            Text(view.evidence['product_comparison_policy'] ==
-                    'reviewed-class-v1'
-                ? 'We don’t have suitable rental prices for this model and package. Enter your own price, or check the selected package. Your entered price has not changed.'
-                : 'We can’t suggest a reliable price right now. Enter your own price, or try again later. Your entered price has not changed.'),
-            TextButton(onPressed: onRetry, child: const Text('Try again')),
+            Text(view.emptyExplanation),
+            if (view.needsReferences)
+              RentHubSectionHeader('Pricing tips',
+                  help: view.pricingTip,
+                  style: Theme.of(context).textTheme.titleMedium),
+            Wrap(spacing: 12, children: [
+              if (onManual != null)
+                TextButton(
+                    onPressed: onManual, child: const Text('Enter my price')),
+              if (view.canRetry)
+                TextButton(onPressed: onRetry, child: const Text('Try again')),
+            ]),
           ],
         ]),
       ),
@@ -238,14 +303,12 @@ class ListingFieldPair extends StatelessWidget {
 }
 
 class ListingSectionHeading extends StatelessWidget {
-  const ListingSectionHeading(this.title, this.description, {super.key});
+  const ListingSectionHeading(this.title, {super.key});
   final String title;
-  final String description;
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(top: 24, bottom: 16),
         child: RentHubSectionHeader(title,
-            help: description,
             style: Theme.of(context)
                 .textTheme
                 .titleLarge
