@@ -162,3 +162,94 @@ owned timed-out root to exit after cleanup. All four launcher suites pass with
 their disposable-process/credential-store integration fixtures. No live startup,
 Atlas policy or credential change was performed. See
 [the full testing result](testing/PLATFORM_TEST_EXECUTION_RESULT.md).
+
+## Interactive keyboard follow-up — 9 November 2026
+
+The reported terminal was showing Flutter's run-key instructions, rather than
+services-only monitoring. The launcher now starts Flutter in the same console
+using `Start-Process -NoNewWindow`, preserves its working directory/arguments and
+waits for its exit code. Flutter stdin, stdout and stderr are not redirected or
+routed through the bounded, captured-output helper used for service checks.
+The native handle is retained before waiting, so Windows PowerShell can also
+report a rapidly exited child correctly. Interrupted cleanup is restricted to
+that owned process tree and original start time.
+
+Previously the three background service starts did not explicitly isolate stdin.
+They now receive an empty input file (EOF), rather than being able to consume
+console keys. The launcher creates one empty temporary file and removes it in
+its existing cleanup. Only newly started services get the new input handling;
+compatible services already running are neither restarted nor reconfigured.
+The original source of the lost key events was not measured inside the old
+Flutter process; this change removes the shared-input risk and explicitly hands
+the terminal to Flutter.
+
+Use a normal VS Code Terminal or Windows Terminal and wait for **Flutter run key
+commands**. In debug mode, **r** reloads, **R** restarts and **q** ends Flutter's
+session without Enter. `-Presentation` does not disable these Flutter controls.
+Redirected-input hosts receive guidance to use an interactive terminal.
+Services-only/post-debug monitoring has no active Flutter key handler. On Android
+the backend intentionally remains running after q; use **Ctrl+C** to stop this
+launcher's owned services. Reused services remain owned by their original session.
+
+Verification:
+
+- All four launcher suites and the ten platform-pack unit tests passed via
+  `scripts/test-renthub.ps1 -Suites pack,launcher -LauncherIntegration`.
+- The new disposable console test is included by the reliability integration
+  suite. It checks native batch arguments (spaces, quotes, Unicode, empty values,
+  URL ampersands and trailing backslashes), exit-code preservation, background
+  EOF and continued Node development-watch operation without keyboard input.
+- A separate real terminal probe using the production handoff helper reported
+  `tty=true` and received **r**, **R**, **q** in order without Enter, then exited
+  successfully. This was a disposable Node/batch fixture, not a claim that a real
+  phone hot-reload session was exercised.
+- Logs: private `.data/testing/20261109-133514-af90e2cb`. Model/metrics inventories
+  were unchanged; manual results remain Not run.
+- No live launcher restart, phone action, Atlas change, API write or model change
+  was performed. Stop the existing launcher normally and relaunch to use the fix;
+  the actual Flutter/phone hot reload is the remaining device confirmation.
+
+Commit message: `fix(launcher): preserve Flutter console input and isolate service stdin`.
+
+## Android startup retry follow-up — 9 November 2026
+
+Normal Android startup now waits for up to about **30 seconds** instead of
+failing after a single connection/forwarding attempt. It retries roughly every
+two seconds after each check, continues immediately on success, and reports the
+current problem when it changes or about every five seconds while waiting.
+
+The messages distinguish an absent phone, an offline phone, missing USB-debugging
+authorization, a timed-out ADB check, failed/timed-out forwarding, missing ADB,
+an invalid selected device ID and an unknown ADB error. Raw tool errors, paths
+and arbitrary output are classified privately and are not dumped to the terminal.
+Missing ADB and syntactically invalid IDs fail immediately. A valid-looking ID
+for an absent phone remains retryable, because the phone may still reconnect;
+the guidance also asks the user to check the selected ID.
+
+Each attempt receives the remaining overall time budget; individual native ADB
+calls remain capped at five seconds. Native timeout cleanup and a final
+fractional-second call can extend wall time slightly, so this is an approximate
+30-second connection deadline, not an exact whole-launcher duration. Existing
+startup and owned-service cleanup take their own time.
+
+Services-only mode retains its continuous reconnection monitor rather than
+stopping after 30 seconds. Its initial check remains bounded and its state-change
+messages use the same readable diagnoses. Normal startup failure still cleans up
+only processes started by that launcher. Existing services, per-device forwarding,
+Flutter console controls and Atlas behavior are preserved. No ADB-server restart,
+device reset, wireless pairing, SDK download or application write is performed.
+
+Verification: all four launcher suites plus the ten platform-pack tests passed
+with integration fixtures. Added checks cover immediate readiness, delayed phone
+appearance, later authorization, forwarding recovery, overall deadline, per-call
+budgets, USB/wireless/mDNS/emulator IDs, missing/invalid setup, safe diagnostics,
+failed-start cleanup and services-only continuation. The retry deadline is tested
+with the same helper's shortened one-second budget; no test sleeps for 30 seconds.
+Logs: private `.data/testing/20261109-134858-e0bed5e0`; model/metrics inventories
+unchanged. No live launcher or phone connection was restarted to run the tests.
+
+Use the usual launcher command; no new option is required. Restart the existing
+launcher normally to load the changed script. Real-device delayed authorization
+and reconnection remain a manual walkthrough check.
+
+Commit message: `fix(launcher): retry Android readiness with actionable connection states`.

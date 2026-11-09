@@ -69,6 +69,23 @@ The phone must show `device`, rather than `offline` or `unauthorized`. Replace `
 ```
 
 This starts the required services, builds/opens RentHub on the phone, and connects the phone to the laptop's server.
+If the phone is still connecting or waiting for USB-debugging approval, normal
+Android startup retries automatically for about **30 seconds**, showing the
+current problem. Unlock/authorize or reconnect it while the launcher waits;
+startup continues as soon as it is ready. Missing ADB or an invalid device ID
+gives immediate setup guidance instead of waiting unnecessarily.
+
+After **Flutter run key commands** appears, click this same terminal and use
+**r** for hot reload, **R** for hot restart, or **q** to end the app's debug
+session. You do not need Enter. Hot reload requires a debug build; it also works
+when using `-Presentation`, which only disables backend development reload.
+Run directly in VS Code's **Terminal** or Windows Terminal, without piping or
+redirecting the launcher. The editor and Output panel do not send keys to Flutter.
+
+On Android, **q keeps the backend running** so the phone can still use it. The
+terminal then enters backend-only monitoring; r/R/q no longer control the app.
+Use **Ctrl+C** to stop services started by this launcher. Reused services belong
+to their original launcher and are left running.
 
 If the current app version is already installed, you can start just the services and open RentHub on the phone yourself:
 
@@ -77,6 +94,7 @@ If the current app version is already installed, you can start just the services
 ```
 
 Use the build/open command after pulling app changes. **Services-only mode does not update the installed app.** It keeps checking the phone connection and attempts to restore forwarding after reconnection.
+It has no Flutter hot-reload session, so r/R/q are not available in this mode.
 
 An already paired and connected wireless ADB device can also be selected by its device ID. The launcher does not pair a phone or automatically reconnect an expired wireless endpoint.
 

@@ -1024,6 +1024,11 @@ test('dedicated driving eligibility requires complete admin review and stores cl
   assert.equal(submission.body.data.verification.documentType, 'mykad');
   assert.equal(submission.body.data.verification.status, 'approved');
   const attemptId = submission.body.data.drivingEligibility.latestAttemptId;
+  const adminDetails = await request(app).get(`/api/v1/admin/records/verification/${id}`).set(admin);
+  assert.equal(adminDetails.status, 200);
+  const reviewHints = adminDetails.body.data.record.verification.history.find(row => row.attemptId === attemptId).aiEvidence.drivingAssistance;
+  assert.equal(reviewHints.validUntil, '2035-12-31', 'admin receives the same extracted date as the user');
+  assert.deepEqual(reviewHints.licenceClasses, ['D']);
   const unauthorized = await request(app).patch(`/api/v1/users/${id}/driving-eligibility`).set(renter)
     .send({ ...drivingApproval, attemptId });
   assert.equal(unauthorized.status, 403);

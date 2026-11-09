@@ -1,5 +1,7 @@
 # Administrator usability, record details and pagination
 
+9 November follow-up: [monthly demo payout bars and booking-status pie charts](BOOKING_EXPIRY_LOCATIONS_AND_INSIGHTS_RESULT.md), including current verification results and simulation limits.
+
 Updated: 28 October 2026 (Malaysia).
 
 ## Implemented
@@ -168,4 +170,62 @@ feat(admin): add readable record details, pagination and simpler settings
 - format Malaysia dates and simplify status, verification and pricing copy
 - replace coded reward inputs and remove active Passport options
 - add detail, privacy, pagination, navigation and launcher regressions
+```
+
+## 9 Nov 2026: licence-review status and dashboard chart
+
+The driving-licence approval dialog previously read `verification.documents`, but the admin detail projection intentionally removes that private collection. An approved MyKad therefore appeared as unverified in the popup. The API now derives an additive `mykadIdentityStatus` before projecting the record, using the same current-approval policy as driving eligibility. Flutter displays **MyKad identity: Verified** for an approved MyKad, readable current states otherwise, and **Not available** when an older response cannot establish the state.
+
+Current MyKad document records take precedence over the legacy top-level record. Licence/passport approval or historical approved attempts cannot establish current MyKad approval. Protected document contents, fingerprints and raw identity numbers remain excluded. No approval, account or history was changed. The dialog now has a bounded desktop width, better field spacing and shorter review guidance; licence classes, expiry and administrator confirmations remain required under the existing server rules.
+
+The dashboard includes **Bookings at a glance**, an accessible horizontal bar chart using grouped database counts from the existing admin-only `/api/v1/admin/dashboard-summary`. It separates Awaiting payment, Awaiting Owner approval, Approved, In progress, Completed, In dispute, Cancelled, Rejected and Expired. Unknown legacy states appear under Other records. The total and bars use the same aggregation, independent of table pagination. It includes physical/service and demonstration records and says so; it does not claim organic marketplace activity, revenue growth or completed payments. Empty and unavailable data have distinct messages, with existing dashboard refresh available.
+
+Regression coverage includes current/legacy MyKad approval, rejected/reset status, passport/history-only records, safe projection, unpaid versus paid pending requests, all booking states, counts beyond the first page and empty data. Widget tests cover the real approval popup, cancellation without mutation, invalid chart responses, accessibility labels and 360/390/1024/1440 widths at 150% text size.
+
+Verification for this update:
+
+- Full isolated API suite: **682 passed, 3 skipped**.
+- Full Flutter suite: **671 passed, 3 skipped**. Focused admin tests: **46 passed**.
+- Final Flutter analysis: **no issues**. The first analysis flagged an unnecessary cast in the new chart; it was removed and analysis rerun successfully.
+- Main web, administrator web and Android debug APK: **passed**. Existing Socket.IO WebAssembly/Cupertino-font and Android Kotlin migration warnings remain.
+- Three private visual-preview checks passed. Inspected the rendered 360/1440-pixel chart and desktop licence popup using test fixtures. Both counts and labels are readable; the approval popup is centred and constrained. These are rendered widget previews, not live Android walkthrough results.
+- JavaScript syntax checks and `git diff --check`: **passed**. Deployed model/metrics checksums: **unchanged**.
+- Full suite logs: `.data/testing/20261109-135938-0c98d1be/`. Final analysis and visual logs: `apps/renthub_flutter/.data/admin-final-analysis.log` and `admin-visual-check.log`. The isolated run retains its original analysis warning result; the final analysis log records the successful follow-up.
+
+The skipped checks are existing opt-in/live phases. No live-account approval, live identity upload or phone walkthrough was performed. Restart the API and hot-restart/reopen the admin app, then refresh Verification/Dashboard to load the additive fields. Older APIs show an unavailable chart instead of invented zero counts.
+
+Suggested commit for this update:
+
+```text
+fix(admin): correct MyKad review status and add booking overview chart
+
+- derive safe current MyKad status using driving-approval rules
+- keep historical attempts and private identity data out of approval labels
+- constrain licence dialogs and simplify review guidance
+- aggregate booking states independently of paginated records
+- separate unpaid requests from those awaiting Owner approval
+- add responsive accessible chart, regression tests and verification notes
+```
+
+### Licence expiry prefill
+
+The user-side licence check already stores the extracted date in the selected submission's `aiEvidence.drivingAssistance.validUntil`. The safe admin projection was dropping that assistance object, leaving the existing prefill empty. Admin user/verification detail responses now include only the structured expiry date and recognized licence classes for driving-licence evidence. Protected OCR text, names, identity numbers, fingerprints and unrelated extraction fields remain excluded.
+
+The approval form prefills **Valid until** and the detected licence classes from the pending attempt. It explains **Read from the photo. Check and correct if needed.** Administrators can correct either field. The existing identity-match and licence-review confirmations and server expiry/class checks still apply; reading a date never approves a licence automatically. Older rejected attempts do not supply the current attempt's date.
+
+Strict calendar dates retain their exact `YYYY-MM-DD` value without timezone conversion. Missing or invalid dates stay blank and require manual review. Legacy normalized extraction fields are supported, but free-text dates are not guessed. This change does not reread documents, change historical approvals or write extracted values into accounts during viewing.
+
+Focused verification: **58 API tests** and **54 Flutter tests passed**, including actual submission-to-admin extraction, private-field exclusion, valid/invalid leap dates, editable prefill, missing-date validation, selected-attempt isolation and confirmation payloads.
+
+Full isolated run `.data/testing/20261109-140736-644b7460/`: **684 API tests passed, 3 skipped; 673 Flutter tests passed, 3 skipped; analysis clean; main web, administrator web and Android debug builds passed**. Deployed model/metrics checksums remain unchanged. The existing opt-in test skips and web/Kotlin build warnings remain. Two private popup render checks also passed at 360/1440 pixels with 130% text, and their prefilled fields and separated actions were visually inspected. No live approval or device test was performed.
+
+Commit message:
+
+```text
+fix(admin): prefill licence expiry from saved extraction
+
+- expose only normalized licence expiry and recognized classes in admin details
+- prefill editable review fields from the selected pending attempt
+- preserve required review confirmations and protected identity data
+- test missing dates, calendar validity, corrections and extraction end to end
 ```

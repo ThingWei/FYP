@@ -88,6 +88,94 @@ Future<void> openDates(WidgetTester tester, String title) async {
 }
 
 void main() {
+  test('one available calendar day ignores hidden start/end time components',
+      () {
+    const model =
+        ListingAvailability(listingId: 'l-camera', unavailableRanges: []);
+    expect(
+        model.isRangeAvailable(
+            DateTime(2027, 11, 16, 15, 42), DateTime(2027, 11, 16)),
+        isTrue);
+    expect(
+        model.isRangeAvailable(
+            DateTime(2027, 11, 17), DateTime(2027, 11, 16, 23, 59)),
+        isFalse);
+    final blocked =
+        ListingAvailability(listingId: 'l-camera', unavailableRanges: [
+      UnavailableRange(
+          start: DateTime(2027, 11, 16),
+          end: DateTime(2027, 11, 17),
+          source: 'booking'),
+    ]);
+    expect(
+        blocked.isRangeAvailable(
+            DateTime(2027, 11, 16, 15), DateTime(2027, 11, 16)),
+        isFalse);
+    expect(
+        blocked.isRangeAvailable(
+            DateTime(2027, 11, 15, 15), DateTime(2027, 11, 17)),
+        isFalse);
+  });
+
+  testWidgets('keeping the shown start and choosing the same end day is valid',
+      (tester) async {
+    final api = DetailApi();
+    await mountDetail(tester, api);
+    await openDates(tester, 'End date');
+    final picker =
+        tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+    final sameDay = picker.firstDate;
+    expect(picker.selectableDayPredicate!(sameDay), isTrue);
+    tester
+        .widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
+        .onDateChanged(sameDay);
+    await tester.pump();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(find.text('The selected range overlaps unavailable dates.'),
+        findsNothing);
+    final label = '${sameDay.day}/${sameDay.month}/${sameDay.year}';
+    expect(find.text(label), findsNWidgets(2));
+    expect(
+        api.calls.where((call) =>
+            call.$2.startsWith('/bookings') || call.$2.startsWith('/payments')),
+        isEmpty);
+  });
+
+  testWidgets('16 November 2027 can be selected as both start and end',
+      (tester) async {
+    final api = DetailApi();
+    await mountDetail(tester, api);
+    final day = DateTime(2027, 11, 16);
+    await openDates(tester, 'Start date');
+    final picker =
+        tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+    expect(day.isBefore(picker.firstDate), isFalse);
+    expect(day.isAfter(picker.lastDate), isFalse);
+    expect(picker.selectableDayPredicate!(day), isTrue);
+    tester
+        .widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
+        .onDateChanged(day);
+    await tester.pump();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await openDates(tester, 'End date');
+    final endPicker =
+        tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+    expect(endPicker.firstDate, day);
+    expect(endPicker.selectableDayPredicate!(day), isTrue);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(find.text('16/11/2027'), findsNWidgets(2));
+    expect(find.text('The selected range overlaps unavailable dates.'),
+        findsNothing);
+    expect(
+        api.calls.where((call) =>
+            call.$2.startsWith('/bookings') || call.$2.startsWith('/payments')),
+        isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final width in [360.0, 390.0, 1024.0]) {
     testWidgets('own listing has a safe Owner preview at $width',
         (tester) async {

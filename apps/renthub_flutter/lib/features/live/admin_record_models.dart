@@ -6,6 +6,43 @@ class AdminRecordPageState {
   Object? error;
 }
 
+/// Current MyKad state only. Aggregate verification or old review history may
+/// describe a different document and cannot establish driving eligibility.
+String adminMykadIdentityStatus(Map<String, dynamic> row) {
+  const statuses = {
+    'approved',
+    'pending',
+    'rejected',
+    'resubmission_required',
+    'unverified'
+  };
+  if (statuses.contains(row['mykadIdentityStatus'])) {
+    return row['mykadIdentityStatus'] as String;
+  }
+  final verification = row['verification'];
+  if (verification is! Map) return 'unavailable';
+  final documents = verification['documents'];
+  if (documents is List) {
+    final mykad = documents
+        .whereType<Map>()
+        .where((document) => document['documentType'] == 'mykad')
+        .toList();
+    if (mykad.any((document) => document['status'] == 'approved')) {
+      return 'approved';
+    }
+    if (mykad.isNotEmpty) {
+      return statuses.contains(mykad.first['status'])
+          ? mykad.first['status'] as String
+          : 'unavailable';
+    }
+  }
+  if (verification['documentType'] == 'mykad' &&
+      statuses.contains(verification['status'])) {
+    return verification['status'] as String;
+  }
+  return 'unavailable';
+}
+
 const adminRecordTitles = <String, String>{
   'users': 'Users',
   'verification': 'Verification records',
@@ -48,7 +85,8 @@ const adminStatusFilters = <String, List<String>>{
     'completion_pending',
     'completed',
     'disputed',
-    'cancelled'
+    'cancelled',
+    'expired'
   ],
   'transactions': ['pending', 'authorized', 'succeeded', 'failed', 'voided'],
   'disputes': [

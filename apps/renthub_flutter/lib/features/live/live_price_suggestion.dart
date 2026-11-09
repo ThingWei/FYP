@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -199,19 +200,9 @@ class LivePriceSuggestion extends StatelessWidget {
               const Text(
                   'Includes demonstration examples, not just marketplace rentals.'),
             ],
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text('How this estimate was calculated'),
-              childrenPadding: const EdgeInsets.only(bottom: 12),
-              expandedCrossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final line in view.calculationDetails)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(line),
-                  ),
-              ],
-            ),
+            RentHubSectionHeader('How this estimate was calculated',
+                help: view.calculationDetails.join('\n\n'),
+                style: Theme.of(context).textTheme.titleMedium),
             FilledButton(onPressed: onUse, child: const Text('Use this price')),
           ] else ...[
             Text(view.evidence['product_comparison_policy'] ==
@@ -253,15 +244,11 @@ class ListingSectionHeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(top: 24, bottom: 16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          Text(description,
-              style: const TextStyle(color: AppColors.secondaryText)),
-        ]),
+        child: RentHubSectionHeader(title,
+            help: description,
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w700)),
       );
 }

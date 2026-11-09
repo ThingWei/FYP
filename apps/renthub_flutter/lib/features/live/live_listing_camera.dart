@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import 'dart:async';
 
 import 'package:camera/camera.dart';
@@ -149,7 +150,13 @@ class _LiveListingCameraPageState extends State<LiveListingCameraPage>
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Take a listing photo')),
+        appBar:
+            AppBar(title: const Text('Take a listing photo'), actions: const [
+          RentHubHelpButton(
+              topic: 'Taking a photo',
+              message:
+                  'Keep the whole item in view and use good lighting. You can review the photo before uploading.'),
+        ]),
         body: SafeArea(
             child: Column(children: [
           Expanded(
@@ -172,10 +179,6 @@ class _LiveListingCameraPageState extends State<LiveListingCameraPage>
                                             'Back to photo selection')),
                                   ])))
                       : Center(child: client.preview())),
-          const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                  'Keep the whole item in view and use good lighting. You can review the photo before uploading.')),
           Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: FilledButton.icon(

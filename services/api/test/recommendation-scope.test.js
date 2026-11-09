@@ -184,6 +184,22 @@ test('complementary eligibility is reviewed, generic and needs three distinct re
   assert.equal(unsupported.status,'empty');
 });
 
+test('related items ignore Home search/category filters and reject substitutes or unsupported uses', async t => {
+  await makeListing('l-camera');
+  await makeListing('l-tripod', { category: 'Devices', subcategory: 'Other devices', title: 'Camera tripod stand' });
+  await makeListing('l-second-camera', { title: 'Another Canon EOS camera' });
+  t.mock.method(aiClient, 'recommendItems', async payload => rank(payload));
+  const response = await request(app).get('/api/v1/listings/l-camera/complements?category=Devices&search=Canon&type=service&minPrice=9999').set(renter).expect(200);
+  assert.deepEqual(response.body.data.items.map(item => item.publicId), ['l-tripod']);
+  const laptop = { publicId: 'laptop', listingType: 'physical', category: 'Devices', subcategory: 'Computers', title: 'Lenovo ThinkPad laptop' };
+  for (const title of ['Logitech wireless mouse', 'Mechanical keyboard', 'Dell monitor']) {
+    assert.equal(complementary(laptop, { ...laptop, publicId: title, title }), true);
+  }
+  assert.equal(complementary(laptop, { ...laptop, publicId: 'other-laptop', title: 'Laptop with mouse' }), false);
+  assert.equal(complementary(laptop, { ...laptop, publicId: 'game', subcategory: 'Gaming', title: 'Wireless controller' }), false);
+  assert.equal(complementary({ ...laptop, subcategory: 'Smartphones', title: 'Phone' }, laptop), false);
+});
+
 test('comparison rejects cross-domain, service, missing category and over-limit writes; legacy recovery is explicit',async()=>{
   for(const id of ['l-a','l-b','l-c','l-d']) await makeListing(id);
   await makeListing('l-phone',{subcategory:'Smartphones'});

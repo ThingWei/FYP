@@ -16,6 +16,7 @@ import { UserModel } from '../user/user.model.js';
 import { assertDrivingEligibility } from '../user/drivingEligibility.js';
 import { RENTAL_STATUSES } from './rental.model.js';
 import { rentalRepository } from './rental.repository.js';
+import { expireUncollectedRentals } from './uncollectedExpiry.js';
 import { withOperationLock } from '../booking/bookingRequestLock.js';
 import { blockingBookingCriteria } from '../listing/availabilityRules.js';
 import { randomUUID } from 'node:crypto';
@@ -152,6 +153,7 @@ export const rentalService = {
   async get(id, identity) {
     const rental = await rentalRepository.findParticipantRental(id, identity);
     if (!rental) throw new AppError('Rental not found', 404, 'NOT_FOUND');
+    await expireUncollectedRentals({ scope: { publicId: rental.publicId } });
     return withOperationLock('listing-decision', rental.listingId, async (ensureOwned) => {
       await recoverListingOperations(rental.listingId, ensureOwned);
       return rentalRepository.findParticipantRental(id, identity);
@@ -160,6 +162,7 @@ export const rentalService = {
 
   async listMine(identity, query) {
     await requireActiveUser(identity, 'renter');
+    await expireUncollectedRentals({ scope: { renterId: identity.authId } });
     const { page, limit } = pages(query);
     const status = RENTAL_STATUSES.includes(query.status) ? query.status : undefined;
     const [items, total] = await rentalRepository.listFor({
@@ -175,6 +178,7 @@ export const rentalService = {
 
   async listOwner(identity, query) {
     await requireActiveUser(identity, 'owner');
+    await expireUncollectedRentals({ scope: { ownerId: identity.authId } });
     const { page, limit } = pages(query);
     const status = RENTAL_STATUSES.includes(query.status) ? query.status : undefined;
     const [items, total] = await rentalRepository.listFor({
@@ -207,6 +211,9 @@ export const rentalService = {
       await assertVehicleCredential(rental, rental.endDate);
       if (rental.startDate > physicalRentalDate(new Date())) {
         throw new AppError('Wait until the booked start date before handing over the item', 409, 'HANDOVER_TOO_EARLY');
+      }
+      if (rental.endDate < physicalRentalDate(new Date())) {
+        throw new AppError('The booked dates have ended. Handover is no longer available.', 409, 'HANDOVER_WINDOW_CLOSED');
       }
       await uploadService.assertOwnedImageReferences(identity, input.evidence, ['handover_evidence']);
       rental.handover = {

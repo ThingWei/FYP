@@ -27,16 +27,23 @@ class SocketService {
         });
   final io.Socket _socket;
   final _messages = StreamController<dynamic>.broadcast();
+  final _notifications = StreamController<dynamic>.broadcast();
 
   Stream<dynamic> get messages => _messages.stream;
+  Stream<dynamic> get notifications => _notifications.stream;
 
   void connect() => _socket.connect();
   void join(String id) => _socket.emit('thread:join', id);
   void onMessage(void Function(dynamic) handler) => messages.listen(handler);
-  void initializeListeners() =>
-      _socket.on('message:new', (dynamic message) => _messages.add(message));
+  void initializeListeners() {
+    _socket.onConnect((_) => _notifications.add(null));
+    _socket.on('message:new', (dynamic message) => _messages.add(message));
+    _socket.on('notification:new', (dynamic note) => _notifications.add(note));
+  }
+
   void dispose() {
     _messages.close();
+    _notifications.close();
     _socket.dispose();
   }
 }

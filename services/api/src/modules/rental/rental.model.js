@@ -9,6 +9,7 @@ export const RENTAL_STATUSES = [
   'completed',
   'disputed',
   'cancelled',
+  'expired',
 ];
 
 const evidenceSchema = new mongoose.Schema(
@@ -66,6 +67,8 @@ const rentalSchema = new mongoose.Schema(
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
     status: { type: String, enum: RENTAL_STATUSES, default: 'scheduled', index: true },
+    expiredAt: Date,
+    expiryReason: { type: String, enum: ['not_collected'] },
     handover: { type: evidenceSchema },
     returnSubmission: { type: evidenceSchema },
     returnOutcome: {

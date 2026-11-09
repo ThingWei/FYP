@@ -9,6 +9,7 @@ import { connectDatabase, disconnectDatabase } from '../src/config/database.js';
 import { adminModule } from '../src/modules/admin/index.js';
 import { UserModel } from '../src/modules/user/user.model.js';
 import { BookingModel } from '../src/modules/booking/booking.model.js';
+import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { adminRecordRegistry, createAdminRecordsService } from '../src/modules/admin/adminRecords.service.js';
 import { resolveKycRequirement } from '../src/modules/user/kycRequirements.js';
 
@@ -53,6 +54,116 @@ test('user details resolve MongoDB ID and account ID and keep identity secrets p
     assert.equal(record.displayName, 'Nur Aisyah'); assert.equal(record.email, 'nur@example.test');
     assert.ok(!JSON.stringify(record).includes('PRIVATE'));
     assert.equal(record.verification.history[0].attemptId, 'A1');
+  }
+});
+
+test('licence review receives current MyKad status without private document data', async () => {
+  const variants = [
+    ['current-approved', { documentType: 'driving_licence', status: 'pending', documents: [{ documentType: 'mykad', status: 'approved', identityFingerprint: 'PRIVATE' }] }, 'approved'],
+    ['legacy-approved', { documentType: 'mykad', status: 'approved' }, 'approved'],
+    ['current-rejected', { documentType: 'mykad', status: 'approved', documents: [{ documentType: 'mykad', status: 'rejected' }] }, 'rejected'],
+    ['history-only', { documentType: 'driving_licence', status: 'pending', history: [{ documentType: 'mykad', status: 'approved' }] }, 'unverified'],
+    ['passport-only', { documentType: 'passport', status: 'approved' }, 'unverified'],
+    ['reset', { documentType: 'mykad', status: 'unverified', history: [{ documentType: 'mykad', status: 'approved' }] }, 'unverified'],
+  ];
+  for (const [authId, verification, expected] of variants) {
+    await UserModel.collection.insertOne({ authId, email: `${authId}@example.test`, displayName: 'Licence applicant', verification, drivingEligibility: { status: 'pending' } });
+    for (const type of ['users', 'verification']) {
+      const response = await request(app).get(`/api/v1/admin/records/${type}/${authId}`).set(headers);
+      assert.equal(response.status, 200);
+      const row = response.body.data.record;
+      assert.equal(row.mykadIdentityStatus, expected, authId);
+      assert.equal(row.verification.documents, undefined);
+      assert.ok(!JSON.stringify(row).includes('PRIVATE'));
+    }
+    assert.equal((await UserModel.findOne({ authId }).lean()).drivingEligibility.status, 'pending', 'display does not approve a licence');
+  }
+  const listed = await service.list('verification');
+  assert.equal(listed.items.find(row => row.authId === 'current-approved').mykadIdentityStatus, 'approved');
+});
+
+test('dashboard chart counts stored booking states beyond a page and separates unpaid requests', async () => {
+  const empty = await service.summary();
+  assert.equal(empty.bookings, 0);
+  assert.ok(Object.values(empty.bookingStatusCounts).every(count => count === 0));
+  await BookingModel.collection.insertMany([
+    ...Array.from({ length: 25 }, (_, index) => ({ status: 'pending', ...(index % 2 ? { paymentStatus: 'unpaid' } : {}) })),
+    { status: 'pending', paymentStatus: 'authorized' },
+    { status: 'pending', paymentStatus: 'captured' },
+    ...['approved', 'active', 'completed', 'disputed', 'cancelled', 'rejected', 'expired'].map(status => ({ status, listingType: 'service', sourceType: 'demo_seed' })),
+    { status: 'legacy-unknown' },
+  ].map((row, index) => ({ ...row, publicId: `DASHBOARD-${index}` })));
+  const response = await request(app).get('/api/v1/admin/dashboard-summary').set(headers);
+  assert.equal(response.status, 200);
+  const summary = response.body.data;
+  assert.equal(summary.bookings, 35);
+  assert.deepEqual(summary.bookingStatusCounts, {
+    awaitingPayment: 25, awaitingOwner: 2, approved: 1, active: 1,
+    completed: 1, disputed: 1, cancelled: 1, rejected: 1, expired: 1, other: 1,
+  });
+  assert.equal(Object.values(summary.bookingStatusCounts).reduce((sum, count) => sum + count, 0), summary.bookings);
+  assert.equal((await service.list('bookings', { limit: '10' })).items.length, 10);
+  assert.equal((await service.summary()).bookings, 35);
+});
+
+test('dashboard payouts count only successful Owner settlements in Malaysia calendar months', async () => {
+  const now = new Date();
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur', year: 'numeric', month: '2-digit' }).formatToParts(now).map(part => [part.type, part.value]));
+  const start = new Date(Date.UTC(+parts.year, +parts.month - 1, 1) - 8 * 3600000);
+  const records = [
+    { type: 'owner_settlement', status: 'succeeded', amount: 42.25, createdAt: start },
+    { type: 'owner_settlement', status: 'succeeded', amount: 10.10, createdAt: start },
+    { type: 'owner_settlement', status: 'succeeded', amount: 7, createdAt: new Date(start.getTime() - 1) },
+    { type: 'capture', status: 'succeeded', amount: 500, createdAt: start },
+    { type: 'owner_settlement', status: 'failed', amount: 500, createdAt: start },
+  ];
+  await PaymentModel.collection.insertMany(records.map((row, index) => ({ ...row, publicId: `PAYOUT-${index}`, idempotencyKey: `payout-test:${index}`, simulated: true })));
+  const { ownerPayouts } = await service.summary();
+  assert.equal(ownerPayouts.months.length, 6);
+  assert.equal(ownerPayouts.includesSimulated, true);
+  assert.deepEqual(ownerPayouts.months.at(-1), { month: `${parts.year}-${parts.month}`, amount: 52.35, count: 2 });
+  assert.equal(ownerPayouts.months.at(-2).amount, 7);
+});
+
+test('admin licence hints preserve extracted expiry and classes without exposing OCR identity data', async () => {
+  const evidence = { outcome: 'manual_review', identityMatch: 'matched', ocr_text: 'PRIVATE',
+    extracted_fields: { identityNumber: 'PRIVATE', name: 'PRIVATE', expiryDateText: 'PRIVATE' },
+    drivingAssistance: { validUntil: '2035-12-31', licenceClasses: ['D', 'B2', 'D', 'PRIVATE'], rawText: 'PRIVATE', identityNumber: 'PRIVATE' } };
+  await UserModel.collection.insertOne({ authId: 'expiry-review', email: 'expiry@example.test',
+    verification: { documentType: 'driving_licence', status: 'pending', ocrResult: evidence,
+      history: [
+        { attemptId: 'identity', documentType: 'mykad', status: 'approved', aiEvidence: evidence },
+        { attemptId: 'licence-new', documentType: 'driving_licence', status: 'pending', aiEvidence: evidence },
+      ] } });
+  for (const type of ['users', 'verification']) {
+    const response = await request(app).get(`/api/v1/admin/records/${type}/expiry-review`).set(headers);
+    assert.equal(response.status, 200);
+    const row = response.body.data.record;
+    const expected = { validUntil: '2035-12-31', licenceClasses: ['D', 'B2'] };
+    assert.deepEqual(row.verification.history[1].aiEvidence.drivingAssistance, expected);
+    assert.deepEqual(row.verification.ocrResult.drivingAssistance, expected, 'legacy top-level licence evidence also works');
+    assert.equal(row.verification.history[0].aiEvidence.drivingAssistance, undefined, 'MyKad is not licence evidence');
+    assert.ok(!JSON.stringify(row).includes('PRIVATE'));
+    assert.equal(row.verification.history[1].status, 'pending');
+  }
+});
+
+test('admin expiry hints accept real calendar dates only and do not guess from OCR text', async () => {
+  const cases = [
+    ['2036-02-29', '2036-02-29'], ['2035-02-29', null], ['2035-02-31', null],
+    ['31/12/2035', null], ['2035-12-31T00:00:00Z', null], [null, null], [1234, null],
+  ];
+  for (const [index, [validUntil, expected]] of cases.entries()) {
+    const authId = `expiry-${index}`;
+    await UserModel.collection.insertOne({ authId, email: `${authId}@example.test`, verification: {
+      documentType: 'driving_licence', status: 'pending',
+      history: [{ attemptId: 'latest', documentType: 'driving_licence', status: 'pending', aiEvidence: {
+        extracted_fields: { validUntil, expiryDateText: '31 December 2035', identityNumber: 'PRIVATE' },
+      } }],
+    } });
+    const { record } = await service.get('verification', authId);
+    assert.equal(record.verification.history[0].aiEvidence.drivingAssistance.validUntil, expected);
+    assert.ok(!JSON.stringify(record).includes('PRIVATE'));
   }
 });
 

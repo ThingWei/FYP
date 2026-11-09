@@ -1,3 +1,4 @@
+import '../../../shared/widgets/section_help.dart';
 import '../../../core/validation/input_validation.dart';
 import '../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
@@ -121,18 +122,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           ),
                         ),
                         const SizedBox(height: 18),
-                        Text(
-                          _title,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _message,
-                          textAlign: TextAlign.center,
-                          style:
-                              const TextStyle(color: AppColors.secondaryText),
-                        ),
+                        RentHubSectionHeader(_title,
+                            help: step == _ResetStep.email ? _message : null),
+                        if (step != _ResetStep.email &&
+                            _message.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _message,
+                            textAlign: TextAlign.center,
+                            style:
+                                const TextStyle(color: AppColors.secondaryText),
+                          ),
+                        ],
                         const SizedBox(height: 24),
                         ..._fields,
                         if (error != null) ...[

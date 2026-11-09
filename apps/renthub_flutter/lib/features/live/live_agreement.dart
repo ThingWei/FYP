@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:http/http.dart' as http;
@@ -212,16 +213,15 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
                                 padding: const EdgeInsets.all(16),
                                 children: [
                                     section('RentHub', [
-                                      Text(
+                                      RentHubSectionHeader(
                                           service
                                               ? 'Service booking agreement'
                                               : 'Rental agreement',
+                                          help:
+                                              'Your booking details, responsibilities and recorded acceptance, together in one place.',
                                           style: Theme.of(context)
                                               .textTheme
                                               .headlineSmall),
-                                      const SizedBox(height: 8),
-                                      const Text(
-                                          'Your booking details, responsibilities and recorded acceptance, together in one place.'),
                                       if (booking != null) ...[
                                         const SizedBox(height: 12),
                                         Text('Booking ${booking.id}'),

@@ -1,4 +1,6 @@
+import '../../shared/widgets/section_help.dart';
 import 'live_booking_summary.dart';
+import 'live_notification_icon.dart';
 import 'live_booking_filters.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'live_condition_record_page.dart';
@@ -231,7 +233,7 @@ class LiveOwnerDashboard extends StatelessWidget {
                 builder: (_) => const LiveNotificationsPage(),
               ),
             ),
-            icon: const Icon(Icons.notifications_outlined),
+            icon: const LiveNotificationIcon(),
           ),
         ],
       ),
@@ -240,13 +242,10 @@ class LiveOwnerDashboard extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text(
+            RentHubSectionHeader(
               'Welcome, ${controller.profile?.name ?? 'Owner'}',
+              help: 'Your marketplace activity',
               style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const Text(
-              'Your marketplace activity',
-              style: TextStyle(color: AppColors.secondaryText),
             ),
             const SizedBox(height: 20),
             GridView.count(
@@ -752,9 +751,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
   Widget _comparisonDetails() => ExpansionTile(
         maintainState: true,
         tilePadding: EdgeInsets.zero,
-        title: const Text('Product details for price comparisons'),
-        subtitle: const Text(
-            'Optional: help avoid comparing different versions or packages.'),
+        title: RentHubSectionHeader('Product details for price comparisons',
+            help:
+                'Optional: help avoid comparing different versions or packages.',
+            style: Theme.of(context).textTheme.titleMedium),
         children: [
           if (category == RentHubCategories.books) ...[
             TextFormField(

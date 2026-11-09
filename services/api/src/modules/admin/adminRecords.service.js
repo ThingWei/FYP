@@ -14,6 +14,7 @@ import { GeneratedReportModel, ReportScheduleModel } from './report.model.js';
 import { RewardLedgerModel, ReferralModel } from '../loyalty/loyalty.model.js';
 import { PricingReferenceModel } from '../listing/pricingReference.model.js';
 import { verificationRecordsFilter, verificationRecordSummary, VERIFICATION_RECORD_STATUSES } from './adminVerificationRecords.js';
+import { hasApprovedMykad, LICENCE_CLASSES } from '../user/drivingEligibility.js';
 
 const common = 'publicId createdAt updatedAt status';
 const entry = (model, fields, search, statusField = 'status') => ({ model, fields: `${common} ${fields}`, search, statusField });
@@ -25,7 +26,7 @@ export function adminRecordRegistry(auditModel) {
     verification: entry(UserModel, userFields, ['displayName', 'email']),
     listings: entry(ListingModel, 'title description ownerId ownerName listingType category subcategory brand productModel dailyPrice securityDeposit deliveryFee fulfilmentMethods condition itemAgeYears images verified itemVerification moderationReason serviceDetails', ['title', 'brand', 'productModel', 'ownerName']),
     bookings: entry(BookingModel, 'listingId listingTitle listingType renterId renterName ownerId ownerName category startDate endDate fulfilmentMethod serviceVenue serviceVenueMode paymentStatus pricing extensionCharges agreement renterNote ownerDecisionReason cancellationReason decidedAt cancelledAt activatedAt completedAt expiredAt expiresAt sourceType', ['publicId', 'listingTitle', 'renterName', 'ownerName']),
-    rentals: entry(RentalModel, 'bookingId listingId listingType renterId ownerId category startDate endDate handover returnSubmission returnOutcome serviceDeliveredAt serviceCompletedAt extension extensionHistory', ['publicId', 'bookingId', 'listingId']),
+    rentals: entry(RentalModel, 'bookingId listingId listingType renterId ownerId category startDate endDate expiredAt expiryReason handover returnSubmission returnOutcome serviceDeliveredAt serviceCompletedAt extension extensionHistory', ['publicId', 'bookingId', 'listingId']),
     transactions: entry(PaymentModel, 'bookingId payerId payeeId amount currency type method status simulated reason metadata', ['publicId', 'bookingId', 'type']),
     disputes: entry(DisputeModel, 'bookingId rentalId listingId listingTitle listingType raisedById raisedByName raisedByRole respondentId respondentName respondentRole category summary reason description evidence responses resolution history priority adminNote createdAt', ['publicId', 'listingTitle', 'description']),
     claims: entry(ClaimModel, 'disputeId rentalId bookingId listingId listingTitle ownerId renterId amountRequested description evidence status decision', ['publicId', 'listingTitle', 'description']),
@@ -73,6 +74,23 @@ function options(query) {
   return { page: number('page', 1, 100000), limit: number('limit', 20, 100) };
 }
 const literal = value => new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+function drivingReviewDetails(evidence) {
+  // Only structured review hints, never arbitrary OCR fields or text. Keep
+  // date-only values unchanged; the administrator must still confirm them.
+  const fields = evidence?.drivingAssistance ?? evidence?.extracted_fields ?? evidence?.extractedFields;
+  if (!fields || typeof fields !== 'object') return undefined;
+  const value = fields.validUntil;
+  const date = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00.000Z`) : new Date(NaN);
+  const validUntil = Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value ? value : null;
+  return { validUntil, licenceClasses: Array.isArray(fields.licenceClasses)
+    ? [...new Set(fields.licenceClasses.filter(value => LICENCE_CLASSES.includes(value)))] : [] };
+}
+function reviewEvidence(evidence, documentType) {
+  if (!evidence) return undefined;
+  return { outcome: evidence.outcome, identityMatch: evidence.identityMatch,
+    ...(documentType === 'driving_licence' && { drivingAssistance: drivingReviewDetails(evidence) }) };
+}
 export function createAdminRecordsService(auditModel) {
   const registry = adminRecordRegistry(auditModel);
   const spec = type => { if (!Object.hasOwn(registry, type)) throw new AppError('Record type not found', 404, 'NOT_FOUND'); return registry[type]; };
@@ -87,13 +105,20 @@ export function createAdminRecordsService(auditModel) {
       raw.trustScore = raw.trustProfile?.version === 'renthub-trust-v1' && raw.trustProfile.overall?.marketplace?.status === 'established'
         ? raw.trustProfile.overall.marketplace.score : 50;
       raw.verificationSummary = verificationRecordSummary(raw);
+      // Derive before the private document collection is removed. Match the
+      // driving-approval policy; historical attempts/passports are not approval.
+      if (Object.hasOwn(raw, 'verification')) {
+        const mykad = raw.verification?.documents?.find(document => document.documentType === 'mykad');
+        raw.mykadIdentityStatus = hasApprovedMykad(raw) ? 'approved' :
+          mykad?.status ?? (raw.verification?.documentType === 'mykad' ? raw.verification.status : 'unverified');
+      }
       const check = value => value && Object.fromEntries(['status', 'documentType', 'reason', 'submittedAt', 'reviewedAt', 'verifiedAt', 'reviewNotes', 'identityMatch', 'documentRefs', 'licenceClasses', 'expiresAt', 'latestAttemptId', 'holderMatch']
         .filter(key => value[key] !== undefined).map(key => [key, value[key]]));
       const attempt = value => ({ ...check(value), attemptId: value.attemptId, reviewReason: value.reviewReason,
-        aiEvidence: value.aiEvidence ? { outcome: value.aiEvidence.outcome, identityMatch: value.aiEvidence.identityMatch } : undefined });
+        aiEvidence: reviewEvidence(value.aiEvidence, value.documentType) });
       const verification = raw.verification;
       raw.verification = verification ? { ...check(verification), history: (verification.history ?? []).map(attempt),
-        ocrResult: verification.ocrResult ? { outcome: verification.ocrResult.outcome, identityMatch: verification.ocrResult.identityMatch } : undefined } : undefined;
+        ocrResult: reviewEvidence(verification.ocrResult, verification.documentType) } : undefined;
       raw.drivingEligibility = check(raw.drivingEligibility);
     }
     if (type === 'audit-logs') raw.metadata = Object.fromEntries(Object.entries(raw.metadata ?? {}).filter(([key]) => auditMetadataKeys.has(key)));
@@ -156,12 +181,36 @@ export function createAdminRecordsService(auditModel) {
       return { recordType: type, record: project(doc, type, names, bookings) };
     },
     async summary() {
-      const [users, pendingListings, bookings, openReports, openMessages, flaggedReviews, verification] = await Promise.all([
-        UserModel.countDocuments(), ListingModel.countDocuments({ status: 'pending_review' }), BookingModel.countDocuments(),
-        ModerationReportModel.countDocuments({ status: 'open' }), MessageReportModel.countDocuments({ status: 'open' }),
-        ReviewModel.countDocuments({ 'flag.reason': { $exists: true, $ne: '' } }), UserModel.countDocuments(pendingVerification),
+      const now = new Date();
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur', year: 'numeric', month: '2-digit' })
+        .formatToParts(now).map(part => [part.type, part.value]));
+      const first = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 6, 1) - 8 * 60 * 60 * 1000);
+      const payoutWork = PaymentModel.aggregate([
+        { $match: { type: 'owner_settlement', status: 'succeeded', createdAt: { $gte: first, $lte: now } } },
+        { $group: { _id: { $dateToString: { date: '$createdAt', format: '%Y-%m', timezone: 'Asia/Kuala_Lumpur' } },
+          cents: { $sum: { $round: [{ $multiply: ['$amount', 100] }, 0] } }, count: { $sum: 1 } } },
       ]);
-      return { users, pendingListings, bookings, openReports: openReports + openMessages, flaggedReviews, verification, checkedAt: new Date() };
+      const [users, pendingListings, bookingGroups, openReports, openMessages, flaggedReviews, verification, payoutRows] = await Promise.all([
+        UserModel.countDocuments(), ListingModel.countDocuments({ status: 'pending_review' }),
+        BookingModel.aggregate([{ $group: { _id: { status: '$status', paymentStatus: '$paymentStatus' }, count: { $sum: 1 } } }]),
+        ModerationReportModel.countDocuments({ status: 'open' }), MessageReportModel.countDocuments({ status: 'open' }),
+        ReviewModel.countDocuments({ 'flag.reason': { $exists: true, $ne: '' } }), UserModel.countDocuments(pendingVerification), payoutWork,
+      ]);
+      const ownerPayouts = { currency: 'MYR', includesSimulated: true, months: Array.from({ length: 6 }, (_, index) => {
+        const month = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 6 + index, 1));
+        const key = month.toISOString().slice(0, 7), row = payoutRows.find(row => row._id === key);
+        return { month: key, amount: (row?.cents ?? 0) / 100, count: row?.count ?? 0 };
+      }) };
+      const bookingStatusCounts = { awaitingPayment: 0, awaitingOwner: 0, approved: 0, active: 0, completed: 0, disputed: 0, cancelled: 0, rejected: 0, expired: 0, other: 0 };
+      for (const group of bookingGroups) {
+        const status = group._id.status;
+        const key = status === 'pending'
+          ? (['authorized', 'captured'].includes(group._id.paymentStatus) ? 'awaitingOwner' : 'awaitingPayment')
+          : (Object.hasOwn(bookingStatusCounts, status) && !['awaitingPayment', 'awaitingOwner'].includes(status) ? status : 'other');
+        bookingStatusCounts[key] += group.count;
+      }
+      const bookings = Object.values(bookingStatusCounts).reduce((sum, count) => sum + count, 0);
+      return { users, pendingListings, bookings, bookingStatusCounts, ownerPayouts, openReports: openReports + openMessages, flaggedReviews, verification, checkedAt: now };
     },
   };
 }

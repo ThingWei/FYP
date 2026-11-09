@@ -10,6 +10,7 @@ import { expireRentalExtensions } from '../modules/rental/rental.service.js';
 import { physicalRentalDate, physicalRentalReturnDeadline } from '../core/calendarDate.js';
 import { sendUnpaidPaymentReminders } from '../modules/booking/bookingPaymentReminders.js';
 import { expireDuePendingBookings } from '../modules/booking/bookingExpiry.js';
+import { expireUncollectedRentals } from '../modules/rental/uncollectedExpiry.js';
 
 const state = {
   enabled: env.lifecycleJobsEnabled,
@@ -237,6 +238,7 @@ export async function runLifecycleJobs({
     const recoveredListings = await recoverLifecycleOperations();
     const expiredExtensions = await expireRentalExtensions(now);
     const voidedTerminalHolds = await voidTerminalPaymentHolds();
+    const uncollectedRentals = await expireUncollectedRentals({ now });
     const [
       expiredBookings,
       startReminders,
@@ -257,6 +259,7 @@ export async function runLifecycleJobs({
       recoveredListings,
       expiredExtensions,
       voidedTerminalHolds,
+      uncollectedRentals,
       expiredBookings,
       startReminders,
       dueReminders,

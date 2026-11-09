@@ -17,18 +17,29 @@ class BookingLocationsButton extends StatefulWidget {
 class _BookingLocationsButtonState extends State<BookingLocationsButton> {
   bool loading = false;
   Future<void> _open() async {
+    final account = context.read<LiveRentHubController>().profile?.id;
+    final bookingId = widget.bookingId;
     setState(() => loading = true);
     try {
       final api = context.read<LiveRentHubController>().api;
       final data =
           await api.request('GET', '/bookings/${widget.bookingId}/locations');
+      if (!mounted ||
+          widget.bookingId != bookingId ||
+          context.read<LiveRentHubController>().profile?.id != account) {
+        return;
+      }
       final places = <String, ListingLocationSelection>{};
+      final states = data['locationStates'] is Map
+          ? data['locationStates'] as Map
+          : const {};
       for (final entry in {
         'pickupLocation': 'Pickup / owner venue',
         'serviceLocation': 'Service venue',
         'deliveryLocation': 'Delivery destination'
       }.entries) {
-        if (data[entry.key] is Map) {
+        if (data[entry.key] is Map &&
+            (states.isEmpty || states[entry.key] == 'available')) {
           places[entry.value] = ListingLocationSelection.fromJson(
               Map<String, dynamic>.from(data[entry.key]));
         }
@@ -37,18 +48,30 @@ class _BookingLocationsButtonState extends State<BookingLocationsButton> {
       await showDialog<void>(
           context: context,
           builder: (dialogContext) => rentHubDialog(
+                  constraints: const BoxConstraints(maxWidth: 520),
                   title: const Text('Booking locations'),
                   content: SizedBox(
                       width: 440,
                       child: SingleChildScrollView(
                           child:
                               Column(mainAxisSize: MainAxisSize.min, children: [
-                        if (data['shared'] != true)
+                        if (states.values.contains('hidden_until_approval') ||
+                            states.isEmpty && data['shared'] != true)
                           const Text(
                               'The other person’s exact location is shared after approval.'),
-                        if (places.isEmpty)
+                        if (states.values.contains('missing_pin'))
                           const Text(
-                              'No confirmed locations are available for this booking.'),
+                              'A location pin was not saved with this booking. Ask the other person to confirm the meeting point in Messages. Existing bookings do not move when a listing address is edited.'),
+                        if (states.isNotEmpty &&
+                            states.values
+                                .every((value) => value == 'not_required'))
+                          const Text(
+                              'This booking does not need a physical meeting location.'),
+                        if (places.isEmpty &&
+                            states.isEmpty &&
+                            data['shared'] == true)
+                          const Text(
+                              'A location was not saved with this booking. Contact the other person in Messages to arrange the meeting point.'),
                         for (final entry in places.entries)
                           ListTile(
                               title: Text(entry.key),

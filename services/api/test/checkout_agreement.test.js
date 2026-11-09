@@ -52,6 +52,36 @@ test('terms are authenticated, versioned, type-specific and retain the original 
   await request(app).post('/api/v1/bookings').set(renter).send({ ...input, idempotencyKey: 'wrong-terms-type', agreementVersion: 'renthub-service-v2' }).expect(422);
 });
 
+test('reopening unpaid booking, history and agreement never pays or approves it', async () => {
+  for (let n = 0; n < 3; n++) {
+    const reopened = await request(app).get(`/api/v1/bookings/${id}`).set(renter).expect(200);
+    assert.equal(reopened.body.data.status, 'pending');
+    assert.equal(reopened.body.data.paymentStatus, 'unpaid');
+    await request(app).get('/api/v1/bookings/mine').set(renter).expect(200);
+    const attempts = await request(app).get(`/api/v1/payments/booking/${id}`).set(renter).expect(200);
+    assert.equal(attempts.body.data.length, 0);
+    const agreement = await request(app).get(`/api/v1/bookings/${id}/agreement`).set(renter).expect(200);
+    assert.equal(agreement.body.data.history.ownerApprovedAt, null);
+  }
+  const saved = await BookingModel.findOne({ publicId: id });
+  assert.equal(saved.status, 'pending');
+  assert.equal(saved.paymentStatus, 'unpaid');
+  assert.equal(saved.decidedAt, undefined);
+  assert.equal(await PaymentModel.countDocuments({ bookingId: id }), 0);
+  assert.equal(await RentalModel.countDocuments({ bookingId: id }), 0);
+});
+
+test('reopening an expired unpaid checkout expires it without a payment or approval', async () => {
+  await BookingModel.updateOne({ publicId: id }, { paymentDueAt: new Date(Date.now() - 1) });
+  const reopened = await request(app).get(`/api/v1/bookings/${id}`).set(renter).expect(200);
+  assert.equal(reopened.body.data.status, 'expired');
+  assert.equal(reopened.body.data.paymentStatus, 'unpaid');
+  assert.equal(await PaymentModel.countDocuments({ bookingId: id }), 0);
+  assert.equal(await RentalModel.countDocuments({ bookingId: id }), 0);
+  const saved = await BookingModel.findOne({ publicId: id });
+  assert.equal(saved.decidedAt, undefined);
+});
+
 test('agreement snapshots names, charges and acceptance; pending pickup stays private', async () => {
   await UserModel.updateOne({ authId: 'checkout-owner' }, { displayName: 'Changed Owner' });
   await ListingModel.updateOne({ publicId: 'l-checkout' }, { dailyPrice: 999, title: 'Changed title' });

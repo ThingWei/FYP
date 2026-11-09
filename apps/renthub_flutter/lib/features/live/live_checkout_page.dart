@@ -39,7 +39,10 @@ class LiveCheckoutPage extends StatefulWidget {
   State<LiveCheckoutPage> createState() => _LiveCheckoutPageState();
 }
 
-class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
+enum _DemoPaymentOutcome { success, declined, cancelled }
+
+class _LiveCheckoutPageState extends State<LiveCheckoutPage>
+    with WidgetsBindingObserver {
   Booking? booking;
   bool loading = true,
       paying = false,
@@ -49,7 +52,10 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
       recorded = false;
   bool choosing = false, revisedTotal = false;
   String? error, message, attemptKey;
-  String attemptOutcome = 'success';
+  String? attemptOutcome;
+  bool foreground = true;
+  int decisionGeneration = 0;
+  int loadGeneration = 0;
   late String method = widget.initialMethod;
   LiveRentHubController get controller => context.read<LiveRentHubController>();
   bool get changedTotal =>
@@ -68,28 +74,50 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
       !loading &&
       !uncertain &&
       !choosing &&
+      foreground &&
       error == null &&
       (!changedTotal || acceptedFinalTotal);
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (!foreground) decisionGeneration++;
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    decisionGeneration++;
+    loadGeneration++;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> _load() async {
+    final generation = ++loadGeneration;
+    final auth = context.read<AuthController>();
+    final userId = auth.user?.id;
+    bool isCurrent() =>
+        mounted && generation == loadGeneration && auth.user?.id == userId;
     setState(() {
       loading = true;
       error = null;
     });
     try {
       final value = await controller.getBooking(widget.bookingId);
-      if (!mounted) return;
-      if (value.renterId != context.read<AuthController>().user?.id) {
+      if (!isCurrent()) return;
+      if (value.renterId != auth.user?.id) {
         throw ApiException(403, 'This checkout belongs to another renter');
       }
       final attempts =
           await controller.bookingPaymentAttempts(widget.bookingId);
-      if (!mounted) return;
+      if (!isCurrent()) return;
       final successful = attempts.where((item) => item.status == 'authorized');
       final current = attempts
           .where((item) => item.key == attemptKey && attemptKey != null);
@@ -99,6 +127,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
           revisedTotal = true;
         }
         booking = value;
+        message = null;
         uncertain = false;
         recorded = successful.isNotEmpty &&
             value.paymentStatus == 'unpaid' &&
@@ -109,10 +138,13 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
           attemptOutcome = 'success';
           message =
               'Your demo payment is recorded. Finish updating this request without making another payment.';
-        } else if (current.isNotEmpty && current.first.status == 'failed') {
+        } else if (value.awaitingPayment &&
+            ((current.isNotEmpty && current.first.status == 'failed') ||
+                (attempts.isNotEmpty &&
+                    attempts.every((a) => a.status == 'failed')))) {
           attemptKey = null;
           message =
-              'The demo payment was declined. Your request is still unpaid; choose a method and try again.';
+              'The demo payment was declined. Your request is still unpaid; you can try again.';
         } else if (value.paymentStatus == 'authorized' &&
             value.status == 'pending') {
           message = 'Demo payment complete — awaiting Owner approval';
@@ -123,7 +155,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
         }
       });
     } catch (exception) {
-      if (mounted) {
+      if (isCurrent()) {
         setState(() {
           error = friendlyError(exception);
           uncertain = attemptKey != null;
@@ -132,19 +164,20 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
         });
       }
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (isCurrent()) setState(() => loading = false);
     }
   }
 
   Future<void> _openDemo() async {
     if (!ready) return;
-    if (attemptKey != null) {
-      await _pay(attemptOutcome);
+    if (attemptKey != null && attemptOutcome != null) {
+      await _pay(attemptOutcome!);
       return;
     }
+    final decision = decisionGeneration;
     setState(() => choosing = true);
     final sessionUserId = context.read<AuthController>().user?.id;
-    final selected = await showDialog<String>(
+    final selected = await showDialog<_DemoPaymentOutcome>(
         context: context,
         builder: (context) =>
             Consumer<AuthController>(builder: (context, auth, _) {
@@ -167,17 +200,24 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
     if (!mounted) return;
     setState(() => choosing = false);
     if (selected == null) return;
-    if (selected == 'cancel') {
+    if (!foreground || decision != decisionGeneration) {
+      setState(() => message =
+          'Payment was not confirmed. Choose Continue demo payment to try again.');
+      return;
+    }
+    if (selected == _DemoPaymentOutcome.cancelled) {
       setState(() => message = booking!.canContinuePayment
           ? 'Payment cancelled. Continue from Bookings before the countdown ends.'
           : 'Your payment window expired. No payment was taken.');
       return;
     }
-    await _pay(selected);
+    await _pay(selected.name);
   }
 
   Future<void> _pay(String outcome) async {
-    if (!ready) return;
+    if (!ready || !const ['success', 'declined'].contains(outcome)) return;
+    final decision = decisionGeneration;
+    final sessionUserId = context.read<AuthController>().user?.id;
     setState(() {
       paying = true;
       error = null;
@@ -187,8 +227,17 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage> {
     try {
       final fresh = await controller.getBooking(widget.bookingId);
       if (!mounted) return;
-      if (fresh.renterId != context.read<AuthController>().user?.id) {
+      final auth = context.read<AuthController>();
+      if (!auth.authenticated ||
+          auth.user?.id != sessionUserId ||
+          auth.selectedRole != UserRole.renter ||
+          fresh.renterId != auth.user?.id) {
         throw ApiException(403, 'This checkout belongs to another renter');
+      }
+      if (!foreground || decision != decisionGeneration) {
+        setState(() => message =
+            'Payment was not confirmed. Please review checkout and try again.');
+        return;
       }
       final previousTotal = booking!.total;
       setState(() => booking = fresh);
@@ -507,15 +556,18 @@ class _DemoPaymentDialog extends StatelessWidget {
         actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, 'cancel'),
+              onPressed: () =>
+                  Navigator.pop(context, _DemoPaymentOutcome.cancelled),
               child: const Text('Cancel', textAlign: TextAlign.center)),
           OutlinedButton(
-              onPressed:
-                  expired ? null : () => Navigator.pop(context, 'declined'),
+              onPressed: expired
+                  ? null
+                  : () => Navigator.pop(context, _DemoPaymentOutcome.declined),
               child: const Text('Decline', textAlign: TextAlign.center)),
           FilledButton(
-              onPressed:
-                  expired ? null : () => Navigator.pop(context, 'success'),
+              onPressed: expired
+                  ? null
+                  : () => Navigator.pop(context, _DemoPaymentOutcome.success),
               child: const Text('Pay demo', textAlign: TextAlign.center)),
         ],
       );

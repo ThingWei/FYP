@@ -188,7 +188,7 @@ class _LiveReviewPageState extends State<LiveReviewPage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'You can edit a submitted review through the API for 24 hours. Administrative moderation remains auditable.',
+                        'You can edit a submitted review for 24 hours.',
                         style: TextStyle(
                           color: AppColors.secondaryText,
                           fontSize: 12,

@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'live_reviews_list.dart';
 export 'live_chat_page.dart';
@@ -490,9 +491,9 @@ class LiveProfilePage extends StatelessWidget {
                         builder: (_) => const LiveReviewsListPage()))),
             ListTile(
               leading: const Icon(Icons.settings_outlined),
-              title: const Text('Application settings'),
-              subtitle:
-                  const Text('Notification preferences and account settings'),
+              title: RentHubSectionHeader('Application settings',
+                  help: 'Notification preferences and account settings',
+                  style: Theme.of(context).textTheme.titleMedium),
               trailing: const Icon(Icons.chevron_right),
               onTap: profile == null
                   ? null

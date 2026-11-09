@@ -52,6 +52,8 @@ export function rerankRecommendations(items, query, availability) {
 // Only reviewed generic complementary uses. No mount/connector/fit guarantee.
 export const COMPLEMENT_RULES = Object.freeze([
   { category: 'Devices', subcategory: 'Cameras', targets: [
+    { category: 'Devices', subcategory: 'Cameras', terms: /\b(tripod|camera gimbal|camera stabilizer|camera cage|camera flash)\b/i },
+    { category: 'Devices', subcategory: 'Other devices', terms: /\b(tripod|camera gimbal|camera stabilizer|light stand|led panel)\b/i },
     { category: 'Equipment', subcategory: 'Event equipment', terms: /\b(tripod|softbox|light stand|studio light|led panel)\b/i },
     { category: 'Equipment', subcategory: 'Other equipment', terms: /\b(tripod|light stand)\b/i },
     { category: 'Devices', subcategory: 'Audio', terms: /\b(microphone|audio recorder|sound recorder)\b/i },
@@ -59,12 +61,33 @@ export const COMPLEMENT_RULES = Object.freeze([
   { category: 'Equipment', subcategory: 'Event equipment', targets: [
     { category: 'Devices', subcategory: 'Audio', terms: /\b(microphone|pa speaker|pa system|audio mixer)\b/i },
   ] },
+  { category: 'Devices', subcategory: 'Computers', anchorTerms: /\b(laptop|notebook|desktop|macbook|imac|thinkpad|latitude|pc)\b/i, targets: [
+    { category: 'Devices', subcategory: 'Computers', terms: /\b(mouse|keyboard|monitor|webcam)\b|\bmx master\b|\bmx keys\b|studio display/i },
+    { category: 'Devices', subcategory: 'Other devices', terms: /\b(mouse|keyboard|monitor|webcam|usb hub|docking station)\b/i },
+  ] },
+  { category: 'Devices', subcategory: 'Gaming', anchorTerms: /\b(console|playstation|ps[345]|xbox|nintendo switch)\b/i, targets: [
+    { category: 'Devices', subcategory: 'Computers', terms: /\bmonitor\b/i },
+    { category: 'Equipment', subcategory: 'Event equipment', terms: /\b(tv|television|projector)\b/i },
+  ] },
+  { category: 'Equipment', subcategory: 'Sports equipment', anchorTerms: /\b(camping tent|camping|arpenaz|dome tent)\b/i, targets: [
+    { category: 'Equipment', subcategory: 'Sports equipment', terms: /\b(sleeping bag|sleeping mat|camping mattress|camping lantern)\b/i },
+  ] },
+  { category: 'Vehicles', subcategory: 'Bicycles', targets: [
+    { category: 'Equipment', subcategory: 'Sports equipment', terms: /\b(cycling helmet|bicycle helmet|bike helmet|bicycle pump|bike pump)\b/i },
+  ] },
 ]);
 export function complementary(anchor, candidate) {
   if (anchor.listingType !== 'physical' || candidate.listingType !== 'physical' || anchor.publicId === candidate.publicId) return false;
   const rule = COMPLEMENT_RULES.find(r => r.category === anchor.category && r.subcategory === anchor.subcategory);
+  const anchorText = `${anchor.title ?? ''} ${anchor.productModel ?? ''}`;
+  const candidateText = `${candidate.title ?? ''} ${candidate.productModel ?? ''}`;
+  if (rule?.anchorTerms && !rule.anchorTerms.test(anchorText)) return false;
+  // A notebook/laptop title mentioning an included mouse is still a computer,
+  // and accessory bundles are not evidence of a standalone related product.
+  if (candidate.category === 'Devices' && candidate.subcategory === 'Computers' &&
+      /\b(laptop|notebook|desktop|macbook|imac|thinkpad|latitude|pc)\b/i.test(candidateText)) return false;
   return !!rule?.targets.some(t => t.category === candidate.category && t.subcategory === candidate.subcategory &&
-    t.terms.test(`${candidate.title} ${candidate.productModel ?? ''}`));
+    t.terms.test(candidateText));
 }
 export function trendingScores(views, bookings, now = new Date()) {
   const signals = new Map(), since = now.getTime() - 30 * DAY;

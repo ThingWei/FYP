@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/domain_models.dart';
@@ -59,13 +60,13 @@ class DisputeProgressPanel extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(
+              RentHubSectionHeader(
                   dispute == null
                       ? 'How we help resolve an issue'
                       : disputeLabel(status!),
+                  help: dispute == null ? next : null,
                   style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Text(next),
+              if (dispute != null) ...[const SizedBox(height: 8), Text(next)],
               const SizedBox(height: 12),
               for (final (index, title) in const [
                 'Report the issue',

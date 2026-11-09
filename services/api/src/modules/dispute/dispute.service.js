@@ -107,8 +107,8 @@ export const disputeService = {
       if (rental.status === 'completed' || booking.status === 'completed') {
         throw new AppError('This rental is complete, so a new dispute can no longer be opened.', 409, 'DISPUTE_WINDOW_CLOSED');
       }
-      if (rental.status === 'cancelled') {
-        throw new AppError('A cancelled rental cannot be disputed', 409, 'INVALID_RENTAL_STATE');
+      if (['cancelled', 'expired'].includes(rental.status) || booking.status === 'expired') {
+        throw new AppError('A cancelled or expired rental cannot start a new dispute. Contact support if payment needs review.', 409, 'INVALID_RENTAL_STATE');
       }
       if (await disputeRepository.findByRental(rental.publicId)) {
         throw new AppError('A dispute already exists for this rental', 409, 'DISPUTE_EXISTS');

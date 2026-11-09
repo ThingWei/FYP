@@ -95,7 +95,14 @@ export function bookingLocations(document, identity) {
   const admin = identity.roles?.includes('admin'), owner = identity.authId === raw.ownerId, renter = identity.authId === raw.renterId;
   if (!admin && !owner && !renter) throw new AppError('Booking not found', 404, 'NOT_FOUND');
   const shared = unlocked.has(raw.status);
-  return { shared, pickupLocation: admin || owner || shared ? raw.pickupLocationSnapshot ?? null : null,
+  const pickupRequired = raw.listingType !== 'service' && raw.fulfilmentMethod !== 'owner_delivery' || raw.listingType === 'service' && raw.serviceVenueMode === 'owner_location';
+  const state = (needed, visible, value) => !needed ? 'not_required' : !visible ? 'hidden_until_approval'
+    : value && validCoordinates(value.coordinates) ? 'available' : 'missing_pin';
+  return { shared, locationStates: {
+    pickupLocation: state(pickupRequired, admin || owner || shared, raw.pickupLocationSnapshot),
+    deliveryLocation: state(raw.listingType === 'physical' && raw.fulfilmentMethod === 'owner_delivery', admin || renter || shared, raw.deliveryLocation),
+    serviceLocation: state(raw.listingType === 'service' && !['online', 'owner_location'].includes(raw.serviceVenueMode), admin || renter || shared, raw.serviceLocation),
+  }, pickupLocation: admin || owner || shared ? raw.pickupLocationSnapshot ?? null : null,
     serviceLocation: admin || renter || shared ? raw.serviceLocation ?? null : null,
     deliveryLocation: admin || renter || shared ? raw.deliveryLocation ?? null : null };
 }

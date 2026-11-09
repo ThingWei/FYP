@@ -23,6 +23,8 @@ class UserFacingError {
             'Your 10-minute payment window has expired. No payment was taken. Choose dates again to start a new checkout.',
         'HANDOVER_TOO_EARLY':
             'This rental starts on a future date. Prepare the item now and confirm handover on the booked day.',
+        'HANDOVER_WINDOW_CLOSED':
+            'The booked dates have ended, so handover is no longer available. Open the booking again to check its payment status.',
         'CONDITION_PHOTOS_REQUIRED':
             'Add clear, separate photos showing the item condition. PDF files cannot be used as condition photos.',
         'LISTING_PHOTO_TOO_LARGE':

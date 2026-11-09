@@ -8,7 +8,10 @@ String? disputeCreationBlockReason(Rental rental, {Booking? booking}) {
   if (rental.status == 'completed' || booking?.status == 'completed') {
     return disputeWindowClosedMessage;
   }
-  if (rental.status == 'cancelled' || rental.status == 'scheduled') {
+  if (rental.status == 'cancelled' ||
+      rental.status == 'scheduled' ||
+      rental.status == 'expired' ||
+      booking?.status == 'expired') {
     return 'A new dispute is not available at this stage of the booking.';
   }
   return null;

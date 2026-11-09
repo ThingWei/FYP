@@ -65,6 +65,20 @@ Assert-Reliability ($NoAiReload -and $NoApiReload) 'Presentation disables both d
 Assert-Reliability ($tree.Extent.Text.Contains('-not $ServicesOnly -and -not $CheckOnly -and -not (Get-Command flutter')) 'Service-only checks must work without Flutter.'
 Assert-Reliability ($tree.Extent.Text.Contains('if ($Device -eq ''windows'' -and -not $ServicesOnly -and -not $CheckOnly)')) 'Service-only recovery must allow an existing desktop app.'
 
+$consoleHelper = $helpers | Where-Object Name -eq 'Invoke-RentHubFlutterConsole'
+Assert-Reliability ($consoleHelper.Extent.Text.Contains('-NoNewWindow') -and
+    -not $consoleHelper.Extent.Text.Contains('-RedirectStandardInput') -and
+    -not $consoleHelper.Extent.Text.Contains('-RedirectStandardOutput')) 'Flutter must inherit the console without redirected keyboard/output.'
+$backgroundStarts = $tree.FindAll({ param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and
+        $node.GetCommandName() -eq 'Start-Process' -and
+        $node.Extent.Text.Contains('-RedirectStandardOutput')
+}, $true)
+Assert-Reliability ($backgroundStarts.Count -eq 3) 'All three background services must be covered.'
+foreach ($launch in $backgroundStarts) {
+    Assert-Reliability ($launch.Extent.Text.Contains('-RedirectStandardInput $serviceInputPath')) 'Background services cannot compete with Flutter for terminal keys.'
+}
+
 # Readiness tolerates warming services, preserves the actual health result, and
 # stops promptly for exited processes or an explicitly incompatible contract.
 $script:probes = 0
@@ -91,17 +105,21 @@ $script:stateOutput = 'device'
 $script:stateError = ''
 $script:stateExit = 0
 $script:reverseExit = 0
+$script:reverseError = ''
+$script:reverseTimedOut = $false
+$script:adbException = $null
 $script:timedOut = $false
 $script:commands = @()
 function Invoke-RentHubNativeCommand {
     param($FilePath, [string[]]$Arguments, $TimeoutSeconds)
-    Assert-Reliability ($FilePath -eq 'fixture-adb' -and $TimeoutSeconds -eq 5) 'ADB calls use bounded direct process arguments.'
+    Assert-Reliability ($FilePath -eq 'fixture-adb' -and $TimeoutSeconds -ge 1 -and $TimeoutSeconds -le 5) 'ADB calls use bounded direct process arguments.'
     $script:commands += ,$Arguments
+    if ($script:adbException) { throw $script:adbException }
     if ($Arguments[2] -eq 'get-state') {
         return @{ Output = $script:stateOutput; Error = $script:stateError; ExitCode = $script:stateExit; TimedOut = $script:timedOut }
     }
     Assert-Reliability ($Arguments[2] -eq 'reverse') 'Connection recovery must never kill/restart ADB or alter a booking.'
-    return @{ ExitCode = $script:reverseExit; TimedOut = $script:timedOut }
+    return @{ Output = ''; Error = $script:reverseError; ExitCode = $script:reverseExit; TimedOut = ($script:timedOut -or $script:reverseTimedOut) }
 }
 Assert-Reliability ((Sync-RentHubAndroidConnection -TargetDevice demo -HostPort 3004) -eq 'adb-missing') 'Missing ADB has an explicit state.'
 Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004) -eq 'connected') 'An online phone reconnects.'
@@ -111,7 +129,7 @@ $script:stateExit = 1
 $script:stateOutput = ''
 $script:stateError = 'device offline'
 $before = $script:commands.Count
-Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'waiting') 'Offline phones wait for reconnection.'
+Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'offline') 'Offline phones have a distinct retryable state.'
 Assert-Reliability ($script:commands.Count -eq $before + 1) 'Offline devices are not forwarded.'
 $script:stateError = 'device unauthorized'
 Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'unauthorized') 'Debugging approval needs targeted guidance.'
@@ -121,12 +139,80 @@ $script:stateError = ''
 $script:reverseExit = 1
 Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'forwarding-failed') 'Failed forwarding cannot claim connection success.'
 $script:timedOut = $true
-Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'waiting') 'Timed-out ADB calls remain recoverable.'
+Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'adb-timeout') 'Timed-out ADB checks have targeted guidance and remain recoverable.'
 $script:timedOut = $false
 $script:reverseExit = 0
 Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'connected') 'A later retry restores the connection.'
+$script:reverseTimedOut = $true
+Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'forwarding-timeout') 'Forwarding timeouts must be distinct from device-check timeouts.'
+$script:reverseTimedOut = $false
+$script:reverseExit = 1
+$script:reverseError = 'device offline private-test-value'
+Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'offline') 'A phone disconnecting during forwarding remains retryable.'
+$script:reverseExit = 0
+$script:reverseError = ''
+$script:stateExit = 1
+$script:stateError = "error: device 'demo' not found private-test-value"
+Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'not-found') 'An absent selected device needs specific guidance.'
+$script:stateError = 'unrecognized private-test-value C:\private\file'
+Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'adb-error') 'Unknown ADB output is safely classified.'
+$before = $script:commands.Count
+foreach ($id in @('', '-flag', 'bad id', "bad`nvalue")) {
+    Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice $id -HostPort 3000) -eq 'invalid-device') 'Malformed device IDs fail before invoking ADB.'
+}
+Assert-Reliability ($before -eq $script:commands.Count) 'Invalid IDs cannot trigger native tools.'
+$script:stateExit = 0
+$script:stateError = ''
+foreach ($id in @('6e5141a', '192.0.2.1:37129', 'adb-demo._adb-tls-connect._tcp', '[::1]:5555', 'emulator-5554')) {
+    Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice $id -HostPort 3000) -eq 'connected') 'USB, wireless, mDNS and emulator IDs remain supported.'
+}
+$script:adbException = [ComponentModel.Win32Exception]::new(2)
+Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'adb-missing') 'An executable removed after discovery fails clearly.'
+$script:adbException = [InvalidOperationException]::new('private-test-value')
+Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'adb-error') 'Tool startup failures remain classified, without raw exception text.'
+$script:adbException = $null
+foreach ($state in @('adb-missing', 'invalid-device', 'unauthorized', 'offline', 'not-found', 'adb-timeout', 'forwarding-timeout', 'forwarding-failed', 'adb-error', 'private-test-value')) {
+    $message = Get-RentHubAndroidConnectionMessage -State $state
+    Assert-Reliability ($message -and -not $message.Contains('private-test-value')) 'Connection guidance must never dump private raw diagnostics.'
+}
 Remove-Item Function:\Invoke-RentHubNativeCommand
 . ([scriptblock]::Create(($helpers | Where-Object Name -eq 'Invoke-RentHubNativeCommand').Extent.Text))
+
+# Exercise the real startup retry loop with state changes, not real ADB calls.
+& {
+    $script:waitStates = @('connected')
+    $script:waitCalls = 0
+    $script:waitMessages = @()
+    function Write-Host { param($Object, $ForegroundColor); $script:waitMessages += [string]$Object }
+    function Sync-RentHubAndroidConnection {
+        param($AdbPath, $TargetDevice, $HostPort, $TimeoutSeconds)
+        Assert-Reliability ($TimeoutSeconds -ge 1 -and $TimeoutSeconds -le 30) 'Each attempt receives only the remaining overall budget.'
+        $state = $script:waitStates[[Math]::Min($script:waitCalls, $script:waitStates.Count - 1)]
+        $script:waitCalls++
+        return $state
+    }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $result = Wait-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004 -RetryIntervalMilliseconds 100
+    Assert-Reliability ($result -eq 'connected' -and $script:waitCalls -eq 1 -and $clock.Elapsed.TotalSeconds -lt 1) 'A ready phone must start immediately, without the 30-second delay.'
+    foreach ($states in @(@('not-found', 'unauthorized', 'connected'), @('offline', 'connected'), @('forwarding-failed', 'connected'), @('adb-timeout', 'connected'))) {
+        $script:waitStates = $states
+        $script:waitCalls = 0
+        $result = Wait-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004 -RetryIntervalMilliseconds 100
+        Assert-Reliability ($result -eq 'connected' -and $script:waitCalls -eq $states.Count) 'Delayed connection, authorization and forwarding must retry to recovery.'
+    }
+    Assert-Reliability (($script:waitMessages -join ' ').Contains('Unlock your phone')) 'Authorization guidance appears while waiting, not only after failure.'
+    foreach ($state in @('adb-missing', 'invalid-device')) {
+        $script:waitStates = @($state); $script:waitCalls = 0
+        $clock.Restart()
+        $result = Wait-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004
+        Assert-Reliability ($result -eq $state -and $script:waitCalls -eq 1 -and $clock.Elapsed.TotalSeconds -lt 1) 'Missing tools and invalid IDs must fail immediately.'
+    }
+    $script:waitStates = @('offline'); $script:waitCalls = 0
+    $clock.Restart()
+    $result = Wait-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004 -TimeoutSeconds 1 -RetryIntervalMilliseconds 100
+    Assert-Reliability ($result -eq 'offline' -and $script:waitCalls -ge 2 -and $clock.Elapsed.TotalSeconds -ge 0.9 -and $clock.Elapsed.TotalSeconds -lt 3) 'The retry loop stops at its overall deadline and retains the last actual problem.'
+}
+Write-Host 'PASS: Android startup retry, authorization recovery, forwarding recovery, deadline, safe diagnostics and fail-fast configuration.'
 
 # Exercise one real monitor iteration plus a reconnect. No real health/device calls.
 $script:monitorCalls = 0
@@ -177,6 +263,7 @@ if ($Integration) {
     Assert-Reliability ($caught -and -not $script:exitProbeCalled) 'Exited processes must fail before a misleading health probe.'
     $exitFixture.Dispose()
     Write-Host 'PASS: disposable native quoting, stdin, pipe pressure, timeouts and exited-process integration.'
+    & (Join-Path $PSScriptRoot 'run_renthub_terminal_test.ps1') -Integration
 }
 
 # Run the full executable body against fake service/process boundaries. This
@@ -231,8 +318,9 @@ function Get-RentHubAiHealth {
 }
 function Test-RentHubApiReady { param($Port); return $script:apiStarted }
 function Test-RentHubApiPortAvailable { param($Port); return $true }
-function Start-Process { param($FilePath, $ArgumentList, $WorkingDirectory, $WindowStyle, $RedirectStandardOutput, $RedirectStandardError, [switch]$PassThru)
+function Start-Process { param($FilePath, $ArgumentList, $WorkingDirectory, $WindowStyle, $RedirectStandardInput, $RedirectStandardOutput, $RedirectStandardError, [switch]$PassThru)
     Assert-Reliability $script:atlasChecked 'Database preflight must precede owned service startup.'
+    Assert-Reliability ($RedirectStandardInput -and [IO.File]::ReadAllBytes($RedirectStandardInput).Length -eq 0) 'Background services receive empty input, never the interactive console.'
     if ($WorkingDirectory -like '*\blockchain') { $script:chainStarted = $true }
     elseif ($WorkingDirectory -like '*\ai') {
         $script:aiStarted = $true
@@ -255,28 +343,36 @@ function Stop-RentHubOwnedAiProcess { param($OwnedProcess, $StartedAt); $script:
 function Get-RentHubAdbPath { return 'fixture-adb' }
 function Sync-RentHubAndroidConnection { param($AdbPath, $TargetDevice, $HostPort)
     Assert-Reliability ($HostPort -eq 3004) 'ADB uses the selected host port.'
+    if ($script:servicesOffline) { return 'offline' }
     return 'connected'
+}
+function Wait-RentHubAndroidConnection { param($AdbPath, $TargetDevice, $HostPort)
+    Assert-Reliability ($HostPort -eq 3004) 'Startup waiting must use the selected host port.'
+    $script:androidWaitCalls++
+    return $script:androidStartupState
 }
 function Wait-RentHubServiceSession { param($AdbPath, $TargetDevice, $HostPort, [switch]$MonitorAi, $BlockchainRpcUrl)
     Assert-Reliability ($HostPort -eq 3004 -and $MonitorAi -and $BlockchainRpcUrl -eq 'http://localhost:8545') 'Retained session receives all monitor settings.'
     $script:sessionEntered = $true
     throw 'fixture session complete'
 }
-function flutter {
+function Invoke-RentHubFlutterConsole {
+    param([string[]]$Arguments, [string]$WorkingDirectory)
     Assert-Reliability ((Get-Location).Path -eq $fixtureLauncherDirectory) 'Flutter always runs from its app directory, regardless of caller location.'
-    $script:flutterArguments = @($args)
-    $global:LASTEXITCODE = 0
+    Assert-Reliability ($WorkingDirectory -eq $fixtureLauncherDirectory) 'The native console retains the Flutter app directory.'
+    $script:flutterArguments = @($Arguments)
+    return 0
 }
 $savedMongo = $env:MONGODB_URI
 $savedPort = $env:PORT
 try {
     $env:MONGODB_URI = 'mongodb+srv://fixture.mongodb.net/test'
     $env:PORT = $null
-    foreach ($scenario in @('check', 'services', 'windows', 'android', 'reuse-chain', 'wrong-chain')) {
+    foreach ($scenario in @('check', 'services', 'windows', 'android', 'reuse-chain', 'wrong-chain', 'android-timeout', 'android-unauthorized', 'android-tools-missing', 'services-offline')) {
         $Device = if ($scenario -in @('check', 'windows', 'reuse-chain', 'wrong-chain')) { 'windows' } else { 'fixture-phone' }
         $Presentation = $true
         $CheckOnly = $scenario -in @('check', 'reuse-chain', 'wrong-chain')
-        $ServicesOnly = $scenario -eq 'services'
+        $ServicesOnly = $scenario -in @('services', 'services-offline')
         $SkipAi = $false; $SkipBlockchain = $false; $SkipAtlasAccess = $false
         $AiStartupTimeoutSeconds = 180; $ApiStartupTimeoutSeconds = 90
         $ApiPort = 0
@@ -286,6 +382,14 @@ try {
         $script:reuseChain = $scenario -in @('reuse-chain', 'wrong-chain')
         $script:fixtureChainId = if ($scenario -eq 'wrong-chain') { '0x7a69' } else { '0x539' }
         $script:flutterLookups = 0; $script:cleanupCalls = 0; $script:sessionEntered = $false; $script:flutterArguments = @()
+        $script:androidWaitCalls = 0
+        $script:servicesOffline = $scenario -eq 'services-offline'
+        $script:androidStartupState = switch ($scenario) {
+            'android-timeout' { 'offline' }
+            'android-unauthorized' { 'unauthorized' }
+            'android-tools-missing' { 'adb-missing' }
+            default { 'connected' }
+        }
         $callerDirectory = (Get-Location).Path
         $startupError = $null
         try { & $body }
@@ -295,19 +399,28 @@ try {
             Assert-Reliability ($script:cleanupCalls -eq 0 -and -not $script:aiStarted -and -not $script:apiStarted -and -not $script:chainStarted) 'Wrong-chain detection must not stop or replace an existing blockchain.'
             continue
         }
+        if ($scenario -in @('android-timeout', 'android-unauthorized', 'android-tools-missing')) {
+            $problem = Get-RentHubAndroidConnectionMessage -State $script:androidStartupState
+            Assert-Reliability ($startupError -and $startupError.Contains($problem)) 'Startup failure must show the specific final connection problem.'
+            Assert-Reliability ($script:androidWaitCalls -eq 1 -and $script:flutterArguments.Count -eq 0 -and -not $script:sessionEntered) 'Failed Android readiness must not launch Flutter or enter a normal debug session.'
+            Assert-Reliability ($script:cleanupCalls -eq 3) 'Connection failure cleans up only the three owned service trees.'
+            Assert-Reliability ([string]::IsNullOrEmpty($env:PORT) -and (Get-Location).Path -eq $callerDirectory) 'Connection failure restores the caller environment and directory.'
+            continue
+        }
         Assert-Reliability ($null -eq $startupError -or $startupError -eq 'fixture session complete') "Unexpected $scenario startup error: $startupError"
         $expectedCleanup = if ($scenario -eq 'reuse-chain') { 2 } else { 3 }
         Assert-Reliability ($script:cleanupCalls -eq $expectedCleanup) 'Clean up only owned services; never stop a reused blockchain.'
         Assert-Reliability ([string]::IsNullOrEmpty($env:PORT)) 'Full startup restores the caller PORT.'
         Assert-Reliability ((Get-Location).Path -eq $callerDirectory) 'Flutter startup restores the caller directory.'
-        if ($scenario -in @('check', 'services', 'reuse-chain')) {
+        if ($scenario -in @('check', 'services', 'services-offline', 'reuse-chain')) {
             Assert-Reliability ($script:flutterLookups -eq 0 -and $script:flutterArguments.Count -eq 0) 'Service-only/check mode never needs or launches Flutter.'
         }
         else {
             $expectedPort = if ($scenario -eq 'android') { 3000 } else { 3004 }
             Assert-Reliability ($script:flutterArguments -contains "--dart-define=API_BASE_URL=http://localhost:$expectedPort/api/v1") 'Full startup uses correct desktop/Android client addresses.'
         }
-        Assert-Reliability ($script:sessionEntered -eq ($scenario -in @('services', 'android'))) 'Only retained sessions enter the connection monitor.'
+        Assert-Reliability ($script:sessionEntered -eq ($scenario -in @('services', 'services-offline', 'android'))) 'Only retained sessions enter the connection monitor.'
+        Assert-Reliability ($script:androidWaitCalls -eq $(if ($scenario -eq 'android') { 1 } else { 0 })) 'Only normal Android startup uses the bounded wait; services-only still waits continuously.'
     }
 }
 finally { $env:MONGODB_URI = $savedMongo; $env:PORT = $savedPort }

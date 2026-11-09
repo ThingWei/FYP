@@ -1,5 +1,7 @@
 # Precise live locations and Android push notifications
 
+9 November follow-up: [booking location privacy, missing-pin and online states](BOOKING_EXPIRY_LOCATIONS_AND_INSIGHTS_RESULT.md). Historical missing pins are not silently replaced with current listing locations.
+
 ## 24 October follow-up: current-location address autofill
 
 The user reported that GPS moved the pin but did not fill the location fields.

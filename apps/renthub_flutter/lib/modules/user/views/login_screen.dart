@@ -1,3 +1,4 @@
+import '../../../shared/widgets/section_help.dart';
 import '../../../core/validation/input_validation.dart';
 import '../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
@@ -64,12 +65,11 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                widget.administrator
+              RentHubSectionHeader(
+                widget.administrator ? 'Administrator sign-in' : 'Sign in',
+                help: widget.administrator
                     ? 'Administrator portal. Sign in with your RentHub account.'
                     : 'Welcome back. Please enter your details.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.secondaryText),
               ),
               const SizedBox(height: 24),
               if (!widget.administrator) ...[

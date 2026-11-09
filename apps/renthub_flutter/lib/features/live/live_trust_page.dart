@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -137,15 +138,9 @@ class _LiveTrustPageState extends State<LiveTrustPage> {
                                       demo: true)
                                 ],
                                 const SizedBox(height: 16),
-                                const Text('How it works',
-                                    style:
-                                        TextStyle(fontWeight: FontWeight.w700)),
-                                const SizedBox(height: 8),
-                                const Text(
-                                    'The score uses completed rentals from the last 12 months, published reviews and recorded handover, return or service times. Only disputes with an explicit administrator finding of responsibility affect the score.'),
-                                const SizedBox(height: 8),
-                                const Text(
-                                    'A score needs at least 3 completed rentals with 2 different people. New scores grow gradually as more history becomes available. Identity verification is shown separately.'),
+                                const RentHubSectionHeader('How it works',
+                                    help:
+                                        'The score uses completed rentals from the last 12 months, published reviews and recorded handover, return or service times. Only disputes with an explicit administrator finding of responsibility affect the score.\n\nA score needs at least 3 completed rentals with 2 different people. New scores grow gradually as more history becomes available. Identity verification is shown separately.'),
                               ],
                             ]))));
   }

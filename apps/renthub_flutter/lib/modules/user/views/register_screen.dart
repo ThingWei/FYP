@@ -1,3 +1,4 @@
+import '../../../shared/widgets/section_help.dart';
 import '../../../core/validation/input_validation.dart';
 import '../../../core/validation/input_rules.dart';
 import 'package:flutter/material.dart';
@@ -129,10 +130,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _heading(String title, String subtitle) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 4),
-          Text(subtitle,
-              style: const TextStyle(color: AppColors.secondaryText)),
+          RentHubSectionHeader(title, help: subtitle),
           const SizedBox(height: 20),
         ],
       );

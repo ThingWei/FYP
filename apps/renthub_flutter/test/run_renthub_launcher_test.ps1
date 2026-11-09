@@ -212,7 +212,7 @@ $standardLog = 'fixture-output'
 $errorLog = 'fixture-errors'
 $script:failStartup = $false
 function Start-Process {
-    param($FilePath, $ArgumentList, $WorkingDirectory, $WindowStyle, $RedirectStandardOutput, $RedirectStandardError, [switch]$PassThru)
+    param($FilePath, $ArgumentList, $WorkingDirectory, $WindowStyle, $RedirectStandardInput, $RedirectStandardOutput, $RedirectStandardError, [switch]$PassThru)
     $script:inheritedApiPort = $env:PORT
     if ($script:failStartup) { throw 'Fixture startup failure' }
     return [pscustomobject]@{ Id = 123 }

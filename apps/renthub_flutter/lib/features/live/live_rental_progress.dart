@@ -40,6 +40,7 @@ String rentalStatusLabel(String status) =>
       'completed': 'Completed',
       'disputed': 'Issue under review',
       'cancelled': 'Cancelled',
+      'expired': 'Expired',
     }[status] ??
     'Check progress';
 
@@ -92,6 +93,14 @@ class RentalJourney {
             'Completed'
           ];
     if (['cancelled', 'rejected', 'expired'].contains(status)) {
+      if (status == 'expired' && rental?.expiryReason == 'not_collected') {
+        return RentalJourney(
+            'Expired — item not collected',
+            'The booked dates ended without a recorded handover. No rental started. Check payment details for the released demo hold.',
+            -1,
+            steps,
+            paused: true);
+      }
       return RentalJourney(
           status == 'rejected'
               ? 'Request declined'
@@ -305,10 +314,16 @@ class _RentalProgressRailState extends State<RentalProgressRail> {
   Widget build(BuildContext context) =>
       LayoutBuilder(builder: (context, constraints) {
         final labels = widget.service
-            ? const ['Request', 'Approved', 'Service', 'Review', 'Completed']
+            ? const [
+                'Request',
+                'Owner approval',
+                'Service',
+                'Review',
+                'Completed'
+              ]
             : const [
                 'Request',
-                'Approved',
+                'Owner approval',
                 'Handover',
                 'Renting',
                 'Return',

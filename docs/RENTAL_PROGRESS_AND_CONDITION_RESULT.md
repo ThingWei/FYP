@@ -1,5 +1,7 @@
 # Rental progress, condition photos and clearer dispute handling
 
+9 November follow-up: [uncollected-rental expiry, payment release and related UI rules](BOOKING_EXPIRY_LOCATIONS_AND_INSIGHTS_RESULT.md). Approved physical rentals without handover now expire after their full booked period; an active rental still follows the overdue/return flow.
+
 Implemented on 7 November 2026 for the live Renter and Owner flows. Previous
 uncommitted Atlas/launcher work is preserved. No live bookings or payments were
 created to test this change.
@@ -41,6 +43,18 @@ invented courier dispatch, transit or proof-of-receipt events. Owner delivery fe
 booking-location privacy, approval rules and pending soft holds are unchanged.
 
 ## Owner handover and renter return records
+
+### 9 November: explain future handover availability
+
+The reported disabled **Review & confirm handover** button was for a future-date rental. This is the intended start-day restriction, rather than missing form fields. Approval schedules the rental; handover can be confirmed only from its booked start day in Malaysia, when the Owner gives the item to the renter.
+
+The preparation page now shows a **Scheduled for [date]** notice, repeats the explanation immediately above the action, and labels the disabled action **Handover opens [date]**. It reminds the Owner to take current condition photos on the actual handover day. On the booked day the ordinary review/confirmation action is available and the existing form/photo/acknowledgement requirements still apply. Missing start dates remain unavailable rather than being guessed. Completing the form does not bypass the server's `HANDOVER_TOO_EARLY` rule or start/capture the rental early.
+
+No booking dates, payments or live records were changed. Preparation remains local to the open page; this does not add saved server-side handover drafts. Focused widget checks cover future-date guidance beside the button, retained notes, correct-owner access, Malaysia-midnight boundaries, booked-day availability and 360/390-pixel layouts with 150% text.
+
+Verification: **15 focused widget tests and 47 isolated booking/rental API tests passed**. Full Flutter run `.data/testing/20261109-141352-3a306c81/`: **676 passed, 3 existing opt-in skips; analysis clean; main web, administrator web and Android debug builds passed**. Existing web/font and Kotlin build warnings remain. Deployed artifacts stayed unchanged. No Android/manual handover was performed. Restart/hot-restart the app to see the new date guidance.
+
+Suggested commit: `fix(rentals): explain when future handover confirmation opens`.
 
 The prior handover action uploaded a file then automatically submitted
 `Excellent` and a generic note. The prior renter return action automatically

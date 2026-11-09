@@ -53,6 +53,7 @@ class LiveRentHubController extends ChangeNotifier {
   final _realtimeMessages = StreamController<Message>.broadcast();
   SocketService? _socket;
   StreamSubscription<dynamic>? _socketSubscription;
+  StreamSubscription<dynamic>? _notificationSubscription;
   String? _socketUserId;
 
   bool loading = false;
@@ -78,6 +79,8 @@ class LiveRentHubController extends ChangeNotifier {
       marketplaceViews.clear();
       conversations = [];
       notifications = [];
+      _notificationUnread = null;
+      _notificationUnreadRequest++;
       rewardEntries = [];
       ownerActivitySummary = {};
       ownerOrderRecords = [];
@@ -102,6 +105,7 @@ class LiveRentHubController extends ChangeNotifier {
       error = null;
       lastError = null;
       _socketSubscription?.cancel();
+      _notificationSubscription?.cancel();
       _socket?.dispose();
       _socketUserId = null;
     }
@@ -295,6 +299,7 @@ class LiveRentHubController extends ChangeNotifier {
           conversations = _models(data, Conversation.fromJson);
         case 'notifications':
           notifications = _models(data, RentHubNotification.fromJson);
+          _acceptNotificationUnread(data);
         case 'reviews':
           reviews = _models(data, Review.fromJson);
         case 'received-reviews':
@@ -698,7 +703,17 @@ class LiveRentHubController extends ChangeNotifier {
 
   Future<RecommendationSection> complementaryListings(String id) async {
     try {
-      final query = Uri(queryParameters: recommendationQuery).query;
+      final query = Uri(queryParameters: {
+        for (final entry in recommendationQuery.entries)
+          if (const {
+            'latitude',
+            'longitude',
+            'radiusKm',
+            'startDate',
+            'endDate'
+          }.contains(entry.key))
+            entry.key: entry.value,
+      }).query;
       return RecommendationSection.fromJson(
           await api.request('GET', '/listings/$id/complements?$query'));
     } catch (_) {
@@ -752,6 +767,48 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   List<RentHubNotification> notifications = [];
+  int? _notificationUnread;
+  int _notificationUnreadRequest = 0;
+  int get unreadNotificationCount =>
+      _notificationUnread ?? notifications.where((note) => !note.read).length;
+  bool get hasUnreadNotifications => unreadNotificationCount > 0;
+
+  void _acceptNotificationUnread(dynamic data) {
+    final value = data is ApiItems ? data.meta['unread'] : null;
+    if (value is int && value >= 0) {
+      _notificationUnreadRequest++;
+      _notificationUnread = value;
+    }
+  }
+
+  /// Read only; never changes the inbox's filter, page or read status.
+  Future<void> refreshNotificationUnread() async {
+    if (profile == null || _disposed) return;
+    final account = _accountGeneration;
+    final request = ++_notificationUnreadRequest;
+    try {
+      final data = await api
+          .request('GET', '/messages/notifications?limit=1')
+          .timeout(const Duration(seconds: 10));
+      if (!_sameAccount(account) || request != _notificationUnreadRequest) {
+        return;
+      }
+      _acceptNotificationUnread(data);
+      notifyListeners();
+    } catch (_) {
+      // Retain the last known unread state when the summary is unavailable.
+    }
+  }
+
+  Future<void> refreshNotificationActivity() async {
+    final account = _accountGeneration;
+    await refreshNotificationUnread();
+    if (_sameAccount(account) &&
+        userRecordPages['notifications']?.loaded == true) {
+      await loadUserRecords('notifications');
+    }
+  }
+
   List<Map<String, dynamic>> notificationDevices = [];
   List<Map<String, dynamic>> loginSessions = [];
   List<Transaction> transactions = [];
@@ -1589,6 +1646,10 @@ class LiveRentHubController extends ChangeNotifier {
     if (rental.status == 'completed') {
       return dispute_policy.disputeWindowClosedMessage;
     }
+    if (rental.status == 'expired') {
+      return dispute_policy.disputeCreationBlockReason(rental,
+          booking: booking);
+    }
     return dispute_policy.disputeCreationBlockReason(current, booking: booking);
   }
 
@@ -1792,8 +1853,10 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   Future<void> _connectRealtime(String userId) async {
+    unawaited(refreshNotificationUnread());
     if (_socketUserId == userId) return;
     _socketSubscription?.cancel();
+    _notificationSubscription?.cancel();
     _socket?.dispose();
     _socketUserId = userId;
     _socket = SocketService(
@@ -1806,6 +1869,11 @@ class LiveRentHubController extends ChangeNotifier {
       final message = Message.fromJson(Map<String, dynamic>.from(event));
       _realtimeMessages.add(message);
       unawaited(refreshConversations().catchError((_) {}));
+    });
+    _notificationSubscription = _socket!.notifications.listen((event) {
+      if (_disposed || profile?.id != userId) return;
+      if (event != null && (event is! Map || event['userId'] != userId)) return;
+      unawaited(refreshNotificationActivity());
     });
     _socket!.connect();
   }
@@ -1902,7 +1970,10 @@ class LiveRentHubController extends ChangeNotifier {
     final rows = await api.request('GET', '/payments/booking/$bookingId');
     if (rows is! List) throw const FormatException('Invalid payment history');
     return rows
-        .where((row) => row is Map && row['type'] == 'authorization')
+        .where((row) =>
+            row is Map &&
+            row['type'] == 'authorization' &&
+            (row['metadata'] is! Map || row['metadata']['extensionId'] == null))
         .map((row) => PaymentAttempt.fromJson(Map<String, dynamic>.from(row)))
         .toList();
   }
@@ -2397,7 +2468,14 @@ class LiveRentHubController extends ChangeNotifier {
       });
 
   Future<void> markNotificationRead(String id) async {
+    final account = _accountGeneration;
     await api.request('POST', '/messages/notifications/$id/read');
+    if (!_sameAccount(account)) return;
+    final wasUnread = notifications.any((note) => note.id == id && !note.read);
+    _notificationUnreadRequest++;
+    if (wasUnread && _notificationUnread != null && _notificationUnread! > 0) {
+      _notificationUnread = _notificationUnread! - 1;
+    }
     notifications = [
       for (final note in notifications)
         note.id != id
@@ -2414,6 +2492,7 @@ class LiveRentHubController extends ChangeNotifier {
                 createdAt: note.createdAt)
     ];
     if (!_disposed) notifyListeners();
+    await refreshNotificationUnread();
   }
 
   Future<void> refreshFocusedBooking(String id, String? rentalId) async {
@@ -2438,18 +2517,38 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   Future<void> markAllNotificationsRead() => _perform(() async {
+        final account = _accountGeneration;
         await api.request('POST', '/messages/notifications/read-all');
+        if (!_sameAccount(account)) return;
+        _notificationUnreadRequest++;
+        _notificationUnread = 0;
         await loadNotifications();
       });
 
   Future<void> removeNotification(String id) => _perform(() async {
+        final account = _accountGeneration;
         await api.request('DELETE', '/messages/notifications/$id');
+        if (!_sameAccount(account)) return;
+        final wasUnread =
+            notifications.any((note) => note.id == id && !note.read);
+        _notificationUnreadRequest++;
+        if (wasUnread &&
+            _notificationUnread != null &&
+            _notificationUnread! > 0) {
+          _notificationUnread = _notificationUnread! - 1;
+        }
         notifications.removeWhere((item) => item.id == id);
+        await refreshNotificationUnread();
       });
 
   Future<void> clearNotifications() => _perform(() async {
+        final account = _accountGeneration;
         await api.request('DELETE', '/messages/notifications');
+        if (!_sameAccount(account)) return;
+        _notificationUnreadRequest++;
+        _notificationUnread = 0;
         notifications = [];
+        await refreshNotificationUnread();
       });
 
   Future<Listing> createOwnerListing(Map<String, dynamic> payload,
@@ -2787,6 +2886,7 @@ class LiveRentHubController extends ChangeNotifier {
     _disposed = true;
     _recommendationGeneration++;
     _socketSubscription?.cancel();
+    _notificationSubscription?.cancel();
     _socket?.dispose();
     _realtimeMessages.close();
     super.dispose();

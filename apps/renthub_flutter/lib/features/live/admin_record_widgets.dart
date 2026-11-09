@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -287,13 +288,11 @@ class _AdminRecordsTableState extends State<AdminRecordsTable> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           if (widget.header != null) widget.header!,
-                          Text(adminRecordTitles[widget.type] ?? 'Records',
-                              style: Theme.of(context).textTheme.titleLarge),
-                          Text(
-                              widget.type == 'verification'
+                          RentHubSectionHeader(
+                              adminRecordTitles[widget.type] ?? 'Records',
+                              help: widget.type == 'verification'
                                   ? 'All submitted documents, including completed reviews. Filter by status to find requests that need attention.'
-                                  : 'View records and open details to review or take action.',
-                              style: TextStyle(color: AppColors.secondaryText)),
+                                  : 'View records and open details to review or take action.'),
                           const SizedBox(height: 12),
                           AdminRecordToolbar(
                               page: s.page,
@@ -1288,11 +1287,13 @@ class AdminDetailSection extends StatelessWidget {
       required this.title,
       required this.icon,
       this.fields = const {},
-      this.child});
+      this.child,
+      this.help});
   final String title;
   final IconData icon;
   final Map<String, Object?> fields;
   final Widget? child;
+  final String? help;
   @override
   Widget build(BuildContext context) => Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1302,13 +1303,10 @@ class AdminDetailSection extends StatelessWidget {
           border: Border.all(color: AppColors.border),
           borderRadius: BorderRadius.circular(12)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Icon(icon, size: 20, color: AppColors.primary),
-          const SizedBox(width: 10),
-          Expanded(
-              child:
-                  Text(title, style: Theme.of(context).textTheme.titleMedium))
-        ]),
+        RentHubSectionHeader(title,
+            icon: icon,
+            help: help,
+            style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 16),
         if (fields.isNotEmpty)
           LayoutBuilder(builder: (context, size) {

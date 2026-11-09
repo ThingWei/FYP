@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
 import 'package:renthub_flutter/core/theme/app_theme.dart';
+import 'package:renthub_flutter/core/utils/calendar_date.dart';
 import 'package:renthub_flutter/features/live/live_condition_record_page.dart';
 import 'package:renthub_flutter/features/live/live_dispute_progress.dart';
 import 'package:renthub_flutter/features/live/live_rental_progress.dart';
@@ -200,12 +201,19 @@ void main() {
         child: MaterialApp(
             home: LiveConditionRecordPage(
                 rental: record('scheduled'), handover: true))));
-    await tester.scrollUntilVisible(find.text('Review & confirm handover'), 250,
+    expect(find.text('Scheduled for 1 Jan 2099'), findsOneWidget);
+    expect(
+        find.textContaining('does not start the rental early'), findsWidgets);
+    await tester.enterText(
+        find.byType(TextFormField), 'Case and strap included');
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Handover opens 1 Jan 2099'), 250,
         scrollable: find.byType(Scrollable).first);
     expect(
         tester
             .widget<FilledButton>(
-                find.widgetWithText(FilledButton, 'Review & confirm handover'))
+                find.widgetWithText(FilledButton, 'Handover opens 1 Jan 2099'))
             .onPressed,
         isNull);
     controller.profile = const User(
@@ -220,5 +228,75 @@ void main() {
                 rental: record('scheduled'), handover: true))));
     expect(find.text('This rental is not available to this account.'),
         findsOneWidget);
+  });
+
+  for (final width in [360.0, 390.0]) {
+    testWidgets('future handover explains the date beside its button at $width',
+        (tester) async {
+      await tester.binding.setSurfaceSize(Size(width, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final api = NoWriteApi();
+      final c = LiveRentHubController(api)
+        ..profile = const User(
+            id: 'owner',
+            name: 'Owner',
+            email: 'owner@example.invalid',
+            roles: {UserRole.owner});
+      addTearDown(c.dispose);
+      await tester.pumpWidget(ChangeNotifierProvider.value(
+          value: c,
+          child: MaterialApp(
+              theme: AppTheme.light,
+              builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(textScaler: const TextScaler.linear(1.5)),
+                  child: child!),
+              home: LiveConditionRecordPage(
+                  rental: record('scheduled'), handover: true))));
+      await tester.scrollUntilVisible(
+          find.text('Handover opens 1 Jan 2099'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Handover opens 1 Jan 2099'));
+      final notice =
+          find.textContaining('You can confirm handover from 1 Jan 2099');
+      expect(notice.hitTestable(), findsOneWidget);
+      expect(
+          tester
+              .widget<FilledButton>(find.widgetWithText(
+                  FilledButton, 'Handover opens 1 Jan 2099'))
+              .onPressed,
+          isNull);
+      expect(api.calls, 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('handover review is enabled on the Malaysian booked start day',
+      (tester) async {
+    final c = LiveRentHubController(NoWriteApi())
+      ..profile = const User(
+          id: 'owner',
+          name: 'Owner',
+          email: 'owner@example.invalid',
+          roles: {UserRole.owner});
+    addTearDown(c.dispose);
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: c,
+        child: MaterialApp(
+            theme: AppTheme.light,
+            home: LiveConditionRecordPage(
+                rental: record('scheduled', start: malaysiaCalendarToday()),
+                handover: true))));
+    await tester.scrollUntilVisible(find.text('Review & confirm handover'), 200,
+        scrollable: find.byType(Scrollable).first);
+    expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Review & confirm handover'))
+            .onPressed,
+        isNotNull);
+    expect(
+        find.textContaining('does not start the rental early'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

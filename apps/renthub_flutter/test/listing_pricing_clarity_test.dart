@@ -106,8 +106,20 @@ Listing listing({String status = 'active'}) => Listing.fromJson({
 Finder field(String label) =>
     find.widgetWithText(TextFormField, label, skipOffstage: false);
 Future<void> press(WidgetTester tester, String label) async {
-  await tester.ensureVisible(find.text(label).last);
-  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+  final target = label == 'How this estimate was calculated'
+      ? find.byTooltip('About $label')
+      : find.text(label).last;
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+  await tester.tap(target);
+  await tester.pumpAndSettle();
+}
+
+Future<void> closeCalculationHelp(WidgetTester tester) async {
+  final close = find.byTooltip('Close help');
+  await tester
+      .tap(close.evaluate().isNotEmpty ? close : find.text('Close').last);
   await tester.pumpAndSettle();
 }
 
@@ -198,8 +210,10 @@ void main() {
           findsNothing);
       await press(tester, 'How this estimate was calculated');
       expect(
-          find.text('Compares available prices for the same or similar items.'),
+          find.textContaining(
+              'Compares available prices for the same or similar items.'),
           findsOneWidget);
+      await closeCalculationHelp(tester);
       await press(tester, 'Use this price');
       expect(used, isTrue);
       expect(tester.takeException(), isNull);
@@ -269,9 +283,12 @@ void main() {
           findsOneWidget);
       expect(find.textContaining('has not been validated'), findsOneWidget);
       await press(tester, 'How this estimate was calculated');
-      expect(find.text('Some age, condition or package details are missing.'),
+      expect(
+          find.textContaining(
+              'Some age, condition or package details are missing.'),
           findsOneWidget);
       expect(find.textContaining('references have no item age'), findsNothing);
+      await closeCalculationHelp(tester);
       await press(tester, 'Use this price');
       expect(used, isTrue);
       expect(tester.takeException(), isNull);
@@ -711,8 +728,11 @@ void main() {
         expect(find.textContaining('global_xgboost'), findsNothing);
         expect(find.textContaining('private technical'), findsNothing);
         await press(tester, 'How this estimate was calculated');
-        expect(find.text('Based on 4 RentHub listings, 1 rental record.'),
+        expect(
+            find.textContaining(
+                'Based on 4 RentHub listings, 1 rental record.'),
             findsOneWidget);
+        await closeCalculationHelp(tester);
         await press(tester, 'Use this price');
         expect(used, isTrue);
         expect(tester.takeException(), isNull);

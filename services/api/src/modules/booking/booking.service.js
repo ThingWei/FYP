@@ -31,6 +31,7 @@ import { commitLifecycle, recoverListingOperations } from '../../operations/life
 import { PAYMENT_WINDOW_MINUTES } from './bookingDeadlines.js';
 import { notifyPaymentDue } from './bookingPaymentReminders.js';
 import { expireDuePendingBookings } from './bookingExpiry.js';
+import { expireUncollectedRentals } from '../rental/uncollectedExpiry.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -428,6 +429,7 @@ export const bookingService = {
   async get(id, identity) {
     const booking = await bookingRepository.findParticipantBooking(id, identity);
     if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
+    await expireUncollectedRentals({ scope: { bookingId: booking.publicId } });
     return withOperationLock('listing-decision', booking.listingId, async (ensureOwned) => {
       await recoverListingOperations(booking.listingId, ensureOwned);
       await expireDuePendingBookings({ scope: { publicId: booking.publicId } });
@@ -438,6 +440,7 @@ export const bookingService = {
   async listMine(identity, query) {
     await requireActiveUser(identity, 'renter');
     await expireDuePendingBookings({ scope: { renterId: identity.authId } });
+    await expireUncollectedRentals({ scope: { renterId: identity.authId } });
     const { page, limit } = pages(query);
     const status = BOOKING_STATUSES.includes(query.status) ? query.status : undefined;
     const [items, total] = await bookingRepository.listFor({
@@ -454,6 +457,7 @@ export const bookingService = {
   async listOwner(identity, query) {
     await requireActiveUser(identity, 'owner');
     await expireDuePendingBookings({ scope: { ownerId: identity.authId } });
+    await expireUncollectedRentals({ scope: { ownerId: identity.authId } });
     const { page, limit } = pages(query);
     const status = BOOKING_STATUSES.includes(query.status) ? query.status : undefined;
     const [items, total] = await bookingRepository.listFor({

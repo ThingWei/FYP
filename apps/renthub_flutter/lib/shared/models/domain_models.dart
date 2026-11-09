@@ -526,9 +526,13 @@ class ListingAvailability {
   bool isDayAvailable(DateTime day) =>
       !unavailableRanges.any((range) => range.overlaps(day, day));
 
-  bool isRangeAvailable(DateTime start, DateTime end) =>
-      !end.isBefore(start) &&
-      !unavailableRanges.any((range) => range.overlaps(start, end));
+  /// This is calendar-day availability, not service appointment-time validation.
+  bool isRangeAvailable(DateTime start, DateTime end) {
+    final firstDay = calendarDate(start);
+    final lastDay = calendarDate(end);
+    return !lastDay.isBefore(firstDay) &&
+        !unavailableRanges.any((range) => range.overlaps(firstDay, lastDay));
+  }
 
   UnavailableRange? rangeContaining(DateTime day) {
     for (final range in unavailableRanges) {
@@ -743,6 +747,7 @@ class Rental {
     this.ownerId = '',
     this.start,
     this.end,
+    this.expiryReason = '',
     this.extensionStatus = 'none',
     this.extension,
     this.handover,
@@ -758,7 +763,7 @@ class Rental {
   });
   final String id, status, bookingId, listingId, listingType, renterId, ownerId;
   final DateTime? start, end;
-  final String extensionStatus;
+  final String extensionStatus, expiryReason;
   final RentalExtension? extension;
   final RentalConditionRecord? handover, returnSubmission;
   final String blockchainStatus, contractAddress, blockchainTransactionHash;
@@ -790,6 +795,7 @@ class Rental {
       extensionStatus:
           (json['extension'] as Map<String, dynamic>?)?['status'] as String? ??
               'none',
+      expiryReason: json['expiryReason'] as String? ?? '',
       extension: json['extension'] is Map<String, dynamic>
           ? RentalExtension.fromJson(json['extension'] as Map<String, dynamic>)
           : null,

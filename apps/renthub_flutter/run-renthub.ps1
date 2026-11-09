@@ -114,22 +114,121 @@ function Wait-RentHubReadiness {
     return $null
 }
 
-function Sync-RentHubAndroidConnection {
-    param([string]$AdbPath, [string]$TargetDevice, [int]$HostPort, [int]$ClientPort = 3000)
-    if (-not $AdbPath) { return 'adb-missing' }
-    $state = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'get-state') -TimeoutSeconds 5
-    if ($state.TimedOut) { return 'waiting' }
-    if ($state.ExitCode -ne 0 -or $state.Output.Trim() -ne 'device') {
-        if (($state.Output + $state.Error) -match 'unauthorized') { return 'unauthorized' }
-        return 'waiting'
+function Invoke-RentHubFlutterConsole {
+    param([string[]]$Arguments, [string]$WorkingDirectory, [string]$FlutterPath)
+    if (-not $FlutterPath) {
+        $command = Get-Command flutter -CommandType Application -ErrorAction Stop | Select-Object -First 1
+        $FlutterPath = $command.Source
     }
-    $result = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$ClientPort", "tcp:$HostPort") -TimeoutSeconds 5
-    if ($result.ExitCode -ne 0 -or $result.TimedOut) { return 'forwarding-failed' }
+    # Keep native stdin/stdout/stderr attached to this console. In particular,
+    # do not route an interactive Flutter session through the captured CLI helper.
+    $process = Start-Process -FilePath $FlutterPath `
+        -ArgumentList (ConvertTo-RentHubProcessArguments -Arguments $Arguments) `
+        -WorkingDirectory $WorkingDirectory -NoNewWindow -PassThru
+    # Retain the handle before waiting: Windows PowerShell otherwise can lose
+    # the exit code of a short-lived native process.
+    $null = $process.Handle
+    $startedAt = $process.StartTime
+    try {
+        $process.WaitForExit()
+        return $process.ExitCode
+    }
+    finally {
+        if (-not $process.HasExited) {
+            Stop-RentHubOwnedApiProcess -OwnedProcess $process -StartedAt $startedAt
+        }
+        $process.Dispose()
+    }
+}
+
+function Sync-RentHubAndroidConnection {
+    param([string]$AdbPath, [string]$TargetDevice, [int]$HostPort, [int]$ClientPort = 3000,
+        [ValidateRange(1, 120)][int]$TimeoutSeconds = 15)
+    if (-not $AdbPath) { return 'adb-missing' }
+    if (-not $TargetDevice -or $TargetDevice.Length -gt 200 -or
+        $TargetDevice -notmatch '^[A-Za-z0-9_\[\].:][A-Za-z0-9_\[\].:-]*$') { return 'invalid-device' }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $budget = [Math]::Min(5, $TimeoutSeconds)
+    try { $state = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'get-state') -TimeoutSeconds $budget }
+    catch [ComponentModel.Win32Exception] {
+        if ($_.Exception.NativeErrorCode -in @(2, 3)) { return 'adb-missing' }
+        return 'adb-error'
+    }
+    catch [Management.Automation.PipelineStoppedException] { throw }
+    catch { return 'adb-error' }
+    if ($state.TimedOut) { return 'adb-timeout' }
+    if ($state.ExitCode -ne 0 -or $state.Output.Trim() -ne 'device') {
+        return Get-RentHubAdbFailureState -Output ($state.Output + ' ' + $state.Error)
+    }
+    $remaining = $TimeoutSeconds - $clock.Elapsed.TotalSeconds
+    if ($remaining -le 0) { return 'forwarding-timeout' }
+    $budget = [Math]::Min(5, [Math]::Max(1, [int][Math]::Floor($remaining)))
+    try { $result = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$ClientPort", "tcp:$HostPort") -TimeoutSeconds $budget }
+    catch [Management.Automation.PipelineStoppedException] { throw }
+    catch { return 'forwarding-failed' }
+    if ($result.TimedOut) { return 'forwarding-timeout' }
+    if ($result.ExitCode -ne 0) {
+        $problem = Get-RentHubAdbFailureState -Output ($result.Output + ' ' + $result.Error)
+        if ($problem -in @('unauthorized', 'offline', 'not-found')) { return $problem }
+        return 'forwarding-failed'
+    }
     # Support older installed builds compiled with an alternate API port too.
-    if ($HostPort -ne $ClientPort) {
-        $null = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$HostPort", "tcp:$HostPort") -TimeoutSeconds 5
+    $remaining = $TimeoutSeconds - $clock.Elapsed.TotalSeconds
+    if ($HostPort -ne $ClientPort -and $remaining -ge 1) {
+        $budget = [Math]::Min(5, [Math]::Max(1, [int][Math]::Floor($remaining)))
+        try { $null = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$HostPort", "tcp:$HostPort") -TimeoutSeconds $budget }
+        catch [Management.Automation.PipelineStoppedException] { throw }
+        catch { } # The required stable-port forwarding already succeeded.
     }
     return 'connected'
+}
+
+function Get-RentHubAdbFailureState {
+    param([string]$Output)
+    # Classify locally; never print unfiltered tool output or paths.
+    if ($Output -match 'unauthorized') { return 'unauthorized' }
+    if ($Output -match '\boffline\b') { return 'offline' }
+    if ($Output -match 'not found|no devices|no emulators|no such device') { return 'not-found' }
+    return 'adb-error'
+}
+
+function Get-RentHubAndroidConnectionMessage {
+    param([string]$State)
+    switch ($State) {
+        'connected' { return 'Android is connected and ready.' }
+        'adb-missing' { return 'ADB was not found. Install Android platform-tools or check the SDK path.' }
+        'invalid-device' { return 'The Android device ID is missing or invalid. Use the ID from adb devices -l.' }
+        'unauthorized' { return 'Unlock your phone and allow USB debugging for this computer.' }
+        'offline' { return 'The phone is offline. Unlock it and reconnect the USB cable or wireless connection.' }
+        'not-found' { return 'The selected phone was not found. Connect it and check that its ID matches adb devices -l.' }
+        'adb-timeout' { return 'Android did not answer the connection check in time. Check the cable or wireless connection.' }
+        'forwarding-timeout' { return 'The phone was detected, but its connection to the RentHub server timed out.' }
+        'forwarding-failed' { return 'The phone was detected, but RentHub could not connect it to the server. Reconnect the phone and check USB debugging.' }
+        default { return 'ADB could not check the phone. Check Android platform-tools, device authorization and the USB or wireless connection.' }
+    }
+}
+
+function Wait-RentHubAndroidConnection {
+    param([string]$AdbPath, [string]$TargetDevice, [int]$HostPort,
+        [ValidateRange(1, 120)][int]$TimeoutSeconds = 30,
+        [ValidateRange(100, 5000)][int]$RetryIntervalMilliseconds = 2000)
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $lastState = ''; $state = 'waiting'; $nextProgress = 0
+    while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        $remaining = [Math]::Max(1, [int][Math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds))
+        $state = Sync-RentHubAndroidConnection -AdbPath $AdbPath -TargetDevice $TargetDevice -HostPort $HostPort -TimeoutSeconds $remaining
+        if ($state -eq 'connected') { return $state }
+        if ($state -in @('adb-missing', 'invalid-device')) { return $state }
+        if ($state -ne $lastState -or $clock.Elapsed.TotalSeconds -ge $nextProgress) {
+            $message = Get-RentHubAndroidConnectionMessage -State $state
+            Write-Host "Waiting for Android ($([int]$clock.Elapsed.TotalSeconds)/$TimeoutSeconds seconds): $message Retrying automatically..." -ForegroundColor Yellow
+            $lastState = $state
+            $nextProgress = $clock.Elapsed.TotalSeconds + 5
+        }
+        $remainingMs = [int](($TimeoutSeconds - $clock.Elapsed.TotalSeconds) * 1000)
+        if ($remainingMs -gt 0) { Start-Sleep -Milliseconds ([Math]::Min($RetryIntervalMilliseconds, $remainingMs)) }
+    }
+    return $state
 }
 
 function Test-RentHubKeepServicesRunning {
@@ -174,6 +273,7 @@ function Wait-RentHubServiceSession {
     param([string]$AdbPath, [string]$TargetDevice, [int]$HostPort,
         [switch]$MonitorAi, [string]$BlockchainRpcUrl)
     Write-Host 'RentHub services remain running. You can open the app.' -ForegroundColor Green
+    Write-Host 'There is no active Flutter keyboard session here. Re-run without -ServicesOnly for hot reload; r/R/q do not control backend-only mode.' -ForegroundColor DarkGray
     Write-Host 'Keep this terminal open. Press Ctrl+C here when you want to stop services started by this launcher.' -ForegroundColor Cyan
     $lastPhoneState = ''
     $lastHealthState = ''
@@ -184,9 +284,7 @@ function Wait-RentHubServiceSession {
             catch { $phoneState = 'waiting' }
             if ($phoneState -ne $lastPhoneState) {
                 if ($phoneState -eq 'connected') { Write-Host 'Android connection ready; API forwarding restored.' -ForegroundColor Green }
-                elseif ($phoneState -eq 'unauthorized') { Write-Warning 'Unlock the phone and allow USB debugging. Services remain running.' }
-                elseif ($phoneState -eq 'adb-missing') { Write-Warning 'ADB is missing. Install Android platform-tools or use a LAN-configured app.' }
-                else { Write-Warning 'Waiting for Android to reconnect. Keep the same device selected; services remain running.' }
+                else { Write-Warning ((Get-RentHubAndroidConnectionMessage -State $phoneState) + ' Services remain running; checking again automatically.') }
                 $lastPhoneState = $phoneState
             }
         }
@@ -835,7 +933,11 @@ if ($ApiPort -ne 3000) {
     $errorLog = Join-Path $logDirectory "launcher-api-$ApiPort-error.log"
 }
 
+$serviceInputPath = $null
 try {
+    # Background Node/Python children must never consume Flutter's keyboard.
+    # The file contains zero bytes; each child receives EOF instead of the console.
+    $serviceInputPath = [IO.Path]::GetTempFileName()
     if (-not $SkipBlockchain -and $blockchainMode -eq 'ganache') {
         $blockchainHealth = Get-RentHubBlockchainHealth -RpcUrl $ganacheRpcUrl
         if ($null -ne $blockchainHealth) {
@@ -871,6 +973,7 @@ try {
                 )) `
                 -WorkingDirectory $blockchainDirectory `
                 -WindowStyle Hidden `
+                -RedirectStandardInput $serviceInputPath `
                 -RedirectStandardOutput $blockchainStandardLog `
                 -RedirectStandardError $blockchainErrorLog `
                 -PassThru
@@ -931,6 +1034,7 @@ try {
                 -ArgumentList $aiArguments `
                 -WorkingDirectory $aiDirectory `
                 -WindowStyle Hidden `
+                -RedirectStandardInput $serviceInputPath `
                 -RedirectStandardOutput $aiStandardLog `
                 -RedirectStandardError $aiErrorLog `
                 -PassThru
@@ -986,6 +1090,7 @@ try {
                 -ArgumentList (Get-RentHubApiArguments -DisableReload:$NoApiReload) `
                 -WorkingDirectory $apiDirectory `
                 -WindowStyle Hidden `
+                -RedirectStandardInput $serviceInputPath `
                 -RedirectStandardOutput $standardLog `
                 -RedirectStandardError $errorLog `
                 -PassThru
@@ -1026,13 +1131,21 @@ try {
         # Stable device port keeps an installed APK usable even if the PC needs a fallback port.
         $clientApiPort = 3000
         $adbPath = Get-RentHubAdbPath
-        $phoneState = Sync-RentHubAndroidConnection -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort
+        $phoneState = if ($ServicesOnly) {
+            Sync-RentHubAndroidConnection -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort
+        } else {
+            Wait-RentHubAndroidConnection -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort
+        }
         if ($phoneState -eq 'connected') {
             Write-Host "Forwarded Android localhost:3000 to PC API port $ApiPort." -ForegroundColor Green
         }
         else {
-            Write-Warning 'Android is not ready for forwarding. Check USB debugging authorization and the selected device ID. Services-only mode will wait for reconnection.'
-            if (-not $ServicesOnly) { throw 'Reconnect/authorize the Android device and rerun, or use -ServicesOnly to keep services running while reconnecting.' }
+            $phoneProblem = Get-RentHubAndroidConnectionMessage -State $phoneState
+            if (-not $ServicesOnly) {
+                $waitSummary = if ($phoneState -in @('adb-missing', 'invalid-device')) { '' } else { ' Connection checks were retried for up to about 30 seconds.' }
+                throw "Android startup could not continue. $phoneProblem$waitSummary Reconnect/authorize the phone and rerun, or use -ServicesOnly to keep services running while reconnecting."
+            }
+            Write-Warning "$phoneProblem Services-only mode will keep waiting for reconnection."
         }
     }
 
@@ -1128,14 +1241,18 @@ try {
     }
 
     Write-Host "Starting RentHub on $Device..." -ForegroundColor Cyan
+    Write-Host 'After Flutter is ready: r = hot reload, R = hot restart, q = end the app debug session.' -ForegroundColor DarkGray
+    Write-Host 'Use this terminal for Flutter keys; do not pipe its input or output. Reload requires a debug build.' -ForegroundColor DarkGray
+    if ([Console]::IsInputRedirected) {
+        Write-Warning 'Keyboard input is redirected. For r/R/q, run this command in VS Code Terminal or Windows Terminal without piping or redirecting it.'
+    }
     Push-Location -LiteralPath $PSScriptRoot
     try {
-        & flutter @arguments
-        $flutterExitCode = $LASTEXITCODE
+        $flutterExitCode = Invoke-RentHubFlutterConsole -Arguments $arguments -WorkingDirectory $PSScriptRoot
     }
     finally { Pop-Location }
     if (Test-RentHubKeepServicesRunning -TargetDevice $Device -StartedApi $startedApi -StartedAi $startedAi -StartedBlockchain $startedBlockchain) {
-        Write-Warning 'The Android debug session has ended. This does not stop the local RentHub backend.'
+        Write-Warning 'The Android debug session has ended. Flutter r/R/q keys are no longer active; the local RentHub backend remains running. Press Ctrl+C to stop services started here.'
         Wait-RentHubServiceSession -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort -MonitorAi:(-not $SkipAi) -BlockchainRpcUrl $monitoredRpcUrl
     }
     if ($flutterExitCode -ne 0) {
@@ -1154,5 +1271,8 @@ finally {
     if ($startedBlockchain -and $null -ne $blockchainProcess -and $null -ne $blockchainProcessStartedAt) {
         Write-Host 'Stopping the blockchain process started by this launcher...' -ForegroundColor DarkGray
         Stop-RentHubOwnedApiProcess -OwnedProcess $blockchainProcess -StartedAt $blockchainProcessStartedAt
+    }
+    if ($serviceInputPath -and (Test-Path -LiteralPath $serviceInputPath)) {
+        Remove-Item -LiteralPath $serviceInputPath -Force -ErrorAction SilentlyContinue
     }
 }

@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'live_trust_page.dart';
 import '../../core/network/user_facing_error.dart';
@@ -19,6 +20,8 @@ import 'live_pricing_references.dart';
 import 'admin_record_models.dart';
 import 'admin_record_widgets.dart';
 import 'admin_system_status.dart';
+import 'admin_booking_chart.dart';
+import 'admin_payout_chart.dart';
 import 'live_agreement.dart';
 
 class LiveAdminApp extends StatelessWidget {
@@ -468,17 +471,27 @@ class _AdminDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = context.watch<LiveRentHubController>();
     final summary = data.adminSummary;
+    final bookingsChart = AdminBookingChart(
+        counts: summary['bookingStatusCounts'],
+        loading: data.adminWorkspace.loading,
+        onRetry: data.adminWorkspace.loading
+            ? null
+            : () async {
+                try {
+                  await data.loadAdminOverview();
+                } catch (_) {}
+              });
+    final payoutChart = AdminPayoutChart(data: summary['ownerPayouts']);
     return RefreshIndicator(
       onRefresh: data.loadAdmin,
       child: ListView(
+        key: const ValueKey('admin-dashboard-scroll'),
         padding: const EdgeInsets.all(24),
         children: [
-          Text('Platform overview',
+          RentHubSectionHeader('Platform overview',
+              help:
+                  'Review requests, manage records and check how RentHub is running.',
               style: Theme.of(context).textTheme.headlineSmall),
-          const Text(
-            'Review requests, manage records and check how RentHub is running.',
-            style: TextStyle(color: AppColors.secondaryText),
-          ),
           const SizedBox(height: 20),
           Wrap(
             spacing: 16,
@@ -508,6 +521,21 @@ class _AdminDashboard extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 24),
+          LayoutBuilder(
+              builder: (context, constraints) => constraints.maxWidth >= 1050
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                          Expanded(child: bookingsChart),
+                          const SizedBox(width: 24),
+                          Expanded(child: payoutChart)
+                        ])
+                  : Column(children: [
+                      bookingsChart,
+                      const SizedBox(height: 24),
+                      payoutChart
+                    ])),
           const SizedBox(height: 24),
           const _TechnologyHealthPanel(),
         ],
@@ -672,6 +700,12 @@ class _AdminVerificationState extends State<_AdminVerification> {
     final reason = TextEditingController();
     final attempt = _pendingAttempt(user);
     final driving = attempt['documentType'] == 'driving_licence';
+    final mykadStatus = adminMykadIdentityStatus(user);
+    final mykadLabel = mykadStatus == 'approved'
+        ? 'Verified'
+        : mykadStatus == 'unavailable'
+            ? 'Not available'
+            : adminLabel(mykadStatus);
     final extracted =
         ((attempt['aiEvidence'] as Map?)?['extracted_fields'] as Map?) ??
             const {};
@@ -689,6 +723,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => rentHubDialog(
+          constraints: const BoxConstraints(maxWidth: 560),
           title: Text(
             status == 'approved'
                 ? (driving
@@ -710,17 +745,20 @@ class _AdminVerificationState extends State<_AdminVerification> {
                 Text(user['displayName'] as String),
                 const SizedBox(height: 12),
                 if (driving) ...[
+                  Text('MyKad identity: $mykadLabel'),
+                  const SizedBox(height: 8),
                   Text(
-                      'MyKad identity: ${((user['verification'] as Map?)?['documents'] as List? ?? const []).whereType<Map>().where((item) => item['documentType'] == 'mykad').map((item) => item['status']).firstOrNull ?? 'unverified'}'),
+                      'Automatic holder check: ${adminLabel((attempt['aiEvidence'] as Map?)?['identityMatch'] ?? 'unavailable')}'),
                   Text(
-                      'Holder match assistance: ${(attempt['aiEvidence'] as Map?)?['identityMatch'] ?? 'unavailable'}'),
-                  Text(
-                      'Read validity date (confirm from protected evidence): ${assistance?['validUntil'] ?? extracted['expiryDateText'] ?? 'not extracted'}'),
+                      'Expiry read from photo: ${assistance?['validUntil'] ?? extracted['expiryDateText'] ?? 'Not available; check the document'}'),
+                  const SizedBox(height: 8),
                   const Text(
-                      'No JPJ API / official QR or government authentication. Review licence / MyJPJ evidence against approved MyKad.'),
+                      'Compare the licence or MyJPJ photos with the approved MyKad. This review does not check government records.'),
+                  const SizedBox(height: 16),
                 ],
                 if (status == 'approved' && driving) ...[
                   TextFormField(
+                    key: const ValueKey('admin-licence-classes'),
                     controller: classes,
                     decoration: (const InputDecoration(
                             labelText: 'Reviewed licence classes (e.g. D, B2)'))
@@ -732,10 +770,16 @@ class _AdminVerificationState extends State<_AdminVerification> {
                     maxLength: InputRules.reviewedLicenceClassesEGDB2.maxLength,
                     maxLengthEnforcement: InputValidation.lengthEnforcement,
                   ),
+                  const SizedBox(height: 12),
                   TextFormField(
+                    key: const ValueKey('admin-licence-expiry'),
                     controller: expiry,
-                    decoration: (const InputDecoration(
-                            labelText: 'Valid until (YYYY-MM-DD)'))
+                    decoration: (InputDecoration(
+                            labelText: 'Valid until (YYYY-MM-DD)',
+                            helperText: assistance?['validUntil'] != null
+                                ? 'Read from the photo. Check and correct if needed.'
+                                : 'Enter the expiry date shown on the licence.',
+                            helperMaxLines: 3))
                         .copyWith(counterText: '', errorMaxLines: 3),
                     validator: InputRules.validUntilYyyyMmDd.validate,
                     inputFormatters: InputValidation.formatters(
@@ -2354,14 +2398,10 @@ class _AdminReportingPanel extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Operational reports',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const Text(
-                    'Generate auditable CSV exports or automate recurring snapshots.',
-                    style: TextStyle(color: AppColors.secondaryText),
-                  ),
+                  RentHubSectionHeader('Operational reports',
+                      help:
+                          'Generate auditable CSV exports or automate recurring snapshots.',
+                      style: Theme.of(context).textTheme.headlineSmall),
                 ],
               ),
             ),
@@ -2524,12 +2564,10 @@ class _AdminMessageReports extends StatelessWidget {
       children: [
         const _AdminReportingPanel(),
         const SizedBox(height: 32),
-        Text('Safety reports',
+        RentHubSectionHeader('Safety reports',
+            help:
+                'Review safety reports about accounts, listings, reviews and messages.',
             style: Theme.of(context).textTheme.headlineSmall),
-        const Text(
-          'Review safety reports about accounts, listings, reviews and messages.',
-          style: TextStyle(color: AppColors.secondaryText),
-        ),
         const SizedBox(height: 16),
         if (moderationReports.isEmpty && messageReports.isEmpty)
           const Card(
@@ -3061,12 +3099,10 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
               key: const ValueKey('admin-settings-form'),
               padding: const EdgeInsets.all(24),
               children: [
-                Text('Platform Settings',
+                RentHubSectionHeader('Platform Settings',
+                    help:
+                        'Manage fees, identity checks, support messages and rewards. Changes take effect after you save.',
                     style: Theme.of(context).textTheme.headlineSmall),
-                const Text(
-                  'Manage fees, identity checks, support messages and rewards. Changes take effect after you save.',
-                  style: TextStyle(color: AppColors.secondaryText),
-                ),
                 const SizedBox(height: 16),
                 Form(
                   key: platformFormKey,
@@ -3224,10 +3260,11 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                                 ),
                               SwitchListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: const Text('Maintenance mode'),
-                                subtitle: const Text(
-                                  'Use during planned maintenance. Save to apply the change.',
-                                ),
+                                title: RentHubSectionHeader('Maintenance mode',
+                                    help:
+                                        'Use during planned maintenance. Save to apply the change.',
+                                    style:
+                                        Theme.of(context).textTheme.bodyLarge),
                                 value: maintenanceMode,
                                 onChanged: (value) =>
                                     setState(() => maintenanceMode = value),
@@ -3356,21 +3393,14 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text('Listing categories',
-                                  style:
-                                      Theme.of(context).textTheme.titleLarge),
-                              const Text(
-                                'Choose which categories are available. Category names stay the same.',
-                                style:
-                                    TextStyle(color: AppColors.secondaryText),
-                              ),
+                              const RentHubSectionHeader('Listing categories',
+                                  help:
+                                      'Choose which categories are available to Owners and renters. Category names stay the same.'),
                               for (final entry in categoryStates.entries)
                                 SwitchListTile(
                                   contentPadding: EdgeInsets.zero,
                                   secondary: const Icon(Icons.lock_outline),
                                   title: Text(entry.key),
-                                  subtitle: const Text(
-                                      'Available to Owners and renters'),
                                   value: entry.value,
                                   onChanged: (value) => setState(
                                     () => categoryStates[entry.key] = value,
@@ -3394,12 +3424,12 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                   ),
                 ),
                 const SizedBox(height: 32),
-                Text('Points and referral rewards',
+                RentHubSectionHeader('Points and referral rewards',
+                    help:
+                        'Changes apply to future completions, referrals and redemptions and are written to the administrator audit log.',
                     style: Theme.of(context).textTheme.headlineSmall),
-                const Text(
-                  'Changes apply to future completions, referrals and redemptions and are written to the administrator audit log.',
-                  style: TextStyle(color: AppColors.secondaryText),
-                ),
+                const Text('Changes apply to future rewards only.',
+                    style: TextStyle(color: AppColors.secondaryText)),
                 const SizedBox(height: 16),
                 Form(
                   key: formKey,

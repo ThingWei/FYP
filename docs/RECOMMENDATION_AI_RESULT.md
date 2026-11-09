@@ -1,5 +1,7 @@
 # RentHub recommendation AI result
 
+9 November follow-up: [bottom-of-page related items and isolated accessory filtering](BOOKING_EXPIRY_LOCATIONS_AND_INSIGHTS_RESULT.md). Existing model weights are unchanged; unsupported relationships retain an empty state.
+
 Last updated: 15 October 2026
 
 ## Current scope-aligned implementation (15 October)

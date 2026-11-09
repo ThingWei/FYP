@@ -267,6 +267,25 @@ test('bookings of a demo listing retain demo provenance', async () => {
   assert.equal(stored.status, 'pending');
 });
 
+test('an available 16 November 2027 one-day rental keeps both dates and charges one day', async () => {
+  const response = await createCameraBooking({
+    startDate: '2027-11-16', endDate: '2027-11-16',
+    idempotencyKey: 'one-day:2027-11-16',
+  });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  const row = response.body.data;
+  assert.equal(row.startDate, '2027-11-16T00:00:00.000Z');
+  assert.equal(row.endDate, '2027-11-16T00:00:00.000Z');
+  assert.equal(row.pricing.originalRentalDays, 1);
+  assert.equal(row.pricing.baseAmount, row.pricing.originalDailyRate);
+  assert.equal(row.status, 'pending');
+  assert.equal(row.paymentStatus, 'unpaid');
+  const reopened = await request(app).get(`/api/v1/bookings/${row.id}`).set(renter).expect(200);
+  assert.equal(reopened.body.data.startDate, row.startDate);
+  assert.equal(reopened.body.data.endDate, row.endDate);
+  assert.equal(reopened.body.data.paymentStatus, 'unpaid');
+});
+
 test('normalizes physical rental input to Malaysian calendar dates without a one-day shift', async () => {
   const dateOnly = await request(app)
     .post('/api/v1/bookings')
@@ -705,7 +724,8 @@ test('self-booking remains prohibited and malformed legacy self-requests cannot 
   assert.equal((await BookingModel.findOne({ publicId: bookingId }).lean()).status, 'pending');
 });
 
-test('runs physical approval, handover, extension and return lifecycle', async () => {
+test('runs physical approval, handover, extension and return lifecycle', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
   await applyReferral(owner);
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
@@ -738,6 +758,7 @@ test('runs physical approval, handover, extension and return lifecycle', async (
     });
   assert.equal(handover.status, 200);
   assert.equal(handover.body.data.status, 'active');
+  t.mock.timers.reset(); // Completion/reward timestamps use the real test time.
 
   const extension = await request(app)
     .post(`/api/v1/rentals/${rentalRecord.publicId}/extensions`)
@@ -879,7 +900,8 @@ test('cancellation racing approval leaves no active scheduled rental or payment 
   } finally { blockchainAdapter.createAgreement = original; }
 });
 
-test('double handover and double return confirmation do not duplicate captures or settlements', async () => {
+test('double handover and double return confirmation do not duplicate captures or settlements', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
   await authorizeBooking(bookingId);
@@ -900,7 +922,8 @@ test('double handover and double return confirmation do not duplicate captures o
   assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'deposit_release' }), 1);
 });
 
-test('extension cannot overlap an unresolved disputed rental or be approved after return submission', async () => {
+test('extension cannot overlap an unresolved disputed rental or be approved after return submission', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
   await authorizeBooking(bookingId);
@@ -1459,7 +1482,8 @@ test('future approval waits for the Malaysian start day and does not capture pay
     .send({ condition: 'Good', notes: 'A small mark on the base', evidence: ['local://handover/future.jpg'] }).expect(200);
 });
 
-test('handover requires owned photo evidence and preserves the actual condition for both parties', async () => {
+test('handover requires owned photo evidence and preserves the actual condition for both parties', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
   await authorizeBooking(bookingId);

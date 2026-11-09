@@ -1,4 +1,5 @@
 import 'live_booking_summary.dart';
+import 'live_notification_icon.dart';
 import 'live_booking_filters.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'live_condition_record_page.dart';
@@ -479,7 +480,7 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
                 builder: (_) => const LiveNotificationsPage(),
               ),
             ),
-            icon: const Icon(Icons.notifications_outlined),
+            icon: const LiveNotificationIcon(),
           ),
         ],
       ),
@@ -1004,8 +1005,8 @@ class LiveBookingPage extends StatefulWidget {
 }
 
 class _LiveBookingPageState extends State<LiveBookingPage> {
-  late DateTime start = DateTime.now().add(const Duration(days: 7));
-  late DateTime end = DateTime.now().add(const Duration(days: 9));
+  late DateTime start = malaysiaCalendarToday().add(const Duration(days: 7));
+  late DateTime end = DateTime(start.year, start.month, start.day + 2);
   TimeOfDay serviceTime = const TimeOfDay(hour: 14, minute: 0);
   String paymentMethod = 'card';
   String fulfilmentMethod = 'pickup';
@@ -1287,10 +1288,10 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     if (selected == null || !mounted || isOwnListing) return;
     setState(() {
       if (startDate) {
-        start = selected;
+        start = calendarDate(selected);
         if (!model.isRangeAvailable(start, end)) end = start;
       } else {
-        end = selected;
+        end = calendarDate(selected);
       }
     });
   }
@@ -1690,16 +1691,6 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            if (!ownListing)
-              LiveComplementsSection(
-                  listingId: listing.id,
-                  onOpen: (item) => Navigator.push<void>(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => LiveBookingPage(
-                              listing: item,
-                              onSubmitted: widget.onSubmitted)))),
             const SizedBox(height: 12),
             if (availabilityLoading)
               const Card(
@@ -2130,6 +2121,18 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 ),
               ),
             ],
+            if (!ownListing) ...[
+              const SizedBox(height: 24),
+              LiveComplementsSection(
+                  key: ValueKey('listing-complements-${listing.id}'),
+                  listingId: listing.id,
+                  onOpen: (item) => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => LiveBookingPage(
+                              listing: item,
+                              onSubmitted: widget.onSubmitted)))),
+            ],
           ],
         ),
       ),
@@ -2237,7 +2240,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                 builder: (_) => const LiveNotificationsPage(),
               ),
             ),
-            icon: const Icon(Icons.notifications_outlined),
+            icon: const LiveNotificationIcon(),
           ),
         ],
       ),

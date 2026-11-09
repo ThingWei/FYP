@@ -26,6 +26,17 @@ adb devices -l
 ```
 
 Replace `YOUR_DEVICE_ID` with the connected phone's ID. Its status must be `device`.
+Normal Android startup retries temporary connection/authorization/forwarding
+problems for about **30 seconds** and shows what needs attention. You can unlock,
+authorize or reconnect the phone while it waits; a ready phone proceeds at once.
+Missing ADB or an invalid ID fails immediately with setup guidance.
+
+After **Flutter run key commands** appears, focus that terminal: **r** reloads,
+**R** restarts, and **q** ends the app debug session (no Enter needed).
+`-Presentation` does not disable Flutter hot reload. Use a debug build and run
+directly in VS Code Terminal or Windows Terminal without piping/redirection.
+After q on Android, the backend stays running; **Ctrl+C** stops services owned by
+this launcher. The backend-only monitor does not accept Flutter reload keys.
 
 ### Android: use the app already installed
 
@@ -34,6 +45,8 @@ Replace `YOUR_DEVICE_ID` with the connected phone's ID. Its status must be `devi
 ```
 
 Open RentHub on the phone yourself. This does not install app updates. Keep the terminal open; it monitors the connection and attempts to restore forwarding after reconnection.
+This mode has no active Flutter keyboard session; use the build/open command
+without `-ServicesOnly` when you need r/R hot reload or restart.
 
 ### Administrator browser
 

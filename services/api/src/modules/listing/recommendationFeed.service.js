@@ -59,6 +59,9 @@ export const recommendationFeed = {
     return { recommended, trending, recentlyViewed, nearbyUsesApproximateLocations: true };
   },
   async complements(identity, listingId, query) {
+    // Search/category filters describe discovery, not accessory eligibility.
+    query = Object.fromEntries(['latitude', 'longitude', 'radiusKm', 'startDate', 'endDate', 'limit']
+      .filter(key => query[key] !== undefined).map(key => [key, query[key]]));
     const { filter } = await recommendationUser(identity);
     const anchor = await ListingModel.findOne({ ...filter, publicId: listingId });
     if (!anchor) throw new AppError('Listing unavailable', 404, 'NOT_FOUND');

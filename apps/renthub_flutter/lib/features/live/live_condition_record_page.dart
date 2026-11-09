@@ -1,9 +1,11 @@
+import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/renthub_components.dart';
 import 'live_authenticated_page.dart';
@@ -108,7 +110,14 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
       return;
     }
     final c = context.read<LiveRentHubController>();
-    if (widget.handover && !handoverDayReached(currentRental(c))) return;
+    final latest = currentRental(c);
+    if (widget.handover &&
+        (latest.status != 'scheduled' ||
+            !handoverDayReached(latest) ||
+            latest.end != null &&
+                calendarDate(latest.end!).isBefore(malaysiaCalendarToday()))) {
+      return;
+    }
     final accepted = await confirmAction(context,
         title: widget.handover
             ? 'Hand the item to the renter?'
@@ -153,7 +162,18 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
     final rental = currentRental(c);
     final allowed = c.profile != null &&
         (widget.handover ? rental.ownerId : rental.renterId) == c.profile!.id;
-    final ready = !widget.handover || handoverDayReached(rental);
+    final ended = widget.handover &&
+        (rental.status == 'expired' ||
+            rental.end != null &&
+                calendarDate(rental.end!).isBefore(malaysiaCalendarToday()));
+    final ready = !widget.handover ||
+        !ended && rental.status == 'scheduled' && handoverDayReached(rental);
+    final handoverDate = rental.start == null ? null : rentalDay(rental.start!);
+    final handoverNotice = ended
+        ? 'The booked dates have ended. Handover is closed. Open the booking again to check its expiry and payment status.'
+        : handoverDate == null
+            ? 'The booked start date is not available. Check the latest rental status before handover.'
+            : 'You can confirm handover from $handoverDate (Malaysia time), when you give the item to the renter. Filling in this form does not start the rental early.';
     return PopScope(
         canPop: !busy,
         child: Scaffold(
@@ -174,23 +194,45 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                             child: ListView(
                                 padding: const EdgeInsets.all(16),
                                 children: [
-                                  Text(
+                                  RentHubSectionHeader(
                                       widget.handover
                                           ? 'Record the item before it changes hands'
                                           : 'Show the item as you return it',
+                                      help: widget.handover
+                                          ? 'Take clear photos of the whole item, accessories and any existing marks. Check them with the renter before handing it over.'
+                                          : 'Take clear photos of the item and accessories. Describe any changes honestly so the Owner can inspect the return.',
                                       style: Theme.of(context)
                                           .textTheme
                                           .titleLarge),
-                                  const SizedBox(height: 8),
-                                  Text(widget.handover
-                                      ? 'Take clear photos of the whole item, accessories and any existing marks. Check them with the renter before handing it over.'
-                                      : 'Take clear photos of the item and accessories. Describe any changes honestly so the Owner can inspect the return.'),
-                                  if (!ready)
-                                    Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 12),
-                                        child: Text(
-                                            'Handover opens on ${rental.start == null ? 'the booked start date' : rentalDay(rental.start!)}. Take up-to-date photos on that day. No rental has started.')),
+                                  if (!ready) ...[
+                                    const SizedBox(height: 16),
+                                    DecoratedBox(
+                                        decoration: BoxDecoration(
+                                            color: AppColors.blueSurface,
+                                            borderRadius:
+                                                BorderRadius.circular(12)),
+                                        child: Padding(
+                                            padding: const EdgeInsets.all(16),
+                                            child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                      ended
+                                                          ? 'Handover is closed'
+                                                          : handoverDate == null
+                                                              ? 'Check the rental start date'
+                                                              : 'Scheduled for $handoverDate',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .titleSmall),
+                                                  const SizedBox(height: 8),
+                                                  Text(handoverNotice),
+                                                  const SizedBox(height: 8),
+                                                  const Text(
+                                                      'Condition photos should show the item on the actual handover day.'),
+                                                ]))),
+                                  ],
                                   if (!widget.handover)
                                     Padding(
                                         padding: const EdgeInsets.symmetric(
@@ -290,6 +332,11 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                             style: const TextStyle(
                                                 color: AppColors.error))),
                                   const SizedBox(height: 16),
+                                  if (!ready && !needsStatusCheck)
+                                    Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 12),
+                                        child: Text(handoverNotice)),
                                   FilledButton.icon(
                                       onPressed: busy
                                           ? null
@@ -305,9 +352,15 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                           ? 'Please wait…'
                                           : needsStatusCheck
                                               ? 'Check latest status'
-                                              : widget.handover
-                                                  ? 'Review & confirm handover'
-                                                  : 'Review & submit return')),
+                                              : !ready
+                                                  ? ended
+                                                      ? 'Handover closed'
+                                                      : handoverDate == null
+                                                          ? 'Start date needed'
+                                                          : 'Handover opens $handoverDate'
+                                                  : widget.handover
+                                                      ? 'Review & confirm handover'
+                                                      : 'Review & submit return')),
                                   const SizedBox(height: 12),
                                   const Text(
                                       'The record is shared with the other party and can be reviewed by an administrator if there is a problem. It does not automatically assign responsibility.',

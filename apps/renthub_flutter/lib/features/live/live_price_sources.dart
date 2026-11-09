@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -187,11 +188,12 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Price updates',
-                      style: Theme.of(context).textTheme.titleLarge),
-                  Text(data?['schedulerEnabled'] == false
-                      ? 'Automatic updates are turned off. You can update each enabled source yourself.'
-                      : 'Enabled price sources are checked daily while RentHub is running.'),
+                  const RentHubSectionHeader('Price updates',
+                      help:
+                          'Enabled price sources are checked daily while RentHub is running.'),
+                  if (data?['schedulerEnabled'] == false)
+                    const Text(
+                        'Automatic updates are turned off. You can update each enabled source yourself.'),
                   if (loading) const LinearProgressIndicator(),
                   if (error != null) Text(error!),
                   Align(
@@ -201,9 +203,10 @@ class _LivePriceSourcesPanelState extends State<LivePriceSourcesPanel> {
                           icon: const Icon(Icons.refresh),
                           label: const Text('Refresh source status'))),
                   ExpansionTile(
-                      title: Text('Price sources (${sources.length})'),
-                      subtitle:
-                          const Text('Last update and simple update controls'),
+                      title: RentHubSectionHeader(
+                          'Price sources (${sources.length})',
+                          help: 'Last update and simple update controls',
+                          style: Theme.of(context).textTheme.titleMedium),
                       children: [
                         AdminRecordToolbar(
                             page: shownPage,

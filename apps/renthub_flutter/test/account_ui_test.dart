@@ -53,6 +53,10 @@ void main() {
     await tester.ensureVisible(find.text('Create Account'));
     await tester.tap(find.text('Create Account'));
     await tester.pumpAndSettle();
+    expect(
+        find.text('Join RentHub to start renting and listing.'), findsNothing);
+    await tester.tap(find.byTooltip('About Create Account'));
+    await tester.pumpAndSettle();
     expect(find.text('Join RentHub to start renting and listing.'),
         findsOneWidget);
   });

@@ -99,6 +99,14 @@ class ReferenceApi extends PricingReferenceApi {
 }
 
 Future<void> press(WidgetTester tester, String text) async {
+  if (text == 'How this estimate was calculated') {
+    final help = find.byTooltip('About $text');
+    await tester.ensureVisible(help);
+    await tester.pumpAndSettle();
+    await tester.tap(help);
+    await tester.pumpAndSettle();
+    return;
+  }
   if (['Get blank CSV', 'Choose CSV', 'How to prepare your CSV']
           .contains(text) &&
       find.text(text).evaluate().isEmpty) {
@@ -518,11 +526,12 @@ void main() {
                     onRetry: null)))));
     await press(tester, 'How this estimate was calculated');
     expect(
-        find.text(
+        find.textContaining(
             'Based on 2 RentHub listings, 3 advertised prices, 1 rental record.'),
         findsOneWidget);
     expect(
-        find.text('Advertised prices may differ from the final rental price.'),
+        find.textContaining(
+            'Advertised prices may differ from the final rental price.'),
         findsOneWidget);
   });
 }

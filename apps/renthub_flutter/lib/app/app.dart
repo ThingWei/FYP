@@ -36,7 +36,7 @@ class RentHubApp extends StatefulWidget {
 
 enum _EntryStage { splash, onboarding, application }
 
-class _RentHubAppState extends State<RentHubApp> {
+class _RentHubAppState extends State<RentHubApp> with WidgetsBindingObserver {
   final messengerKey = GlobalKey<ScaffoldMessengerState>();
   final navigatorKey = GlobalKey<NavigatorState>();
   StreamSubscription<PushNotificationEvent>? pushSubscription;
@@ -47,6 +47,7 @@ class _RentHubAppState extends State<RentHubApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       PushNotificationService push;
       try {
@@ -92,8 +93,18 @@ class _RentHubAppState extends State<RentHubApp> {
 
   Future<void> _refreshNotifications() async {
     try {
-      await context.read<LiveRentHubController>().loadNotifications();
+      await context.read<LiveRentHubController>().refreshNotificationActivity();
     } catch (_) {}
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        mounted &&
+        !BackendMode.useMocks &&
+        context.read<AuthController>().authenticated) {
+      unawaited(_refreshNotifications());
+    }
   }
 
   Future<void> _completeOnboarding() async {
@@ -105,6 +116,7 @@ class _RentHubAppState extends State<RentHubApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     pushSubscription?.cancel();
     super.dispose();
   }

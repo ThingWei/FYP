@@ -1,3 +1,4 @@
+import '../../shared/widgets/section_help.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -152,6 +153,7 @@ class LivePricingReferencesPage extends StatefulWidget {
 
 class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
   bool loading = false, working = false, reviewed = false;
+  bool errorOnSavedPrices = false;
   String? error, fileName, selectedCsv, feedback;
   Map<String, dynamic>? preview;
   List<Map<String, dynamic>> items = [];
@@ -169,6 +171,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
     setState(() {
       loading = true;
       error = null;
+      errorOnSavedPrices = false;
     });
     try {
       final result = await widget.api.list(page);
@@ -186,7 +189,10 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
       }
     } catch (exception) {
       if (mounted && version == loadVersion) {
-        setState(() => error = _referenceError(exception));
+        setState(() {
+          error = _referenceError(exception);
+          errorOnSavedPrices = true;
+        });
       }
     } finally {
       if (mounted && version == loadVersion) setState(() => loading = false);
@@ -198,6 +204,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
     setState(() {
       working = true;
       error = null;
+      errorOnSavedPrices = false;
       feedback = null;
     });
     try {
@@ -352,7 +359,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
               _load();
             }),
         if (loading) const LinearProgressIndicator(),
-        if (error != null && selectedCsv == null) Text(error!),
+        if (error != null && errorOnSavedPrices) Text(error!),
         SizedBox(
             height: 520,
             child: items.isEmpty
@@ -441,9 +448,10 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                 const SizedBox(height: 16),
                 ExpansionTile(
                   key: const ValueKey('manual-price-import'),
-                  title: const Text('Import prices from a file'),
-                  subtitle: const Text(
-                      'Optional: review a CSV file before saving its prices'),
+                  title: RentHubSectionHeader('Import prices from a file',
+                      help:
+                          'Optional: review a CSV file before saving its prices. Already have a filled CSV? Choose it below. Get a blank CSV only when preparing new price references.',
+                      style: Theme.of(context).textTheme.titleMedium),
                   children: [
                     Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -459,15 +467,12 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
                                 label: const Text('Get blank CSV')),
                           ]),
                           const SizedBox(height: 8),
-                          const Text(
-                              'Already have a filled CSV? Choose it above. Get a blank CSV only when preparing new price references.'),
-                          const SizedBox(height: 8),
                           const _CsvPreparationGuide(),
                           const SizedBox(height: 8),
                           const Text(
                               'UTF-8 CSV · up to 1 MB / 500 rows · MYR only. Use explicit rental amounts and periods. Exclude sale prices, “from” rates and inseparable service bundles.'),
                           if (working) const LinearProgressIndicator(),
-                          if (error != null)
+                          if (error != null && !errorOnSavedPrices)
                             Padding(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 12),

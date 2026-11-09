@@ -170,6 +170,79 @@ Future<void> tapVisible(WidgetTester tester, String text) async {
 }
 
 void main() {
+  testWidgets(
+      'leaving and reopening unpaid checkout never authorizes or approves',
+      (tester) async {
+    final api = CheckoutApi();
+    api.saved['paymentDueAt'] = DateTime.now()
+        .toUtc()
+        .add(const Duration(minutes: 10))
+        .toIso8601String();
+    await mount(tester, api);
+    await tapVisible(tester, 'Demo Wallet');
+    await tapVisible(tester, 'Continue demo payment');
+    // Dismissing the payment choice is not a successful payment decision.
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await mount(tester, api);
+    expect(api.writes, isEmpty);
+    expect(api.attempts, isEmpty);
+    expect(api.saved['status'], 'pending');
+    expect(api.saved['paymentStatus'], 'unpaid');
+    expect(find.textContaining('Demo payment complete'), findsNothing);
+    await tester.scrollUntilVisible(find.text('Continue demo payment'), 150,
+        scrollable: find.byType(Scrollable).last);
+    expect(find.text('Continue demo payment'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+      'a payment decision opened before pausing cannot pay after resume',
+      (tester) async {
+    final api = CheckoutApi();
+    await mount(tester, api);
+    await tapVisible(tester, 'Continue demo payment');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    await tapVisible(tester, 'Pay demo');
+    expect(api.writes, isEmpty);
+    expect(api.saved['paymentStatus'], 'unpaid');
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, 4000));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Payment was not confirmed'), findsOneWidget);
+    // A new, explicit payment decision still works and does not approve.
+    await tapVisible(tester, 'Continue demo payment');
+    await tapVisible(tester, 'Pay demo');
+    expect(api.writes, hasLength(1));
+    expect(api.writes.single['simulationOutcome'], 'success');
+    expect(api.saved['status'], 'pending');
+    expect(api.saved['paymentStatus'], 'authorized');
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  test(
+      'extension payment attempts cannot be mistaken for initial checkout payment',
+      () async {
+    final api = CheckoutApi();
+    api.attempts.add({
+      'publicId': 'extension-only',
+      'type': 'authorization',
+      'status': 'authorized',
+      'amount': 20,
+      'simulated': true,
+      'method': 'card',
+      'metadata': {'extensionId': 'EXT-OTHER'},
+    });
+    final c = LiveRentHubController(api);
+    addTearDown(c.dispose);
+    expect(await c.bookingPaymentAttempts('BKG-TEST'), isEmpty);
+    expect(api.writes, isEmpty);
+  });
+
   for (final size in [
     (360.0, 'Demo Card'),
     (390.0, 'Demo FPX'),

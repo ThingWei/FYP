@@ -34,6 +34,20 @@ async function seedListing(overrides = {}) {
 }
 const bookingInput = (listing, overrides = {}) => ({ listingId: listing.publicId, idempotencyKey: `location-test:${++sequence}`, startDate: '2026-11-10', endDate: '2026-11-11', fulfilmentMethod: 'pickup', agreementAccepted: true, agreementVersion: 'renthub-booking-v1', ...overrides });
 
+test('booking location states distinguish privacy, missing legacy pins and online bookings', () => {
+  const booking = { listingType: 'physical', fulfilmentMethod: 'pickup', status: 'pending', ownerId: 'owner', renterId: 'renter', pickupLocationSnapshot: place() };
+  const hidden = bookingLocations(booking, { authId: 'renter', roles: ['renter'] });
+  assert.equal(hidden.locationStates.pickupLocation, 'hidden_until_approval');
+  assert.equal(hidden.pickupLocation, null);
+  assert.equal(hidden.locationStates.deliveryLocation, 'not_required');
+  const approved = bookingLocations({ ...booking, status: 'approved' }, { authId: 'renter', roles: ['renter'] });
+  assert.equal(approved.locationStates.pickupLocation, 'available');
+  const legacy = bookingLocations({ ...booking, status: 'approved', pickupLocationSnapshot: null }, { authId: 'renter', roles: ['renter'] });
+  assert.equal(legacy.locationStates.pickupLocation, 'missing_pin');
+  const online = bookingLocations({ ...booking, listingType: 'service', serviceVenueMode: 'online' }, { authId: 'renter', roles: ['renter'] });
+  assert.ok(Object.values(online.locationStates).every(state => state === 'not_required'));
+});
+
 test('Owner-set delivery fee is snapshotted, server-controlled, charged once and included in settlement', async () => {
   const listing = await seedListing({ deliveryFee: 23.45 });
   const pickup = await request(app).post('/api/v1/bookings').set(renter).send(bookingInput(listing)).expect(201);
