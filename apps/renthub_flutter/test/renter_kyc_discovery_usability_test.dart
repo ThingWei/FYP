@@ -214,7 +214,9 @@ void main() {
     old.complete([item('l-stale', 'Stale result')]);
     await t.pumpAndSettle();
     expect(find.text('Stale result'), findsNothing);
-    expect(find.text('Filtered camera'), findsOneWidget);
+    expect(find.text('Filtered camera'), findsNothing);
+    expect(find.text('Recommended For You'), findsOneWidget);
+    expect(c.marketplaceViews['home-discovery']!.results, isNull);
     expect(t.takeException(), isNull);
   });
   test('cached screen state is account scoped', () {

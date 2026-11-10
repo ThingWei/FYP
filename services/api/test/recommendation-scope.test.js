@@ -43,6 +43,63 @@ const makeBooking = (listingId, overrides={}) => BookingModel.create({publicId:`
   fulfilmentMethod:'pickup',pricing:{baseAmount:50,securityDeposit:0,total:50},...overrides});
 const rank = payload => payload.candidates.map(item => ({item_id:item.item_id,score:.5,adapter:'test-hybrid',reason:'Based on marketplace activity'}));
 
+test('Home has honest marketplace picks without requesting location or inventing trends', async () => {
+  await makeListing('l-seed-pick', { sourceType: 'demo_seed' });
+  await makeListing('l-own-pick', { ownerId: 'u-renter' });
+  const result = (await request(app).get('/api/v1/listings/recommendation-feed?section=trending').set(renter).expect(200)).body.data.trending;
+  assert.equal(result.status, 'ready');
+  assert.equal(result.scope, 'marketplace');
+  assert.equal(result.basis, 'highlights');
+  assert.deepEqual(result.items.map(r => r.publicId), ['l-seed-pick']);
+  assert.equal(result.items[0].sourceType, 'demo_seed');
+  assert.match(result.items[0].recommendation.reason, /not an activity-based trend/);
+  assert.notEqual(result.items[0].coordinates.latitude, 3.14234);
+  assert.equal(result.items[0].locationDetails, undefined);
+  assert.equal(await BookingModel.countDocuments(), 0);
+  assert.equal(await ListingViewModel.countDocuments(), 0);
+});
+
+test('nearby picks respect pins, category, price, blocking and selected availability', async () => {
+  await UserModel.updateOne({ authId: 'u-renter' }, { $set: { blockedUserIds: ['u-other'] } });
+  await makeListing('l-pick', { dailyPrice: 30 });
+  await makeListing('l-busy', { dailyPrice: 30 });
+  await makeBooking('l-busy', { status: 'approved', startDate: new Date('2030-06-01'), endDate: new Date('2030-06-03') });
+  await makeListing('l-wrong-type', { category: 'Vehicles', subcategory: 'Cars' });
+  await makeListing('l-expensive', { dailyPrice: 500 });
+  await makeListing('l-no-pin', { publicGeoPoint: undefined });
+  await makeListing('l-blocked', { ownerId: 'u-other' });
+  const filters = `${query}&category=Devices&maxPrice=40&availableFrom=2030-06-01&availableTo=2030-06-04`;
+  const result = (await request(app).get(`/api/v1/listings/recommendation-feed?section=trending&${filters}`).set(renter).expect(200)).body.data.trending;
+  assert.equal(result.scope, 'nearby');
+  assert.equal(result.basis, 'highlights');
+  assert.deepEqual(result.items.map(r => r.publicId), ['l-pick']);
+  assert.equal(result.items[0].recommendation.availabilityLabel, 'Available for selected dates');
+});
+
+test('genuine local trends take precedence over cold-start picks and promotions', async () => {
+  await makeListing('l-active-trend');
+  await makeListing('l-unviewed-pick');
+  await makeListing('l-demo-viewed', { sourceType: 'demo_seed' });
+  const now = new Date();
+  await ListingViewModel.create(['l-active-trend', 'l-demo-viewed'].map(listingId => ({
+    listingId, userId: 'u-other', day: malaysiaDay(now), lastViewedAt: now, expiresAt: new Date(+now + 90 * DAY) })));
+  const result = (await request(app).get(`/api/v1/listings/recommendation-feed?section=trending&${query}`).set(renter).expect(200)).body.data.trending;
+  assert.equal(result.basis, 'activity');
+  assert.equal(result.scope, 'nearby');
+  assert.deepEqual(result.items.map(r => r.publicId), ['l-active-trend']);
+  assert.match(result.items[0].recommendation.reason, /Popular/);
+});
+
+test('text area filters use public locality and honest empty states retain scope', async () => {
+  await makeListing('l-local', { state: 'Selangor' });
+  const local = (await request(app).get('/api/v1/listings/recommendation-feed?section=trending&location=Selangor').set(renter).expect(200)).body.data.trending;
+  assert.equal(local.scope, 'area'); assert.equal(local.items.length, 1);
+  const missing = (await request(app).get('/api/v1/listings/recommendation-feed?section=trending&category=Books').set(renter).expect(200)).body.data.trending;
+  assert.equal(missing.status, 'empty'); assert.equal(missing.scope, 'marketplace');
+  assert.deepEqual(missing.items, []);
+  await request(app).get('/api/v1/listings/recommendation-feed?section=trending&latitude=3.1').set(renter).expect(422);
+});
+
 for (const response of [[], [{ item_id:'l-unknown', score:.9 }], [null, { item_id:'l-own',score:.9 }]]) {
   test(`invalid/empty AI IDs use eligible marketplace fallback: ${JSON.stringify(response)}`,async t=>{
     await makeListing('l-valid'); await makeListing('l-own',{ownerId:'u-renter'});
@@ -79,7 +136,9 @@ test('view writes are authenticated, deduplicated, server-derived and clear only
   t.mock.method(aiClient,'recommendItems',async payload=>rank(payload));
   const feed=await request(app).get('/api/v1/listings/recommendation-feed').set(renter).expect(200);
   assert.equal(feed.body.data.recentlyViewed.items[0].publicId,'l-camera');
-  assert.equal(feed.body.data.trending.status,'location_required');
+  assert.equal(feed.body.data.trending.status,'ready');
+  assert.equal(feed.body.data.trending.scope,'marketplace');
+  assert.equal(feed.body.data.trending.basis,'activity');
   await request(app).delete('/api/v1/users/me/browsing-history').set(renter).expect(200);
   assert.equal(await ListingViewModel.countDocuments({userId:'u-renter'}),0);
   assert.equal(await ListingViewModel.countDocuments({userId:'u-other'}),1);

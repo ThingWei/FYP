@@ -1,8 +1,13 @@
 import '../../shared/models/domain_models.dart';
 
 class RecommendationSection {
-  const RecommendationSection(this.status, [this.items = const []]);
+  const RecommendationSection(this.status, [this.items = const []])
+      : scope = '',
+        basis = '';
+  const RecommendationSection.contextual(this.status, this.items,
+      {this.scope = '', this.basis = ''});
   final String status;
+  final String scope, basis;
   final List<Listing> items;
   factory RecommendationSection.fromJson(dynamic json) {
     try {
@@ -12,12 +17,18 @@ class RecommendationSection {
               .contains(json['status'])) {
         return const RecommendationSection('unavailable');
       }
-      return RecommendationSection(
+      return RecommendationSection.contextual(
           json['status'] as String,
           (json['items'] as List)
               .map((row) =>
                   Listing.fromJson(Map<String, dynamic>.from(row as Map)))
-              .toList());
+              .toList(),
+          scope: const ['nearby', 'area', 'marketplace'].contains(json['scope'])
+              ? json['scope'] as String
+              : '',
+          basis: const ['activity', 'highlights'].contains(json['basis'])
+              ? json['basis'] as String
+              : '');
     } catch (_) {
       return const RecommendationSection('unavailable');
     }

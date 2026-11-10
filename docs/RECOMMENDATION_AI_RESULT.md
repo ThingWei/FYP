@@ -1,5 +1,7 @@
 # RentHub recommendation AI result
 
+Latest Home update: [Inline trending and nearby results](HOME_TRENDING_INLINE_RESULT.md).
+
 9 November follow-up: [bottom-of-page related items and isolated accessory filtering](BOOKING_EXPIRY_LOCATIONS_AND_INSIGHTS_RESULT.md). Existing model weights are unchanged; unsupported relationships retain an empty state.
 
 Last updated: 15 October 2026
@@ -346,3 +348,7 @@ This is SVD-only, per-user-time evaluation, not a full hybrid-feed or globally
 chronological validation. More consented real activity is still required.
 Verification: full AI suite 482 passed; full API suite 375 passed and three
 optional tests skipped. Existing unrelated Auth0 analyzer errors were not changed.
+
+## Home discovery follow-up — 10 November 2026
+
+[Inline trending and nearby results](HOME_TRENDING_INLINE_RESULT.md) documents the updated Home behavior. Home shows general trends or clearly labelled discovery picks without first selecting an area; choosing one refreshes cards inline. Default-sort discovery filters keep the Home sections visible. Sparse activity is not misrepresented as popularity, and demo listings remain excluded from organic trends. Earlier location-required-only guidance is superseded by this follow-up.

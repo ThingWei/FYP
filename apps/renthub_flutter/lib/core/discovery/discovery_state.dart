@@ -20,6 +20,19 @@ class DiscoveryFilters {
   final int radiusKm;
   final bool verifiedOnly, promotionsOnly;
   final DateTimeRange? dates;
+  DiscoveryFilters withArea(ListingLocationSelection? area, int radius) =>
+      DiscoveryFilters(
+          category: category,
+          type: type,
+          location: '',
+          centre: area,
+          radiusKm: radius,
+          minimumPrice: minimumPrice,
+          maximumPrice: maximumPrice,
+          verifiedOnly: verifiedOnly,
+          promotionsOnly: promotionsOnly,
+          sort: sort,
+          dates: dates);
   int get activeCount =>
       (category == 'All' ? 0 : 1) +
       (type == 'all' ? 0 : 1) +

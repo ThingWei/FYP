@@ -6,6 +6,7 @@ import 'live_condition_record_page.dart';
 import 'live_rental_progress.dart';
 import 'live_reviews_list.dart';
 import '../../core/discovery/discovery_state.dart';
+import '../../core/location/current_location.dart';
 export '../../core/discovery/discovery_state.dart' show DiscoveryFilters;
 import 'live_search_field.dart';
 import 'user_record_pagination.dart';
@@ -164,11 +165,13 @@ class LiveMarketplacePage extends StatefulWidget {
     required this.title,
     required this.onOpenBookings,
     this.featuredOnly = false,
+    this.positionClient,
   });
 
   final String title;
   final VoidCallback onOpenBookings;
   final bool featuredOnly;
+  final CurrentLocationClient? positionClient;
 
   @override
   State<LiveMarketplacePage> createState() => _LiveMarketplacePageState();
@@ -312,6 +315,27 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
       };
       final queryKey =
           Uri(queryParameters: {...parameters, 'sort': filters.sort}).query;
+      // Keep Home's sections on Home when applying discovery filters. Explicit
+      // text searches and alternate result sorting retain their existing list.
+      if (widget.featuredOnly &&
+          queryController.text.trim().isEmpty &&
+          filters.sort == 'recommended') {
+        final c = context.read<LiveRentHubController>();
+        c.prepareRecommendationAccount();
+        c.recommendationFilters = {
+          for (final entry in parameters.entries)
+            if (entry.value.isNotEmpty &&
+                !['latitude', 'longitude', 'radiusKm'].contains(entry.key))
+              entry.key: entry.value
+        };
+        setState(() {
+          results = null;
+          resultQuery = null;
+        });
+        c.setRecommendationArea(filters.centre, filters.radiusKm);
+        await c.ensureRecommendationFeed();
+        return;
+      }
       if (queryKey != resultQuery) {
         setState(() {
           results = [];
@@ -361,13 +385,18 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
   }
 
   Future<void> _openFilters() async {
+    final account = context.read<LiveRentHubController>().profile?.id;
     final selected = await Navigator.push<DiscoveryFilters>(
       context,
       MaterialPageRoute(
         builder: (_) => LiveDiscoveryFilterPage(initial: filters),
       ),
     );
-    if (selected == null || !mounted) return;
+    if (selected == null ||
+        !mounted ||
+        context.read<LiveRentHubController>().profile?.id != account) {
+      return;
+    }
     filters = selected;
     await _applyFilters();
   }
@@ -567,8 +596,13 @@ class _LiveMarketplacePageState extends State<LiveMarketplacePage> {
             const SizedBox(height: 16),
             if (widget.featuredOnly && results == null)
               LiveRecommendationHomeContent(
+                  positionClient: widget.positionClient,
                   onOpen: _openListing,
                   actions: _recommendationActions,
+                  onAreaChanged: (area, radius) {
+                    setState(() => filters = filters.withArea(area, radius));
+                    _remember();
+                  },
                   viewMode: viewMode)
             else ...[
               if (widget.featuredOnly)

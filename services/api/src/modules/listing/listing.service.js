@@ -1,3 +1,4 @@
+import { recommendationCandidateFilter } from './recommendationFilters.js';
 import { requireListingPin, approximatePoint, nearbyFilter } from '../../core/location.js';
 import { AppError } from '../../core/errors.js';
 import { physicalRentalDate } from '../../core/calendarDate.js';
@@ -277,44 +278,10 @@ export const listingService = {
       ...(user.blockedUserIds ?? []),
       ...restrictedOwnerIds,
     ])];
-    const candidateFilter = {
-      ...nearbyFilter(query),
-      status: 'active',
-      ownerId: { $nin: excludedOwnerIds },
-    };
+    const candidateFilter = recommendationCandidateFilter({
+      status: 'active', ownerId: { $nin: excludedOwnerIds },
+    }, query);
     if (options.candidateIds) candidateFilter.publicId = { $in: options.candidateIds };
-    if (query.search?.trim()) {
-      const pattern = escapedPattern(query.search.trim());
-      candidateFilter.$or = [
-        { title: pattern },
-        { description: pattern },
-        { 'locationDetails.city': pattern }, { state: pattern },
-      ];
-    }
-    if (LISTING_CATEGORIES.includes(query.category)) {
-      candidateFilter.category = query.category;
-    }
-    if (['physical', 'service'].includes(query.type)) {
-      candidateFilter.listingType = query.type;
-    }
-    if (query.location?.trim()) {
-      candidateFilter.$and = [...(candidateFilter.$and ?? []), { $or: [{ 'locationDetails.city': escapedPattern(query.location.trim()) }, { state: escapedPattern(query.location.trim()) }] }];
-    }
-    if (query.verified !== undefined) {
-      candidateFilter.verified = query.verified === 'true';
-    }
-    if (query.promoted === 'true') {
-      const now = new Date();
-      candidateFilter['promotion.enabled'] = true;
-      candidateFilter['promotion.startsAt'] = { $lte: now };
-      candidateFilter['promotion.endsAt'] = { $gte: now };
-    }
-    if (query.minPrice !== undefined || query.maxPrice !== undefined) {
-      candidateFilter.dailyPrice = {
-        ...(query.minPrice !== undefined && { $gte: Number(query.minPrice) }),
-        ...(query.maxPrice !== undefined && { $lte: Number(query.maxPrice) }),
-      };
-    }
     if (query.availableFrom && query.availableTo) {
       const unavailableIds = await listingRepository.findUnavailableListingIds(
         new Date(query.availableFrom),

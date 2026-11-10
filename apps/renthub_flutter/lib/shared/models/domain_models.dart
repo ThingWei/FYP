@@ -279,6 +279,7 @@ class Listing {
     this.bundleActive = false,
     this.images = const [],
     this.recommendationReason = '',
+    this.demonstration = false,
     this.recommendationAvailability = '',
     this.reviewCount = 0,
     this.ownerRating,
@@ -322,6 +323,7 @@ class Listing {
   final List<String> images;
   final String recommendationReason, recommendationAdapter;
   final String recommendationAvailability;
+  final bool demonstration;
   final int reviewCount;
   final double? ownerRating;
   final bool recommendationAvailable;
@@ -428,6 +430,7 @@ class Listing {
           .map((item) => item as String)
           .toList(),
       recommendationReason: recommendation['reason'] as String? ?? '',
+      demonstration: j['sourceType'] == 'demo_seed',
       recommendationAvailability:
           recommendation['availabilityLabel'] as String? ?? '',
       reviewCount: (j['reviewCount'] as num?)?.toInt() ?? 0,

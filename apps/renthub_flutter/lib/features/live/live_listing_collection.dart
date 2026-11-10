@@ -227,6 +227,18 @@ class ListingCardPhoto extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8)),
                     child: Text('Promoted',
                         style: Theme.of(context).textTheme.labelSmall))),
+          if (listing.demonstration)
+            Positioned(
+                right: 4,
+                top: 4,
+                child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(8)),
+                    child: Text('Demo',
+                        style: Theme.of(context).textTheme.labelSmall))),
           if (listing.verified)
             const Positioned(
                 right: 4,

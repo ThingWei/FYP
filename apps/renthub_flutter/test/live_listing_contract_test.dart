@@ -15,7 +15,7 @@ class _RecordingApi extends ApiClient {
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     paths.add(path);
-    return [
+    final items = [
       {
         'publicId': path.contains('Vehicles') ? 'l-car' : 'l-camera',
         'title': path.contains('Vehicles')
@@ -26,7 +26,8 @@ class _RecordingApi extends ApiClient {
         'ownerName': 'Aina',
         'location': 'Kuala Lumpur',
         'status': 'active',
-        if (path.startsWith('/listings/recommended'))
+        if (path.startsWith('/listings/recommended') ||
+            path.startsWith('/listings/recommendation-feed'))
           'recommendation': {
             'score': 0.82,
             'content_score': 0.78,
@@ -36,6 +37,14 @@ class _RecordingApi extends ApiClient {
           },
       },
     ];
+    if (path.startsWith('/listings/recommendation-feed')) {
+      return {
+        'recommended': {'status': 'ready', 'items': items},
+        'trending': {'status': 'empty', 'items': []},
+        'recentlyViewed': {'status': 'empty', 'items': []},
+      };
+    }
+    return items;
   }
 }
 
@@ -75,6 +84,8 @@ void _mobileSize(WidgetTester tester) {
 }
 
 Future<void> _chooseCategory(WidgetTester tester, String category) async {
+  await tester.scrollUntilVisible(find.byTooltip('Filters and sorting'), -300,
+      scrollable: find.byType(Scrollable).first);
   await tester.tap(find.byTooltip('Filters and sorting'));
   await tester.pumpAndSettle();
   await tester.tap(find.widgetWithText(FilterChip, category));
@@ -235,11 +246,17 @@ void main() {
         'Similar to listings you saved, booked, completed, or reviewed');
   });
 
-  testWidgets('Home category chips keep the recommendation endpoint and reason',
+  testWidgets(
+      'Home category filters keep the inline recommendation feed and reason',
       (tester) async {
     _mobileSize(tester);
     final api = _RecordingApi();
     final controller = LiveRentHubController(api)
+      ..profile = const User(
+          id: 'u-home',
+          name: 'Home tester',
+          email: 'home@example.test',
+          roles: {UserRole.renter})
       ..recommendedListings = [
         const Listing(
           id: 'l-initial',
@@ -262,17 +279,20 @@ void main() {
       ),
     );
 
+    await tester.pumpAndSettle();
+    api.paths.clear();
     await _chooseCategory(tester, 'Devices');
 
-    expect(api.paths.single, contains('/listings/recommended?'));
+    expect(api.paths.single, contains('/listings/recommendation-feed?'));
     expect(api.paths.single, contains('category=Devices'));
-    expect(find.text('Recommended for you'), findsOneWidget);
+    expect(find.text('Recommended For You'), findsOneWidget);
     await _why(tester, 'Filtered personalized recommendation');
 
     await _chooseCategory(tester, 'Vehicles');
     expect(api.paths, hasLength(2));
     expect(
-      api.paths.every((path) => path.startsWith('/listings/recommended?')),
+      api.paths
+          .every((path) => path.startsWith('/listings/recommendation-feed?')),
       isTrue,
     );
     expect(api.paths.last, contains('category=Vehicles'));

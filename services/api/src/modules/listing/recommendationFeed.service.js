@@ -4,6 +4,7 @@ import { BookingModel } from '../booking/booking.model.js';
 import { ListingModel } from './listing.model.js';
 import { ListingViewModel } from './listingView.model.js';
 import { listingService } from './listing.service.js';
+import { recommendationCandidateFilter } from './recommendationFilters.js';
 import { DAY, malaysiaDay, recommendationUser, proximityScore, complementary,
   trendingScores, coRentalCounts, availabilityContext, rerankRecommendations } from './recommendationEvidence.js';
 
@@ -28,24 +29,37 @@ export const recommendationFeed = {
     const [recommended, trending, recentlyViewed] = await Promise.all([
       work('recommended', async () => section(await listingService.recommended(identity, query))),
       work('trending', async () => {
-        if (query.latitude === undefined) return { status: 'location_required', items: [] };
+        const scope = query.latitude !== undefined ? 'nearby' : query.location?.trim() ? 'area' : 'marketplace';
         const since = new Date(Date.now() - 30 * DAY);
-        const [listings, views, bookings] = await Promise.all([
-          ListingModel.find({ ...filter, ...nearbyFilter(query), sourceType: { $ne: 'demo_seed' } }).limit(1000),
+        const [candidates, views, bookings, availability] = await Promise.all([
+          ListingModel.find(recommendationCandidateFilter(filter, query)).sort({ updatedAt: -1, publicId: 1 }).limit(1000),
           ListingViewModel.find({ lastViewedAt: { $gte: since } }).sort({ lastViewedAt: -1 }).limit(10000).lean(),
           BookingModel.find({ ...realBookings, $and: [{ $or: [{ completedAt: { $gte: since } }, { activatedAt: { $gte: since } }, { decidedAt: { $gte: since } }, { createdAt: { $gte: since } }] }] })
             .sort({ createdAt: -1 }).limit(10000).lean(),
+          availabilityContext(query),
         ]);
+        const listings = candidates.filter(item => !availability.hasDates || !availability.unavailable.has(item.publicId));
         const scores = trendingScores(views, bookings);
-        const availability = await availabilityContext(query);
-        const items = listings.filter(item => (scores.get(item.publicId) ?? 0) > 0)
+        const trending = listings.filter(item => item.sourceType !== 'demo_seed' && (scores.get(item.publicId) ?? 0) > 0)
           .sort((a, b) => scores.get(b.publicId) - scores.get(a.publicId) ||
             (proximityScore(b, query) ?? 0) - (proximityScore(a, query) ?? 0) || a.publicId.localeCompare(b.publicId));
-        return section(items.slice(0, limit).map(item => {
+        const basis = trending.length ? 'activity' : 'highlights';
+        // Honest cold-start fallback, never manufactured popularity. Demo listings
+        // may be browsed here but cannot acquire organic trending scores.
+        const items = trending.length ? trending : listings.sort((a, b) =>
+          (proximityScore(b, query) ?? 0) - (proximityScore(a, query) ?? 0) ||
+          Number(a.listingType === 'physical' && availability.unavailable.has(a.publicId)) -
+          Number(b.listingType === 'physical' && availability.unavailable.has(b.publicId)) ||
+          +new Date(b.updatedAt) - +new Date(a.updatedAt) || a.publicId.localeCompare(b.publicId));
+        return { ...section(items.slice(0, limit).map(item => {
           const presented = item.toJSON();
-          const ranked = rerankRecommendations([{ ...presented, recommendation: { reason: 'Popular with renters in this area' } }], query, availability)[0];
+          const ranked = rerankRecommendations([{ ...presented, recommendation: {
+            reason: basis === 'activity' ? (scope !== 'marketplace' ? 'Popular with renters in this area' : 'Popular with RentHub renters')
+              : scope !== 'marketplace' ? 'A listing in your selected area, not an activity-based trend' : 'A marketplace listing, not an activity-based trend',
+            adapter: basis === 'activity' ? 'trending-activity-v1' : 'marketplace-highlights-v1',
+          } }], query, availability)[0];
           return ranked;
-        }));
+        })), scope, basis };
       }),
       work('recentlyViewed', async () => {
         const views = await ListingViewModel.find({ userId: identity.authId,
