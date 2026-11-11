@@ -11,6 +11,7 @@ import { UserModel } from '../user/user.model.js';
 import { communicationRepository } from './communication.repository.js';
 import { ensureBookingThread, notifyUser } from './notification.service.js';
 import { DeviceRegistrationModel } from './deviceRegistration.model.js';
+import { navigationActivity } from './navigationActivity.js';
 import { uploadService } from '../upload/upload.service.js';
 
 function publicId(prefix) {
@@ -360,9 +361,11 @@ export const communicationService = {
     if (query.category) filter.category = query.category;
     if (query.read === 'true') filter.readAt = { $ne: null };
     if (query.read === 'false') filter.readAt = null;
-    const [items, total, unread] =
-      await communicationRepository.listNotifications(filter, page, limit);
-    return { items, meta: { page, limit, total, unread } };
+    const [[items, total, unread], navigation] = await Promise.all([
+      communicationRepository.listNotifications(filter, page, limit),
+      navigationActivity(identity.authId),
+    ]);
+    return { items, meta: { page, limit, total, unread, navigation } };
   },
 
   async readNotification(notificationId, identity) {

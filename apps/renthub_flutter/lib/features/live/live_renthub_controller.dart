@@ -80,6 +80,7 @@ class LiveRentHubController extends ChangeNotifier {
       conversations = [];
       notifications = [];
       _notificationUnread = null;
+      _navigationActivity = null;
       _notificationUnreadRequest++;
       rewardEntries = [];
       ownerActivitySummary = {};
@@ -768,12 +769,62 @@ class LiveRentHubController extends ChangeNotifier {
 
   List<RentHubNotification> notifications = [];
   int? _notificationUnread;
+  Map<String, int>? _navigationActivity;
   int _notificationUnreadRequest = 0;
   int get unreadNotificationCount =>
       _notificationUnread ?? notifications.where((note) => !note.read).length;
   bool get hasUnreadNotifications => unreadNotificationCount > 0;
 
+  bool get hasPendingOwnerRequests =>
+      (_navigationActivity?['requests'] ??
+          (ownerActivitySummary['pending'] as num?)?.toInt() ??
+          ownerBookings
+              .where((booking) =>
+                  booking.displayStatus == 'pending' &&
+                  booking.paymentStatus == 'authorized')
+              .length) >
+      0;
+  bool get hasListingAttention =>
+      (_navigationActivity?['listings'] ??
+          ownerListings
+              .where((listing) => ['draft', 'pending_review', 'rejected']
+                  .contains(listing.status))
+              .length) >
+      0;
+  bool get hasBookingActivity =>
+      (_navigationActivity?['bookings'] ??
+          notifications
+                  .where((note) =>
+                      !note.read &&
+                      ['booking', 'rental', 'payment'].contains(note.category))
+                  .length +
+              renterBookings
+                  .where((booking) => booking.canContinuePayment)
+                  .length) >
+      0;
+  bool get hasUnreadMessages =>
+      (_navigationActivity?['messages'] ??
+          conversations.fold<int>(
+              0, (sum, conversation) => sum + conversation.unreadCount)) >
+      0;
+
+  void _adjustNavigationActivity(String key, int delta) {
+    if (delta == 0 || _navigationActivity == null) return;
+    _notificationUnreadRequest++;
+    final next = _navigationActivity![key]! + delta;
+    _navigationActivity![key] = next < 0 ? 0 : next;
+  }
+
   void _acceptNotificationUnread(dynamic data) {
+    final navigation = data is ApiItems ? data.meta['navigation'] : null;
+    if (navigation is Map &&
+        ['requests', 'listings', 'bookings', 'messages']
+            .every((key) => navigation[key] is int && navigation[key] >= 0)) {
+      _navigationActivity = {
+        for (final key in ['requests', 'listings', 'bookings', 'messages'])
+          key: navigation[key] as int,
+      };
+    }
     final value = data is ApiItems ? data.meta['unread'] : null;
     if (value is int && value >= 0) {
       _notificationUnreadRequest++;
@@ -1518,7 +1569,8 @@ class LiveRentHubController extends ChangeNotifier {
     required bool emailNotifications,
   }) =>
       _perform(() async {
-        profile = User.fromJson(
+        final account = _accountGeneration;
+        final updated = User.fromJson(
           await api.request(
             'PATCH',
             '/users/me',
@@ -1531,6 +1583,8 @@ class LiveRentHubController extends ChangeNotifier {
             },
           ) as Map<String, dynamic>,
         );
+        if (!_sameAccount(account)) return;
+        profile = updated;
         final service = this.pushNotifications;
         if (service != null) {
           if (pushNotifications) {
@@ -2164,6 +2218,18 @@ class LiveRentHubController extends ChangeNotifier {
       });
 
   void _replaceBooking(Booking booking, {bool activity = true}) {
+    final previous = ownerWorkspace.bookings
+        .where((item) => item.id == booking.id)
+        .firstOrNull;
+    bool pendingRequest(Booking item) =>
+        canManageBooking(item) &&
+        item.displayStatus == 'pending' &&
+        item.paymentStatus == 'authorized';
+    if (previous != null && _navigationActivity != null) {
+      final delta = (pendingRequest(booking) ? 1 : 0) -
+          (pendingRequest(previous) ? 1 : 0);
+      _adjustNavigationActivity('requests', delta);
+    }
     if (activity) _recommendationsChanged();
     for (final state in [renterWorkspace, ownerWorkspace, adminWorkspace]) {
       final belongs = state == renterWorkspace
@@ -2401,8 +2467,11 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   Future<void> markThreadRead(String threadId) async {
+    final account = _accountGeneration;
     await api.request('POST', '/messages/threads/$threadId/read');
+    if (!_sameAccount(account)) return;
     await refreshConversations();
+    if (_sameAccount(account)) await refreshNotificationUnread();
   }
 
   Future<void> reportMessage(
@@ -2690,7 +2759,15 @@ class LiveRentHubController extends ChangeNotifier {
 
   void _replaceOwnerListing(Listing listing) {
     final index = ownerListings.indexWhere((item) => item.id == listing.id);
-    if (index >= 0) ownerListings[index] = listing;
+    if (index >= 0) {
+      bool attention(Listing item) =>
+          ['draft', 'pending_review', 'rejected'].contains(item.status);
+      _adjustNavigationActivity(
+          'listings',
+          (attention(listing) ? 1 : 0) -
+              (attention(ownerListings[index]) ? 1 : 0));
+      ownerListings[index] = listing;
+    }
   }
 
   Future<Listing> updateOwnerListing(

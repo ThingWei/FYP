@@ -1,4 +1,3 @@
-import '../../shared/widgets/section_help.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'live_reviews_list.dart';
 export 'live_chat_page.dart';
@@ -491,8 +490,7 @@ class LiveProfilePage extends StatelessWidget {
                         builder: (_) => const LiveReviewsListPage()))),
             ListTile(
               leading: const Icon(Icons.settings_outlined),
-              title: RentHubSectionHeader('Application settings',
-                  style: Theme.of(context).textTheme.titleMedium),
+              title: const Text('Application settings'),
               trailing: const Icon(Icons.chevron_right),
               onTap: profile == null
                   ? null
@@ -1055,7 +1053,8 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
                         .pushNotifications
                         ?.statusMessage ??
                     'Booking, message and rental updates. Phone push setup is not available on this device yet.'),
-                onChanged: (value) => setState(() => push = value),
+                onChanged:
+                    saving ? null : (value) => setState(() => push = value),
               ),
               if (pushWarning != null)
                 Padding(
@@ -1065,7 +1064,8 @@ class _LiveSettingsPageState extends State<_LiveSettingsPage> {
                 value: email,
                 title: const Text('Email notifications'),
                 subtitle: const Text('Important account and payment updates'),
-                onChanged: (value) => setState(() => email = value),
+                onChanged:
+                    saving ? null : (value) => setState(() => email = value),
               ),
               const SizedBox(height: 24),
               FilledButton(

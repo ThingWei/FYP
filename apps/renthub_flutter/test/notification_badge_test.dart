@@ -30,6 +30,7 @@ Map<String, dynamic> note(String id, {bool read = false}) => {
 class BadgeApi extends ApiClient {
   BadgeApi() : super('https://example.invalid');
   int unread = 3;
+  Map<String, int>? navigation;
   List<dynamic> rows = [note('read-page', read: true)];
   bool fail = false;
   Completer<dynamic>? delayed;
@@ -43,12 +44,80 @@ class BadgeApi extends ApiClient {
     }
     if (fail) throw ApiException(503, 'Unavailable');
     if (delayed != null) return delayed!.future;
-    return ApiItems(
-        rows, {'page': 1, 'limit': 20, 'total': rows.length, 'unread': unread});
+    return ApiItems(rows, {
+      'page': 1,
+      'limit': 20,
+      'total': rows.length,
+      'unread': unread,
+      if (navigation != null) 'navigation': navigation
+    });
   }
 }
 
 void main() {
+  testWidgets('navigation dots use global activity and update independently',
+      (tester) async {
+    final api = BadgeApi()
+      ..navigation = {
+        'requests': 2,
+        'listings': 1,
+        'bookings': 3,
+        'messages': 4
+      };
+    final c = LiveRentHubController(api)..profile = account;
+    addTearDown(c.dispose);
+    await c.refreshNotificationUnread();
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: c,
+        child: MaterialApp(
+            theme: AppTheme.light,
+            home: Scaffold(
+                body: Row(children: [
+              for (final activity in NavigationActivity.values)
+                LiveActivityIcon(
+                    activity: activity, icon: Icons.circle_outlined),
+            ])))));
+    for (final activity in NavigationActivity.values) {
+      expect(
+          tester
+              .widget<Badge>(
+                  find.byKey(ValueKey('navigation-${activity.name}-badge')))
+              .isLabelVisible,
+          isTrue);
+    }
+    // A filtered notification page and empty conversation page do not hide dots.
+    expect(c.notifications, isEmpty);
+    expect(c.conversations, isEmpty);
+    api.navigation = {
+      'requests': 0,
+      'listings': 1,
+      'bookings': 0,
+      'messages': 0
+    };
+    await c.loadNotifications(category: 'payment');
+    await tester.pump();
+    for (final activity in NavigationActivity.values) {
+      final badge = tester.widget<Badge>(
+          find.byKey(ValueKey('navigation-${activity.name}-badge')));
+      expect(badge.isLabelVisible, activity == NavigationActivity.listings);
+      expect(badge.backgroundColor, AppColors.error);
+    }
+    c.profile = otherAccount;
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: c,
+        child: const MaterialApp(
+            home: Scaffold(
+                body: LiveActivityIcon(
+                    activity: NavigationActivity.listings,
+                    icon: Icons.inventory_2_outlined)))));
+    expect(
+        tester
+            .widget<Badge>(
+                find.byKey(const ValueKey('navigation-listings-badge')))
+            .isLabelVisible,
+        isFalse);
+  });
+
   test('unread total is independent of notification category and current page',
       () async {
     final api = BadgeApi();

@@ -283,6 +283,7 @@ class _OwnerListingsState extends State<OwnerListings> {
                             },
                             icon: const Icon(Icons.inventory_2_outlined),
                             label: const Text('Physical item')),
+                        const SizedBox(height: 16),
                         OutlinedButton.icon(
                             onPressed: () {
                               Navigator.pop(context);

@@ -60,6 +60,30 @@ class RawMapApi extends ApiClient {
       response;
 }
 
+class AccountPushApi extends PushApi {
+  String account = 'account-1';
+  String? registeredAccount;
+  String? heldMethod;
+  Completer<void>? held;
+  Completer<void>? started;
+
+  @override
+  Future<dynamic> request(String method, String path, {Object? body}) async {
+    final requestedAccount = account;
+    if (method == 'GET') return {'enabled': true};
+    if (method == heldMethod) {
+      heldMethod = null;
+      started!.complete();
+      await held!.future;
+    }
+    if (method == 'POST') registeredAccount = requestedAccount;
+    if (method == 'DELETE' && registeredAccount == requestedAccount) {
+      registeredAccount = null;
+    }
+    return {'deviceId': 'saved'};
+  }
+}
+
 class Messaging extends PushMessagingClient {
   bool permission = true;
   String? deviceToken = 'test-device-token';
@@ -230,6 +254,59 @@ void main() {
         throwsFormatException);
   });
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  for (final heldMethod in ['POST', 'DELETE']) {
+    test('late $heldMethod cannot overwrite the next account push registration',
+        () async {
+      final api = AccountPushApi(), messaging = Messaging();
+      final service = PushNotificationService(api,
+          messaging: messaging,
+          enabledOverride: true,
+          platformOverride: 'android');
+      addTearDown(service.dispose);
+      addTearDown(messaging.close);
+      expect(await service.enableForCurrentUser(), isTrue);
+      api.heldMethod = heldMethod;
+      api.held = Completer<void>();
+      api.started = Completer<void>();
+      if (heldMethod == 'POST') {
+        messaging.refresh.add('rotated-token');
+        await api.started!.future;
+      }
+      final disabling = service.disableForCurrentUser();
+      if (heldMethod == 'DELETE') await api.started!.future;
+      api.account = 'account-2';
+      final enabling = service.enableForCurrentUser();
+      await Future<void>.delayed(Duration.zero);
+      api.held!.complete();
+      await disabling;
+      expect(await enabling, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(api.registeredAccount, 'account-2');
+      expect(service.state, PushRegistrationState.registered);
+      messaging.refresh.add('account-2-refreshed-token');
+      await Future<void>.delayed(Duration.zero);
+      expect(api.registeredAccount, 'account-2');
+    });
+  }
+  test('both accounts can save push off and the second can enable it again',
+      () async {
+    final api = AccountPushApi(), messaging = Messaging();
+    final service = PushNotificationService(api,
+        messaging: messaging,
+        enabledOverride: true,
+        platformOverride: 'android');
+    addTearDown(service.dispose);
+    addTearDown(messaging.close);
+    expect(await service.enableForCurrentUser(), isTrue);
+    expect(await service.disableForCurrentUser(), isTrue);
+    expect(api.registeredAccount, isNull);
+    service.forgetCurrentUser();
+    api.account = 'account-2';
+    expect(await service.disableForCurrentUser(), isTrue);
+    expect(await service.enableForCurrentUser(), isTrue);
+    expect(api.registeredAccount, 'account-2');
+    expect(service.state, PushRegistrationState.registered);
+  });
   test(
       'push registers only after permission, backend enablement and successful write',
       () async {

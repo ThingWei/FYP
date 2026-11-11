@@ -117,6 +117,48 @@ after(async () => {
   await mongodb.stop();
 });
 
+test('navigation activity is account-wide, scoped and clears when work is handled', async () => {
+  const { threadId, bookingId } = await setupConversation();
+  await BookingModel.updateOne({ publicId: bookingId }, { $set: {
+    paymentStatus: 'authorized', expiresAt: new Date(Date.now() + 3600_000),
+  } });
+  await ListingModel.updateOne({ publicId: 'l-camera' }, { $set: { status: 'pending_review' } });
+  await request(app).post(`/api/v1/messages/threads/${threadId}/messages`)
+    .set(owner).send({ text: 'Please confirm your collection time.' }).expect(201);
+
+  // The current filtered page has no message rows, but its global badge does.
+  const renterActivity = await request(app)
+    .get('/api/v1/messages/notifications?category=payment&limit=1')
+    .set(renter).expect(200);
+  assert.equal(renterActivity.body.meta.navigation.messages, 1);
+  assert.equal(renterActivity.body.meta.navigation.requests, 0);
+  assert.equal(renterActivity.body.meta.navigation.listings, 0);
+  const ownerActivity = await request(app)
+    .get('/api/v1/messages/notifications?category=review&limit=1')
+    .set(owner).expect(200);
+  assert.equal(ownerActivity.body.meta.navigation.requests, 1);
+  assert.equal(ownerActivity.body.meta.navigation.listings, 1);
+  assert.equal(ownerActivity.body.meta.navigation.messages, 0);
+  const outsiderActivity = await request(app)
+    .get('/api/v1/messages/notifications').set(outsider).expect(200);
+  assert.deepEqual(outsiderActivity.body.meta.navigation,
+    { requests: 0, listings: 0, bookings: 0, messages: 0 });
+
+  await request(app).post(`/api/v1/messages/threads/${threadId}/read`)
+    .set(renter).expect(200);
+  const read = await request(app).get('/api/v1/messages/notifications')
+    .set(renter).expect(200);
+  assert.equal(read.body.meta.navigation.messages, 0);
+  // Expired pending records must not keep an approval badge alive.
+  await BookingModel.updateOne({ publicId: bookingId },
+    { $set: { expiresAt: new Date(Date.now() - 60_000) } });
+  await ListingModel.updateOne({ publicId: 'l-camera' }, { $set: { status: 'active' } });
+  const handled = await request(app).get('/api/v1/messages/notifications')
+    .set(owner).expect(200);
+  assert.equal(handled.body.meta.navigation.requests, 0);
+  assert.equal(handled.body.meta.navigation.listings, 0);
+});
+
 test('registers, rotates, lists, and removes an isolated push device', async () => {
   await request(app).post('/api/v1/users/session').set(renter);
   await request(app).post('/api/v1/users/session').set(outsider);

@@ -1,6 +1,126 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/network/user_facing_error.dart';
+import '../../core/theme/app_theme.dart';
+import '../../modules/payment/repositories/payment_repository.dart';
 import '../../shared/models/domain_models.dart';
 import '../renter/booking/booking_flow.dart' show formatMoney;
+import 'live_rental_progress.dart';
+import 'live_renthub_controller.dart';
+
+class LiveBookingPaymentDetails extends StatelessWidget {
+  const LiveBookingPaymentDetails({super.key, required this.booking});
+  final Booking booking;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<LiveRentHubController>();
+    return _BookingPaymentDetails(
+      key:
+          ValueKey((controller.profile?.id, booking.id, booking.paymentStatus)),
+      booking: booking,
+      repository: LiveBookingPaymentRepository(controller.api),
+    );
+  }
+}
+
+class _BookingPaymentDetails extends StatefulWidget {
+  const _BookingPaymentDetails(
+      {super.key, required this.booking, required this.repository});
+  final Booking booking;
+  final LiveBookingPaymentRepository repository;
+
+  @override
+  State<_BookingPaymentDetails> createState() => _BookingPaymentDetailsState();
+}
+
+class _BookingPaymentDetailsState extends State<_BookingPaymentDetails> {
+  List<Transaction> history = [];
+  bool loading = false;
+  Object? error;
+
+  Future<void> _load() async {
+    if (loading) return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final payments =
+          await widget.repository.listForBooking(widget.booking.id);
+      if (mounted) setState(() => history = payments);
+    } catch (exception) {
+      if (mounted) setState(() => error = exception);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${formatMoney(widget.booking.total)} · ${rentalPaymentLabel(widget.booking.paymentStatus)}',
+            style: const TextStyle(
+                color: AppColors.primaryDark, fontWeight: FontWeight.w700),
+          ),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            leading: const Icon(Icons.receipt_long_outlined),
+            title: const Text('See payment details'),
+            onExpansionChanged: (expanded) {
+              if (expanded) _load();
+            },
+            expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LiveBookingCharges(booking: widget.booking),
+              const SizedBox(height: 16),
+              Text('Payment history',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              if (loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Column(children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 8),
+                    Text('Loading payment history…'),
+                  ]),
+                )
+              else if (error != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(friendlyError(error!)),
+                    TextButton.icon(
+                      onPressed: _load,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry payment history'),
+                    ),
+                  ],
+                )
+              else if (history.isEmpty)
+                const Text(
+                    'No payment transactions have been recorded for this booking.')
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final payment in history)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: LivePaymentSummary(payment: payment),
+                      ),
+                  ],
+                ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ],
+      );
+}
 
 class LivePaymentSummary extends StatelessWidget {
   const LivePaymentSummary({super.key, required this.payment});
@@ -13,6 +133,7 @@ class LivePaymentSummary extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(
                 switch (payment.type) {
+                  'authorization' => 'Payment authorization',
                   'refund' => 'Refund',
                   'dispute_release' => 'Dispute refund',
                   'deposit_release' => 'Deposit returned',
@@ -24,6 +145,7 @@ class LivePaymentSummary extends StatelessWidget {
                 },
                 style: Theme.of(context).textTheme.titleMedium),
             Text(formatMoney(payment.amount)),
+            Text('Reference: ${payment.id}'),
             Text(switch (payment.status) {
               'succeeded' => 'Complete',
               'authorized' => 'Authorized',

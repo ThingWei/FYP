@@ -47,13 +47,16 @@ String rentalStatusLabel(String status) =>
 String rentalPaymentLabel(String status) =>
     const {
       'unpaid': 'Demo payment needed',
+      'pending': 'Demo payment pending',
       'authorized': 'Demo payment ready',
       'captured': 'Demo payment completed',
+      'settled': 'Demo payment settled',
+      'failed': 'Demo payment declined',
       'refunded': 'Demo payment refunded',
       'partially_refunded': 'Demo payment partly refunded',
       'voided': 'Demo payment released',
     }[status] ??
-    'See payment details';
+    'Payment status unavailable';
 
 bool handoverDayReached(Rental rental, {DateTime? now}) =>
     rental.start != null &&

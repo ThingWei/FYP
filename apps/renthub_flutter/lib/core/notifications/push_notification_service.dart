@@ -150,7 +150,9 @@ class PushNotificationService {
   bool _initialized = false;
   bool _userEnabled = false;
   int _registrationGeneration = 0;
+  Future<void> _deviceMutation = Future.value();
   String? _deviceId;
+  Future<String>? _loadingDeviceId;
   PushNotificationEvent? _initialEvent;
 
   Stream<PushNotificationEvent> get events => _events.stream;
@@ -256,14 +258,19 @@ class PushNotificationService {
   }
 
   Future<bool> disableForCurrentUser() async {
-    _registrationGeneration++;
+    final generation = ++_registrationGeneration;
     _userEnabled = false;
     try {
-      final deviceId = await _loadDeviceId();
-      await api.request('DELETE', '/messages/push/devices/$deviceId');
+      await _mutateDevice(() async {
+        final deviceId = await _loadDeviceId();
+        if (generation != _registrationGeneration) return;
+        await api.request('DELETE', '/messages/push/devices/$deviceId');
+      });
+      if (generation != _registrationGeneration) return false;
       state = _initialized ? PushRegistrationState.ready : state;
       return true;
     } catch (error) {
+      if (generation != _registrationGeneration) return false;
       debugPrint('Push device removal failed: $error');
       state = PushRegistrationState.failed;
       // Push cleanup must not prevent local logout and credential removal.
@@ -294,22 +301,37 @@ class PushNotificationService {
   Future<void> _register(String token, {required int generation}) async {
     final platform = _platform;
     if (platform == null) return;
-    final deviceId = await _loadDeviceId();
-    if (generation != _registrationGeneration) return;
-    await api.request(
-      'POST',
-      '/messages/push/devices',
-      body: {
-        'deviceId': deviceId,
-        'deviceName': 'RentHub ${platform.toUpperCase()}',
-        'platform': platform,
-        'token': token,
-      },
-    );
+    await _mutateDevice(() async {
+      final deviceId = await _loadDeviceId();
+      if (generation != _registrationGeneration) return;
+      await api.request(
+        'POST',
+        '/messages/push/devices',
+        body: {
+          'deviceId': deviceId,
+          'deviceName': 'RentHub ${platform.toUpperCase()}',
+          'platform': platform,
+          'token': token,
+        },
+      );
+    });
   }
 
-  Future<String> _loadDeviceId() async {
-    if (_deviceId != null) return _deviceId!;
+  // Generation checks cannot undo a request already accepted by the API. Finish
+  // it before another account registers this installation's shared FCM token.
+  Future<void> _mutateDevice(Future<void> Function() operation) {
+    final pending = _deviceMutation.then((_) => operation());
+    _deviceMutation = pending.catchError((Object _) {});
+    return pending;
+  }
+
+  Future<String> _loadDeviceId() {
+    if (_deviceId != null) return Future.value(_deviceId!);
+    return _loadingDeviceId ??=
+        _readDeviceId().whenComplete(() => _loadingDeviceId = null);
+  }
+
+  Future<String> _readDeviceId() async {
     final preferences = await SharedPreferences.getInstance();
     final existing = preferences.getString(_deviceIdKey);
     if (existing != null && existing.isNotEmpty) {

@@ -126,7 +126,10 @@ class _LiveOwnerShellState extends State<LiveOwnerShell> {
               : IndexedStack(index: index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        onDestinationSelected: (value) => setState(() => index = value),
+        onDestinationSelected: (value) {
+          setState(() => index = value);
+          unawaited(controller.refreshNotificationUnread());
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.dashboard_outlined,
@@ -135,15 +138,21 @@ class _LiveOwnerShellState extends State<LiveOwnerShell> {
             tooltip: 'Owner dashboard',
           ),
           NavigationDestination(
-            icon: Icon(Icons.inventory_2_outlined),
+            icon: LiveActivityIcon(
+                activity: NavigationActivity.listings,
+                icon: Icons.inventory_2_outlined),
             label: 'Listings',
           ),
           NavigationDestination(
-            icon: Icon(Icons.assignment_outlined),
+            icon: LiveActivityIcon(
+                activity: NavigationActivity.requests,
+                icon: Icons.assignment_outlined),
             label: 'Requests',
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
+            icon: LiveActivityIcon(
+                activity: NavigationActivity.messages,
+                icon: Icons.chat_bubble_outline),
             label: 'Messages',
           ),
           NavigationDestination(
@@ -429,6 +438,7 @@ class LiveOwnerListingsPage extends StatelessWidget {
                   icon: const Icon(Icons.inventory_2_outlined),
                   label: const Text('Physical Item'),
                 ),
+                const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: () {
                     Navigator.pop(sheetContext);
@@ -2630,80 +2640,117 @@ class _LiveBundlePageState extends State<LiveBundlePage> {
   }
 }
 
-class LiveOwnerRequestsPage extends StatelessWidget {
+class LiveOwnerRequestsPage extends StatefulWidget {
   const LiveOwnerRequestsPage(
       {super.key, this.focusBookingId, this.focusRentalId, this.payment});
   final String? focusBookingId, focusRentalId;
   final Transaction? payment;
 
+  @override
+  State<LiveOwnerRequestsPage> createState() => _LiveOwnerRequestsPageState();
+}
+
+class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
+  String? _busyBookingId, _busyStatus;
+  bool _submitting = false;
+
   Future<void> _decide(
-    BuildContext context,
     Booking booking,
     String status,
   ) async {
+    if (_busyBookingId != null) return;
+    setState(() {
+      _busyBookingId = booking.id;
+      _busyStatus = status;
+    });
     final reason = TextEditingController();
-    final accepted = await InputValidation.showFormDialog<bool>(
-      context: context,
-      builder: (context) => rentHubDialog(
-        title: Text('${status == 'approved' ? 'Approve' : 'Reject'} booking?'),
-        content: status == 'rejected'
-            ? TextFormField(
-                controller: reason,
-                decoration: (const InputDecoration(labelText: 'Reason'))
-                    .copyWith(counterText: '', errorMaxLines: 3),
-                validator: InputRules.reason.validate,
-                inputFormatters:
-                    InputValidation.formatters(InputRules.reason, reason),
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                maxLength: InputRules.reason.maxLength,
-                maxLengthEnforcement: InputValidation.lengthEnforcement,
-              )
-            : Text(
-                booking.listingType == 'physical'
-                    ? 'Approve the booked dates for ${booking.listingTitle}. Prepare the item and record its condition before handing it over on the booked day. Demo payment is captured at handover.'
-                    : 'Confirm ${booking.listingTitle}. Payment will be captured when the service starts.',
-              ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Back'),
-          ),
-          FilledButton(
-            onPressed: () => InputValidation.popIfValid(context, true),
-            child: Text(status == 'approved' ? 'Approve' : 'Reject'),
-          ),
-        ],
-      ),
-    );
-    if (accepted == true && context.mounted) {
-      if (status == 'rejected' && reason.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('A rejection reason is required.')),
-        );
-      } else {
-        try {
-          await context.read<LiveRentHubController>().decideBooking(
-                booking.id,
-                status,
-                reason: reason.text,
-              );
-          if (context.mounted) {
-            showMockSuccess(context,
-                'Booking ${status == 'approved' ? 'approved' : 'rejected'}');
-          }
-        } catch (exception) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(friendlyError(exception))));
+    var confirmationHandled = false;
+    void finishConfirmation(BuildContext dialogContext, bool accepted) {
+      if (confirmationHandled ||
+          accepted && !InputValidation.validate(dialogContext)) {
+        return;
+      }
+      confirmationHandled = true;
+      Navigator.pop(dialogContext, accepted);
+    }
+
+    try {
+      final accepted = await InputValidation.showFormDialog<bool>(
+        context: context,
+        builder: (context) => rentHubDialog(
+          title:
+              Text('${status == 'approved' ? 'Approve' : 'Reject'} booking?'),
+          content: status == 'rejected'
+              ? TextFormField(
+                  controller: reason,
+                  decoration: (const InputDecoration(labelText: 'Reason'))
+                      .copyWith(counterText: '', errorMaxLines: 3),
+                  validator: InputRules.reason.validate,
+                  inputFormatters:
+                      InputValidation.formatters(InputRules.reason, reason),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  maxLength: InputRules.reason.maxLength,
+                  maxLengthEnforcement: InputValidation.lengthEnforcement,
+                )
+              : Text(
+                  booking.listingType == 'physical'
+                      ? 'Approve the booked dates for ${booking.listingTitle}. Prepare the item and record its condition before handing it over on the booked day. Demo payment is captured at handover.'
+                      : 'Confirm ${booking.listingTitle}. Payment will be captured when the service starts.',
+                ),
+          actions: [
+            TextButton(
+              onPressed: () => finishConfirmation(context, false),
+              child: const Text('Back'),
+            ),
+            FilledButton(
+              onPressed: () => finishConfirmation(context, true),
+              child: Text(status == 'approved' ? 'Approve' : 'Reject'),
+            ),
+          ],
+        ),
+      );
+      if (accepted == true && mounted) {
+        if (status == 'rejected' && reason.text.trim().isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('A rejection reason is required.')),
+          );
+        } else {
+          setState(() => _submitting = true);
+          try {
+            await context.read<LiveRentHubController>().decideBooking(
+                  booking.id,
+                  status,
+                  reason: reason.text,
+                );
+            if (mounted) {
+              showMockSuccess(context,
+                  'Booking ${status == 'approved' ? 'approved' : 'rejected'}');
+            }
+          } catch (exception) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(friendlyError(exception))));
+            }
           }
         }
       }
+    } finally {
+      reason.dispose();
+      if (mounted) {
+        setState(() {
+          _busyBookingId = null;
+          _busyStatus = null;
+          _submitting = false;
+        });
+      }
     }
-    reason.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final focusBookingId = widget.focusBookingId;
+    final focusRentalId = widget.focusRentalId;
+    final payment = widget.payment;
     final controller = context.watch<LiveRentHubController>();
     final visibleBookings = (focusBookingId == null
             ? controller.bookingPageRecords(owner: true)
@@ -2727,13 +2774,13 @@ class LiveOwnerRequestsPage extends StatelessWidget {
         hasRecords: visibleBookings.isNotEmpty,
         onRetry: focusBookingId == null
             ? controller.loadOwner
-            : () => controller.refreshFocusedBooking(
-                focusBookingId!, focusRentalId),
+            : () =>
+                controller.refreshFocusedBooking(focusBookingId, focusRentalId),
         child: RefreshIndicator(
           onRefresh: focusBookingId == null
               ? controller.loadOwner
               : () => controller.refreshFocusedBooking(
-                  focusBookingId!, focusRentalId),
+                  focusBookingId, focusRentalId),
           child: visibleBookings.isEmpty
               ? ListView(children: [
                   if (controller
@@ -2796,14 +2843,11 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                                 icon: const Icon(Icons.verified_user_outlined),
                                 label: const Text('Renter trust history')),
                             if (payment != null)
-                              LivePaymentSummary(payment: payment!),
+                              LivePaymentSummary(payment: payment),
                             BookingLocationsButton(bookingId: booking.id),
-                            if (focusBookingId != null)
-                              for (final rental in controller.ownerRentals
-                                  .where((rental) =>
-                                      rental.bookingId == booking.id))
-                                _OwnerRentalCard(
-                                    rental: rental, embedded: true),
+                            for (final rental in controller.ownerRentals.where(
+                                (rental) => rental.bookingId == booking.id))
+                              _OwnerRentalCard(rental: rental, embedded: true),
                             TextButton.icon(
                                 onPressed: () =>
                                     showBookingAgreement(context, booking.id),
@@ -2819,13 +2863,27 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                                 owner: true,
                                 showSummary: false),
                             Text(formatDateRange(booking.start, booking.end)),
-                            Text(
-                              '${formatMoney(booking.total)} · ${rentalPaymentLabel(booking.paymentStatus)}',
-                              style: const TextStyle(
-                                color: AppColors.primaryDark,
-                                fontWeight: FontWeight.w700,
+                            LiveBookingPaymentDetails(booking: booking),
+                            if (_submitting && _busyBookingId == booking.id)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: Semantics(
+                                  liveRegion: true,
+                                  child: Row(children: [
+                                    const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                        child: Text(_busyStatus == 'approved'
+                                            ? 'Approving booking…'
+                                            : 'Rejecting booking…')),
+                                  ]),
+                                ),
                               ),
-                            ),
                             if (booking.displayStatus == 'pending' &&
                                 controller.canManageBooking(booking)) ...[
                               const SizedBox(height: 12),
@@ -2833,23 +2891,30 @@ class LiveOwnerRequestsPage extends StatelessWidget {
                                 children: [
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed: () =>
-                                          _decide(context, booking, 'rejected'),
-                                      child: const Text('Reject'),
+                                      onPressed: _busyBookingId != null
+                                          ? null
+                                          : () => _decide(booking, 'rejected'),
+                                      child: Text(_submitting &&
+                                              _busyStatus == 'rejected'
+                                          ? 'Rejecting…'
+                                          : 'Reject'),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: FilledButton(
-                                      onPressed:
-                                          booking.paymentStatus == 'authorized'
-                                              ? () => _decide(
-                                                    context,
-                                                    booking,
-                                                    'approved',
-                                                  )
-                                              : null,
-                                      child: const Text('Approve'),
+                                      onPressed: _busyBookingId == null &&
+                                              booking.paymentStatus ==
+                                                  'authorized'
+                                          ? () => _decide(
+                                                booking,
+                                                'approved',
+                                              )
+                                          : null,
+                                      child: Text(_submitting &&
+                                              _busyStatus == 'approved'
+                                          ? 'Approving…'
+                                          : 'Approve'),
                                     ),
                                   ),
                                 ],

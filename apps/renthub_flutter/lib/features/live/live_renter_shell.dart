@@ -137,16 +137,23 @@ class _LiveRenterShellState extends State<LiveRenterShell> {
               : IndexedStack(index: index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        onDestinationSelected: controller.selectRenterTab,
+        onDestinationSelected: (value) {
+          controller.selectRenterTab(value);
+          controller.refreshNotificationUnread();
+        },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.search), label: 'Explore'),
           NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
+            icon: LiveActivityIcon(
+                activity: NavigationActivity.bookings,
+                icon: Icons.calendar_month_outlined),
             label: 'Bookings',
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
+            icon: LiveActivityIcon(
+                activity: NavigationActivity.messages,
+                icon: Icons.chat_bubble_outline),
             label: 'Messages',
           ),
           NavigationDestination(
@@ -2366,13 +2373,7 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                                         showLiveCheckout(context, booking.id),
                                     child: const Text('Continue payment')),
                             ]),
-                            Text(
-                              '${formatMoney(booking.total)} · ${rentalPaymentLabel(booking.paymentStatus)}',
-                              style: const TextStyle(
-                                color: AppColors.primaryDark,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                            LiveBookingPaymentDetails(booking: booking),
                             RentalProgressPanel(
                                 booking: booking,
                                 rental: rental,

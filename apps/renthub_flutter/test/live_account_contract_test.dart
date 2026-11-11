@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
+import 'package:renthub_flutter/core/notifications/push_notification_service.dart';
 import 'package:renthub_flutter/features/live/live_admin_app.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/features/live/live_shared_pages.dart';
@@ -46,6 +49,30 @@ class ReviewFixtureController extends LiveRentHubController {
   Future<void> refreshAdminHealth() async {}
 }
 
+class DelayedSettingsApi extends ApiClient {
+  DelayedSettingsApi() : super('https://example.invalid');
+  final response = Completer<Map<String, dynamic>>();
+  @override
+  Future<dynamic> request(String method, String path, {Object? body}) =>
+      response.future;
+}
+
+class SettingsPushService extends PushNotificationService {
+  SettingsPushService(super.api);
+  int updates = 0;
+  @override
+  Future<bool> enableForCurrentUser() async {
+    updates++;
+    return true;
+  }
+
+  @override
+  Future<bool> disableForCurrentUser() async {
+    updates++;
+    return true;
+  }
+}
+
 Map<String, dynamic> userJson({
   String name = 'Alex Tan',
   String phone = '+60 12-345 6789',
@@ -76,6 +103,22 @@ Map<String, dynamic> userJson({
     };
 
 void main() {
+  test('a settings save from a previous account cannot change current push',
+      () async {
+    final api = DelayedSettingsApi();
+    final push = SettingsPushService(api);
+    final controller = LiveRentHubController(api, pushNotifications: push)
+      ..syncSession(User.fromJson(userJson()));
+    addTearDown(controller.dispose);
+    addTearDown(push.dispose);
+    final saving = controller.updateAccountSettings(
+        language: 'en', pushNotifications: false, emailNotifications: true);
+    controller.syncSession(User.fromJson({...userJson(), 'authId': 'another'}));
+    api.response.complete(userJson(pushNotifications: false));
+    await saving;
+    expect(controller.profile!.id, 'another');
+    expect(push.updates, 0);
+  });
   test('user model reads live account, address and verification state', () {
     final user = User.fromJson(
       userJson(
