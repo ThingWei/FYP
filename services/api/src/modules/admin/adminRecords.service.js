@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { applicationTrust, realTrustScore } from '../user/trustPolicy.js';
 import { AppError } from '../../core/errors.js';
 import { UserModel } from '../user/user.model.js';
 import { ListingModel } from '../listing/listing.model.js';
@@ -106,8 +107,7 @@ export function createAdminRecordsService(auditModel) {
       if (booking) for (const key of ['listingTitle', 'renterName', 'ownerName']) raw[key] = booking[key];
     }
     if (type === 'users' || type === 'verification') {
-      raw.trustScore = raw.trustProfile?.version === 'renthub-trust-v1' && raw.trustProfile.overall?.marketplace?.status === 'established'
-        ? raw.trustProfile.overall.marketplace.score : 50;
+      raw.trustScore = realTrustScore(applicationTrust(raw.trustProfile));
       raw.verificationSummary = verificationRecordSummary(raw);
       // Derive before the private document collection is removed. Match the
       // driving-approval policy; historical attempts/passports are not approval.

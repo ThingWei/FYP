@@ -35,6 +35,7 @@ import { drivingEligibilityCheck, hasApprovedMykad, LICENCE_CLASSES, reviewedLic
 import { fingerprintForNumber, assertBindingReady, assertIdentityNotLinked, approveMykadAtomically } from './identityBinding.js';
 import { drivingAssessment, DRIVING_CONTRACT } from './drivingAssistance.js';
 import { withTrustProfile, refreshTrustProfile } from './trust.service.js';
+import { visibleTrustUser } from './trustVisibility.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -446,10 +447,7 @@ export const userService = {
 
   async getMe(identity) { return withTrustProfile(await requireCurrentUser(identity)); },
   async getTrust(identity, id = identity.authId) {
-    const viewer = await requireCurrentUser(identity);
-    const target = await userRepository.findById(id);
-    const administrator = viewer.roles.includes('admin');
-    if (!target || !administrator && target.authId !== viewer.authId && (target.accountStatus !== 'active' || viewer.blockedUserIds.includes(target.authId) || target.blockedUserIds.includes(viewer.authId))) throw new AppError('User not found', 404, 'NOT_FOUND');
+    const target = await visibleTrustUser(identity, id);
     return refreshTrustProfile(target.authId);
   },
 

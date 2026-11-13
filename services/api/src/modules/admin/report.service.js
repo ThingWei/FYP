@@ -1,4 +1,5 @@
 import { BookingModel } from '../booking/booking.model.js';
+import { applicationTrust } from '../user/trustPolicy.js';
 import { DisputeModel } from '../dispute/dispute.model.js';
 import { ListingModel } from '../listing/listing.model.js';
 import { PaymentModel } from '../payment/payment.model.js';
@@ -140,8 +141,7 @@ async function detailReport(type, periodStart, periodEnd) {
         accountStatus: item.accountStatus,
         verificationStatus: item.verification?.status,
         verificationTier: item.verification?.tier,
-        trustScore: item.trustProfile?.version === 'renthub-trust-v1' && item.trustProfile.overall?.marketplace?.status === 'established'
-          ? item.trustProfile.overall.marketplace.score : null,
+        trustScore: applicationTrust(item.trustProfile)?.status === 'established' ? applicationTrust(item.trustProfile).score : null,
         createdAt: item.createdAt,
       })),
     };

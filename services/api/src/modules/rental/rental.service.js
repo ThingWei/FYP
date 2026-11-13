@@ -184,6 +184,7 @@ export const rentalService = {
     const status = RENTAL_STATUSES.includes(query.status) ? query.status : undefined;
     const [items, total] = await rentalRepository.listFor({
       field: 'ownerId',
+      attention: query.attention,
         bookingIds: query.bookingIds?.split(','),
       identityId: identity.authId,
       page,

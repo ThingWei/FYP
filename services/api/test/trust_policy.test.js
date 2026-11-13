@@ -4,7 +4,35 @@ import { calculateTrustProfile, realTrustScore } from '../src/modules/user/trust
 
 const now = new Date('2026-10-28T08:00:00Z');
 import { trustFacts } from './helpers/trustFacts.js';
+import { applicationTrust, TRUST_POLICY_VERSION } from '../src/modules/user/trustPolicy.js';
 const owner = facts=>calculateTrustProfile('owner',facts,now).owner.marketplace;
+
+test('recorded trust merges eligible cohorts without double-counting or changing provenance', () => {
+  const facts = trustFacts(3, true);
+  facts.payments[0].simulated = false; facts.payments[0].gatewayReference = 'gateway_real';
+  const before = JSON.stringify(facts);
+  facts.bookings.push({ ...facts.bookings[1] });
+  const p = calculateTrustProfile('owner', facts, now);
+  assert.equal(p.policyVersion, TRUST_POLICY_VERSION);
+  assert.equal(p.owner.recorded.completedRentals, 3);
+  assert.equal(p.owner.recorded.distinctPartners, 2);
+  assert.equal(p.owner.recorded.score, 71);
+  assert.equal(p.owner.demo.completedRentals, 2); assert.equal(p.owner.marketplace.completedRentals, 1);
+  assert.equal(applicationTrust(p, 'owner'), p.owner.recorded);
+  assert.equal(p.renter.recorded.completedRentals, 0);
+  facts.bookings.pop(); assert.equal(JSON.stringify(facts), before);
+});
+
+test('recorded trust keeps minimum history, payment proof, moderation and responsibility rules', () => {
+  for (const n of [0, 1, 2]) assert.equal(calculateTrustProfile('owner', trustFacts(n, true), now).owner.recorded.score, null);
+  const f = trustFacts(3, true); f.payments = []; assert.equal(calculateTrustProfile('owner', f, now).owner.recorded.completedRentals, 0);
+  const reviewed = trustFacts(3, true); reviewed.reviews[0].status = 'hidden';
+  assert.equal(calculateTrustProfile('owner', reviewed, now).owner.recorded.reviewCount, 2);
+  const singlePartner = trustFacts(3, true); for (const b of singlePartner.bookings) b.renterId = 'only'; for (const r of singlePartner.rentals) r.renterId = 'only';
+  assert.equal(calculateTrustProfile('owner', singlePartner, now).owner.recorded.score, null);
+  const duplicateRental = trustFacts(3, true); duplicateRental.rentals[1].publicId = duplicateRental.rentals[0].publicId;
+  assert.equal(calculateTrustProfile('owner', duplicateRental, now).owner.recorded.completedRentals, 2);
+});
 
 test('new users and fewer than three completions do not receive an earned score',()=>{
   for(const count of [0,1,2]) {const profile=owner(trustFacts(count));assert.equal(profile.score,null);assert.equal(profile.status,'insufficient_history');assert.equal(realTrustScore(profile),50);}

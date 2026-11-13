@@ -1,16 +1,13 @@
 import { RentalModel } from './rental.model.js';
-import { physicalRentalDate } from '../../core/calendarDate.js';
-import { env } from '../../config/env.js';
+import { overdueCandidateFilter } from './overduePolicy.js';
 import { AppError } from '../../core/errors.js';
 import { BookingModel } from '../booking/booking.model.js';
 
 export async function assertNoOverdueReturn(renterId, now = new Date()) {
   // Inclusive UTC-stored rental days become overdue after Malaysia midnight
   // plus grace. Filter before limiting, including legacy non-midnight values.
-  const cutoff = physicalRentalDate(new Date(now.getTime() - env.overdueGraceHours * 3600000));
   const rows = await RentalModel.aggregate([
-    { $match: { renterId, listingType: 'physical', status: { $in: ['active', 'overdue', 'disputed'] },
-      endDate: { $lt: cutoff }, 'returnSubmission.recordedAt': null } },
+    { $match: { renterId, ...overdueCandidateFilter(now) } },
     { $lookup: { from: BookingModel.collection.name, localField: 'bookingId', foreignField: 'publicId', as: 'closedBooking',
       pipeline: [{ $match: { status: { $in: ['completed', 'cancelled', 'expired'] } } }, { $project: { _id: 1 } }] } },
     { $match: { closedBooking: { $size: 0 } } }, { $limit: 1 }, { $project: { _id: 1 } },

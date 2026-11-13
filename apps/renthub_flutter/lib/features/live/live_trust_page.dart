@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/trust/trust_profile.dart';
 import '../../core/network/user_facing_error.dart';
 import 'live_renthub_controller.dart';
+import 'live_subject_reviews.dart';
 
 Future<void> openTrustDetails(BuildContext context, String userId,
         {String role = 'overall'}) =>
@@ -26,7 +27,7 @@ class TrustSummaryButton extends StatelessWidget {
   Widget build(BuildContext context) => TextButton.icon(
       onPressed: () => openTrustDetails(context, userId, role: role),
       icon: const Icon(Icons.verified_user_outlined, size: 20),
-      label: Text('$prefix: ${summary.marketplace.label}',
+      label: Text('$prefix: ${summary.application.label}',
           overflow: TextOverflow.ellipsis, maxLines: 2));
 }
 
@@ -95,54 +96,39 @@ class _LiveTrustPageState extends State<LiveTrustPage> {
                     padding: EdgeInsets.all(24),
                     child: Text(
                         'Your session changed. Return to the app and sign in again.')))
-            : loading && profile == null
-                ? const Center(child: CircularProgressIndicator())
-                : Center(
-                    child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 800),
-                        child: ListView(
-                            padding: const EdgeInsets.all(20),
-                            children: [
-                              if (loading) const LinearProgressIndicator(),
-                              if (error != null)
-                                Card(
-                                    child: Padding(
-                                        padding: const EdgeInsets.all(16),
-                                        child: Column(children: [
-                                          Text(friendlyError(error!)),
-                                          TextButton(
-                                              onPressed: _load,
-                                              child: const Text('Try again'))
-                                        ]))),
-                              if (profile != null) ...[
-                                if (role.demo.completedRentals > 0) ...[
-                                  Card(
-                                      child: Padding(
-                                          padding: const EdgeInsets.all(16),
-                                          child: Text(
-                                              '${role.demo.completedRentals} completed demo rental(s) are recorded separately below. Demo payments do not count towards marketplace trust.'))),
-                                  const SizedBox(height: 8),
-                                ],
-                                TrustActivityCard(
-                                    title: widget.role == 'owner'
-                                        ? 'Owner rental history'
-                                        : widget.role == 'renter'
-                                            ? 'Renter rental history'
-                                            : 'Rental history',
-                                    cohort: role.marketplace),
-                                if (role.demo.completedRentals > 0) ...[
-                                  const SizedBox(height: 16),
-                                  TrustActivityCard(
-                                      title: 'Demo activity',
-                                      cohort: role.demo,
-                                      demo: true)
-                                ],
-                                const SizedBox(height: 16),
-                                const RentHubSectionHeader('How it works',
-                                    help:
-                                        'The score uses completed rentals from the last 12 months, published reviews and recorded handover, return or service times. Only disputes with an explicit administrator finding of responsibility affect the score.\n\nA score needs at least 3 completed rentals with 2 different people. New scores grow gradually as more history becomes available. Identity verification is shown separately.'),
-                              ],
-                            ]))));
+            : Center(
+                child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 800),
+                    child:
+                        ListView(padding: const EdgeInsets.all(20), children: [
+                      if (loading) const LinearProgressIndicator(),
+                      if (error != null)
+                        Card(
+                            child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(children: [
+                                  Text(friendlyError(error!)),
+                                  TextButton(
+                                      onPressed: _load,
+                                      child: const Text('Try again'))
+                                ]))),
+                      if (profile != null) ...[
+                        TrustActivityCard(
+                            title: widget.role == 'owner'
+                                ? 'Owner rental history'
+                                : widget.role == 'renter'
+                                    ? 'Renter rental history'
+                                    : 'Rental history',
+                            cohort: role.application),
+                        const SizedBox(height: 16),
+                        const RentHubSectionHeader('How it works',
+                            help:
+                                'The score uses completed rentals from the last 12 months, published reviews and recorded handover, return or service times. Only disputes with an explicit administrator finding of responsibility affect the score.\n\nA score needs at least 3 completed rentals with 2 different people. New scores grow gradually as more history becomes available. Identity verification is shown separately.'),
+                      ],
+                      const SizedBox(height: 16),
+                      SubjectReviewsSection(
+                          userId: widget.userId, role: widget.role),
+                    ]))));
   }
 }
 
@@ -178,7 +164,7 @@ class TrustActivityCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(demo
                 ? 'Based on simulated payments or labelled demonstration rentals. This is not genuine marketplace history.'
-                : 'Based on recorded, completed rentals with payment evidence.'),
+                : 'Based on recorded, completed rentals. Payments in this demonstration are simulated.'),
             const SizedBox(height: 20),
             Wrap(spacing: 24, runSpacing: 16, children: [
               _TrustFact('Completed rentals', '${cohort.completedRentals}'),

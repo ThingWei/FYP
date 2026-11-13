@@ -23,7 +23,7 @@ class TrustCohort {
       ? '$score / 100'
       : status == 'unavailable'
           ? 'Score unavailable'
-          : 'Not enough rental history';
+          : 'Building trust';
   factory TrustCohort.fromJson(dynamic raw) {
     if (raw is! Map) return const TrustCohort();
     int count(String key) => raw[key] is num && (raw[key] as num).isFinite
@@ -53,11 +53,17 @@ class TrustCohort {
 class TrustRoleSummary {
   const TrustRoleSummary(
       {this.marketplace = const TrustCohort(),
-      this.demo = const TrustCohort()});
+      this.demo = const TrustCohort(),
+      this.recorded});
   final TrustCohort marketplace, demo;
+  final TrustCohort? recorded;
+  TrustCohort get application => recorded ?? marketplace;
   factory TrustRoleSummary.fromJson(dynamic raw) => raw is Map
       ? TrustRoleSummary(
           marketplace: TrustCohort.fromJson(raw['marketplace']),
+          recorded: raw['recorded'] is Map
+              ? TrustCohort.fromJson(raw['recorded'])
+              : null,
           demo: TrustCohort.fromJson(raw['demo']))
       : const TrustRoleSummary();
 }

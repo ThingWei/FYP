@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { applicationTrust, realTrustScore } from '../user/trustPolicy.js';
 import {createHash} from 'node:crypto';
 import { notificationTarget } from './notificationTarget.js';
 import { AppError } from '../../core/errors.js';
@@ -139,8 +140,7 @@ export const communicationService = {
           otherParticipant: {
             id: otherId,
             displayName: other?.displayName ?? 'RentHub user',
-            trustScore: other?.trustProfile?.version === 'renthub-trust-v1' && other.trustProfile.overall?.marketplace?.status === 'established'
-              ? other.trustProfile.overall.marketplace.score : 50,
+            trustScore: realTrustScore(applicationTrust(other?.trustProfile)),
             verified: other?.verification?.status === 'approved',
           },
         };

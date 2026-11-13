@@ -232,6 +232,10 @@ class LiveOwnerDashboard extends StatelessWidget {
         controller.ownerRentals
             .where((item) => ['active', 'overdue'].contains(item.status))
             .length;
+    final overdue = controller.ownerActivitySummary['overdueReturns'] ??
+        controller.ownerRentals.where((r) => r.hasOverdueReturn).length;
+    final attention =
+        controller.ownerActivitySummary['attentionNeeded'] ?? pending + overdue;
     return Scaffold(
       appBar: AppBar(
         title: const RentHubLogo(),
@@ -258,13 +262,7 @@ class LiveOwnerDashboard extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 20),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              mainAxisExtent: 64 + MediaQuery.textScalerOf(context).scale(80),
+            _OwnerMetrics(
               children: [
                 _LiveMetric(
                   'My listings',
@@ -276,11 +274,11 @@ class LiveOwnerDashboard extends StatelessWidget {
                     'Active orders', '$active', Icons.local_shipping_outlined),
                 _LiveMetric(
                   'Trust score',
-                  controller.profile?.trustProfile.owner.marketplace
+                  controller.profile?.trustProfile.owner.application
                               .established ==
                           true
-                      ? '${controller.profile!.trustProfile.owner.marketplace.score} / 100'
-                      : 'New',
+                      ? '${controller.profile!.trustProfile.owner.application.score} / 100'
+                      : 'Building trust',
                   onTap: controller.profile == null
                       ? null
                       : () => openTrustDetails(context, controller.profile!.id,
@@ -291,18 +289,29 @@ class LiveOwnerDashboard extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             Card(
-              child: ListTile(
-                leading: const CircleAvatar(
-                  backgroundColor: AppColors.primaryLight,
-                  child: Icon(Icons.assignment_outlined),
+              child: Column(children: [
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: AppColors.primaryLight,
+                    child: Icon(Icons.assignment_outlined),
+                  ),
+                  title: Text('Needs attention ($attention)'),
                 ),
-                title: Text('$pending booking requests need a decision'),
-                subtitle: const Text(
-                  'Approval requires the renter’s payment authorization.',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: onOpenRequests,
-              ),
+                ListTile(
+                    title: const Text('Awaiting approval'),
+                    trailing: Text('$pending'),
+                    onTap: onOpenRequests),
+                ListTile(
+                    leading:
+                        const Icon(Icons.schedule, color: AppColors.warning),
+                    title: const Text('Overdue returns'),
+                    trailing: Text('$overdue'),
+                    onTap: () => Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                const LiveOwnerOrdersPage(overdueOnly: true)))),
+              ]),
             ),
             const SizedBox(height: 16),
             Text('Rental and service actions',
@@ -373,6 +382,25 @@ class LiveOwnerDashboard extends StatelessWidget {
   }
 }
 
+class _OwnerMetrics extends StatelessWidget {
+  const _OwnerMetrics({required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        for (var i = 0; i < children.length; i += 2) ...[
+          if (i > 0) const SizedBox(height: 12),
+          IntrinsicHeight(
+              child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                Expanded(child: children[i]),
+                const SizedBox(width: 12),
+                Expanded(child: children[i + 1]),
+              ])),
+        ],
+      ]);
+}
+
 class _LiveMetric extends StatelessWidget {
   const _LiveMetric(this.label, this.value, this.icon, {this.onTap});
   final VoidCallback? onTap;
@@ -391,7 +419,7 @@ class _LiveMetric extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(icon, color: AppColors.primary),
-                  const Spacer(),
+                  const SizedBox(height: 8),
                   Text(value, style: Theme.of(context).textTheme.titleLarge),
                   Text(label,
                       style: const TextStyle(
@@ -3207,31 +3235,37 @@ class _OwnerRentalCard extends StatelessWidget {
 }
 
 class LiveOwnerOrdersPage extends StatelessWidget {
-  const LiveOwnerOrdersPage({super.key});
+  const LiveOwnerOrdersPage({super.key, this.overdueOnly = false});
+  final bool overdueOnly;
   @override
   Widget build(BuildContext context) {
     final c = context.watch<LiveRentHubController>();
+    final collection = overdueOnly ? 'owner-overdue' : 'owner-rentals';
+    final records = overdueOnly ? c.ownerOverdueRecords : c.ownerOrderRecords;
     return Scaffold(
         appBar: AppBar(
-            title: const Text('Rental and service orders'),
-            bottom: const UserRecordToolbar(collection: 'owner-rentals')),
-        bottomNavigationBar:
-            const UserRecordPagination(collection: 'owner-rentals'),
+            title: Text(
+                overdueOnly ? 'Overdue returns' : 'Rental and service orders'),
+            bottom: UserRecordToolbar(collection: collection)),
+        bottomNavigationBar: UserRecordPagination(collection: collection),
         body: RefreshIndicator(
-            onRefresh: () => c.loadUserRecords('owner-rentals'),
-            child: c.ownerOrderRecords.isEmpty
+            onRefresh: () => c.loadUserRecords(collection),
+            child: records.isEmpty
                 ? ListView(children: [
                     Padding(
                         padding: const EdgeInsets.all(24),
                         child: Text(
-                            c.userRecordPages['owner-rentals']?.loading == true
+                            c.userRecordPages[collection]?.loading == true
                                 ? 'Loading orders?'
                                 : 'No orders on this page.'))
                   ])
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: c.ownerOrderRecords.length,
-                    itemBuilder: (_, i) =>
-                        _OwnerRentalCard(rental: c.ownerOrderRecords[i]))));
+                    itemCount: records.length,
+                    itemBuilder: (_, i) => Column(children: [
+                          _OwnerRentalCard(rental: records[i]),
+                          if (overdueOnly)
+                            OverdueRentalPanel(rental: records[i], owner: true),
+                        ]))));
   }
 }

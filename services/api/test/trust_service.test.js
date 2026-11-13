@@ -50,9 +50,12 @@ test('real completed evidence produces a persistent score and updates owned list
   const response=await request(app).get('/api/v1/users/owner/trust').set(headers('viewer'));assert.equal(response.status,200);assert.equal(response.body.data.owner.marketplace.completedRentals,3);
   const text=JSON.stringify(response.body.data);for(const forbidden of ['@example.test','RH-BKG','RH-RNT','gateway_'])assert.ok(!text.includes(forbidden));
 });
-test('simulated payments produce demo-only scores and cannot influence clean listing scores',async()=>{
+test('simulated completions build recorded application trust without changing source cohorts',async()=>{
   await history({simulated:true});const result=await refreshTrustProfile('owner',{force:true});assert.equal(result.owner.demo.score,71);assert.equal(result.owner.marketplace.score,null);
-  const listing=await ListingModel.findOne({publicId:'l-trust'});assert.equal(listing.ownerTrustScore,50);assert.equal(listing.toJSON().ownerTrustScore,50);
+  assert.equal(result.owner.recorded.score,71);
+  const listing=await ListingModel.findOne({publicId:'l-trust'});assert.equal(listing.ownerTrustScore,71);assert.equal(listing.toJSON().ownerTrustScore,71);
+  assert.ok((await PaymentModel.find().lean()).every(p=>p.simulated===true));
+  assert.equal((await UserModel.findOne({authId:'owner'})).toJSON().trustScore,71);
 });
 test('review creation, editing and moderation automatically refresh the subject score',async()=>{
   const f=await history({reviews:false});await refreshTrustProfile('owner',{force:true});

@@ -123,7 +123,7 @@ class User {
       name: name,
       roles: roles,
       activeRole: activeRole,
-      trustScore: value.overall.marketplace.score?.toDouble() ?? 50,
+      trustScore: value.overall.application.score?.toDouble() ?? 50,
       trustProfile: value,
       phone: phone,
       verificationStatus: verificationStatus,
@@ -1125,6 +1125,8 @@ class Review {
     this.listingTitle = '',
     this.authorId = '',
     this.authorName = '',
+    this.authorRole = '',
+    this.subjectRole = '',
     this.subjectId = '',
     this.subjectName = '',
     this.status = 'published',
@@ -1134,6 +1136,7 @@ class Review {
   });
   final String id, text, rentalId, listingId, listingTitle;
   final String authorId, authorName, subjectId, subjectName, status;
+  final String authorRole, subjectRole;
   final int rating;
   final bool canEdit, flagged;
   final DateTime? createdAt;
@@ -1147,6 +1150,8 @@ class Review {
         listingTitle: json['listingTitle'] as String? ?? '',
         authorId: json['authorId'] as String? ?? '',
         authorName: json['authorName'] as String? ?? 'RentHub user',
+        authorRole: json['authorRole'] as String? ?? '',
+        subjectRole: json['subjectRole'] as String? ?? '',
         subjectId: json['subjectId'] as String? ?? '',
         subjectName: json['subjectName'] as String? ?? 'RentHub user',
         status: json['status'] as String? ?? 'published',

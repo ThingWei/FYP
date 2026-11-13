@@ -85,6 +85,7 @@ class LiveRentHubController extends ChangeNotifier {
       rewardEntries = [];
       ownerActivitySummary = {};
       ownerOrderRecords = [];
+      ownerOverdueRecords = [];
       listingReviewPages.clear();
       reviews = [];
       receivedReviews = [];
@@ -178,6 +179,7 @@ class LiveRentHubController extends ChangeNotifier {
         'owner-bookings' => ownerWorkspace.bookings,
         'renter-rentals' => renterWorkspace.rentals,
         'owner-rentals' => ownerWorkspace.rentals,
+        'owner-overdue' => ownerOverdueRecords,
         'owner-listings' => ownerListings,
         'conversations' => conversations,
         'reviews' => reviews,
@@ -221,6 +223,7 @@ class LiveRentHubController extends ChangeNotifier {
       'owner-bookings' => '/bookings/owner',
       'renter-rentals' => '/rentals/mine',
       'owner-rentals' => '/rentals/owner',
+      'owner-overdue' => '/rentals/owner',
       'owner-listings' => '/listings/owner/mine',
       'conversations' => '/messages/threads',
       'notifications' => '/messages/notifications',
@@ -234,6 +237,7 @@ class LiveRentHubController extends ChangeNotifier {
           : throw ArgumentError('Unknown record collection'),
     };
     final query = <String, String>{
+      if (key == 'owner-overdue') 'attention': 'overdue',
       if (nextPage != 1) 'page': '$nextPage',
       if (nextLimit != 20) 'limit': '$nextLimit',
       if (key.endsWith('-bookings')) ...filtersForBookings(key).parameters,
@@ -295,6 +299,10 @@ class LiveRentHubController extends ChangeNotifier {
           ownerOrderRecords = _models(data, Rental.fromJson);
           ownerWorkspace.rentals =
               mergeRentalCache(ownerWorkspace.rentals, ownerOrderRecords);
+        case 'owner-overdue':
+          ownerOverdueRecords = _models(data, Rental.fromJson);
+          ownerWorkspace.rentals =
+              mergeRentalCache(ownerWorkspace.rentals, ownerOverdueRecords);
         case 'owner-listings':
           ownerListings = _models(data, Listing.fromJson);
         case 'conversations':
@@ -737,6 +745,7 @@ class LiveRentHubController extends ChangeNotifier {
   List<Conversation> conversations = [];
   List<RewardLedgerEntry> rewardEntries = [];
   List<Rental> ownerOrderRecords = [];
+  List<Rental> ownerOverdueRecords = [];
   final listingReviewPages = <String, List<Review>>{};
   List<Rental> mergeRentalCache(List<Rental> previous, List<Rental> incoming) =>
       {for (final r in previous) r.id: r, for (final r in incoming) r.id: r}
@@ -1064,8 +1073,12 @@ class LiveRentHubController extends ChangeNotifier {
       }) as Map);
 
   Future<User> refreshIdentityProfile() async {
+    final account = _accountGeneration, accountId = profile?.id;
     final refreshed = User.fromJson(
         await api.request('GET', '/users/me') as Map<String, dynamic>);
+    if (!_sameAccount(account) || refreshed.id != accountId) {
+      throw ApiException(401, 'Your account changed.', code: 'SESSION_CHANGED');
+    }
     profile = refreshed;
     notifyListeners();
     return refreshed;
@@ -2253,6 +2266,10 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   void _replaceRental(Rental rental) {
+    ownerOverdueRecords = [
+      for (final r in ownerOverdueRecords)
+        if (r.id != rental.id) r else if (rental.hasOverdueReturn) rental
+    ];
     ownerOrderRecords = [
       for (final r in ownerOrderRecords) r.id == rental.id ? rental : r
     ];

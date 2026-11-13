@@ -28,9 +28,11 @@ Map<String, dynamic> cohort({bool established = false}) => {
     };
 Map<String, dynamic> profile({bool real = false, bool demo = false}) => {
       'version': 'renthub-trust-v1',
+      'policyVersion': 'recorded-rentals-v2',
       for (final role in ['overall', 'owner', 'renter'])
         role: {
           'marketplace': cohort(established: real),
+          'recorded': cohort(established: real || demo),
           'demo': cohort(established: demo)
         }
     };
@@ -44,6 +46,9 @@ class TrustApi extends ApiClient {
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     calls.add('$method $path');
+    if (path.startsWith('/reviews/subjects/')) {
+      return ApiItems([], {'page': 1, 'limit': 20, 'total': 0});
+    }
     if (pending != null) return pending!.future;
     if (fail) throw ApiException(503, 'private server path');
     return response;
@@ -97,7 +102,7 @@ void main() {
     expect(user.trustScore, 71);
   });
   for (final width in [360.0, 390.0, 1024.0]) {
-    testWidgets('trust history separates demo evidence and fits width $width',
+    testWidgets('trust history uses one recorded summary and fits width $width',
         (t) async {
       t.view.physicalSize = Size(width, 1000);
       t.view.devicePixelRatio = 1;
@@ -110,19 +115,13 @@ void main() {
           const LiveTrustPage(userId: 'u-trust', role: 'owner'), c,
           scale: 1.4));
       await t.pumpAndSettle();
-      expect(find.text('Not enough rental history'), findsOneWidget);
+      expect(find.text('71 / 100'), findsOneWidget);
+      expect(find.text('Demo activity'), findsNothing);
       expect(
-          find.textContaining(
-              'Demo payments do not count towards marketplace trust.'),
+          find.textContaining('Payments in this demonstration are simulated.'),
           findsOneWidget);
-      expect(api.calls, ['GET /users/me/trust']);
-      expect(c.profile!.trustScore, 50);
-      await t.scrollUntilVisible(find.text('Demo activity'), 300,
-          scrollable: find.byType(Scrollable).first, maxScrolls: 30);
-      await t.pumpAndSettle();
-      expect(find.text('Demo score 71 / 100'), findsOneWidget);
-      expect(find.textContaining('not genuine marketplace history'),
-          findsOneWidget);
+      expect(api.calls, contains('GET /users/me/trust'));
+      expect(c.profile!.trustScore, 71);
       expect(t.takeException(), isNull);
     });
   }
@@ -177,7 +176,7 @@ void main() {
     await t.pumpWidget(
         host(const LiveTrustPage(userId: 'auth0|other', role: 'renter'), c));
     await t.pumpAndSettle();
-    expect(api.calls, ['GET /users/auth0%7Cother/trust']);
+    expect(api.calls, contains('GET /users/auth0%7Cother/trust'));
     expect(find.text('100 / 100'), findsNothing);
     expect(find.text('Try again'), findsOneWidget);
     expect(t.takeException(), isNull);

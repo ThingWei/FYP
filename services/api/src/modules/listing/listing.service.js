@@ -12,7 +12,7 @@ import { nextPriceProvenance, listingEvidenceReason, bookingEvidenceReason } fro
 import { ReviewModel } from '../review/review.model.js';
 import { UserModel } from '../user/user.model.js';
 import { availableTrustProfile } from '../user/trust.service.js';
-import { realTrustScore, ownerTrustSummary } from '../user/trustPolicy.js';
+import { realTrustScore, ownerTrustSummary, applicationTrust } from '../user/trustPolicy.js';
 import { assertMarketplaceIdentity } from '../user/kycRequirements.js';
 import { hasApprovedMykad } from '../user/drivingEligibility.js';
 import {
@@ -568,7 +568,7 @@ export const listingService = {
       item_profile: profile,
       market_evidence: marketEvidence,
       rental_duration_days: input.rentalDurationDays ?? 1,
-      owner_trust_score: realTrustScore((await availableTrustProfile(owner.authId)).owner.marketplace),
+      owner_trust_score: realTrustScore(applicationTrust(await availableTrustProfile(owner.authId), 'owner')),
       owner_average_rating: ownerRating[0]?.average ?? 0,
       owner_completed_rentals: completedBookings.filter((b) => b.ownerId === owner.authId && !bookingEvidenceReason(b, paymentEvidence)).length,
       prediction_month: new Date().getUTCMonth() + 1,
@@ -721,7 +721,7 @@ export const listingService = {
       ...listingInput(normalizedInput),
       ownerId: owner.authId,
       ownerName: owner.displayName,
-      ownerTrustScore: realTrustScore(trust.owner.marketplace),
+      ownerTrustScore: realTrustScore(applicationTrust(trust, 'owner')),
       ownerTrustProfile: ownerTrustSummary(trust),
       verified: hasApprovedMykad(owner),
       status: 'draft',

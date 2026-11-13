@@ -94,7 +94,7 @@ Future<void> _chooseCategory(WidgetTester tester, String category) async {
 }
 
 Future<void> _why(WidgetTester tester, String reason) async {
-  final button = find.text('Why this item?').first;
+  final button = find.byTooltip('Why this item?').first;
   await tester.ensureVisible(button);
   await tester.pumpAndSettle();
   await tester.tap(button);

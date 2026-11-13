@@ -222,7 +222,7 @@ void main() {
       expect(
           (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
               .crossAxisCount,
-          width >= 1000 ? 4 : 2);
+          width >= 1000 ? 6 : 2);
       await tester.tap(find.byTooltip('List view').first);
       await tester.pumpAndSettle();
       expect(find.byType(ListingCardSummary), findsWidgets);

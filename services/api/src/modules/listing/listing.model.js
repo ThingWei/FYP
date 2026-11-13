@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { applicationTrust, realTrustScore } from '../user/trustPolicy.js';
 import { validRentalPrice, validPricePrecision } from './priceLimits.js';
 import { coordinatesSchema, locationSchema, publicListing } from '../../core/location.js';
 import { LICENCE_CLASSES } from '../user/drivingEligibility.js';
@@ -167,8 +168,7 @@ const listingSchema = new mongoose.Schema(
     toJSON: {
       virtuals: true,
       transform: (_document, value) => {
-        value.ownerTrustScore = value.ownerTrustProfile?.version === 'renthub-trust-v1' && value.ownerTrustProfile.marketplace?.status === 'established'
-          ? value.ownerTrustProfile.marketplace.score : 50;
+        value.ownerTrustScore = realTrustScore(applicationTrust(value.ownerTrustProfile));
         value.id = value.publicId;
         value.isService = value.listingType === 'service';
         const now = Date.now();

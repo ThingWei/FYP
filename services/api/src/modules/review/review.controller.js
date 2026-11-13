@@ -4,6 +4,10 @@ import { created, ok } from '../../core/respond.js';
 import { reviewService } from './review.service.js';
 
 export const reviewController = {
+  listSubject: asyncHandler(async (req, res) => {
+    const result = await reviewService.listSubject(req.params.subjectId, req.user, req.query);
+    return ok(res, result.items, result.meta);
+  }),
   create: asyncHandler(async (req, res) =>
     created(
       res,

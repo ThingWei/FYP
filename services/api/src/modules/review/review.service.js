@@ -7,6 +7,7 @@ import { UserModel } from '../user/user.model.js';
 import { REVIEW_STATUSES } from './review.model.js';
 import { reviewRepository } from './review.repository.js';
 import { refreshTrustAfterActivity } from '../user/trust.service.js';
+import { visibleTrustUser } from '../user/trustVisibility.js';
 
 const editWindowMs = 24 * 60 * 60 * 1000;
 
@@ -42,6 +43,12 @@ function withEditState(review, identity) {
 }
 
 export const reviewService = {
+  async listSubject(subjectId, identity, query) {
+    const target = await visibleTrustUser(identity, subjectId);
+    const { page, limit } = pageOptions(query);
+    const [items, total] = await reviewRepository.listPublishedSubject({ userId: target.authId, role: query.role, page, limit });
+    return { items, meta: { page, limit, total } };
+  },
   async create(input, identity) {
     const author = await activeUser(identity);
     const rental = await RentalModel.findOne({ publicId: input.rentalId });

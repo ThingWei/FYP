@@ -100,29 +100,25 @@ class ListingCollection extends StatelessWidget {
                   child: InkWell(
                       onTap: () => onOpen(item),
                       child: Padding(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(8),
                           child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 SizedBox(
-                                    width: 88,
-                                    child: ListingCardPhoto(listing: item)),
-                                const SizedBox(width: 12),
+                                    width: 72,
+                                    child: ListingCardPhoto(
+                                        listing: item, showBadges: false)),
+                                const SizedBox(width: 8),
                                 Expanded(
                                     child: ListingCardSummary(
                                         listing: item,
+                                        showBadges: true,
                                         actions: actions?.call(item))),
                               ]))))
           ]);
         }
-        final columns = box.maxWidth >= 1000
-            ? 4
-            : box.maxWidth >= 650
-                ? 3
-                : 2;
-        final width = mode == ListingViewMode.carousel
-            ? math.min(280.0, math.max(240.0, box.maxWidth - 56))
-            : (box.maxWidth - (columns - 1) * 8) / columns;
+        final columns = (box.maxWidth / 180).floor().clamp(2, 8);
+        final width = (box.maxWidth - (columns - 1) * 8) / columns;
         final theme = Theme.of(context).textTheme;
         double measure(String text, TextStyle? style, int lines) {
           final painter = TextPainter(
@@ -130,7 +126,7 @@ class ListingCollection extends StatelessWidget {
               maxLines: lines,
               textDirection: Directionality.of(context),
               textScaler: MediaQuery.textScalerOf(context))
-            ..layout(maxWidth: math.max(1, width - 32));
+            ..layout(maxWidth: math.max(1, width - 24));
           final height = painter.height;
           painter.dispose();
           return height;
@@ -143,9 +139,9 @@ class ListingCollection extends StatelessWidget {
                     height,
                     width -
                         8 +
-                        24 +
+                        16 +
                         8 +
-                        8 +
+                        4 +
                         measure(item.title, theme.titleSmall, 2) +
                         measure(
                             'RM ${item.displayPrice.toStringAsFixed(2)} / ${item.priceUnit}',
@@ -158,7 +154,6 @@ class ListingCollection extends StatelessWidget {
                             ? 0
                             : measure(
                                 'Check availability', theme.bodySmall, 1)) +
-                        (item.recommendationReason.isEmpty ? 0 : 48) +
                         (actions == null ? 0 : 48)))
             .ceilToDouble();
         Widget card(int i) => ListingProductCard(
@@ -189,8 +184,10 @@ class ListingCollection extends StatelessWidget {
 }
 
 class ListingCardPhoto extends StatelessWidget {
-  const ListingCardPhoto({super.key, required this.listing});
+  const ListingCardPhoto(
+      {super.key, required this.listing, this.showBadges = true});
   final Listing listing;
+  final bool showBadges;
   @override
   Widget build(BuildContext context) {
     final fallback = Center(
@@ -215,30 +212,15 @@ class ListingCardPhoto extends StatelessWidget {
                       fit: BoxFit.cover,
                       semanticLabel: listing.title,
                       errorBuilder: (_, __, ___) => fallback)),
-          if (listing.promotionActive)
+          if (showBadges)
             Positioned(
                 left: 4,
-                top: 4,
-                child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    decoration: BoxDecoration(
-                        color: AppColors.background,
-                        borderRadius: BorderRadius.circular(8)),
-                    child: Text('Promoted',
-                        style: Theme.of(context).textTheme.labelSmall))),
-          if (listing.demonstration)
-            Positioned(
                 right: 4,
                 top: 4,
-                child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    decoration: BoxDecoration(
-                        color: AppColors.background,
-                        borderRadius: BorderRadius.circular(8)),
-                    child: Text('Demo',
-                        style: Theme.of(context).textTheme.labelSmall))),
+                child: Wrap(spacing: 4, runSpacing: 4, children: [
+                  if (listing.promotionActive) _ListingBadge('Promoted'),
+                  if (listing.demonstration) _ListingBadge('Demo'),
+                ])),
           if (listing.verified)
             const Positioned(
                 right: 4,
@@ -247,14 +229,31 @@ class ListingCardPhoto extends StatelessWidget {
                     message: 'Verified listing',
                     child: Icon(Icons.verified,
                         color: AppColors.success, size: 24))),
+          if (listing.recommendationReason.isNotEmpty)
+            Positioned(
+                left: 0,
+                bottom: 0,
+                child: IconButton.filledTonal(
+                    tooltip: 'Why this item?',
+                    style: IconButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        backgroundColor: AppColors.background,
+                        foregroundColor: AppColors.primary),
+                    onPressed: () => _showListingReason(context, listing),
+                    icon: const Icon(Icons.info_outline, size: 20))),
         ]));
   }
 }
 
 class ListingCardSummary extends StatelessWidget {
-  const ListingCardSummary({super.key, required this.listing, this.actions});
+  const ListingCardSummary(
+      {super.key,
+      required this.listing,
+      this.actions,
+      this.showBadges = false});
   final Listing listing;
   final Widget? actions;
+  final bool showBadges;
   @override
   Widget build(BuildContext context) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -274,6 +273,12 @@ class ListingCardSummary extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall),
+            if (showBadges &&
+                (listing.promotionActive || listing.demonstration))
+              Wrap(spacing: 4, runSpacing: 4, children: [
+                if (listing.promotionActive) const _ListingBadge('Promoted'),
+                if (listing.demonstration) const _ListingBadge('Demo'),
+              ]),
             if (listing.recommendationAvailability.isNotEmpty)
               Tooltip(
                   message: listing.recommendationAvailability,
@@ -285,28 +290,12 @@ class ListingCardSummary extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall)),
-            if (listing.recommendationReason.isNotEmpty)
-              TextButton(
-                  style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(48, 48)),
-                  onPressed: () => showDialog<void>(
-                      context: context,
-                      builder: (context) => rentHubDialog(
-                              title: const Text('Why this item?'),
-                              content: SingleChildScrollView(
-                                  child: Text([
-                                listing.recommendationReason,
-                                listing.recommendationAvailability
-                              ].where((text) => text.isNotEmpty).join('\n\n'))),
-                              actions: [
-                                TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('Close'))
-                              ])),
-                  child: const Text('Why this item?',
-                      maxLines: 1, overflow: TextOverflow.ellipsis)),
-            if (actions != null) actions!,
+            if (actions != null)
+              IconButtonTheme(
+                  data: IconButtonThemeData(
+                      style: IconButton.styleFrom(
+                          minimumSize: const Size(48, 48))),
+                  child: actions!),
           ]);
 }
 
@@ -325,7 +314,37 @@ class ListingProductCard extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             ListingCardPhoto(listing: listing),
             Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(8),
                 child: ListingCardSummary(listing: listing, actions: actions)),
           ])));
 }
+
+class _ListingBadge extends StatelessWidget {
+  const _ListingBadge(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+          color: AppColors.background, borderRadius: BorderRadius.circular(6)),
+      child: Text(text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall));
+}
+
+Future<void> _showListingReason(BuildContext context, Listing listing) =>
+    showDialog<void>(
+        context: context,
+        builder: (context) => rentHubDialog(
+                title: const Text('Why this item?'),
+                content: SingleChildScrollView(
+                    child: Text([
+                  listing.recommendationReason,
+                  listing.recommendationAvailability
+                ].where((text) => text.isNotEmpty).join('\n\n'))),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'))
+                ]));

@@ -8,6 +8,15 @@ function pages({ page, limit }) {
 }
 
 export const reviewRepository = {
+  listPublishedSubject({ userId, role, page, limit }) {
+    const filter = { subjectId: userId, status: 'published', authorId: { $ne: userId },
+      ...(role && role !== 'overall' && { subjectRole: role }) };
+    return Promise.all([
+      ReviewModel.find(filter).select('-_id publicId authorName authorRole subjectRole listingTitle listingType overallRating communicationRating conditionRating valueRating text createdAt editedAt')
+        .sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+      ReviewModel.countDocuments(filter),
+    ]);
+  },
   create: (data) => ReviewModel.create(data),
   findById: (id) => ReviewModel.findOne({ publicId: id }),
   findByRentalAndAuthor: (rentalId, authorId) =>

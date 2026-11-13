@@ -6,7 +6,7 @@ import { ReviewModel } from '../review/review.model.js';
 import { DisputeModel } from '../dispute/dispute.model.js';
 import { ListingModel } from '../listing/listing.model.js';
 import { withOperationLock } from '../booking/bookingRequestLock.js';
-import { calculateTrustProfile, realTrustScore, ownerTrustSummary, TRUST_VERSION, TRUST_WINDOW_DAYS } from './trustPolicy.js';
+import { calculateTrustProfile, realTrustScore, ownerTrustSummary, TRUST_VERSION, TRUST_POLICY_VERSION, TRUST_WINDOW_DAYS, applicationTrust } from './trustPolicy.js';
 import { AppError } from '../../core/errors.js';
 
 const maximum = 1000;
@@ -31,12 +31,12 @@ export async function refreshTrustProfile(userId, { force = false } = {}) {
     const user = await UserModel.findOne({ authId: userId }).select('authId trustProfile').lean();
     if (!user) throw new AppError('User not found', 404, 'NOT_FOUND');
     const cached = user.trustProfile;
-    if (!force && cached?.version === TRUST_VERSION && +new Date(cached.calculatedAt) <= Date.now() && +new Date(cached.calculatedAt) > Date.now() - 60_000) return cached;
+    if (!force && cached?.version === TRUST_VERSION && cached.policyVersion === TRUST_POLICY_VERSION && +new Date(cached.calculatedAt) <= Date.now() && +new Date(cached.calculatedAt) > Date.now() - 60_000) return cached;
     const profile = await computeTrustProfile(userId);
     await ensureOwned();
-    await UserModel.updateOne({ authId: userId }, { $set: { trustProfile: profile, trustScore: realTrustScore(profile.overall.marketplace) } }, { timestamps: false });
+    await UserModel.updateOne({ authId: userId }, { $set: { trustProfile: profile, trustScore: realTrustScore(applicationTrust(profile)) } }, { timestamps: false });
     await ensureOwned();
-    await ListingModel.updateMany({ ownerId: userId }, { $set: { ownerTrustProfile: ownerTrustSummary(profile), ownerTrustScore: realTrustScore(profile.owner.marketplace) } }, { timestamps: false });
+    await ListingModel.updateMany({ ownerId: userId }, { $set: { ownerTrustProfile: ownerTrustSummary(profile), ownerTrustScore: realTrustScore(applicationTrust(profile, 'owner')) } }, { timestamps: false });
     return profile;
   });
 }
@@ -59,7 +59,7 @@ export async function refreshTrustAfterActivity(userIds) {
 export async function withTrustProfile(user) {
   const profile = await availableTrustProfile(user.authId);
   user.trustProfile = profile;
-  user.trustScore = realTrustScore(profile.overall.marketplace);
+  user.trustScore = realTrustScore(applicationTrust(profile));
   return user;
 }
 

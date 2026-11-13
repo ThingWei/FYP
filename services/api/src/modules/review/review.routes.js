@@ -11,6 +11,7 @@ import {
   moderationValidation,
   reviewListValidation,
   subjectSummaryValidation,
+  subjectReviewsValidation,
 } from './review.validation.js';
 
 export const reviewRouter = Router();
@@ -29,6 +30,7 @@ reviewRouter.get(
 );
 
 reviewRouter.use(authenticate);
+reviewRouter.get('/subjects/:subjectId', subjectReviewsValidation, validate, reviewController.listSubject);
 reviewRouter.get('/mine', reviewListValidation, validate, reviewController.listMine);
 reviewRouter.get(
   '/received',

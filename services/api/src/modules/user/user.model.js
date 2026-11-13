@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { applicationTrust, realTrustScore } from './trustPolicy.js';
 import { coordinatesSchema } from '../../core/location.js';
 import { ADMIN_ROLES, MARKETPLACE_ROLES } from './rolePolicy.js';
 
@@ -237,8 +238,7 @@ const userSchema = new mongoose.Schema(
     strict: 'throw',
     toJSON: {
       transform: (_document, value) => {
-        value.trustScore = value.trustProfile?.version === 'renthub-trust-v1' && value.trustProfile.overall?.marketplace?.status === 'established'
-          ? value.trustProfile.overall.marketplace.score : 50;
+        value.trustScore = realTrustScore(applicationTrust(value.trustProfile));
         delete value.passwordHash;
         delete value.identityMatchFingerprint;
         delete value.verifiedIdentityFingerprint;

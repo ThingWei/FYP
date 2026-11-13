@@ -1192,6 +1192,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
   }
 
   bool submitting = false;
+  bool updatingLicence = false;
   final MykadDraft mykadDraft = MykadDraft();
   final List<String> otherDocumentRefs = [];
   List<String> get documentRefs =>
@@ -1549,6 +1550,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
           documentType, documentRefs,
           licenceSource:
               documentType == 'driving_licence' ? licenceDraft.source : null);
+      if (mounted) setState(() => updatingLicence = false);
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1568,7 +1570,8 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     final selectedStatus =
         documentType == 'driving_licence' ? eligibility.displayStatus : status;
     final canSubmit = documentType == 'driving_licence'
-        ? selectedStatus != 'pending'
+        ? selectedStatus != 'pending' &&
+            (selectedStatus != 'approved' || updatingLicence)
         : const [
             'unverified',
             'rejected',
@@ -1639,6 +1642,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                   ? null
                   : (value) => setState(() {
                         documentType = value ?? 'mykad';
+                        updatingLicence = false;
                         _invalidatePairRequest();
                         mykadDraft.clear();
                         otherDocumentRefs.clear();
@@ -1649,6 +1653,30 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
             ),
             const SizedBox(height: 16),
             if (canSubmit) ...[
+              if (documentType == 'driving_licence' && updatingLicence)
+                TextButton.icon(
+                    icon: const Icon(Icons.close),
+                    label: const Text('Cancel licence update'),
+                    onPressed: submitting || captureUploading || checkingLicence
+                        ? null
+                        : () async {
+                            if (documentRefs.isNotEmpty ||
+                                pendingCapture != null) {
+                              final discard = await confirmAction(context,
+                                  title: 'Discard licence update?',
+                                  message:
+                                      'Your approved licence will stay unchanged.',
+                                  action: 'Discard update');
+                              if (!discard || !mounted) return;
+                            }
+                            setState(() {
+                              updatingLicence = false;
+                              otherDocumentRefs.clear();
+                              pendingCapture = null;
+                              draftGeneration++;
+                              _invalidateLicence();
+                            });
+                          }),
               const Padding(
                   padding: EdgeInsets.only(bottom: 12),
                   child: Text(
@@ -1801,7 +1829,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                 message:
                     'An administrator will review the submitted document images and verification details.',
               )
-            else
+            else ...[
               RentHubFeedbackState(
                 kind: FeedbackKind.success,
                 title: '$documentLabel verified',
@@ -1809,6 +1837,13 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                     ? 'Driving eligibility is approved. Vehicle requests still require approved MyKad, valid dates and any listing-specific licence class.'
                     : 'Your identity verification badge is active across RentHub.',
               ),
+              if (documentType == 'driving_licence' &&
+                  selectedStatus == 'approved')
+                OutlinedButton.icon(
+                    onPressed: () => setState(() => updatingLicence = true),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Update licence')),
+            ],
           ],
         ),
       ),

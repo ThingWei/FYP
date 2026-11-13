@@ -22,6 +22,10 @@ const evidenceFields = [
 export const rentalIdValidation = [rentalId];
 
 export const listRentalsValidation = [
+  query('attention').optional().isIn(['overdue']).custom((value, { req }) => {
+    if (req.path !== '/owner') throw new Error('Attention filters apply to Owner orders only');
+    return true;
+  }),
   query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
   query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
   query('status').optional().isIn(RENTAL_STATUSES),

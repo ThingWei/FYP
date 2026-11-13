@@ -1,4 +1,5 @@
 export const TRUST_VERSION = 'renthub-trust-v1';
+export const TRUST_POLICY_VERSION = 'recorded-rentals-v2';
 export const TRUST_WINDOW_DAYS = 365;
 export const TRUST_MIN_COMPLETIONS = 3;
 export const TRUST_MIN_PARTNERS = 2;
@@ -8,6 +9,12 @@ const money = value => typeof value === 'number' && Number.isFinite(value) && va
 
 export function realTrustScore(summary) {
   return summary?.status === 'established' && Number.isFinite(summary.score) ? summary.score : 50;
+}
+
+export function applicationTrust(profile, role = 'overall') {
+  if (profile?.version !== TRUST_VERSION) return undefined;
+  const summary = profile[role] ?? profile;
+  return profile.policyVersion === TRUST_POLICY_VERSION ? summary.recorded : summary.marketplace;
 }
 
 function calendarDeadline(value) {
@@ -79,11 +86,12 @@ export function calculateTrustProfile(userId, { bookings = [], rentals = [], pay
   const listingById = new Map(listings.map(row => [row.publicId, row]));
   const resolved = new Map(disputes.filter(row => row.status === 'resolved' && row.resolution?.outcome !== 'dismissed' &&
     Number.isFinite(date(row.resolution?.resolvedAt)) && date(row.resolution.resolvedAt) <= +now).map(row => [row.rentalId, row]));
-  const cohorts = { marketplace: [], demo: [] };
+  const cohorts = { marketplace: [], demo: [], recorded: [] };
   const seen = new Set();
+  const seenRentals = new Set();
   for (const booking of bookings) {
     const rental = rentalByBooking.get(booking.publicId), completedAt = date(booking.completedAt);
-    if (!booking.publicId || seen.has(booking.publicId) || !rental || !rental.publicId ||
+    if (!booking.publicId || seen.has(booking.publicId) || !rental || !rental.publicId || seenRentals.has(rental.publicId) ||
         !['completed', 'disputed'].includes(booking.status) || !['completed', 'disputed'].includes(rental.status) ||
         !Number.isFinite(completedAt) || completedAt < cutoff || completedAt > +now ||
         typeof booking.ownerId !== 'string' || !booking.ownerId || typeof booking.renterId !== 'string' || !booking.renterId ||
@@ -92,15 +100,17 @@ export function calculateTrustProfile(userId, { bookings = [], rentals = [], pay
     const provenance = cohortFor(booking, listingById.get(booking.listingId), payments.filter(row => date(row.createdAt) <= +now));
     if (!provenance) continue;
     seen.add(booking.publicId);
+    seenRentals.add(rental.publicId);
     cohorts[provenance].push({ booking, rental, dispute: resolved.get(rental.publicId) });
+    cohorts.recorded.push({ booking, rental, dispute: resolved.get(rental.publicId) });
   }
-  return { version: TRUST_VERSION, windowDays: TRUST_WINDOW_DAYS, calculatedAt: now,
+  return { version: TRUST_VERSION, policyVersion: TRUST_POLICY_VERSION, windowDays: TRUST_WINDOW_DAYS, calculatedAt: now,
     minimumCompletions: TRUST_MIN_COMPLETIONS, minimumPartners: TRUST_MIN_PARTNERS,
     ...Object.fromEntries(['overall', 'owner', 'renter'].map(role => [role, Object.fromEntries(Object.entries(cohorts).map(([source, events]) => [source, summary(events, userId, role, reviews, now, truncated)]))])),
   };
 }
 
 export function ownerTrustSummary(profile) {
-  return { version: profile.version, calculatedAt: profile.calculatedAt, windowDays: profile.windowDays,
+  return { version: profile.version, policyVersion: profile.policyVersion, calculatedAt: profile.calculatedAt, windowDays: profile.windowDays,
     minimumCompletions: profile.minimumCompletions, minimumPartners: profile.minimumPartners, ...profile.owner };
 }

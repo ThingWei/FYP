@@ -1,5 +1,11 @@
 import { env } from '../../config/env.js';
-import { physicalRentalReturnDeadline } from '../../core/calendarDate.js';
+import { physicalRentalDate, physicalRentalReturnDeadline } from '../../core/calendarDate.js';
+
+export function overdueCandidateFilter(now = new Date(), graceHours = env.overdueGraceHours) {
+  return { listingType: 'physical', status: { $in: ['active', 'overdue', 'disputed'] },
+    endDate: { $lt: physicalRentalDate(new Date(now.getTime() - graceHours * 3600000)) },
+    'returnSubmission.recordedAt': null };
+}
 
 export function overdueSince(rental, graceHours = env.overdueGraceHours) {
   if (rental.listingType !== 'physical' || !rental.endDate || rental.returnSubmission?.recordedAt ||

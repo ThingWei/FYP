@@ -1,19 +1,20 @@
 # Working RentHub trust scores
 
-Implemented 28 October 2026. Existing uncommitted administrator work is preserved.
+Implemented 28 October 2026; application trust updated 13 November 2026. See [the current compact-card, unified-trust and Owner attention handoff](COMPACT_CARDS_TRUST_AND_OWNER_ATTENTION_RESULT.md).
 
 ## What users can do
 
 - Open **Trust** on Profile, the **Trust score** tile on the Owner Home screen, or **Owner trust** on a listing.
 - Owners can open **Renter trust history** on incoming requests. Administrators can open **View trust history** from a user record.
 - Read the score, completion/partner/review counts, recorded timeliness and confirmed issues. Scores are separate for the renter and Owner roles; one account can have different role histories.
-- New or unsupported histories show **Not enough rental history**, rather than an invented high score. Refresh and retry retain previously loaded information. Logout/account changes hide the previous account's information.
+- New histories show **Building trust** with actual completion/partner counts. Unavailable calculations show **Score unavailable**. Refresh and retry retain previously loaded information. Logout/account changes hide the previous account's information.
+- **Reviews about this user** shows published participant reviews, with independent loading/retry and pagination (20 by default).
 
 This is a transparent reputation policy, not an AI authenticity prediction. Use it alongside verification and reviews. It does not automatically authorize, approve, reject or restrict a booking. MyKad and driving-licence requirements are unchanged.
 
-## Calculation: renthub-trust-v1
+## Calculation: recorded-rentals-v2 (compatible renthub-trust-v1 response)
 
-The observation window is 365 days. Each role/cohort needs **three qualifying completed rentals and two distinct counterparties** before publishing a numerical score. The combined profile also has its own maturity check.
+The observation window is 365 days. Each role needs **three qualifying completed rentals and two distinct counterparties** before publishing a numerical score. The application uses the deduplicated `recorded` summary, combining eligible marketplace and demonstration completions. Overall, Owner and renter histories have separate maturity checks. Existing source cohorts remain available for diagnostics.
 
 Only participant-consistent booking/rental pairs with a recorded completion, successful MYR capture evidence covering the booked rental base amount, and usable provenance contribute. A completion later placed under dispute retains its completion history while the report is unproven. Cancelled, pending, rejected, unpaid, unknown-payment and future-dated records do not contribute.
 
@@ -44,22 +45,23 @@ Physical dates remain calendar dates: the deadline is the end of the selected fi
 
 Administrators now have an optional **Responsibility finding** in the existing dispute resolution form: Not determined, Neither participant, Renter, Owner or Both participants. It is saved with the resolution. Old decisions default to not determined; dismissed disputes cannot produce a responsibility penalty. Refund amounts, deposit deductions, open complaints and flagged reviews do not establish fault.
 
-**Marketplace** and **Demo activity** are calculated and displayed separately. Simulated payments or labelled demonstration bookings/listings/snapshots go into the demo cohort. Genuine reputation requires explicit marketplace provenance and successful non-simulated captures. Unknown legacy evidence is not silently upgraded. Because the current checkout is simulated, completing its flow grows the demo history, not genuine paid-marketplace reputation.
+Users see one **Rental history** and one **Trust score**, based on the combined recorded summary. A brief notice explains that demonstration payments are simulated. Simulated payments or labelled demonstration bookings/listings/snapshots still belong to the demo cohort internally; genuine marketplace provenance remains distinct. Unknown legacy payment evidence is not silently upgraded.
 
-Demo scores never enter genuine trust sorting or the pricing model's Owner-trust feature. Old numeric seed values are no longer presented or sorted as earned reputation. Existing numeric API fields remain compatible using neutral 50 when genuine history is insufficient; ordinary user screens show the actual status instead. Administrator CSV exports leave unestablished earned reputation blank.
+Application trust sorting, badges, chat, administrator displays and the existing Owner-trust feature now use recorded trust consistently. Numeric API fields retain neutral 50 when the history is insufficient; user screens show the actual status. Administrator user-report exports leave unestablished reputation blank. This changes a reputation feature, not the provenance of the underlying price or transaction: clean AI pricing/export eligibility remains unchanged. Demonstration completions do not become genuine payment or clean rental-price evidence.
 
 No historical booking, payment, source marker, identity approval or financial amount was changed. No production database seed or migration was run.
 
 ## Integration and maintenance
 
-- Authenticated `GET /api/v1/users/me/trust` and `GET /api/v1/users/:id/trust` return safe aggregates, with overall/Owner/renter and marketplace/demo summaries. The latter supports encoded Auth0 account identifiers. Blocked/inactive targets are hidden from unrelated ordinary users; administrators and the account itself retain access.
-- Optional derived caches live in `User.trustProfile` and `Listing.ownerTrustProfile`. Profile reads refresh after 60 seconds; completion, published-review creation/edit/moderation and resolved-dispute completion refresh affected accounts. Listing snapshots refresh with the account, on listing creation and on pricing requests. A listing snapshot may lag until that refresh; open the trust page for the current calculation.
+- Authenticated `GET /api/v1/users/me/trust` and `GET /api/v1/users/:id/trust` return safe aggregates, with overall/Owner/renter and recorded/marketplace/demo summaries. The latter supports encoded Auth0 account identifiers. Blocked/inactive targets are hidden from unrelated ordinary users; active administrators and the account itself retain authorized access.
+- Authenticated `GET /api/v1/reviews/subjects/:subjectId?role=overall&page=1&limit=20` returns published reviews only. `role` also accepts `owner` or `renter`; page limits are 1–100. It shares trust-profile visibility rules and excludes booking/rental IDs, author account IDs and private moderation data.
+- Optional derived caches live in `User.trustProfile` and `Listing.ownerTrustProfile`. A missing/outdated `policyVersion` refreshes on demand, as does a calculation older than 60 seconds; completion, published-review creation/edit/moderation and resolved-dispute completion refresh affected accounts. Listing snapshots refresh with the account, on listing creation and on pricing requests. A listing snapshot may lag until that refresh; open the trust page for the current calculation. No bulk refresh or migration is run.
 - Durable lifecycle follow-ups run after successful financial/state commits. Trust failures cannot instruct a user to repeat a payment; invalidated caches fall back to neutral/unavailable. The dedicated history page offers retry. A failed reputation lookup does not block profile loading, listing creation or manual pricing.
 - Recalculation is idempotent and protected by the existing account-scoped operation lock. No incremental score counters, new dependencies or automatic role changes were introduced. Derived cache writes do not reorder records by changing business timestamps.
 - Queries are bounded to 1,000 recent completions and 20,000 associated payment rows. Exceeding the bounds returns unavailable rather than a misleading partial score. Large histories need a future aggregation strategy.
 - Aggregate responses contain no emails, booking/payment identifiers, private coordinates, identity documents or fingerprints. Full factual records keep their existing authorization.
 - `trust-profile-v1` is required by launcher readiness, preventing reuse of an older API lacking the new routes.
-- Pricing feature order, deployed artifacts and recommendation weights remain unchanged. Pricing uses the calculated genuine Owner role score or neutral 50.
+- Pricing feature order, deployed artifacts and recommendation weights remain unchanged. The existing Owner-trust feature uses recorded Owner trust or neutral 50; clean price-evidence policies remain separate.
 
 ## Verification
 

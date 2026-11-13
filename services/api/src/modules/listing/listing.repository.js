@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { TRUST_POLICY_VERSION } from '../user/trustPolicy.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { AvailabilityModel } from './availability.model.js';
 import { ListingModel } from './listing.model.js';
@@ -30,7 +31,8 @@ export const listingRepository = {
     const [items, total] = await Promise.all([
       sort.ownerTrustScore ? ListingModel.aggregate([
         { $match: criteria },
-        { $set: { _trustOrder: { $cond: [{ $and: [{ $eq: ['$ownerTrustProfile.version', 'renthub-trust-v1'] }, { $eq: ['$ownerTrustProfile.marketplace.status', 'established'] }] }, '$ownerTrustProfile.marketplace.score', 50] } } },
+        { $set: { _trustOrder: { $let: { vars: { summary: { $cond: [{ $eq: ['$ownerTrustProfile.policyVersion', TRUST_POLICY_VERSION] }, '$ownerTrustProfile.recorded', '$ownerTrustProfile.marketplace'] } },
+          in: { $cond: [{ $and: [{ $eq: ['$ownerTrustProfile.version', 'renthub-trust-v1'] }, { $eq: ['$$summary.status', 'established'] }] }, '$$summary.score', 50] } } } } },
         { $sort: { _trustOrder: -1, rating: -1, createdAt: -1, _id: -1 } },
         { $skip: (page - 1) * limit }, { $limit: limit }, { $unset: '_trustOrder' },
       ]).then(rows => rows.map(row => ListingModel.hydrate(row))) : ListingModel.find(criteria)

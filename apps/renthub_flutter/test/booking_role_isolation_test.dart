@@ -296,7 +296,7 @@ void main() {
               theme: AppTheme.light,
               home: LiveOwnerDashboard(onOpenRequests: () {})));
       await tester.pumpWidget(app());
-      expect(find.text('0 booking requests need a decision'), findsOneWidget);
+      expect(find.text('Needs attention (0)'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('IN camera'), 250,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('IN camera'), findsOneWidget);
@@ -306,7 +306,7 @@ void main() {
         Booking.fromJson(row('IN', renter: 'customer', owner: 'dual'))
       ];
       await tester.pumpWidget(app());
-      expect(find.text('1 booking requests need a decision'), findsOneWidget);
+      expect(find.text('Needs attention (1)'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
     testWidgets('Owner order uses the saved item title at $width',

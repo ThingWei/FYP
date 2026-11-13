@@ -142,7 +142,8 @@ void main() {
       'pending preflight shows approval requirement and does not mutate marketplace records',
       (tester) async {
     final api = IdentityApi([profileJson('pending')]);
-    final controller = LiveRentHubController(api);
+    final controller = LiveRentHubController(api)
+      ..profile = User.fromJson(profileJson('pending'));
     addTearDown(controller.dispose);
     bool? allowed;
     await tester.pumpWidget(ChangeNotifierProvider.value(

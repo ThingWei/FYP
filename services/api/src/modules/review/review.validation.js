@@ -65,3 +65,9 @@ export const listingReviewsValidation = [
 export const subjectSummaryValidation = [
   param('subjectId').custom(textInput).bail().trim().isLength({ min: 2, max: 150 }),
 ];
+export const subjectReviewsValidation = [
+  query().custom((value) => Object.keys(value).every((key) => ['role', 'page', 'limit'].includes(key))),
+  param('subjectId').custom(textInput).bail().isLength({ min: 1, max: 160 }).not().matches(/[\x00-\x1f]/),
+  ...reviewListValidation,
+  query('role').optional().custom(textInput).bail().isIn(['overall', 'owner', 'renter']),
+];

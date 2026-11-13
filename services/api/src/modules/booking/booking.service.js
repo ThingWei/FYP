@@ -33,6 +33,7 @@ import { notifyPaymentDue } from './bookingPaymentReminders.js';
 import { expireDuePendingBookings } from './bookingExpiry.js';
 import { expireUncollectedRentals } from '../rental/uncollectedExpiry.js';
 import { assertNoOverdueReturn } from '../rental/overdueEligibility.js';
+import { rentalRepository } from '../rental/rental.repository.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -471,12 +472,13 @@ export const bookingService = {
       status,
       filters: query,
     });
-    const [pending, activeOrders, listings] = await Promise.all([
+    const [pending, activeOrders, listings, overdueReturns] = await Promise.all([
       BookingModel.countDocuments({ownerId:identity.authId,status:'pending',paymentStatus:'authorized'}),
       RentalModel.countDocuments({ownerId:identity.authId,status:{$in:['active','overdue']}}),
       ListingModel.countDocuments({ownerId:identity.authId}),
+      rentalRepository.countOverdue(identity.authId),
     ]);
-    return { items, meta: { page, limit, total, summary:{pending,activeOrders,listings} } };
+    return { items, meta: { page, limit, total, summary:{pending,activeOrders,listings,overdueReturns,attentionNeeded:pending + overdueReturns} } };
   },
 
   async listAdmin(query) {

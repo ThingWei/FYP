@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { applicationTrust, realTrustScore } from './trustPolicy.js';
 import { UserModel } from './user.model.js';
 
 const publicFields =
@@ -49,8 +50,6 @@ export const userRepository = {
         .lean(),
       UserModel.countDocuments(filter),
     ]);
-    return [items.map(item => ({ ...item, trustScore:
-      item.trustProfile?.version === 'renthub-trust-v1' && item.trustProfile.overall?.marketplace?.status === 'established'
-        ? item.trustProfile.overall.marketplace.score : 50 })), total];
+    return [items.map(item => ({ ...item, trustScore: realTrustScore(applicationTrust(item.trustProfile)) })), total];
   },
 };
