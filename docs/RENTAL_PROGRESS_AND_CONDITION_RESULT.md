@@ -1,5 +1,14 @@
 # Rental progress, condition photos and clearer dispute handling
 
+13 November follow-up: [overdue reminders and Owner protection](OVERDUE_REMINDERS_AND_OWNER_PROTECTION_RESULT.md)
+adds email reminders, administrator attention after 24 hours, and a temporary
+new-booking/payment restriction while a physical item remains overdue and unreturned.
+
+12 November follow-up: [renter-confirmed handover](RENTER_CONFIRMED_HANDOVER_RESULT.md)
+replaces Owner-only activation for new physical handovers. Owner submission now
+waits for renter receipt confirmation; only that confirmation starts the rental
+and captures the demo hold. Condition photos are visible below the booking status.
+
 9 November follow-up: [uncollected-rental expiry, payment release and related UI rules](BOOKING_EXPIRY_LOCATIONS_AND_INSIGHTS_RESULT.md). Approved physical rentals without handover now expire after their full booked period; an active rental still follows the overdue/return flow.
 
 Implemented on 7 November 2026 for the live Renter and Owner flows. Previous
@@ -22,7 +31,9 @@ For a physical item booked for a future day:
    confirm that the item was handed over.
 4. On the booked start day, the Owner records the actual condition, notes and
    photos, then explicitly confirms handover when giving the item to the renter.
-   This activates the rental and captures the existing demo payment.
+   The record awaits renter confirmation. After receiving the item, the renter
+   reviews the photos and confirms receipt; this starts the rental and captures
+   the existing demo hold.
 5. The renter uses the item and submits a return record with actual condition,
    notes and photos when returning it.
 6. The Owner inspects the returned item and confirms return through the existing

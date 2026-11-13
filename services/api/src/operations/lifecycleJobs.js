@@ -11,6 +11,7 @@ import { physicalRentalDate, physicalRentalReturnDeadline } from '../core/calend
 import { sendUnpaidPaymentReminders } from '../modules/booking/bookingPaymentReminders.js';
 import { expireDuePendingBookings } from '../modules/booking/bookingExpiry.js';
 import { expireUncollectedRentals } from '../modules/rental/uncollectedExpiry.js';
+import { runOverdueReminders } from '../modules/rental/overdueReminders.js';
 
 const state = {
   enabled: env.lifecycleJobsEnabled,
@@ -152,23 +153,6 @@ async function markOverdueRentals(now, graceHours) {
         $set: { status: 'overdue', 'automation.overdueNotifiedAt': now, 'automation.lastProcessedAt': now },
       }, { new: true });
       if (!claimed) return;
-      const title = await bookingTitle(rental);
-      await Promise.all([
-        notifyParticipant(
-          rental,
-          rental.renterId,
-          'rental_overdue',
-          'Rental is overdue',
-          `${title} is overdue. Submit the return as soon as possible.`,
-        ),
-        notifyParticipant(
-          rental,
-          rental.ownerId,
-          'rental_overdue',
-          'Rental is overdue',
-          `${title} has passed its return time without a return submission.`,
-        ),
-      ]);
       marked += 1;
     });
   }
@@ -255,7 +239,11 @@ export async function runLifecycleJobs({
         sendServiceReminders(now, reminderHours),
         runDueReportSchedules(now),
       ]);
+    // Delivery failure must never roll back overdue status or prevent unrelated jobs.
+    const overdueReminders = await runOverdueReminders({ now, graceHours })
+      .catch(() => ({ unavailable: true }));
     state.lastResult = {
+      overdueReminders,
       recoveredListings,
       expiredExtensions,
       voidedTerminalHolds,

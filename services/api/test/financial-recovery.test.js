@@ -334,15 +334,28 @@ test('terminal orphan authorization is released once without touching captured f
   assert.equal((await BookingModel.findOne({ publicId: bookingId })).paymentStatus, 'voided');
 });
 
-test('dispute and return decision serialize without duplicate payouts or lost dispute status', async () => {
+test('dispute and return decision serialize with the completion cutoff and no duplicate payouts', async () => {
   await RentalModel.updateOne({ publicId: rentalId }, { $set: { status: 'return_submitted' } });
   const [opened, returned] = await Promise.all([
     request(app).post('/api/v1/disputes').set(renter).send({ rentalId, category: 'other', summary: 'Please review the condition', description: 'The condition needs review before any final distribution of funds.' }),
     request(app).post(`${path}/return/confirm`).set(owner).send({ condition: 'Good', depositDeduction: 0 }),
   ]);
-  assert.equal(opened.status, 201);
-  assert.ok([200, 409].includes(returned.status));
-  assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'disputed');
-  assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, 'disputed');
+  if (opened.status === 201) {
+    assert.equal(returned.status, 409);
+    assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'disputed');
+    assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, 'disputed');
+    assert.equal(await DisputeModel.countDocuments({ rentalId }), 1);
+    assert.equal(await PaymentModel.countDocuments({ type: 'owner_settlement' }), 0);
+  } else {
+    assert.equal(opened.status, 409);
+    assert.equal(opened.body.error.code, 'DISPUTE_WINDOW_CLOSED');
+    assert.equal(returned.status, 200);
+    assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'completed');
+    assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, 'completed');
+    assert.equal(await DisputeModel.countDocuments({ rentalId }), 0);
+    assert.equal(await NotificationModel.countDocuments({ type: 'dispute_opened' }), 0);
+    assert.equal(await PaymentModel.countDocuments({ type: 'owner_settlement' }), 1);
+    assert.equal(await PaymentModel.countDocuments({ type: 'deposit_release' }), 1);
+  }
   assert.ok((await bookingBalance(bookingId)).distributed <= 430);
 });

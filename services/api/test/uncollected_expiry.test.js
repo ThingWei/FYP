@@ -4,9 +4,9 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { connectDatabase, disconnectDatabase } from '../src/config/database.js';
 import { BookingModel } from '../src/modules/booking/booking.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
+import { UserModel } from '../src/modules/user/user.model.js';
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { NotificationModel } from '../src/modules/communication/notification.model.js';
-import { UserModel } from '../src/modules/user/user.model.js';
 import { LifecycleOperationModel } from '../src/operations/lifecycleJournal.js';
 import { expireUncollectedRentals } from '../src/modules/rental/uncollectedExpiry.js';
 import { rentalService } from '../src/modules/rental/rental.service.js';
@@ -82,6 +82,23 @@ test('a stale unpaid flag cannot void a hold belonging to a different payer or a
   assert.equal((await expireUncollectedRentals({ now: new Date('2026-11-11') })).needsReview, 1);
   assert.equal((await PaymentModel.findOne({ bookingId: booking.publicId })).status, 'authorized');
   assert.equal((await RentalModel.findById(rental._id)).status, 'scheduled');
+});
+
+test('submitted unacknowledged handover escalates once without capture, cancellation or hold release', async () => {
+  await UserModel.create({ authId: 'receipt-review-admin', displayName: 'Review Admin', email: 'review-admin@example.test', roles: ['admin'], activeRole: 'admin' });
+  const { booking, rental } = await fixture({ handover: { version: 2,
+    handoverId: '00000000-0000-4000-8000-000000000011', receiptStatus: 'pending',
+    condition: 'Good', evidence: ['local://handover/receipt.jpg'], recordedAt: new Date('2026-11-09') } });
+  const now = new Date('2026-11-10T16:00:00Z');
+  assert.deepEqual(await expireUncollectedRentals({ now }), { expired: 0, needsReview: 1 });
+  const saved = await RentalModel.findById(rental._id);
+  assert.equal(saved.status, 'scheduled'); assert.ok(saved.handover.reviewNeededAt);
+  assert.equal((await BookingModel.findById(booking._id)).status, 'approved');
+  assert.equal((await PaymentModel.findOne({ bookingId: booking.publicId })).status, 'authorized');
+  assert.equal(await PaymentModel.countDocuments({ type: { $in: ['capture', 'refund'] } }), 0);
+  assert.equal(await NotificationModel.countDocuments({ type: 'handover_review_needed' }), 3);
+  await expireUncollectedRentals({ now });
+  assert.equal(await NotificationModel.countDocuments({ type: 'handover_review_needed' }), 3);
 });
 test('direct late handover is rejected without starting a rental or capturing a payment', async () => {
   const { rental } = await fixture({ endDate: '2020-01-01' });

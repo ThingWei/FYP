@@ -7,20 +7,36 @@ import { prepareVoidBookingPayment } from '../payment/payment.service.js';
 import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
 import { notifyUser } from '../communication/notification.service.js';
+import { UserModel } from '../user/user.model.js';
 
 // Caller supplies a participant scope for read-time checks. Never treat an
 // elapsed date as proof of handover or charge a no-show penalty.
 export async function expireUncollectedRentals({ now = new Date(), scope = {} } = {}) {
-  const filter = { ...scope, listingType: 'physical', status: 'scheduled', endDate: { $lt: physicalRentalDate(now) } };
+  const filter = { ...scope, listingType: 'physical', status: 'scheduled', endDate: { $lt: physicalRentalDate(now) },
+    $or: [{ 'handover.recordedAt': { $exists: false } }, { 'handover.version': 2,
+      'handover.receiptStatus': { $in: ['pending', 'processing'] }, 'handover.reviewNeededAt': { $exists: false } }] };
   const candidates = await RentalModel.find(filter).select('publicId listingId').sort({ endDate: 1, _id: 1 }).limit(100).lean();
   let expired = 0, needsReview = 0;
   for (const candidate of candidates) {
     await withOperationLock('listing-decision', candidate.listingId, async ensureOwned => {
       await recoverListingOperations(candidate.listingId, ensureOwned);
       const rental = await RentalModel.findOne({ ...filter, publicId: candidate.publicId });
-      if (!rental || rental.handover?.recordedAt || rental.handover?.condition || rental.handover?.evidence?.length) return;
+      if (!rental) return;
       const booking = await BookingModel.findOne({ publicId: rental.bookingId, status: 'approved' });
       if (!booking) return;
+      if (rental.handover?.version === 2 && rental.handover.receiptStatus === 'pending') {
+        rental.handover.reviewNeededAt = now;
+        const admins = await UserModel.find({ roles: 'admin', accountStatus: 'active' }).select('authId').limit(100).lean();
+        const recipients = [...new Set([rental.ownerId, rental.renterId, ...admins.map(user => user.authId)])];
+        await commitLifecycle(`handover-review:${rental.handover.handoverId}`, rental.listingId, [rental], ensureOwned, {
+          notifications: recipients.map(userId => ({ userId, category: 'rental', type: 'handover_review_needed',
+            title: 'Handover needs review', body: `The booked dates for ${booking.listingTitle} ended without renter confirmation. No rental was started or payment captured. Report an issue or contact support.`,
+            entityType: 'rental', entityId: rental.publicId, dedupeKey: `handover-review:${rental.handover.handoverId}:${userId}` })),
+        });
+        needsReview++;
+        return;
+      }
+      if (rental.handover?.recordedAt || rental.handover?.condition || rental.handover?.evidence?.length) return;
       const hold = await PaymentModel.findOne({ bookingId: booking.publicId, type: 'authorization',
         'metadata.extensionId': { $exists: false }, status: { $in: ['authorized', 'voided'] } }).sort({ createdAt: -1 }).lean();
       if (['captured', 'settled', 'partially_refunded', 'refunded'].includes(booking.paymentStatus) ||

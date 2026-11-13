@@ -12,6 +12,7 @@ import { BookingModel } from '../src/modules/booking/booking.model.js';
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { adminRecordRegistry, createAdminRecordsService } from '../src/modules/admin/adminRecords.service.js';
 import { resolveKycRequirement } from '../src/modules/user/kycRequirements.js';
+import { itemPhotoReviewFields } from '../src/modules/admin/itemPhotoReviewFields.js';
 
 const headers = { 'x-user-id': 'admin-reader', 'x-user-roles': 'admin', 'x-user-name': 'Test Administrator', 'x-user-email': 'admin@example.test' };
 const registry = adminRecordRegistry(adminModule.Model);
@@ -55,6 +56,72 @@ test('user details resolve MongoDB ID and account ID and keep identity secrets p
     assert.ok(!JSON.stringify(record).includes('PRIVATE'));
     assert.equal(record.verification.history[0].attemptId, 'A1');
   }
+});
+
+test('admin listing details preserve the Owner saved item-match evidence without exposing extracted private fields', async () => {
+  const owner = { 'x-user-id': 'photo-owner', 'x-user-roles': 'owner', 'x-user-email': 'photo-owner@example.test', 'x-user-name': 'Demo Owner' };
+  await request(app).post('/api/v1/users/session').set(owner).expect(201);
+  const fields = {
+    categoryMatched: true, categoryMatchStatus: 'all_views_detected', matchingViewCount: 3, submittedViewCount: 3,
+    photoContextReviewRequired: false, syntheticRiskOnly: true,
+    models: { detectorAvailable: true, riskClassifierAvailable: true, detectorSource: 'configured_item_model', rawText: 'PRIVATE' },
+    images: [0, 1, 2].map(imageIndex => ({ imageIndex, imageWidth: 1200, imageHeight: 900,
+      categoryMatched: true, objectEvidenceStatus: 'expected_type_detected', imageRiskScore: .4,
+      quality: { isBlurry: false, isTooDark: false, isTooBright: false, hasUsableResolution: true, rawText: 'PRIVATE' },
+      photoContext: { status: 'not_established', rotationEvidenceReviewRequired: false, depictedContentReviewRequired: false, ocrText: 'PRIVATE' },
+      detections: [{ label: 'cell phone', confidence: .76, matchesCategory: true, boundingBox: [.1, .2, .8, .9], rawText: 'PRIVATE' }],
+      rawText: 'PRIVATE', storagePath: 'PRIVATE',
+    })),
+    ocr_text: 'PRIVATE', ic_number: 'PRIVATE', document_number: 'PRIVATE',
+    unknownNested: { sensitiveValue: 'PRIVATE' },
+  };
+  const { insertedId } = await registry.listings.model.collection.insertOne({ publicId: 'l-photo-review', ownerId: 'photo-owner',
+    title: 'Phone', category: 'Devices', subcategory: 'Smartphones', listingType: 'physical', status: 'active', dailyPrice: 10,
+    images: ['upload://PHOTO1', 'upload://PHOTO2', 'upload://PHOTO3'],
+    itemVerification: { outcome: 'warning', risk_indicators: ['Some photo checks flagged concerns'], extracted_fields: fields } });
+  const ownerResponse = await request(app).get('/api/v1/listings/owner/mine').set(owner).expect(200);
+  const adminResponse = await request(app).get(`/api/v1/admin/records/listings/${insertedId}`).set(headers).expect(200);
+  const ownerEvidence = ownerResponse.body.data[0].itemVerification;
+  const record = adminResponse.body.data.record, adminEvidence = record.itemVerification;
+  for (const key of ['categoryMatched', 'categoryMatchStatus', 'matchingViewCount', 'submittedViewCount', 'photoContextReviewRequired', 'syntheticRiskOnly']) {
+    assert.equal(adminEvidence.extracted_fields[key], ownerEvidence.extracted_fields[key], key);
+  }
+  assert.equal(adminEvidence.outcome, 'warning');
+  assert.deepEqual(adminEvidence.extracted_fields.images[0].detections[0], {
+    label: 'cell phone', confidence: .76, matchesCategory: true, boundingBox: [.1, .2, .8, .9],
+  });
+  assert.equal(adminEvidence.extracted_fields.images[0].quality.isBlurry, false);
+  assert.equal(adminEvidence.extracted_fields.models.detectorAvailable, true);
+  assert.equal(adminEvidence.extracted_fields.images.length, 3);
+  assert.ok(!JSON.stringify(record).includes('PRIVATE'));
+  const stored = await registry.listings.model.findById(insertedId).lean();
+  assert.equal(stored.itemVerification.extracted_fields.ocr_text, 'PRIVATE', 'viewing does not modify the stored evidence');
+  const forbidden = await request(app).get(`/api/v1/admin/records/listings/${insertedId}`).set(owner);
+  assert.equal(forbidden.status, 403);
+});
+
+test('safe listing projection retains negative, unavailable, partial and screen-context findings without inventing matches', async () => {
+  for (const fields of [
+    { categoryMatched: false, categoryMatchStatus: 'not_detected', matchingViewCount: 0, submittedViewCount: 3 },
+    { categoryMatched: null, categoryMatchStatus: 'partial_views', matchingViewCount: 1, submittedViewCount: 3 },
+    { categoryMatchStatus: 'analysis_incomplete', models: { detectorAvailable: false } },
+    { categoryMatched: true, categoryMatchStatus: 'context_needs_review', photoContextReviewRequired: true },
+  ]) {
+    const { insertedId } = await registry.listings.model.collection.insertOne({ publicId: `photo-${fields.categoryMatchStatus}`, title: 'Saved checks', itemVerification: { outcome: 'manual_review', extracted_fields: fields } });
+    const row = (await service.get('listings', String(insertedId))).record;
+    assert.deepEqual(row.itemVerification.extracted_fields, fields);
+  }
+  assert.deepEqual(itemPhotoReviewFields({ categoryMatched: 'true', matchingViewCount: -1, submittedViewCount: Infinity,
+    images: [null, 'bad', { imageIndex: -2, detections: [{ confidence: 4, boundingBox: [-1, 0, 2, 1] }] }] }),
+  { images: [{ detections: [{}] }] });
+  for (const value of [undefined, null, 'bad', []]) assert.deepEqual(itemPhotoReviewFields(value), {});
+  const { insertedId } = await registry.listings.model.collection.insertOne({ publicId: 'photo-no-check', title: 'No saved analysis' });
+  assert.equal((await service.get('listings', String(insertedId))).record.itemVerification, undefined);
+  const camelCase = await registry.listings.model.collection.insertOne({ publicId: 'photo-legacy-key', title: 'Existing analysis',
+    itemVerification: { extractedFields: { categoryMatched: true, rawText: 'PRIVATE' } } });
+  const legacy = (await service.get('listings', String(camelCase.insertedId))).record;
+  assert.deepEqual(legacy.itemVerification.extracted_fields, { categoryMatched: true });
+  assert.ok(!JSON.stringify(legacy).includes('PRIVATE'));
 });
 
 test('licence review receives current MyKad status without private document data', async () => {

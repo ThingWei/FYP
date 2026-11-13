@@ -253,3 +253,50 @@ launcher normally to load the changed script. Real-device delayed authorization
 and reconnection remain a manual walkthrough check.
 
 Commit message: `fix(launcher): retry Android readiness with actionable connection states`.
+
+## Android discovery refresh - 12 November 2026
+
+Reported symptom: the launcher timed out checking a connected phone, but running
+`flutter devices` afterward made it available. Inspection found that startup
+repeated the selected-device check with five-second per-call limits without an
+explicit discovery refresh. This is consistent with delayed ADB startup/discovery;
+the original cold-start failure was not reproduced during this check.
+
+After the first absent/offline/timed-out/unknown ADB check, normal startup now
+runs `adb start-server` and `adb devices -l` once, using the same ADB executable.
+The refresh has a combined ten-second maximum inside the existing approximate
+30-second startup budget. It then rechecks the explicitly selected phone and
+required forwarding; an enumeration result alone never counts as readiness.
+An already-ready phone proceeds immediately. Unauthorized phones retain the
+unlock/allow-debugging guidance without an unnecessary discovery refresh.
+
+ADB native calls now terminate only their own hung client on timeout, preserving
+a daemon it may have started. Other native tools retain the existing owned-tree
+cleanup. There is no explicit ADB kill-server, global reconnect, phone selection
+change, wireless pairing, SDK configuration change or automatic Flutter invocation.
+Genuinely disconnected or unauthorized phones can still fail with specific guidance.
+
+Verification:
+
+- All four launcher suites and the ten test-pack unit tests passed with disposable
+  process integration: private `.data/testing/20261112-120440-f1b87e26`.
+- Added regression checks cover safe discovery command order, combined budgets,
+  one refresh per startup, delayed readiness, unavailable discovery, unchanged
+  authorization guidance and rechecking the selected phone/forwarding.
+- A disposable detached child fixture verifies a timed-out ADB-like client is
+  terminated while its daemon survives; the fixture cleans up that child afterward.
+- The connected Android phone returned `device` after the actual discovery helper
+  ran, taking about 0.13 seconds for refresh plus selected-device check. This was
+  a warm connection check, not a reproduction of a cold-start failure. No ADB
+  restart, app rebuild or full service restart was performed for device testing.
+- An initial sandboxed integration run could not inspect process trees or access
+  Windows credential storage. Tests were rerun outside that restriction. A daemon
+  fixture was corrected to use a detached process, matching a persistent daemon;
+  the final complete run passed. Model/metrics checksums remained unchanged.
+
+Use the usual launcher command again; no new option or preliminary
+`flutter devices` command is required. For a genuinely slow cold connection,
+verify once during the next normal startup that the refresh message appears and
+the launcher continues without a separate terminal workaround.
+
+Commit message: `fix(launcher): refresh Android discovery and preserve shared ADB daemon`.

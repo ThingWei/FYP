@@ -195,3 +195,167 @@ class ItemPhotoSummary {
     return notes.isEmpty ? 'Needs a closer look' : notes.join(' · ');
   }
 }
+
+/// Administrator findings describe saved evidence, not how an Owner should
+/// retake photos. These are presentation labels, never moderation decisions.
+class AdminItemPhotoSummary extends ItemPhotoSummary {
+  AdminItemPhotoSummary(super.listing);
+
+  @override
+  String get explanation => evidence.isEmpty
+      ? 'No saved photo check is available.'
+      : listing.itemVerificationOutcome == 'unavailable'
+          ? 'Photo analysis is unavailable; no automated conclusion is available.'
+          : typeSummary;
+
+  @override
+  String get typeSummary {
+    if (evidence.isEmpty) return 'No saved item-type result is available.';
+    if (_depictedNeedsReview ||
+        (_contextNeedsReview && !_rotationNeedsReview)) {
+      return 'A document, illustration or screen may be present; the listed item is not confirmed.';
+    }
+    if (_rotationNeedsReview) {
+      return 'Item-type evidence is uncertain; a match is not established.';
+    }
+    if (fields['categoryMatchStatus'] == 'unsupported') {
+      return 'This item type is outside the available automatic checks.';
+    }
+    if (models['detectorAvailable'] == false ||
+        fields['categoryMatchStatus'] == 'analysis_incomplete') {
+      return 'Item-type analysis is incomplete; a match is not established.';
+    }
+    final matched = fields['matchingViewCount'];
+    final total = fields['submittedViewCount'];
+    if (matched is num &&
+        total is num &&
+        matched.isFinite &&
+        total.isFinite &&
+        matched == matched.roundToDouble() &&
+        total == total.roundToDouble() &&
+        total > 0 &&
+        matched >= 0 &&
+        matched <= total) {
+      return matched == 0
+          ? 'The listed item type was not identified clearly.'
+          : 'Possible item type detected in ${matched.toInt()} of ${total.toInt()} photos; not a confirmed match.';
+    }
+    if (fields['categoryMatched'] == true) {
+      return 'Possible item type detected; not a confirmed match.';
+    }
+    return fields['categoryMatched'] == false ||
+            fields['categoryMatchStatus'] == 'not_detected'
+        ? 'The listed item type was not identified clearly.'
+        : 'Item type could not be established from the saved checks.';
+  }
+
+  @override
+  List<String> get notes {
+    final result = <String>[];
+    if (_rotationNeedsReview) {
+      result.add('Item-type evidence is uncertain in some views.');
+    }
+    if (_depictedNeedsReview ||
+        (_contextNeedsReview && !_rotationNeedsReview)) {
+      result.add(
+          'Some photos may contain a document, illustration or on-screen content.');
+    }
+    if (_signals.contains('at least three')) {
+      result.add('The submitted views were flagged as insufficient.');
+    }
+    if (_qualityFlag('isBlurry')) result.add('Some photos appear blurry.');
+    if (_qualityFlag('isTooDark') || _qualityFlag('isTooBright')) {
+      result.add('Lighting may obscure item details.');
+    }
+    if (images.any((image) =>
+        ItemPhotoSummary.map(image['quality'])['hasUsableResolution'] ==
+        false)) {
+      result.add('Some photos have low resolution.');
+    }
+    final duplicates =
+        ItemPhotoSummary.map(evidence['quality'])['duplicateCount'];
+    if ((duplicates is num && duplicates > 0) ||
+        _signals.contains('repeated') ||
+        _signals.contains('visually similar')) {
+      result.add('Possible repeated photos detected.');
+    }
+    if (fields['categoryMatchStatus'] == 'partial_views') {
+      result.add('Only some views support the listed item type.');
+    }
+    if (fields['openVocabularyEvidenceUsed'] == true) {
+      result.add('The suggested item type is tentative.');
+    }
+    if (fields['syntheticRiskOnly'] == true) {
+      result.add(
+          'Image-risk results are experimental; they do not establish authenticity.');
+    }
+    if (models['detectorAvailable'] == false ||
+        images.any((image) => image['detectorUnavailable'] == true)) {
+      result.add('Item-type detection is unavailable for some or all photos.');
+    }
+    if (models['riskClassifierAvailable'] == false ||
+        images.any((image) => image['riskClassifierUnavailable'] == true)) {
+      result
+          .add('Image-risk assessment is unavailable for some or all photos.');
+    }
+    if (fields['categoryMatchStatus'] == 'analysis_incomplete') {
+      result.add('Some image checks could not be completed.');
+    }
+    if (result.isEmpty && concerns.isNotEmpty) {
+      result.add('The saved image checks flagged concerns.');
+    }
+    return result.toSet().toList();
+  }
+
+  @override
+  String photoNote(Map image) {
+    final quality = ItemPhotoSummary.map(image['quality']);
+    final context = ItemPhotoSummary.map(image['photoContext']);
+    final notes = <String>[];
+    if (quality['isBlurry'] == true) notes.add('Photo appears blurry');
+    if (quality['isTooDark'] == true || quality['isTooBright'] == true) {
+      notes.add('Lighting may obscure details');
+    }
+    if (quality['hasUsableResolution'] == false) {
+      notes.add('Low-resolution photo');
+    }
+    if (image['detectorUnavailable'] == true) {
+      notes.add('Item-type detection unavailable');
+    }
+    if (image['riskClassifierUnavailable'] == true) {
+      notes.add('Image-risk assessment unavailable');
+    }
+    final uncertain = context['rotationEvidenceReviewRequired'] == true;
+    if (context['depictedContentReviewRequired'] == true ||
+        (!uncertain &&
+            (context['status'] == 'needs_review' ||
+                image['objectEvidenceStatus'] == 'context_needs_review'))) {
+      notes.add(
+          'Document, illustration or on-screen content may be present; item match not confirmed');
+    } else if (uncertain) {
+      notes.add('Item-type evidence is uncertain');
+    } else if (image['detectorUnavailable'] != true &&
+        image['categoryMatched'] == true) {
+      notes.add('Possible item type detected; not a confirmed match');
+    } else if (image['categoryMatched'] == false ||
+        image['objectEvidenceStatus'] == 'not_detected') {
+      notes.add('Listed item type not identified clearly');
+    } else if (image['objectEvidenceStatus'] == 'category_not_covered') {
+      notes.add('Item type outside the available automatic checks');
+    }
+    final labels = ItemPhotoSummary.maps(image['detections'])
+        .map((detection) => detection['label'])
+        .whereType<String>()
+        .map((label) => label.trim().replaceAll('_', ' '))
+        .where((label) => label.isNotEmpty && label.length <= 80)
+        .toSet()
+        .take(5)
+        .toList();
+    if (labels.isNotEmpty) {
+      notes.add('Tentative object labels: ${labels.join(', ')}');
+    }
+    return notes.isEmpty
+        ? 'No conclusive item-type result recorded for this photo'
+        : notes.join(' \u00b7 ');
+  }
+}

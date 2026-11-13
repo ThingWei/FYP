@@ -11,6 +11,8 @@ import '../../shared/widgets/record_list_header.dart';
 import 'admin_record_models.dart';
 import 'live_renthub_controller.dart';
 import 'live_photo_widgets.dart';
+import 'live_item_verification_panel.dart';
+import '../../shared/models/domain_models.dart' show Listing;
 
 typedef AdminRecordActions = List<Widget> Function(BuildContext context,
     Map<String, dynamic> record, Future<void> Function() reload);
@@ -1069,6 +1071,60 @@ class AdminRecordDetails extends StatelessWidget {
           row['agreement']['version'] ?? 'Not recorded';
       fields['Renter accepted'] = adminDate(row['agreement']['acceptedAt']);
     }
+    if (type == 'rentals' &&
+        row['overdueInfo'] is Map &&
+        row['overdueInfo']['isOverdue'] == true) {
+      fields['Return'] = row['overdueInfo']['needsAttention'] == true
+          ? 'Overdue — needs attention'
+          : 'Overdue';
+      fields['Overdue since'] = adminDate(row['overdueInfo']['since']);
+    }
+    if (type == 'rentals' && row['overdueReminders'] is List) {
+      const statuses = {
+        'pending': 'Waiting to send',
+        'sending': 'Sending',
+        'sent': 'Sent',
+        'retry': 'Will retry',
+        'failed': 'Could not send',
+        'uncertain': 'Delivery not confirmed',
+        'skipped': 'Not sent',
+        'cancelled': 'No longer needed',
+        'superseded': 'Replaced by follow-up'
+      };
+      for (final entry in (row['overdueReminders'] as List).whereType<Map>()) {
+        final recipient = const {
+              'renter': 'Renter',
+              'owner': 'Owner',
+              'admin': 'Administrator'
+            }[entry['recipient']] ??
+            'Participant';
+        final channel = entry['channel'] == 'email' ? 'email' : 'notification';
+        final stage = entry['stage'] == 'initial'
+            ? 'first reminder'
+            : entry['stage'] == 'admin'
+                ? 'attention alert'
+                : 'follow-up';
+        fields['$recipient $channel · $stage'] = entry['result'] == 'disabled'
+            ? 'Email delivery switched off'
+            : entry['result'] == 'opted_out'
+                ? 'Email notifications turned off by user'
+                : '${statuses[entry['status']] ?? 'Not available'}${entry['sentAt'] == null ? '' : ' · ${adminDate(entry['sentAt'])}'}';
+      }
+    }
+    if (type == 'rentals' && row['handover'] is Map) {
+      final handover = row['handover'] as Map;
+      fields['Renter receipt'] = handover['reviewNeededAt'] != null
+          ? 'Handover needs review'
+          : const {
+                'pending': 'Awaiting renter confirmation',
+                'processing': 'Receipt confirmation processing',
+                'acknowledged': 'Renter confirmed receipt',
+              }[handover['receiptStatus']] ??
+              'Renter confirmation was not recorded';
+      if (handover['acknowledgedAt'] != null) {
+        fields['Receipt confirmed'] = adminDate(handover['acknowledgedAt']);
+      }
+    }
     for (final entry in const {
       'handover': 'Handover',
       'returnSubmission': 'Return submitted',
@@ -1243,6 +1299,19 @@ class AdminRecordDetails extends StatelessWidget {
             label: const Text('Open source webpage')),
       if (identity)
         _AdminIdentityDocuments(row: row, expanded: type == 'verification'),
+      if (type == 'listings' && row['listingType'] != 'service')
+        AdminDetailSection(
+            title: 'Item photo review',
+            icon: Icons.fact_check_outlined,
+            child: Material(
+                color: AppColors.background,
+                child: ItemVerificationPanel(
+                    listing: Listing.fromJson({
+                      ...row,
+                      // Incomplete drafts may not have a category yet.
+                      'category': row['category'] ?? '',
+                    }),
+                    forAdminReview: true))),
       if (row['images'] is List || row['evidence'] is List)
         AdminDetailSection(
             title: 'Photos and evidence',

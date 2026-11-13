@@ -10,6 +10,7 @@ RentHub is a Malaysian rental marketplace for physical items and services. Rente
 - [Open the administrator portal](#2-open-the-administrator-portal)
 - [Supervisor walkthrough](#3-demonstrate-the-main-features)
 - [Full-platform test plan and execution sheets](docs/testing/README.md)
+- [Overdue reminders and unreturned items](docs/OVERDUE_REMINDERS_AND_OWNER_PROTECTION_RESULT.md)
 - [Stop RentHub safely](#4-finish-the-session)
 - [Use another laptop](#5-use-renthub-on-another-laptop)
 - [First-time setup](#6-first-time-setup)
@@ -74,6 +75,9 @@ Android startup retries automatically for about **30 seconds**, showing the
 current problem. Unlock/authorize or reconnect it while the launcher waits;
 startup continues as soon as it is ready. Missing ADB or an invalid device ID
 gives immediate setup guidance instead of waiting unnecessarily.
+If discovery is slow, the launcher also starts/reuses ADB and refreshes its
+device list once within that wait. You should not need to run `flutter devices`
+as a separate workaround. The selected phone must still be authorized and ready.
 
 After **Flutter run key commands** appears, click this same terminal and use
 **r** for hot reload, **R** for hot restart, or **q** to end the app's debug

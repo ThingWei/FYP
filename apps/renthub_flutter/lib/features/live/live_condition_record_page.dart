@@ -113,6 +113,7 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
     final latest = currentRental(c);
     if (widget.handover &&
         (latest.status != 'scheduled' ||
+            latest.hasSubmittedHandover ||
             !handoverDayReached(latest) ||
             latest.end != null &&
                 calendarDate(latest.end!).isBefore(malaysiaCalendarToday()))) {
@@ -120,12 +121,12 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
     }
     final accepted = await confirmAction(context,
         title: widget.handover
-            ? 'Hand the item to the renter?'
+            ? 'Send handover for confirmation?'
             : 'Submit your return record?',
         message: widget.handover
-            ? 'Confirm only when the item is being given to the renter. Your condition, notes and photos will be shared with them and the rental will start.'
+            ? 'Your condition, notes and photos will be sent to the renter and cannot be edited afterward. The rental starts only after the renter confirms receipt.'
             : 'The Owner will compare these photos with the handover record and inspect the returned item before completing the rental.',
-        action: widget.handover ? 'Confirm handover' : 'Submit return');
+        action: widget.handover ? 'Send handover' : 'Submit return');
     if (!accepted || !mounted) return;
     setState(() {
       busy = true;
@@ -167,13 +168,18 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
             rental.end != null &&
                 calendarDate(rental.end!).isBefore(malaysiaCalendarToday()));
     final ready = !widget.handover ||
-        !ended && rental.status == 'scheduled' && handoverDayReached(rental);
+        !ended &&
+            !rental.hasSubmittedHandover &&
+            rental.status == 'scheduled' &&
+            handoverDayReached(rental);
     final handoverDate = rental.start == null ? null : rentalDay(rental.start!);
-    final handoverNotice = ended
-        ? 'The booked dates have ended. Handover is closed. Open the booking again to check its expiry and payment status.'
-        : handoverDate == null
-            ? 'The booked start date is not available. Check the latest rental status before handover.'
-            : 'You can confirm handover from $handoverDate (Malaysia time), when you give the item to the renter. Filling in this form does not start the rental early.';
+    final handoverNotice = rental.hasSubmittedHandover
+        ? 'The handover record is saved. Check the booking for renter confirmation.'
+        : ended
+            ? 'The booked dates have ended. Handover is closed. Open the booking again to check its expiry and payment status.'
+            : handoverDate == null
+                ? 'The booked start date is not available. Check the latest rental status before handover.'
+                : 'You can send handover from $handoverDate (Malaysia time), when you give the item to the renter. The renter must confirm receipt before the rental starts.';
     return PopScope(
         canPop: !busy,
         child: Scaffold(
@@ -359,7 +365,7 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                                           ? 'Start date needed'
                                                           : 'Handover opens $handoverDate'
                                                   : widget.handover
-                                                      ? 'Review & confirm handover'
+                                                      ? 'Send handover for confirmation'
                                                       : 'Review & submit return')),
                                   const SizedBox(height: 12),
                                   const Text(

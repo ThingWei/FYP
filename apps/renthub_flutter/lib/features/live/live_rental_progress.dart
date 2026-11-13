@@ -62,6 +62,11 @@ bool handoverDayReached(Rental rental, {DateTime? now}) =>
     rental.start != null &&
     !calendarDate(rental.start!).isAfter(malaysiaCalendarToday(now: now));
 
+bool handoverReviewRequired(Rental rental, {DateTime? now}) =>
+    rental.handover?.reviewNeededAt != null ||
+    rental.end != null &&
+        calendarDate(rental.end!).isBefore(malaysiaCalendarToday(now: now));
+
 /// Progress is derived from saved lifecycle states, never from elapsed time alone.
 class RentalJourney {
   const RentalJourney(this.title, this.next, this.stage, this.steps,
@@ -121,9 +126,11 @@ class RentalJourney {
           'Open the case to see what information is needed. An administrator will review both sides before deciding.',
           rental?.returnSubmission != null
               ? 4
-              : rental?.handover != null
-                  ? 3
-                  : 1,
+              : rental?.awaitingReceipt == true
+                  ? 2
+                  : rental?.handover != null
+                      ? 3
+                      : 1,
           steps,
           paused: true);
     }
@@ -163,6 +170,27 @@ class RentalJourney {
           steps);
     }
     if (status == 'scheduled' || status == 'approved') {
+      if (!service && rental?.awaitingReceipt == true) {
+        final review = rental!.handover!.reviewNeededAt != null ||
+            rental.end != null &&
+                calendarDate(rental.end!)
+                    .isBefore(malaysiaCalendarToday(now: now));
+        return RentalJourney(
+            review
+                ? 'Handover needs review'
+                : rental.handover!.receiptStatus == 'processing'
+                    ? 'Confirming item receipt'
+                    : owner
+                        ? 'Waiting for renter confirmation'
+                        : 'Review your handover',
+            review
+                ? 'The booked dates ended without completed receipt confirmation. Report an issue or contact support. No rental has started.'
+                : owner
+                    ? 'Your condition record has been sent. The rental starts after the renter confirms receipt.'
+                    : 'Review the Owner’s condition photos. Confirm only when you have received the item, or report an issue.',
+            2,
+            steps);
+      }
       final future = start != null &&
           calendarDate(start).isAfter(malaysiaCalendarToday(now: now));
       return RentalJourney(
@@ -241,19 +269,13 @@ class RentalProgressPanel extends StatelessWidget {
                   title: Text(
                       (rental?.listingType ?? booking?.listingType) == 'service'
                           ? 'See booking progress'
-                          : 'See progress & condition photos'),
+                          : 'Return record'),
                   childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   expandedCrossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if ((rental?.listingType ?? booking?.listingType) !=
                         'service') ...[
                       const Divider(height: 24),
-                      const Text(
-                          'Collection and delivery updates are recorded by the Owner. Live courier tracking is not available.'),
-                      const SizedBox(height: 12),
-                      RentalConditionSection(
-                          title: 'Before handover', record: rental?.handover),
-                      const SizedBox(height: 12),
                       RentalConditionSection(
                           title: 'At return', record: rental?.returnSubmission),
                       const SizedBox(height: 12),

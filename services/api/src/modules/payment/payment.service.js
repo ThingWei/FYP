@@ -12,6 +12,7 @@ import { withOperationLock } from '../booking/bookingRequestLock.js';
 import { PaymentModel } from './payment.model.js';
 import { bookingBalance, cents, planAllocations } from './paymentLedger.js';
 import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
+import { assertNoOverdueReturn } from '../rental/overdueEligibility.js';
 
 function transactionId(type) {
   const code = {
@@ -221,6 +222,7 @@ export const paymentService = {
       throw new AppError('Only current unpaid requests can be paid', 409, 'INVALID_BOOKING_STATE');
     }
     const token = new mongoose.Types.ObjectId().toString();
+    await assertNoOverdueReturn(identity.authId);
     const claim = await BookingModel.findOneAndUpdate({ ...eligible(), paymentStatus: 'unpaid',
       $and: [{ $or: [{ paymentLeaseUntil: { $exists: false } }, { paymentLeaseUntil: { $lte: new Date() } }] }] },
       { $set: { paymentLeaseToken: token, paymentLeaseUntil: new Date(Date.now() + 60_000) } });

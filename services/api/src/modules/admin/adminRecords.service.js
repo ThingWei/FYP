@@ -15,6 +15,9 @@ import { RewardLedgerModel, ReferralModel } from '../loyalty/loyalty.model.js';
 import { PricingReferenceModel } from '../listing/pricingReference.model.js';
 import { verificationRecordsFilter, verificationRecordSummary, VERIFICATION_RECORD_STATUSES } from './adminVerificationRecords.js';
 import { hasApprovedMykad, LICENCE_CLASSES } from '../user/drivingEligibility.js';
+import { itemPhotoReviewFields } from './itemPhotoReviewFields.js';
+import { overdueSummary } from '../rental/overduePolicy.js';
+import { overdueDeliverySummary } from '../rental/overdueReminders.js';
 
 const common = 'publicId createdAt updatedAt status';
 const entry = (model, fields, search, statusField = 'status') => ({ model, fields: `${common} ${fields}`, search, statusField });
@@ -97,6 +100,7 @@ export function createAdminRecordsService(auditModel) {
   function project(doc, type, accountNames = {}, bookings = {}) {
     const raw = doc.toObject ? doc.toObject() : doc;
     if (type === 'rentals') {
+      raw.overdueInfo = overdueSummary(raw);
       const booking = bookings[raw.bookingId];
       // These names come from the booking snapshot, never today's profile.
       if (booking) for (const key of ['listingTitle', 'renterName', 'ownerName']) raw[key] = booking[key];
@@ -124,6 +128,12 @@ export function createAdminRecordsService(auditModel) {
     if (type === 'audit-logs') raw.metadata = Object.fromEntries(Object.entries(raw.metadata ?? {}).filter(([key]) => auditMetadataKeys.has(key)));
     if (type === 'transactions') raw.metadata = { simulationOutcome: raw.metadata?.simulationOutcome };
     const result = safeAdminValue(raw);
+    if (type === 'listings' && result.itemVerification && typeof result.itemVerification === 'object') {
+      const fields = raw.itemVerification?.extracted_fields ?? raw.itemVerification?.extractedFields;
+      if (fields && typeof fields === 'object' && !Array.isArray(fields)) {
+        result.itemVerification.extracted_fields = itemPhotoReviewFields(fields);
+      }
+    }
     result.id = String(raw.publicId ?? raw._id);
     if (raw._id) result._id = String(raw._id); // Existing user moderation requires its database identifier.
     result.accountNames = accountNames;
@@ -145,7 +155,7 @@ export function createAdminRecordsService(auditModel) {
   const listFields = {
     users: 'authId displayName email roles accountStatus', verification: 'authId displayName email verification.status verification.documentType verification.submittedAt verification.reviewedAt verification.documents.documentType verification.documents.status verification.documents.submittedAt verification.documents.reviewedAt verification.history.documentType verification.history.status verification.history.submittedAt verification.history.reviewedAt drivingEligibility.status drivingEligibility.submittedAt drivingEligibility.verifiedAt',
     listings: 'title listingType dailyPrice ownerName ownerId', bookings: 'listingTitle listingType pricing.total renterName renterId ownerName ownerId',
-    rentals: 'bookingId listingId listingType renterId ownerId', transactions: 'type amount simulated bookingId payerId payeeId',
+    rentals: 'bookingId listingId listingType renterId ownerId endDate returnSubmission.recordedAt handover.version handover.receiptStatus handover.reviewNeededAt', transactions: 'type amount simulated bookingId payerId payeeId',
     disputes: 'listingTitle summary category', claims: 'listingTitle description amountRequested', reports: 'targetLabel reason', 'message-reports': 'reason',
     reviews: 'authorName subjectName overallRating listingTitle flag.reason', 'audit-logs': 'actorId action targetType targetId',
     'generated-reports': 'fileName reportType', 'report-schedules': 'name reportType cadence enabled', referrals: 'referralCode referrerId refereeId',
@@ -178,6 +188,7 @@ export function createAdminRecordsService(auditModel) {
       const doc = await config.model.findOne(identityFilter(config.model, id)).select(config.fields).lean();
       if (!doc) throw new AppError('This record is no longer available', 404, 'NOT_FOUND');
       const [names, bookings] = await Promise.all([accountsFor([doc]), rentalBookings(type, [doc])]);
+      if (type === 'rentals') doc.overdueReminders = (await overdueDeliverySummary([doc.publicId]))[doc.publicId] ?? [];
       return { recordType: type, record: project(doc, type, names, bookings) };
     },
     async summary() {

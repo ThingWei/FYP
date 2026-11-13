@@ -8,6 +8,9 @@ For the complete priority-ordered platform test cases, manual execution sheets a
 isolated automated checks, see the [testing guide](../../docs/testing/README.md).
 Run its commands from the project root, not this application folder.
 
+For return deadlines, overdue emails and what to do if an item is not returned,
+see the [overdue rental guide](../../docs/OVERDUE_REMINDERS_AND_OWNER_PROTECTION_RESULT.md).
+
 ## Everyday commands
 
 ### Windows
@@ -30,6 +33,9 @@ Normal Android startup retries temporary connection/authorization/forwarding
 problems for about **30 seconds** and shows what needs attention. You can unlock,
 authorize or reconnect the phone while it waits; a ready phone proceeds at once.
 Missing ADB or an invalid ID fails immediately with setup guidance.
+After an initial discovery failure, the launcher starts/reuses ADB and refreshes
+its device list once within the same wait. Running `flutter devices` first should
+not be necessary. This cannot bypass the phone's debugging authorization.
 
 After **Flutter run key commands** appears, focus that terminal: **r** reloads,
 **R** restarts, and **q** ends the app debug session (no Enter needed).

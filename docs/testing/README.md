@@ -8,6 +8,7 @@ lifecycle. It does not add another business module or introduce Toys & Entertain
 - [Full priority-ordered cases and expected results](RENTHUB_FULL_PLATFORM_TEST_PLAN.md)
 - [Latest execution and remaining manual work](PLATFORM_TEST_EXECUTION_RESULT.md)
 - [Normal startup and supervisor operating guide](../../README.md)
+- [Overdue reminder and Owner-protection walkthrough](../OVERDUE_REMINDERS_AND_OWNER_PROTECTION_RESULT.md#verification-and-demonstration)
 
 ## What to do first
 
@@ -130,7 +131,7 @@ races and crash points are simulated in tests, not by damaging a live database.
 
 1. **P0 startup/access:** startup, login, role/privacy and verification restrictions.
 2. **Physical baseline:** dates → unpaid checkout → payment → actual Owner
-   approval → scheduled → handover/photos → return/photos → inspection → settlement
+   approval → scheduled → Owner handover/photos → renter confirms receipt → active rental → return/photos → inspection → settlement
    → agreement/history and review.
 3. **Service baseline:** required venue → checkout → approval → start → delivery
    → renter completion; verify physical-only controls are absent.

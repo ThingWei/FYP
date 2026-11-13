@@ -21,10 +21,12 @@ class LiveDisputePage extends StatefulWidget {
     super.key,
     required this.rental,
     required this.owner,
+    this.initialCategory,
   });
 
   final Rental rental;
   final bool owner;
+  final String? initialCategory;
 
   @override
   State<LiveDisputePage> createState() => _LiveDisputePageState();
@@ -95,7 +97,9 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   @override
   void initState() {
     super.initState();
-    category = categories.first;
+    category = categories.contains(widget.initialCategory)
+        ? widget.initialCategory!
+        : categories.first;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       // Historical case access must not depend on a new-case eligibility check.

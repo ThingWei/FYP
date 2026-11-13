@@ -13,16 +13,20 @@ class ItemVerificationPanel extends StatelessWidget {
       {super.key,
       required this.listing,
       this.showDiagnostics = false,
+      this.forAdminReview = false,
       this.selectedPhotoIndex});
 
   final Listing listing;
   final bool showDiagnostics;
+  final bool forAdminReview;
   final int? selectedPhotoIndex;
 
   @override
   Widget build(BuildContext context) {
     if (listing.isService) return const SizedBox.shrink();
-    final summary = ItemPhotoSummary(listing);
+    final summary = forAdminReview
+        ? AdminItemPhotoSummary(listing)
+        : ItemPhotoSummary(listing);
     final notes = summary.notes;
     return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -235,22 +239,25 @@ class _ItemTechnicalDetails extends StatelessWidget {
 }
 
 Future<void> showItemPhotoReview(BuildContext context, Listing listing,
-        {bool showDiagnostics = false}) =>
+        {bool showDiagnostics = false, bool forAdminReview = false}) =>
     showDialog<void>(
         context: context,
         builder: (_) => _ItemPhotoReviewDialog(
             listing: listing,
             controller: context.read<LiveRentHubController>(),
-            showDiagnostics: showDiagnostics));
+            showDiagnostics: showDiagnostics,
+            forAdminReview: forAdminReview));
 
 class _ItemPhotoReviewDialog extends StatefulWidget {
   const _ItemPhotoReviewDialog(
       {required this.listing,
       required this.controller,
-      required this.showDiagnostics});
+      required this.showDiagnostics,
+      required this.forAdminReview});
   final Listing listing;
   final LiveRentHubController controller;
   final bool showDiagnostics;
+  final bool forAdminReview;
   @override
   State<_ItemPhotoReviewDialog> createState() => _ItemPhotoReviewDialogState();
 }
@@ -369,6 +376,7 @@ class _ItemPhotoReviewDialogState extends State<_ItemPhotoReviewDialog> {
                             ItemVerificationPanel(
                                 listing: listing,
                                 selectedPhotoIndex: selected,
+                                forAdminReview: widget.forAdminReview,
                                 showDiagnostics: widget.showDiagnostics),
                           ]))),
               const Divider(height: 1),

@@ -125,6 +125,9 @@ async function createCapture() {
   await RentalModel.updateOne({ _id: rental._id }, { $set: { startDate: physicalRentalDate(new Date()) } });
   await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
     .send({ condition: 'Excellent', evidence: ['local://handover/camera.jpg'] }).expect(200);
+  const submitted = await RentalModel.findById(rental._id);
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/handover/acknowledge`).set(renter)
+    .send({ handoverId: submitted.handover.handoverId }).expect(200);
   return PaymentModel.findOne({ bookingId, type: 'capture' });
 }
 
@@ -219,7 +222,7 @@ test('prevents Owner approval without payment authorization', async () => {
   assert.equal(response.body.error.code, 'PAYMENT_NOT_AUTHORIZED');
 });
 
-test('captures on handover and supports monitored partial and full refunds', async () => {
+test('captures on renter receipt and supports monitored partial and full refunds', async () => {
   const booking = await setupBooking();
   const bookingId = booking.body.data.id;
   await authorize(bookingId);
@@ -236,6 +239,9 @@ test('captures on handover and supports monitored partial and full refunds', asy
       condition: 'Excellent',
       evidence: ['local://handover/camera.jpg'],
     });
+  const submitted = await RentalModel.findById(rental._id);
+  await request(app).post(`/api/v1/rentals/${rental.publicId}/handover/acknowledge`).set(renter)
+    .send({ handoverId: submitted.handover.handoverId }).expect(200);
 
   const history = await request(app)
     .get(`/api/v1/payments/booking/${bookingId}`)

@@ -48,7 +48,8 @@ test('booking location states distinguish privacy, missing legacy pins and onlin
   assert.ok(Object.values(online.locationStates).every(state => state === 'not_required'));
 });
 
-test('Owner-set delivery fee is snapshotted, server-controlled, charged once and included in settlement', async () => {
+test('Owner-set delivery fee is snapshotted, server-controlled, charged once and included in settlement', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-10T04:00:00Z') });
   const listing = await seedListing({ deliveryFee: 23.45 });
   const pickup = await request(app).post('/api/v1/bookings').set(renter).send(bookingInput(listing)).expect(201);
   assert.equal(pickup.body.data.pricing.deliveryFee, 0);

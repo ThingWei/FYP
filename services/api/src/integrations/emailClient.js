@@ -27,11 +27,11 @@ export function createEmailClient({
   let smtpTransport;
   let smtpTransportSignature;
 
-  function assertConfigured() {
+  function assertConfigured({ passwordReset = true } = {}) {
     if (!['resend', 'smtp'].includes(env.emailMode)) {
       throw new Error('Configure EMAIL_MODE as smtp or resend.');
     }
-    if (!env.emailFrom || !env.passwordResetSecret) {
+    if (!env.emailFrom || passwordReset && !env.passwordResetSecret) {
       throw new Error('EMAIL_FROM and PASSWORD_RESET_SECRET are required.');
     }
     if (env.emailMode === 'resend' && !env.resendApiKey) {
@@ -91,15 +91,30 @@ export function createEmailClient({
       } catch {
         // The HTTP status remains useful when the provider returns no JSON.
       }
-      throw new Error(
+      const error = new Error(
         `Resend returned HTTP ${response.status}${providerMessage ? `: ${providerMessage}` : ''}`,
       );
+      error.deliveryOutcome = 'not_sent';
+      error.retryable = response.status === 429 || response.status >= 500;
+      throw error;
     }
     return response.json();
   }
 
   return {
     assertConfigured,
+
+    async sendOverdueReminder({ email, displayName, itemTitle, bookingReference, returnDate, owner, followup }) {
+      try { assertConfigured({ passwordReset: false }); }
+      catch (error) { error.deliveryOutcome = 'not_sent'; throw error; }
+      const text = `Hello ${displayName},\n\n${itemTitle} has not been recorded as returned.\nBooking: ${bookingReference}\nReturn date: ${returnDate} (Malaysia)\n\n${owner
+        ? 'Message the renter to arrange the return. If the item has not been returned, open the rental in RentHub and select Report item not returned. Keep your handover photos and agreement for review.'
+        : 'Please contact the Owner and submit your return through RentHub. New bookings are unavailable while an overdue item remains unreturned. If there is a problem, report an issue in the rental details.'}\n\n${followup ? 'This rental is now at least 24 hours overdue and has been flagged for administrator attention. ' : ''}An administrator can review an issue and any remaining held deposit; this does not guarantee compensation.\n\nOpen RentHub and go to your booking details.`;
+      const emailMessage = { from: env.emailFrom, to: email,
+        subject: followup ? 'RentHub: overdue return needs attention' : 'RentHub: item return overdue',
+        text, html: `<p>${escapeHtml(text).replaceAll('\n', '<br>')}</p>` };
+      return env.emailMode === 'smtp' ? getSmtpTransport().sendMail(emailMessage) : sendWithResend(emailMessage);
+    },
 
     async sendPasswordResetCode(input) {
       assertConfigured();

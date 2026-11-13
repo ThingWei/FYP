@@ -111,8 +111,9 @@ $script:adbException = $null
 $script:timedOut = $false
 $script:commands = @()
 function Invoke-RentHubNativeCommand {
-    param($FilePath, [string[]]$Arguments, $TimeoutSeconds)
+    param($FilePath, [string[]]$Arguments, $TimeoutSeconds, [switch]$PreserveChildProcesses)
     Assert-Reliability ($FilePath -eq 'fixture-adb' -and $TimeoutSeconds -ge 1 -and $TimeoutSeconds -le 5) 'ADB calls use bounded direct process arguments.'
+    Assert-Reliability $PreserveChildProcesses 'An ADB client timeout must preserve the shared daemon.'
     $script:commands += ,$Arguments
     if ($script:adbException) { throw $script:adbException }
     if ($Arguments[2] -eq 'get-state') {
@@ -171,18 +172,46 @@ Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetD
 $script:adbException = [InvalidOperationException]::new('private-test-value')
 Assert-Reliability ((Sync-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3000) -eq 'adb-error') 'Tool startup failures remain classified, without raw exception text.'
 $script:adbException = $null
-foreach ($state in @('adb-missing', 'invalid-device', 'unauthorized', 'offline', 'not-found', 'adb-timeout', 'forwarding-timeout', 'forwarding-failed', 'adb-error', 'private-test-value')) {
+foreach ($state in @('adb-missing', 'invalid-device', 'unauthorized', 'offline', 'not-found', 'adb-timeout', 'adb-discovery-timeout', 'forwarding-timeout', 'forwarding-failed', 'adb-error', 'private-test-value')) {
     $message = Get-RentHubAndroidConnectionMessage -State $state
     Assert-Reliability ($message -and -not $message.Contains('private-test-value')) 'Connection guidance must never dump private raw diagnostics.'
 }
 Remove-Item Function:\Invoke-RentHubNativeCommand
 . ([scriptblock]::Create(($helpers | Where-Object Name -eq 'Invoke-RentHubNativeCommand').Extent.Text))
 
+# Refresh discovery with the same ADB executable, without killing the daemon or
+# assuming a listed phone has authorized debugging/working port forwarding.
+& {
+    $script:discoveryCommands = @()
+    $script:discoveryTimeout = $false; $script:discoveryExit = 0
+    function Invoke-RentHubNativeCommand {
+        param($FilePath, [string[]]$Arguments, $TimeoutSeconds, [switch]$PreserveChildProcesses)
+        Assert-Reliability ($FilePath -eq 'fixture-adb' -and $TimeoutSeconds -ge 1 -and $TimeoutSeconds -le 10 -and $PreserveChildProcesses) 'Discovery uses bounded calls and preserves other ADB sessions.'
+        $script:discoveryCommands += ($Arguments -join ' ')
+        return @{ Output = 'private-test-value'; Error = 'private-test-value'; ExitCode = $script:discoveryExit; TimedOut = $script:discoveryTimeout }
+    }
+    Assert-Reliability ((Initialize-RentHubAndroidDiscovery -AdbPath fixture-adb) -eq 'refreshed') 'Starting/enumerating the daemon can refresh discovery.'
+    Assert-Reliability (($script:discoveryCommands -join '|') -eq 'start-server|devices -l') 'Only safe discovery commands run, without kill-server/reconnect or Flutter startup.'
+    $script:discoveryTimeout = $true; $script:discoveryCommands = @()
+    Assert-Reliability ((Initialize-RentHubAndroidDiscovery -AdbPath fixture-adb) -eq 'adb-discovery-timeout') 'Hung discovery cannot report connection readiness.'
+    Assert-Reliability ($script:discoveryCommands.Count -eq 1) 'A timed-out server startup does not start another discovery command.'
+    $script:discoveryTimeout = $false; $script:discoveryExit = 1
+    Assert-Reliability ((Initialize-RentHubAndroidDiscovery -AdbPath fixture-adb) -eq 'adb-error') 'Discovery failures stay safe and retryable.'
+}
+
 # Exercise the real startup retry loop with state changes, not real ADB calls.
 & {
     $script:waitStates = @('connected')
     $script:waitCalls = 0
     $script:waitMessages = @()
+    $script:discoveryCalls = 0
+    $script:discoveryResult = 'refreshed'
+    function Initialize-RentHubAndroidDiscovery {
+        param($AdbPath, $TimeoutSeconds)
+        Assert-Reliability ($AdbPath -eq 'fixture-adb' -and $TimeoutSeconds -ge 1 -and $TimeoutSeconds -le 10) 'Discovery is included in the remaining startup budget.'
+        $script:discoveryCalls++
+        return $script:discoveryResult
+    }
     function Write-Host { param($Object, $ForegroundColor); $script:waitMessages += [string]$Object }
     function Sync-RentHubAndroidConnection {
         param($AdbPath, $TargetDevice, $HostPort, $TimeoutSeconds)
@@ -194,6 +223,7 @@ Remove-Item Function:\Invoke-RentHubNativeCommand
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $result = Wait-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004 -RetryIntervalMilliseconds 100
     Assert-Reliability ($result -eq 'connected' -and $script:waitCalls -eq 1 -and $clock.Elapsed.TotalSeconds -lt 1) 'A ready phone must start immediately, without the 30-second delay.'
+    Assert-Reliability ($script:discoveryCalls -eq 0) 'A ready phone does not run unnecessary discovery.'
     foreach ($states in @(@('not-found', 'unauthorized', 'connected'), @('offline', 'connected'), @('forwarding-failed', 'connected'), @('adb-timeout', 'connected'))) {
         $script:waitStates = $states
         $script:waitCalls = 0
@@ -201,6 +231,15 @@ Remove-Item Function:\Invoke-RentHubNativeCommand
         Assert-Reliability ($result -eq 'connected' -and $script:waitCalls -eq $states.Count) 'Delayed connection, authorization and forwarding must retry to recovery.'
     }
     Assert-Reliability (($script:waitMessages -join ' ').Contains('Unlock your phone')) 'Authorization guidance appears while waiting, not only after failure.'
+    $script:waitStates = @('adb-timeout', 'offline', 'connected'); $script:waitCalls = 0; $script:discoveryCalls = 0
+    $result = Wait-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004 -RetryIntervalMilliseconds 100
+    Assert-Reliability ($result -eq 'connected' -and $script:discoveryCalls -eq 1 -and $script:waitCalls -eq 3) 'Cold-start recovery refreshes once and still verifies the selected phone and forwarding.'
+    $script:discoveryResult = 'adb-discovery-timeout'; $script:waitStates = @('adb-timeout', 'connected'); $script:waitCalls = 0; $script:discoveryCalls = 0
+    $result = Wait-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004 -RetryIntervalMilliseconds 100
+    Assert-Reliability ($result -eq 'connected' -and $script:discoveryCalls -eq 1) 'A discovery timeout still permits a later successful selected-device check.'
+    $script:discoveryResult = 'refreshed'; $script:waitStates = @('unauthorized', 'connected'); $script:waitCalls = 0; $script:discoveryCalls = 0
+    $result = Wait-RentHubAndroidConnection -AdbPath fixture-adb -TargetDevice demo -HostPort 3004 -RetryIntervalMilliseconds 100
+    Assert-Reliability ($result -eq 'connected' -and $script:discoveryCalls -eq 0) 'Authorization needs the user prompt, not a daemon refresh.'
     foreach ($state in @('adb-missing', 'invalid-device')) {
         $script:waitStates = @($state); $script:waitCalls = 0
         $clock.Restart()
@@ -254,6 +293,23 @@ if ($Integration) {
     $native = Invoke-RentHubNativeCommand -FilePath $node -Arguments @('-e', 'setTimeout(()=>{},30000)') -TimeoutSeconds 1
     Assert-Reliability ($native.TimedOut -and $native.ExitCode -eq -1 -and $clock.Elapsed.TotalSeconds -lt 8) 'Hung native tools must terminate within their bound.'
     Assert-Reliability ($null -eq (Get-Process -Id $native.ProcessId -ErrorAction SilentlyContinue)) 'A timed-out owned process must not be left running.'
+    $daemonFixturePath = Join-Path ([IO.Path]::GetTempPath()) ('renthub-adb-daemon-' + [guid]::NewGuid().ToString('N') + '.txt')
+    $daemonFixture = $null
+    try {
+        $parentCode = 'const cp=require("node:child_process"),fs=require("node:fs");const p=cp.spawn(process.execPath,["-e","setTimeout(()=>{},30000)"],{stdio:"ignore",windowsHide:true,detached:true});p.unref();fs.writeFileSync(process.argv[1],String(p.pid));setTimeout(()=>{},30000);'
+        $native = Invoke-RentHubNativeCommand -FilePath $node -Arguments @('-e', $parentCode, $daemonFixturePath) -TimeoutSeconds 2 -PreserveChildProcesses
+        Assert-Reliability ($native.TimedOut -and (Test-Path -LiteralPath $daemonFixturePath)) 'The disposable ADB-like parent starts a daemon then times out.'
+        $daemonFixture = Get-Process -Id ([int][IO.File]::ReadAllText($daemonFixturePath)) -ErrorAction SilentlyContinue
+        Assert-Reliability ($null -ne $daemonFixture -and -not $daemonFixture.HasExited) 'ADB client timeout must leave its shared daemon running.'
+        Assert-Reliability ($null -eq (Get-Process -Id $native.ProcessId -ErrorAction SilentlyContinue)) 'Preserving the daemon must still terminate the hung client.'
+    }
+    finally {
+        if ($null -ne $daemonFixture) {
+            if (-not $daemonFixture.HasExited) { $daemonFixture.Kill(); $daemonFixture.WaitForExit() }
+            $daemonFixture.Dispose()
+        }
+        if (Test-Path -LiteralPath $daemonFixturePath) { Remove-Item -LiteralPath $daemonFixturePath }
+    }
     $exitFixture = Start-Process -FilePath $node -ArgumentList '-e "process.exit(7)"' -WindowStyle Hidden -PassThru
     $exitFixture.WaitForExit()
     $script:exitProbeCalled = $false

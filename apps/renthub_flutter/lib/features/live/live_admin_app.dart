@@ -299,7 +299,7 @@ class _AdminRecordSection extends StatelessWidget {
                 action(
                     'View photos',
                     () => showItemPhotoReview(context, listing,
-                        showDiagnostics: false)),
+                        showDiagnostics: false, forAdminReview: true)),
               if (listing.status == 'pending_review') ...[
                 action(
                     'Reject',
@@ -1405,7 +1405,7 @@ class _AdminListings extends StatelessWidget {
             onTap: listing.isService
                 ? null
                 : () => showItemPhotoReview(context, listing,
-                    showDiagnostics: true),
+                    showDiagnostics: true, forAdminReview: true),
             subtitle: Text(
               '${listing.ownerName} · ${formatMoney(listing.dailyPrice)} · ${listing.listingTypeLabel}'
               '${!listing.isService ? '\n${listing.itemPhotoCheckLabel} · View photos' : ''}',

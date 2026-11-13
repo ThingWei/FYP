@@ -17,14 +17,16 @@ class UserFacingError {
     }
     if (error is ApiException) {
       final known = <String, String>{
+        'OVERDUE_RETURN_REQUIRED':
+            'Return your overdue item before making another booking. You can still message the Owner, submit your return or report an issue.',
         'DISPUTE_WINDOW_CLOSED':
             'This rental is complete, so a new dispute can no longer be opened.',
         'PAYMENT_WINDOW_EXPIRED':
             'Your 10-minute payment window has expired. No payment was taken. Choose dates again to start a new checkout.',
         'HANDOVER_TOO_EARLY':
-            'This rental starts on a future date. Prepare the item now and confirm handover on the booked day.',
+            'Wait until the booked start date before handing over or confirming receipt of the item.',
         'HANDOVER_WINDOW_CLOSED':
-            'The booked dates have ended, so handover is no longer available. Open the booking again to check its payment status.',
+            'The booked dates have ended. This handover needs review; report an issue or contact support.',
         'CONDITION_PHOTOS_REQUIRED':
             'Add clear, separate photos showing the item condition. PDF files cannot be used as condition photos.',
         'LISTING_PHOTO_TOO_LARGE':
@@ -110,6 +112,14 @@ class UserFacingError {
             'Some money has already been returned or paid out. An administrator needs to review the remaining balance before settlement.',
         'RECOVERY_REQUIRED':
             'This action needs a payment-record review. Please contact support before trying again.',
+        'HANDOVER_CANCELLATION_BLOCKED':
+            'The Owner has submitted handover evidence. Report an issue instead of cancelling this booking.',
+        'HANDOVER_CHANGED':
+            'The handover record changed. Open the latest record before confirming.',
+        'HANDOVER_ALREADY_SUBMITTED':
+            'This handover record has already been submitted and cannot be edited. Report an issue if something is incorrect.',
+        'HANDOVER_PROCESSING':
+            'Receipt confirmation is processing. Check the latest status before trying again.',
         'INVALID_REFUND':
             'This amount exceeds the refundable money still held. Refresh the balance before continuing.',
       };

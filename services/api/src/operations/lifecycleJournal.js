@@ -53,6 +53,10 @@ async function finishEffects(operation, ensureOwned) {
 
 async function apply(operation, ensureOwned) {
   if (operation.status === 'done') return finishEffects(operation, ensureOwned);
+  if (operation.effects?.handoverCapture) {
+    const { prepareHandoverCapture } = await import('../modules/rental/handoverReceipt.js');
+    await prepareHandoverCapture(operation.effects.handoverCapture, ensureOwned);
+  }
   for (const step of operation.plan) {
     if (!allowed.has(step.model)) throw new AppError('Recovery needs administrator review', 409, 'RECOVERY_REQUIRED');
     await ensureOwned();

@@ -1,4 +1,4 @@
-import test, { after, before, beforeEach } from 'node:test';
+import test, { after, afterEach, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
@@ -30,6 +30,8 @@ import { UserModel } from '../src/modules/user/user.model.js';
 import { runPaymentDeadlineJobs } from '../src/operations/lifecycleJobs.js';
 import { paymentAdapter } from '../src/integrations/paymentAdapter.js';
 import { blockchainAdapter } from '../src/integrations/blockchainAdapter.js';
+import { DisputeModel } from '../src/modules/dispute/dispute.model.js';
+import { env } from '../src/config/env.js';
 
 let mongodb;
 let bookingSequence = 0;
@@ -153,6 +155,12 @@ async function authorizeBooking(bookingId, headers = renter) {
   return response;
 }
 
+async function acknowledgeHandover(rentalId) {
+  const saved = await RentalModel.findOne({ publicId: rentalId });
+  return request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter)
+    .send({ handoverId: saved.handover.handoverId }).expect(200);
+}
+
 async function applyReferral(referrerHeaders) {
   const summary = await request(app)
     .get('/api/v1/rewards/summary')
@@ -178,6 +186,7 @@ before(async () => {
     NotificationModel.init(),
     ThreadModel.init(),
     RentalModel.init(),
+    DisputeModel.init(),
     ReviewModel.init(),
     LoyaltyAccountModel.init(),
     LoyaltyConfigModel.init(),
@@ -200,6 +209,7 @@ beforeEach(async () => {
     NotificationModel.deleteMany({}),
     ThreadModel.deleteMany({}),
     RentalModel.deleteMany({}),
+    DisputeModel.deleteMany({}),
     ReviewModel.deleteMany({}),
     LoyaltyAccountModel.deleteMany({}),
     LoyaltyConfigModel.deleteMany({}),
@@ -210,9 +220,41 @@ beforeEach(async () => {
   await createCatalog();
 });
 
+afterEach(t => { t.mock.timers.reset(); });
+
 after(async () => {
   await disconnectDatabase();
   await mongodb.stop();
+}, { timeout: 15000 });
+
+test('overdue unreturned item blocks direct new bookings and unpaid authorization while preserving replays and access', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-13T01:00:00Z') });
+  const pending = await createCameraBooking({ startDate: '2026-11-20', endDate: '2026-11-21', idempotencyKey: 'overdue-original' });
+  assert.equal(pending.status, 201);
+  await RentalModel.create({ publicId: 'RH-RNT-2026-PAST', bookingId: 'RH-BKG-2026-PAST', listingId: 'past-item',
+    renterId: 'u-renter', ownerId: 'u-owner', listingType: 'physical', status: 'active',
+    startDate: new Date('2026-11-01'), endDate: new Date('2026-11-02') });
+  const blocked = await createCameraBooking({ startDate: '2026-11-25', endDate: '2026-11-26' });
+  assert.equal(blocked.status, 409); assert.equal(blocked.body.error.code, 'OVERDUE_RETURN_REQUIRED');
+  const pay = await request(app).post('/api/v1/payments/authorizations').set(renter).send({ bookingId: pending.body.data.id,
+    method: 'card', idempotencyKey: 'overdue-pay' });
+  assert.equal(pay.status, 409); assert.equal(pay.body.error.code, 'OVERDUE_RETURN_REQUIRED');
+  assert.equal(await PaymentModel.countDocuments(), 0); assert.equal(await BookingModel.countDocuments(), 1);
+  const replay = await createCameraBooking({ startDate: '2026-11-20', endDate: '2026-11-21', idempotencyKey: 'overdue-original' });
+  assert.equal(replay.body.data.id, pending.body.data.id);
+  await request(app).get('/api/v1/bookings/mine').set(renter).expect(200);
+  await request(app).post(`/api/v1/messages/threads/from-booking/${pending.body.data.id}`).set(renter).expect(200);
+  await RentalModel.updateOne({ publicId: 'RH-RNT-2026-PAST' }, { $set: { status: 'disputed' } });
+  const disputed = await createCameraBooking({ startDate: '2026-11-25', endDate: '2026-11-26' });
+  assert.equal(disputed.body.error.code, 'OVERDUE_RETURN_REQUIRED');
+  await RentalModel.updateOne({ publicId: 'RH-RNT-2026-PAST' }, { $set: { status: 'return_submitted',
+    'returnSubmission.recordedAt': new Date() } });
+  await authorizeBooking(pending.body.data.id);
+  // Existing durable authorization remains replayable even if another item later becomes overdue.
+  await RentalModel.updateOne({ publicId: 'RH-RNT-2026-PAST' }, { $unset: { returnSubmission: 1 }, $set: { status: 'overdue' } });
+  await authorizeBooking(pending.body.data.id);
+  assert.equal(await PaymentModel.countDocuments({ type: 'authorization', status: 'authorized' }), 1);
+  assert.equal((await UserModel.findOne({ authId: 'u-renter' })).accountStatus, 'active');
 });
 
 test('calculates the authoritative camera total and exposes both participant views', async () => {
@@ -389,7 +431,8 @@ test('vehicle bookings require approved MyKad and Driving Licence evidence', asy
   assert.equal(eligible.status, 201, JSON.stringify(eligible.body));
 });
 
-test('vehicle requests enforce MyKad, independent eligibility, validity through rental and exact required class', async () => {
+test('vehicle requests enforce MyKad, independent eligibility, validity through rental and exact required class', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-09T04:00:00Z') });
   await ListingModel.create({ publicId: 'l-driving-check', ownerId: 'u-owner', ownerName: 'Synthetic Owner',
     title: 'Synthetic vehicle', category: 'Vehicles', subcategory: 'Cars', requiredLicenceClass: 'D',
     listingType: 'physical', condition: 'Good', dailyPrice: 100, fulfilmentMethods: ['pickup'], location: 'Kuala Lumpur', status: 'active' });
@@ -447,6 +490,7 @@ test('vehicle requests enforce MyKad, independent eligibility, validity through 
   const validHandover = await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
     .send({ condition: 'Good', notes: 'Synthetic handover', evidence: ['local://handover/test.jpg'] });
   assert.equal(validHandover.status, 200);
+  await acknowledgeHandover(rental.publicId);
   await UserModel.updateOne({ authId: 'u-renter' }, { $set: { 'drivingEligibility.expiresAt': new Date('2026-11-10T15:59:59.999Z') } });
   const extension = await request(app).post(`/api/v1/rentals/${rental.publicId}/extensions`).set(renter)
     .send({ requestedEndDate: '2026-11-11', reason: 'Synthetic additional rental day' });
@@ -757,7 +801,8 @@ test('runs physical approval, handover, extension and return lifecycle', async (
       evidence: ['local://handover/front.jpg'],
     });
   assert.equal(handover.status, 200);
-  assert.equal(handover.body.data.status, 'active');
+  assert.equal(handover.body.data.status, 'scheduled');
+  await acknowledgeHandover(rentalRecord.publicId);
   t.mock.timers.reset(); // Completion/reward timestamps use the real test time.
 
   const extension = await request(app)
@@ -910,7 +955,10 @@ test('double handover and double return confirmation do not duplicate captures o
   const handovers = await Promise.all([1, 2].map(() => request(app)
     .post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
     .send({ condition: 'Excellent', evidence: ['local://handover/front.jpg'] })));
-  assert.deepEqual(handovers.map((r) => r.status).sort(), [200, 409]);
+  assert.deepEqual(handovers.map((r) => r.status).sort(), [200, 200]);
+  assert.equal(handovers[0].body.data.handover.handoverId, handovers[1].body.data.handover.handoverId);
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 0);
+  await Promise.all([1, 2].map(() => acknowledgeHandover(rental.publicId)));
   assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 1);
   await request(app).post(`/api/v1/rentals/${rental.publicId}/return`).set(renter)
     .send({ condition: 'Excellent', evidence: ['local://return/front.jpg'] }).expect(200);
@@ -931,6 +979,7 @@ test('extension cannot overlap an unresolved disputed rental or be approved afte
   const rental = await RentalModel.findOne({ bookingId });
   await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner)
     .send({ condition: 'Excellent', evidence: ['local://handover/front.jpg'] }).expect(200);
+  await acknowledgeHandover(rental.publicId);
   const original = await BookingModel.findOne({ publicId: bookingId }).lean();
   const { _id, __v, ...conflict } = original;
   await BookingModel.create({ ...conflict, publicId: 'RH-BKG-2026-DISPUTED', renterId: 'another-renter',
@@ -1654,4 +1703,134 @@ test('a durable timely payment is recovered instead of expiring as unpaid', asyn
   assert.equal(recovered.paymentStatus, 'authorized');
   assert.equal(recovered.paymentAuthorizationId, payment.publicId);
   assert.equal(await NotificationModel.countDocuments({ type: 'payment_authorized' }), 1);
+});
+
+async function submittedReceipt(t) {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
+  const created = await createCameraBooking();
+  const bookingId = created.body.data.id;
+  await authorizeBooking(bookingId);
+  await request(app).patch(`/api/v1/bookings/${bookingId}/decision`).set(owner).send({ status: 'approved' }).expect(200);
+  const rental = await RentalModel.findOne({ bookingId });
+  const input = { condition: 'Fair', notes: 'Existing mark on the base', evidence: ['local://handover/receipt.jpg'] };
+  const response = await request(app).post(`/api/v1/rentals/${rental.publicId}/handover`).set(owner).send(input).expect(200);
+  return { bookingId, rentalId: rental.publicId, handoverId: response.body.data.handover.handoverId, input };
+}
+
+test('Owner submission is immutable, keeps the hold and dates, and cannot bypass renter receipt', async t => {
+  const { bookingId, rentalId, handoverId, input } = await submittedReceipt(t);
+  const rental = await RentalModel.findOne({ publicId: rentalId }), booking = await BookingModel.findOne({ publicId: bookingId });
+  assert.equal(rental.status, 'scheduled'); assert.equal(booking.status, 'approved');
+  assert.equal(booking.paymentStatus, 'authorized'); assert.equal(rental.handover.receiptStatus, 'pending');
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 0);
+  assert.equal(await RewardLedgerModel.countDocuments({ type: 'rental_completed' }), 0);
+  const again = await request(app).post(`/api/v1/rentals/${rentalId}/handover`).set(owner).send(input).expect(200);
+  assert.equal(again.body.data.handover.handoverId, handoverId);
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover`).set(owner).send({ ...input, condition: 'Excellent' }).expect(409);
+  const blocked = await request(app).post(`/api/v1/bookings/${bookingId}/cancel`).set(renter).send({ reason: 'Changed my mind' }).expect(409);
+  assert.equal(blocked.body.error.code, 'HANDOVER_CANCELLATION_BLOCKED');
+  await request(app).post(`/api/v1/rentals/${rentalId}/return`).set(renter).send(input).expect(409);
+  await request(app).post(`/api/v1/rentals/${rentalId}/extensions`).set(renter).send({ requestedEndDate: '2026-09-25', reason: 'More project time' }).expect(409);
+  const authMode = env.authMode;
+  try {
+    env.authMode = 'local';
+    await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).send({ handoverId }).expect(401);
+  } finally { env.authMode = authMode; }
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(owner).send({ handoverId }).expect(404);
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter).send({ handoverId: 'bad' }).expect(422);
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter).send({ handoverId: '00000000-0000-4000-8000-000000000001' }).expect(409);
+  assert.equal(await NotificationModel.countDocuments({ type: 'rental_handover' }), 1);
+  assert.equal((await RentalModel.findById(rental._id)).endDate.getTime(), rental.endDate.getTime());
+});
+
+test('only the actual renter can acknowledge, and concurrent retries capture once', async t => {
+  const { bookingId, rentalId, handoverId } = await submittedReceipt(t);
+  const stranger = { ...renter, 'x-user-id': 'receipt-stranger', 'x-user-email': 'stranger@example.test' };
+  await request(app).post('/api/v1/users/session').set(stranger).expect(201);
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(stranger).send({ handoverId }).expect(404);
+  const results = await Promise.all([1, 2].map(() => acknowledgeHandover(rentalId)));
+  assert.ok(results.every(r => r.body.data.status === 'active'));
+  const rental = await RentalModel.findOne({ publicId: rentalId }), booking = await BookingModel.findOne({ publicId: bookingId });
+  assert.equal(rental.handover.receiptStatus, 'acknowledged'); assert.equal(rental.handover.acknowledgedBy, 'u-renter');
+  assert.ok(rental.handover.acceptedAt); assert.ok(rental.handover.acknowledgedAt);
+  assert.equal(booking.status, 'active'); assert.equal(booking.paymentStatus, 'captured');
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 1);
+  assert.equal(await NotificationModel.countDocuments({ type: 'handover_acknowledged' }), 2);
+});
+
+test('missing authorization blocks receipt before a financial intent is created', async t => {
+  const { bookingId, rentalId, handoverId } = await submittedReceipt(t);
+  await PaymentModel.updateMany({ bookingId, type: 'authorization' }, { $set: { status: 'voided' } });
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter).send({ handoverId }).expect(409);
+  assert.equal(await LifecycleOperationModel.countDocuments({ _id: `handover-receipt:${handoverId}` }), 0);
+  assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'scheduled');
+});
+
+test('a durable timely receipt recovers capture after a failure and after the booked dates end', async t => {
+  const { bookingId, rentalId, handoverId } = await submittedReceipt(t);
+  const capture = paymentAdapter.capture;
+  let calls = 0;
+  t.mock.method(paymentAdapter, 'capture', async input => { if (++calls === 1) throw new Error('Disposable capture failure'); return capture(input); });
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter).send({ handoverId }).expect(500);
+  assert.equal((await RentalModel.findOne({ publicId: rentalId })).handover.receiptStatus, 'processing');
+  assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, 'approved');
+  t.mock.timers.tick(5 * 86400000);
+  const recovered = await request(app).get(`/api/v1/rentals/${rentalId}`).set(renter).expect(200);
+  assert.equal(recovered.body.data.status, 'active');
+  assert.equal(recovered.body.data.handover.receiptStatus, 'acknowledged');
+  await acknowledgeHandover(rentalId);
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 1);
+  assert.equal((await LifecycleOperationModel.findById(`handover-receipt:${handoverId}`)).status, 'done');
+});
+
+test('a handover issue blocks acknowledgement without automatically capturing or cancelling', async t => {
+  const { bookingId, rentalId, handoverId } = await submittedReceipt(t);
+  await request(app).post('/api/v1/disputes').set(renter).send({ rentalId, category: 'damaged_item',
+    summary: 'Condition differs', description: 'The item has a damaged corner that is not described in the handover record.' }).expect(201);
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter).send({ handoverId }).expect(409);
+  assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'disputed');
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: { $in: ['capture', 'refund'] } }), 0);
+});
+
+test('capture followed by an interrupted state write is recovered without a second capture', async t => {
+  const { bookingId, rentalId, handoverId } = await submittedReceipt(t);
+  const update = RentalModel.updateOne.bind(RentalModel);
+  let interrupted = false;
+  t.mock.method(RentalModel, 'updateOne', async (...args) => {
+    if (!interrupted && args[1]?.$set?.status === 'active') { interrupted = true; throw new Error('Disposable state interruption'); }
+    return update(...args);
+  });
+  await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter).send({ handoverId }).expect(500);
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 1);
+  await request(app).get(`/api/v1/rentals/${rentalId}`).set(renter).expect(200);
+  assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'active');
+  assert.equal((await BookingModel.findOne({ publicId: bookingId })).paymentStatus, 'captured');
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 1);
+});
+
+test('a new late receipt is blocked and does not release its payment hold', async t => {
+  const { bookingId, rentalId, handoverId } = await submittedReceipt(t);
+  t.mock.timers.tick(5 * 86400000);
+  await request(app).get(`/api/v1/rentals/${rentalId}`).set(renter).expect(200);
+  const late = await request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter).send({ handoverId }).expect(409);
+  assert.equal(late.body.error.code, 'HANDOVER_WINDOW_CLOSED');
+  assert.ok((await RentalModel.findOne({ publicId: rentalId })).handover.reviewNeededAt);
+  assert.equal((await BookingModel.findOne({ publicId: bookingId })).paymentStatus, 'authorized');
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), 0);
+});
+
+test('receipt racing cancellation and an issue cannot bypass lifecycle locks', async t => {
+  const { bookingId, rentalId, handoverId } = await submittedReceipt(t);
+  const [ack, cancel, issue] = await Promise.all([
+    request(app).post(`/api/v1/rentals/${rentalId}/handover/acknowledge`).set(renter).send({ handoverId }),
+    request(app).post(`/api/v1/bookings/${bookingId}/cancel`).set(renter).send({ reason: 'Concurrent cancellation' }),
+    request(app).post('/api/v1/disputes').set(renter).send({ rentalId, category: 'damaged_item', summary: 'Condition concern',
+      description: 'The received item differs from the condition recorded in the handover photos.' }),
+  ]);
+  assert.equal(cancel.status, 409); assert.equal(issue.status, 201);
+  assert.ok([200, 409].includes(ack.status));
+  const rental = await RentalModel.findOne({ publicId: rentalId });
+  assert.equal(rental.status, 'disputed');
+  assert.equal(await PaymentModel.countDocuments({ bookingId, type: 'capture' }), rental.handover.receiptStatus === 'acknowledged' ? 1 : 0);
+  assert.equal(await PaymentModel.countDocuments({ bookingId, status: 'voided' }), 0);
 });

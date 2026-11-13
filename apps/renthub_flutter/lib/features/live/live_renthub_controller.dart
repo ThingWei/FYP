@@ -114,6 +114,7 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   int _accountGeneration = 0;
+  int get accountGeneration => _accountGeneration;
   final Map<String, String> _refundAttemptKeys = {};
   int _workspaceGeneration = 0;
   final renterWorkspace = BookingWorkspaceState();
@@ -2073,6 +2074,12 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   Future<void> cancelBooking(String id, String reason) => _perform(() async {
+        if (renterRentals.any((rental) =>
+            rental.bookingId == id && rental.hasSubmittedHandover)) {
+          throw ApiException(409,
+              'The Owner has submitted handover evidence. Report an issue instead of cancelling.',
+              code: 'HANDOVER_CANCELLATION_BLOCKED');
+        }
         final account = _accountGeneration;
         final updated = Booking.fromJson(
           await api.request(
@@ -2320,7 +2327,16 @@ class LiveRentHubController extends ChangeNotifier {
               code: 'FORBIDDEN');
         }
         final method = action == 'extension-decision' ? 'PATCH' : 'POST';
+        if (action == 'handover-acknowledge' &&
+            (profile == null ||
+                rental.renterId != profile!.id ||
+                rental.ownerId == profile!.id)) {
+          throw ApiException(403, 'Only the renter can confirm receipt.',
+              code: 'FORBIDDEN');
+        }
         final path = switch (action) {
+          'handover-acknowledge' =>
+            '/rentals/${rental.id}/handover/acknowledge',
           'handover' => '/rentals/${rental.id}/handover',
           'start-service' => '/rentals/${rental.id}/start-service',
           'extension' => '/rentals/${rental.id}/extensions',

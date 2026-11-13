@@ -5,6 +5,8 @@ import 'live_booking_filters.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'live_condition_record_page.dart';
 import 'live_rental_progress.dart';
+import 'live_handover_receipt.dart';
+import 'live_overdue_rental.dart';
 import 'live_reviews_list.dart';
 import 'user_record_pagination.dart';
 import 'live_trust_page.dart';
@@ -2694,7 +2696,7 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                 )
               : Text(
                   booking.listingType == 'physical'
-                      ? 'Approve the booked dates for ${booking.listingTitle}. Prepare the item and record its condition before handing it over on the booked day. Demo payment is captured at handover.'
+                      ? 'Approve the booked dates for ${booking.listingTitle}. Submit condition photos on the booked day. The rental starts and demo payment is captured after the renter confirms receipt.'
                       : 'Confirm ${booking.listingTitle}. Payment will be captured when the service starts.',
                 ),
           actions: [
@@ -2832,6 +2834,14 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                                 onExpired: () =>
                                     controller.refreshFocusedBooking(
                                         booking.id, rental?.id)),
+                            if (rental != null)
+                              OverdueRentalPanel(rental: rental, owner: true),
+                            if (rental != null &&
+                                rental.listingType == 'physical')
+                              HandoverPhotosSection(
+                                  rental: rental,
+                                  owner: true,
+                                  ownerName: booking.ownerName),
                             Text(booking.listingTitle,
                                 style: Theme.of(context).textTheme.titleMedium),
                             const SizedBox(height: 6),
@@ -3033,6 +3043,8 @@ class _OwnerRentalCard extends StatelessWidget {
                   : 'Renter Reviewed',
         ),
       );
+    } else if (rental.status == 'scheduled' && rental.awaitingReceipt) {
+      action = const Text('Waiting for renter confirmation');
     } else if (rental.status == 'scheduled') {
       action = FilledButton(
         onPressed: () async {

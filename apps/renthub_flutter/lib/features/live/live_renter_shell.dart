@@ -4,6 +4,8 @@ import 'live_booking_filters.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'live_condition_record_page.dart';
 import 'live_rental_progress.dart';
+import 'live_handover_receipt.dart';
+import 'live_overdue_rental.dart';
 import 'live_reviews_list.dart';
 import '../../core/discovery/discovery_state.dart';
 import '../../core/location/current_location.dart';
@@ -2354,6 +2356,12 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                                 onExpired: () =>
                                     controller.refreshFocusedBooking(
                                         booking.id, rental?.id)),
+                            if (rental != null)
+                              OverdueRentalPanel(rental: rental),
+                            if (rental != null &&
+                                rental.listingType == 'physical')
+                              HandoverPhotosSection(
+                                  rental: rental, ownerName: booking.ownerName),
                             Text(booking.listingTitle,
                                 style: Theme.of(context).textTheme.titleMedium),
                             const SizedBox(height: 6),
@@ -2384,7 +2392,8 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                               _RenterRentalActions(rental: rental),
                             ],
                             if (['pending', 'approved']
-                                .contains(booking.status))
+                                    .contains(booking.status) &&
+                                rental?.hasSubmittedHandover != true)
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: TextButton(

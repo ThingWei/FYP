@@ -7,6 +7,7 @@ import {
   extensionPaymentValidation,
   extensionRequestValidation,
   handoverValidation,
+  handoverAcknowledgementValidation,
   listRentalsValidation,
   rentalIdValidation,
   returnConfirmationValidation,
@@ -39,6 +40,8 @@ rentalRouter.get(
   validate,
   rentalController.listAdmin,
 );
+rentalRouter.post('/:id/handover/acknowledge', authenticate, authorize('renter'),
+  handoverAcknowledgementValidation, validate, rentalController.acknowledgeHandover);
 rentalRouter.post(
   '/:id/handover',
   authenticate,

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { overdueSummary } from './overduePolicy.js';
 
 export const RENTAL_STATUSES = [
   'scheduled',
@@ -28,6 +29,17 @@ const evidenceSchema = new mongoose.Schema(
   },
   { _id: false },
 );
+
+const handoverSchema = new mongoose.Schema({
+  ...evidenceSchema.obj,
+  version: Number,
+  handoverId: String,
+  receiptStatus: { type: String, enum: ['pending', 'processing', 'acknowledged'] },
+  acceptedAt: Date,
+  acknowledgedAt: Date,
+  acknowledgedBy: String,
+  reviewNeededAt: Date,
+}, { _id: false });
 
 const extensionSchema = new mongoose.Schema(
   {
@@ -69,7 +81,7 @@ const rentalSchema = new mongoose.Schema(
     status: { type: String, enum: RENTAL_STATUSES, default: 'scheduled', index: true },
     expiredAt: Date,
     expiryReason: { type: String, enum: ['not_collected'] },
-    handover: { type: evidenceSchema },
+    handover: { type: handoverSchema },
     returnSubmission: { type: evidenceSchema },
     returnOutcome: {
       condition: { type: String, trim: true, maxlength: 120 },
@@ -85,6 +97,8 @@ const rentalSchema = new mongoose.Schema(
       startReminderSentAt: Date,
       dueReminderSentAt: Date,
       overdueNotifiedAt: Date,
+      overdueEscalatedAt: Date,
+      overdueEscalationDeadline: Date,
       serviceDueReminderSentAt: Date,
       completionReminderSentAt: Date,
       lastProcessedAt: Date,
@@ -120,6 +134,7 @@ const rentalSchema = new mongoose.Schema(
         delete value._id;
         delete value.__v;
         delete value.lifecycleRevision;
+        value.overdueInfo = overdueSummary(value);
         return value;
       },
     },

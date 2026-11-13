@@ -229,3 +229,116 @@ fix(admin): prefill licence expiry from saved extraction
 - preserve required review confirmations and protected identity data
 - test missing dates, calendar validity, corrections and extraction end to end
 ```
+
+## Administrator item-photo findings - 12 November 2026
+
+Physical listing details now include an **Item photo review** section directly
+in the record popup. Previously the shared photo-check presentation was only
+reachable through **View photos**. The administrator record projection includes
+the outer saved `itemVerification`. The follow-up below corrects its missing
+nested findings; no new analysis request is needed to show saved results.
+
+The administrator presentation describes saved evidence rather than instructing
+an Owner to take or upload photos. It uses an independent presentation adapter;
+Owner-facing guidance is unchanged. Examples include **Possible item type
+detected; not a confirmed match**, **Some photos appear blurry**, **Possible
+repeated photos detected** and **Image-risk assessment unavailable**.
+Where valid saved view counts exist, it reports how many views support a possible
+type. **Photo details** expands the individual findings, including tentative
+detected object labels. Scores are not presented as authenticity percentages.
+The photo-taking checklist and **What to check** section have been removed from
+the admin presentation.
+
+**View photos** keeps the existing carousel, enlargement and saved detection
+overlays, and now includes the same administrator findings. The current live record view does not
+show technical diagnostics or an authenticity percentage. An explicit warning
+remains visible that photos alone cannot prove authenticity or ownership.
+No result automatically approves a listing or changes moderation rules.
+
+Missing/legacy checks say no saved photo check is available; they do not promise
+a future automatic check. Screen/document context, unsupported domains and
+incomplete detection cannot be described as confirmed item matches. Experimental
+image-risk evidence remains explicitly limited. Incomplete drafts without
+a category remain viewable. Service listings keep their photos without the
+physical-item review. No training, model, API, decision rule or saved evidence is changed.
+
+Focused verification: **80 Flutter tests passed**, including direct record
+details, aggregate and per-photo findings, carousel selection, missing/unavailable
+results, screen context, service exclusion, unchanged Owner instructions and
+read-only detail retrieval. Layout checks cover 360/390 and
+1024/1440 pixels with 150% text.
+
+Verification of the administrator wording correction:
+
+- `.data/testing/20261112-122537-6640bc06`: **752 Flutter tests passed, 3 existing
+  skips; main/admin web and Android debug builds passed**. The initial analysis
+  found new brace-style warnings; these were corrected. The final analysis log,
+  `apps/renthub_flutter/.data/admin-photo-findings-analysis.log`, reports
+  **No issues found**.
+- After the final wording/uncertain-context refinement, **80 focused tests plus
+  3 render tests passed**. A rotation-related uncertainty is not labelled as
+  screen-copy evidence. Final focused log: `.data/admin-photo-findings-final.log`
+  within the Flutter app. The mobile summary and desktop expanded findings were
+  visually inspected at 130% text, with 360/390/1440-pixel render coverage.
+- Existing web WASM/font warnings remain build warnings. No API/AI suite was
+  rerun because this change only presents already-saved evidence and does not
+  change those services. Deployed artifacts remain unchanged. Visual previews
+  use fixtures, not private listing/identity images.
+- Final main web, administrator web and Android debug rebuilds also passed after
+  the last wording refinement. Logs are `.data/admin-photo-findings-web-build.log`,
+  `.data/admin-photo-findings-admin-web-build.log` and
+  `.data/admin-photo-findings-android-build.log` within the Flutter app.
+
+To check in the app, reopen the updated admin portal, select **Listings →
+View details → Item photo review**, expand **Photo details**,
+then use **View photos** to inspect the carousel. No live moderation decision or
+real-device walkthrough was performed during this implementation.
+
+Commit message: `fix(admin): show item-photo findings instead of Owner instructions`.
+
+## Saved findings missing in administrator details - 12 November 2026
+
+The Owner view received the saved item-type results, but the administrator record
+API removed `extracted_fields` through its generic privacy filter. Consequently,
+the administrator panel could show **Item type could not be established from the
+saved checks** even when the Owner could see a possible match. This was a response
+projection defect, not a different model decision.
+
+Listing details now return a listing-only allowlist of typed saved findings:
+match status and view counts, per-photo tentative labels and normalized boxes,
+quality flags, screen/document-context cautions and model-availability flags.
+No match is inferred, and the saved overall warning/review outcome is retained.
+For example, three supporting views show **Possible item type detected in 3 of 3
+photos; not a confirmed match.** This finding may coexist with **Photos need
+attention** when other photo concerns were recorded.
+
+The general privacy filter is unchanged. Identity OCR/extracted fields remain
+excluded, and arbitrary text, private identifiers and internal storage paths are
+not copied from listing findings. Unknown/absent analysis stays unavailable;
+unsupported, incomplete and screen-context results remain cautious. Existing
+stored analysis needs no resubmission when its findings are present. Restart the
+API and reopen the listing details to retrieve the corrected response.
+
+Regression coverage compares the actual Owner and administrator API responses
+for the same saved listing, checks per-photo evidence and private-field removal,
+retains negative/partial/unavailable/context findings, supports the legacy nested
+key and confirms that reading details does not alter the record. Additional
+widget cases display positive-but-tentative findings at 360/390/1024/1440 pixels
+with 150% text, including expandable per-photo labels. No live data or model
+artifact is changed.
+
+Verification of this response fix:
+
+- Isolated full API run `.data/testing/20261112-131806-797fbff5`: **720 passed,
+  3 existing skips, no failures**. Includes Owner/admin response parity,
+  identity-data privacy, missing/legacy checks and read-only preservation.
+- Full Flutter run `.data/testing/20261112-131929-e74d6d44`: **769 passed,
+  3 existing skips**; analysis reports **No issues found**. The four added
+  responsive cases retain the warning status while displaying saved possible
+  matches and tentative per-photo labels.
+- Artifact checksums remain unchanged. No application presentation code changed
+  in this follow-up, so web/Android builds were not repeated; the preceding
+  handover/UI build results remain recorded in their handoff documents.
+- No live listing moderation or physical-device walkthrough was performed.
+
+Commit message: `fix(admin): preserve saved item-photo findings in listing details`.

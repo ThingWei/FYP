@@ -338,6 +338,20 @@ String adminAuditAction(Object? action) =>
 String adminRecordStatus(String type, Map row) => switch (type) {
       'users' => adminLabel(row['accountStatus']),
       'verification' => adminVerificationStatus(row),
+      'rentals'
+          when row['status'] != 'disputed' &&
+              row['overdueInfo'] is Map &&
+              row['overdueInfo']['needsAttention'] == true =>
+        'Overdue — needs attention',
+      'rentals'
+          when row['status'] == 'scheduled' &&
+              row['handover'] is Map &&
+              row['handover']['version'] == 2 =>
+        row['handover']['reviewNeededAt'] != null
+            ? 'Handover needs review'
+            : row['handover']['receiptStatus'] == 'processing'
+                ? 'Confirming item receipt'
+                : 'Awaiting renter confirmation',
       'pricing-references' ||
       'report-schedules' =>
         row[type == 'report-schedules' ? 'enabled' : 'active'] == true

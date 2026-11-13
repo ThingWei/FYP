@@ -448,7 +448,7 @@ Regression references identify relevant suites, not an assertion that every list
 
 **Relevant regression suites:** [booking_rental.test.js](../../services/api/test/booking_rental.test.js), [financial-recovery.test.js](../../services/api/test/financial-recovery.test.js), [live_extension_checkout_test.dart](../../apps/renthub_flutter/test/live_extension_checkout_test.dart), [RentalAgreement.test.js](../../blockchain/test/RentalAgreement.test.js).
 
-### P0-16 — Condition evidence and single handover
+### P0-16 — Condition evidence and renter-confirmed handover
 
 **Module:** Rental Management · **Actors:** Owner A, Renter B
 
@@ -456,12 +456,13 @@ Regression references identify relevant suites, not an assertion that every list
 
 **Steps**
 
-1. Record actual condition and photos.
-2. Test missing/foreign evidence separately.
-3. Confirm handover twice.
-4. Read both accounts and payment ledger.
+1. Owner submits actual condition and photos.
+2. Check the rental is awaiting renter confirmation with no capture.
+3. Renter reviews the record and confirms receipt, testing duplicates separately.
+4. Read both accounts and the payment ledger.
+5. Test issue reporting and late unconfirmed handover separately.
 
-**Expected:** Required owned evidence; saved actual condition; authorized participant access; one start and one capture.
+**Expected:** Owner submission alone never starts or captures; only actual renter receipt starts once and captures once; saved evidence remains visible; issues block receipt; late unconfirmed records need review without automatic refund.
 
 | Case ID | Independent variant | Initial status |
 | --- | --- | --- |
@@ -1335,15 +1336,15 @@ Regression references identify relevant suites, not an assertion that every list
 
 **Module:** Rental Management · **Actors:** Owner A, Renter B
 
-**Preconditions:** Controlled-time fixtures and enabled scheduler for device delivery.
+**Preconditions:** Controlled-time fixtures, configured test email sender and enabled scheduler for device delivery.
 
 **Steps**
 
 1. Run due/overdue and expiry boundary variants.
-2. Repeat jobs.
-3. Read status/notifications.
+2. Check initial/follow-up emails, 24-hour administrator alert and new-booking restriction.
+3. Repeat jobs and submit return.
 
-**Expected:** Malaysia day boundaries; notices deduplicated; paid Owner deadline and extension quote not confused with ten-minute initial checkout.
+**Expected:** Malaysia day boundaries; reminders deduplicated and stopped after return/case; no automatic money movement; paid Owner deadline and extension quote stay separate from initial checkout.
 
 | Case ID | Independent variant | Initial status |
 | --- | --- | --- |

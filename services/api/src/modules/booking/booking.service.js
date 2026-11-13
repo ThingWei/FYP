@@ -32,6 +32,7 @@ import { PAYMENT_WINDOW_MINUTES } from './bookingDeadlines.js';
 import { notifyPaymentDue } from './bookingPaymentReminders.js';
 import { expireDuePendingBookings } from './bookingExpiry.js';
 import { expireUncollectedRentals } from '../rental/uncollectedExpiry.js';
+import { assertNoOverdueReturn } from '../rental/overdueEligibility.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -281,6 +282,7 @@ async function createBooking(input, identity, ensureLockOwned) {
       if (replay.agreement?.version !== input.agreementVersion) throw new AppError('Agreement changed for this request', 409, 'IDEMPOTENCY_CONFLICT');
       return replay;
     }
+    await assertNoOverdueReturn(renter.authId);
     if (listing.listingType === 'physical') {
       const existing = await bookingRepository.findOwnPendingOverlap({
         renterId: renter.authId, listingId: listing.publicId, startDate, endDate,
@@ -324,6 +326,7 @@ async function createBooking(input, identity, ensureLockOwned) {
     try {
       booking = await withOperationLock('listing-decision', listing.publicId, async (ensureListingOwned) => {
         await recoverListingOperations(listing.publicId, ensureListingOwned);
+        await assertNoOverdueReturn(renter.authId);
         await assertAvailable(listing, startDate, endDate);
         await ensureLockOwned();
         await ensureListingOwned();
@@ -615,6 +618,10 @@ export const bookingService = {
           409,
           'INVALID_BOOKING_STATE',
         );
+      }
+      if (await RentalModel.exists({ bookingId: booking.publicId, 'handover.version': 2,
+        'handover.recordedAt': { $exists: true } })) {
+        throw new AppError('The Owner has submitted handover evidence. Report an issue instead of cancelling this booking.', 409, 'HANDOVER_CANCELLATION_BLOCKED');
       }
       booking.status = 'cancelled';
       booking.cancellationReason = reason.trim();

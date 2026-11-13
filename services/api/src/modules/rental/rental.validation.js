@@ -33,6 +33,7 @@ export const listRentalsValidation = [
 ];
 
 export const handoverValidation = [rentalId, ...evidenceFields];
+export const handoverAcknowledgementValidation = [rentalId, body('handoverId').isUUID(4)];
 export const returnSubmissionValidation = [rentalId, ...evidenceFields];
 
 export const extensionRequestValidation = [

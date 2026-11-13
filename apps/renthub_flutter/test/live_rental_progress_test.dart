@@ -114,15 +114,14 @@ void main() {
     });
   }
   testWidgets(
-      'physical progress explains actual Owner updates and missing legacy evidence',
+      'physical progress retains return evidence without duplicating handover photos',
       (tester) async {
     await tester
         .pumpWidget(root(RentalProgressPanel(rental: record('scheduled'))));
-    await tester.tap(find.text('See progress & condition photos'));
+    await tester.tap(find.text('Return record'));
     await tester.pumpAndSettle();
-    expect(find.text('No condition record yet.'), findsNWidgets(2));
-    expect(find.textContaining('Live courier tracking is not available'),
-        findsOneWidget);
+    expect(find.text('No condition record yet.'), findsOneWidget);
+    expect(find.text('Before handover'), findsNothing);
     expect(tester.takeException(), isNull);
   });
   testWidgets('decision keeps raw blockchain identifiers out of ordinary copy',
@@ -171,12 +170,13 @@ void main() {
         find.byType(TextFormField), 'Scratch on the left corner');
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Review & confirm handover'), 250,
+    await tester.scrollUntilVisible(
+        find.text('Send handover for confirmation'), 250,
         scrollable: find.byType(Scrollable).first);
     await tester.ensureVisible(
-        find.widgetWithText(FilledButton, 'Review & confirm handover'));
+        find.widgetWithText(FilledButton, 'Send handover for confirmation'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Review & confirm handover'));
+    await tester.tap(find.text('Send handover for confirmation'));
     await tester.pumpAndSettle();
     expect(api.calls, 0);
     await tester.scrollUntilVisible(
@@ -202,8 +202,7 @@ void main() {
             home: LiveConditionRecordPage(
                 rental: record('scheduled'), handover: true))));
     expect(find.text('Scheduled for 1 Jan 2099'), findsOneWidget);
-    expect(
-        find.textContaining('does not start the rental early'), findsWidgets);
+    expect(find.textContaining('renter must confirm receipt'), findsWidgets);
     await tester.enterText(
         find.byType(TextFormField), 'Case and strap included');
     FocusManager.instance.primaryFocus?.unfocus();
@@ -258,7 +257,7 @@ void main() {
           scrollable: find.byType(Scrollable).first);
       await tester.ensureVisible(find.text('Handover opens 1 Jan 2099'));
       final notice =
-          find.textContaining('You can confirm handover from 1 Jan 2099');
+          find.textContaining('You can send handover from 1 Jan 2099');
       expect(notice.hitTestable(), findsOneWidget);
       expect(
           tester
@@ -287,12 +286,13 @@ void main() {
             home: LiveConditionRecordPage(
                 rental: record('scheduled', start: malaysiaCalendarToday()),
                 handover: true))));
-    await tester.scrollUntilVisible(find.text('Review & confirm handover'), 200,
+    await tester.scrollUntilVisible(
+        find.text('Send handover for confirmation'), 200,
         scrollable: find.byType(Scrollable).first);
     expect(
         tester
-            .widget<FilledButton>(
-                find.widgetWithText(FilledButton, 'Review & confirm handover'))
+            .widget<FilledButton>(find.widgetWithText(
+                FilledButton, 'Send handover for confirmation'))
             .onPressed,
         isNotNull);
     expect(

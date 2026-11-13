@@ -46,7 +46,8 @@ function Test-RentHubNodeVersion {
 
 function Invoke-RentHubNativeCommand {
     param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory,
-        [string]$InputText, [ValidateRange(1, 300)][int]$TimeoutSeconds = 30)
+        [string]$InputText, [ValidateRange(1, 300)][int]$TimeoutSeconds = 30,
+        [switch]$PreserveChildProcesses)
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FilePath
     $startInfo.Arguments = ConvertTo-RentHubProcessArguments -Arguments $Arguments
@@ -86,7 +87,12 @@ function Invoke-RentHubNativeCommand {
     }
     finally {
         if ($startedAt -and -not $process.HasExited) {
-            Stop-RentHubOwnedApiProcess -OwnedProcess $process -StartedAt $startedAt
+            if ($PreserveChildProcesses) {
+                # An ADB client may have started the shared daemon. A timed-out
+                # client is ours; the daemon and other device sessions are not.
+                try { $process.Kill() } catch { if (-not $process.HasExited) { throw } }
+            }
+            else { Stop-RentHubOwnedApiProcess -OwnedProcess $process -StartedAt $startedAt }
             # taskkill can return before the terminated root has fully exited.
             $null = $process.WaitForExit(2000)
         }
@@ -149,7 +155,7 @@ function Sync-RentHubAndroidConnection {
         $TargetDevice -notmatch '^[A-Za-z0-9_\[\].:][A-Za-z0-9_\[\].:-]*$') { return 'invalid-device' }
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $budget = [Math]::Min(5, $TimeoutSeconds)
-    try { $state = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'get-state') -TimeoutSeconds $budget }
+    try { $state = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'get-state') -TimeoutSeconds $budget -PreserveChildProcesses }
     catch [ComponentModel.Win32Exception] {
         if ($_.Exception.NativeErrorCode -in @(2, 3)) { return 'adb-missing' }
         return 'adb-error'
@@ -163,7 +169,7 @@ function Sync-RentHubAndroidConnection {
     $remaining = $TimeoutSeconds - $clock.Elapsed.TotalSeconds
     if ($remaining -le 0) { return 'forwarding-timeout' }
     $budget = [Math]::Min(5, [Math]::Max(1, [int][Math]::Floor($remaining)))
-    try { $result = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$ClientPort", "tcp:$HostPort") -TimeoutSeconds $budget }
+    try { $result = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$ClientPort", "tcp:$HostPort") -TimeoutSeconds $budget -PreserveChildProcesses }
     catch [Management.Automation.PipelineStoppedException] { throw }
     catch { return 'forwarding-failed' }
     if ($result.TimedOut) { return 'forwarding-timeout' }
@@ -176,7 +182,7 @@ function Sync-RentHubAndroidConnection {
     $remaining = $TimeoutSeconds - $clock.Elapsed.TotalSeconds
     if ($HostPort -ne $ClientPort -and $remaining -ge 1) {
         $budget = [Math]::Min(5, [Math]::Max(1, [int][Math]::Floor($remaining)))
-        try { $null = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$HostPort", "tcp:$HostPort") -TimeoutSeconds $budget }
+        try { $null = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments @('-s', $TargetDevice, 'reverse', "tcp:$HostPort", "tcp:$HostPort") -TimeoutSeconds $budget -PreserveChildProcesses }
         catch [Management.Automation.PipelineStoppedException] { throw }
         catch { } # The required stable-port forwarding already succeeded.
     }
@@ -192,6 +198,28 @@ function Get-RentHubAdbFailureState {
     return 'adb-error'
 }
 
+function Initialize-RentHubAndroidDiscovery {
+    param([string]$AdbPath, [ValidateRange(1, 10)][int]$TimeoutSeconds = 10)
+    if (-not $AdbPath) { return 'adb-missing' }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    # start-server reuses an existing daemon. Never kill-server, reconnect all
+    # transports, change SDK configuration or choose a different phone here.
+    foreach ($arguments in @(@('start-server'), @('devices', '-l'))) {
+        $remaining = [int][Math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds)
+        if ($remaining -lt 1) { return 'adb-discovery-timeout' }
+        try {
+            $result = Invoke-RentHubNativeCommand -FilePath $AdbPath -Arguments $arguments -TimeoutSeconds $remaining -PreserveChildProcesses
+        }
+        catch [Management.Automation.PipelineStoppedException] { throw }
+        catch { return 'adb-error' }
+        if ($result.TimedOut) { return 'adb-discovery-timeout' }
+        if ($result.ExitCode -ne 0) { return Get-RentHubAdbFailureState -Output ($result.Output + ' ' + $result.Error) }
+    }
+    # Enumeration is not readiness: the selected device and forwarding must
+    # still succeed in Sync-RentHubAndroidConnection.
+    return 'refreshed'
+}
+
 function Get-RentHubAndroidConnectionMessage {
     param([string]$State)
     switch ($State) {
@@ -201,7 +229,8 @@ function Get-RentHubAndroidConnectionMessage {
         'unauthorized' { return 'Unlock your phone and allow USB debugging for this computer.' }
         'offline' { return 'The phone is offline. Unlock it and reconnect the USB cable or wireless connection.' }
         'not-found' { return 'The selected phone was not found. Connect it and check that its ID matches adb devices -l.' }
-        'adb-timeout' { return 'Android did not answer the connection check in time. Check the cable or wireless connection.' }
+        'adb-timeout' { return 'ADB did not finish checking the selected phone. Device discovery may still be starting; also check the cable or wireless connection.' }
+        'adb-discovery-timeout' { return 'Android device discovery did not finish in time. Check Android platform-tools and the USB or wireless connection.' }
         'forwarding-timeout' { return 'The phone was detected, but its connection to the RentHub server timed out.' }
         'forwarding-failed' { return 'The phone was detected, but RentHub could not connect it to the server. Reconnect the phone and check USB debugging.' }
         default { return 'ADB could not check the phone. Check Android platform-tools, device authorization and the USB or wireless connection.' }
@@ -213,12 +242,22 @@ function Wait-RentHubAndroidConnection {
         [ValidateRange(1, 120)][int]$TimeoutSeconds = 30,
         [ValidateRange(100, 5000)][int]$RetryIntervalMilliseconds = 2000)
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    $lastState = ''; $state = 'waiting'; $nextProgress = 0
+    $lastState = ''; $state = 'waiting'; $nextProgress = 0; $discoveryRefreshed = $false
     while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
         $remaining = [Math]::Max(1, [int][Math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds))
         $state = Sync-RentHubAndroidConnection -AdbPath $AdbPath -TargetDevice $TargetDevice -HostPort $HostPort -TimeoutSeconds $remaining
         if ($state -eq 'connected') { return $state }
         if ($state -in @('adb-missing', 'invalid-device')) { return $state }
+        if (-not $discoveryRefreshed -and $state -in @('not-found', 'offline', 'adb-timeout', 'adb-error')) {
+            $remaining = [int][Math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds)
+            if ($remaining -ge 1) {
+                Write-Host 'Refreshing Android device discovery, then checking the selected phone again...' -ForegroundColor DarkGray
+                $discoveryState = Initialize-RentHubAndroidDiscovery -AdbPath $AdbPath -TimeoutSeconds ([Math]::Min(10, $remaining))
+                $discoveryRefreshed = $true
+                if ($discoveryState -eq 'refreshed') { continue }
+                $state = $discoveryState
+            }
+        }
         if ($state -ne $lastState -or $clock.Elapsed.TotalSeconds -ge $nextProgress) {
             $message = Get-RentHubAndroidConnectionMessage -State $state
             Write-Host "Waiting for Android ($([int]$clock.Elapsed.TotalSeconds)/$TimeoutSeconds seconds): $message Retrying automatically..." -ForegroundColor Yellow
@@ -382,7 +421,8 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'precise-locations-v1' -and `
             $response.data.capabilities -contains 'admin-record-details-v1' -and `
             $response.data.capabilities -contains 'trust-profile-v1' -and `
-            $response.data.capabilities -contains 'user-records-messaging-v2'
+            $response.data.capabilities -contains 'user-records-messaging-v2' -and `
+            $response.data.capabilities -contains 'renter-handover-ack-v1'
     }
     catch {
         return $false

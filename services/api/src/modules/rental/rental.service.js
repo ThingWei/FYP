@@ -23,6 +23,7 @@ import { randomUUID } from 'node:crypto';
 import { PaymentModel } from '../payment/payment.model.js';
 import { cents, ledgerEntry } from '../payment/paymentLedger.js';
 import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
+import { requiresReceipt, assertHandoverAuthorization } from './handoverReceipt.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -205,6 +206,11 @@ export const rentalService = {
 
   async confirmHandover(id, input, identity) {
     return mutateRental(id, identity, 'owner', async (rental, ensureOwned) => {
+      if (rental.handover?.recordedAt) {
+        if (requiresReceipt(rental) && rental.handover.condition === input.condition &&
+            rental.handover.notes === (input.notes ?? '') && JSON.stringify([...rental.handover.evidence]) === JSON.stringify(input.evidence)) return rental;
+        throw new AppError('The submitted handover record cannot be changed. Report an issue if something is incorrect.', 409, 'HANDOVER_ALREADY_SUBMITTED');
+      }
       if (rental.listingType !== 'physical' || rental.status !== 'scheduled') {
         throw new AppError('Handover is unavailable', 409, 'INVALID_RENTAL_STATE');
       }
@@ -216,29 +222,59 @@ export const rentalService = {
         throw new AppError('The booked dates have ended. Handover is no longer available.', 409, 'HANDOVER_WINDOW_CLOSED');
       }
       await uploadService.assertOwnedImageReferences(identity, input.evidence, ['handover_evidence']);
+      const booking = await linkedBooking(rental);
+      if (booking.status !== 'approved') throw new AppError('This booking is no longer approved.', 409, 'INVALID_BOOKING_STATE');
+      await assertHandoverAuthorization(booking);
       rental.handover = {
+        version: 2,
+        handoverId: randomUUID(),
+        receiptStatus: 'pending',
         condition: input.condition,
         notes: input.notes ?? '',
         evidence: input.evidence,
         recordedAt: new Date(),
       };
-      rental.status = 'active';
-      const booking = await linkedBooking(rental);
-      await captureBookingPayment(booking);
-      await ensureOwned();
-      booking.status = 'active';
-      booking.activatedAt = new Date();
-      await commitLifecycle(`handover:${rental._id}`, rental.listingId, [rental, booking], ensureOwned);
-      await notifyUser({
+      await commitLifecycle(`handover-submit:${rental._id}`, rental.listingId, [rental], ensureOwned, { notifications: [{
         userId: rental.renterId,
         category: 'rental',
         type: 'rental_handover',
-        title: 'Rental handover confirmed',
-        body: `${booking.listingTitle} is now an active rental.`,
+        title: 'Review your handover',
+        body: `The Owner added condition photos for ${booking.listingTitle}. Review the record and confirm only when you have received the item.`,
         entityType: 'rental',
         entityId: rental.publicId,
+        dedupeKey: `handover-submitted:${rental.handover.handoverId}`,
+      }] });
+      return rentalRepository.findById(id);
+    });
+  },
+
+  async acknowledgeHandover(id, input, identity) {
+    return mutateRental(id, identity, 'renter', async (rental, ensureOwned) => {
+      if (!requiresReceipt(rental) || rental.handover.handoverId !== input.handoverId) {
+        throw new AppError('The handover record has changed. Open the latest record before confirming.', 409, 'HANDOVER_CHANGED');
+      }
+      if (rental.handover.receiptStatus === 'acknowledged') return rental;
+      const booking = await linkedBooking(rental);
+      if (rental.status !== 'scheduled' || booking.status !== 'approved') {
+        throw new AppError('Receipt confirmation is unavailable for this rental.', 409, 'INVALID_RENTAL_STATE');
+      }
+      const today = physicalRentalDate(new Date());
+      if (rental.startDate > today) throw new AppError('Wait until the booked start date to confirm receipt.', 409, 'HANDOVER_TOO_EARLY');
+      if (rental.endDate < today || rental.handover.reviewNeededAt) throw new AppError('The booked dates have ended. This handover needs review; report an issue or contact support.', 409, 'HANDOVER_WINDOW_CLOSED');
+      await assertVehicleCredential(rental, rental.endDate);
+      await assertHandoverAuthorization(booking);
+      const acceptedAt = new Date();
+      rental.handover = { ...rental.handover.toObject(), receiptStatus: 'acknowledged',
+        acceptedAt, acknowledgedAt: acceptedAt, acknowledgedBy: identity.authId };
+      rental.status = 'active';
+      booking.status = 'active'; booking.paymentStatus = 'captured'; booking.activatedAt = acceptedAt;
+      await commitLifecycle(`handover-receipt:${rental.handover.handoverId}`, rental.listingId, [rental, booking], ensureOwned, {
+        handoverCapture: { rentalId: rental._id, bookingId: booking._id, handoverId: rental.handover.handoverId, renterId: identity.authId, acceptedAt },
+        notifications: [rental.renterId, rental.ownerId].map(userId => ({ userId, category: 'rental', type: 'handover_acknowledged',
+          title: 'Item received — rental started', body: `The renter confirmed receipt of ${booking.listingTitle}. The rental is now in progress.`,
+          entityType: 'rental', entityId: rental.publicId, dedupeKey: `handover-ack:${rental.handover.handoverId}:${userId}` })),
       });
-      return rental;
+      return rentalRepository.findById(id);
     });
   },
 

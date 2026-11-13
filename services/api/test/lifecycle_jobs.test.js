@@ -14,6 +14,8 @@ import { NotificationModel } from '../src/modules/communication/notification.mod
 import { PaymentModel } from '../src/modules/payment/payment.model.js';
 import { RentalModel } from '../src/modules/rental/rental.model.js';
 import { physicalRentalReturnDeadline } from '../src/core/calendarDate.js';
+import { UserModel } from '../src/modules/user/user.model.js';
+import { OverdueDeliveryModel } from '../src/modules/rental/overdueDelivery.model.js';
 
 let mongodb;
 
@@ -62,7 +64,11 @@ beforeEach(async () => {
     NotificationModel.deleteMany({}),
     PaymentModel.deleteMany({}),
     adminModule.Model.deleteMany({}),
+    OverdueDeliveryModel.deleteMany({}),
+    UserModel.deleteMany({}),
   ]);
+  await UserModel.collection.insertMany(['renter', 'owner'].map(role => ({ authId: `u-${role}`, email: `${role}@example.test`,
+    displayName: `Demo ${role}`, roles: [role], accountStatus: 'active', settings: { emailNotifications: true } })));
 });
 
 test('physical return deadlines use the entire inclusive Malaysia calendar day', () => {
@@ -76,6 +82,8 @@ test('physical return deadlines use the entire inclusive Malaysia calendar day',
 });
 
 async function activeCalendarRental(endDate = '2026-11-02T00:00:00Z', listingType = 'physical') {
+  await BookingModel.create(booking({ suffix: 'CALENDAR1', title: 'Demo item', startDate: new Date('2026-11-02T00:00:00Z'),
+    endDate: new Date(endDate), status: 'active', paymentStatus: 'captured' }));
   return RentalModel.create({
     publicId: 'RH-RNT-2026-CALENDAR1',
     bookingId: 'RH-BKG-2026-CALENDAR1',

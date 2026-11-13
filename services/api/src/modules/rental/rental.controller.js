@@ -6,6 +6,8 @@ import { rentalService } from './rental.service.js';
 const bodyData = (req) => matchedData(req, { locations: ['body'] });
 
 export const rentalController = {
+  acknowledgeHandover: asyncHandler(async (req, res) => ok(res,
+    await rentalService.acknowledgeHandover(req.params.id, bodyData(req), req.user))),
   payExtension: asyncHandler(async (req, res) => ok(res, await rentalService.payExtension(req.params.id, bodyData(req), req.user))),
   get: asyncHandler(async (req, res) =>
     ok(res, await rentalService.get(req.params.id, req.user)),

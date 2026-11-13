@@ -725,14 +725,31 @@ class RentalConditionRecord {
       {required this.condition,
       this.notes = '',
       this.photos = const [],
+      this.version,
+      this.handoverId = '',
+      this.receiptStatus = '',
+      this.acceptedAt,
+      this.acknowledgedAt,
+      this.reviewNeededAt,
       this.recordedAt});
   final String condition, notes;
+  final int? version;
+  final String handoverId, receiptStatus;
+  final DateTime? acceptedAt, acknowledgedAt, reviewNeededAt;
   final List<String> photos;
   final DateTime? recordedAt;
   factory RentalConditionRecord.fromJson(Map<String, dynamic> json) =>
       RentalConditionRecord(
           condition: json['condition'] as String? ?? '',
           notes: json['notes'] as String? ?? '',
+          version: (json['version'] as num?)?.toInt(),
+          handoverId: json['handoverId'] as String? ?? '',
+          receiptStatus: json['receiptStatus'] as String? ?? '',
+          acceptedAt: DateTime.tryParse(json['acceptedAt'] as String? ?? ''),
+          acknowledgedAt:
+              DateTime.tryParse(json['acknowledgedAt'] as String? ?? ''),
+          reviewNeededAt:
+              DateTime.tryParse(json['reviewNeededAt'] as String? ?? ''),
           photos: (json['evidence'] as List? ?? const [])
               .whereType<String>()
               .toList(),
@@ -751,6 +768,9 @@ class Rental {
     this.start,
     this.end,
     this.expiryReason = '',
+    this.overdueReturn,
+    this.overdueNeedsAttention = false,
+    this.overdueSince,
     this.extensionStatus = 'none',
     this.extension,
     this.handover,
@@ -769,10 +789,25 @@ class Rental {
   final String extensionStatus, expiryReason;
   final RentalExtension? extension;
   final RentalConditionRecord? handover, returnSubmission;
+  final bool? overdueReturn;
+  final bool overdueNeedsAttention;
+  final DateTime? overdueSince;
+  bool get hasOverdueReturn =>
+      listingType == 'physical' &&
+      returnSubmission?.recordedAt == null &&
+      ['active', 'overdue', 'disputed'].contains(status) &&
+      (overdueReturn ?? status == 'overdue');
   final String blockchainStatus, contractAddress, blockchainTransactionHash;
   final String blockchainDeploymentHash, blockchainState, blockchainNetwork;
   final List<String> blockchainSignatureHashes;
   final String blockchainError;
+
+  bool get awaitingReceipt =>
+      listingType == 'physical' &&
+      handover?.version == 2 &&
+      handover?.receiptStatus != 'acknowledged';
+  bool get hasSubmittedHandover =>
+      listingType == 'physical' && handover?.recordedAt != null;
 
   factory Rental.fromJson(Map<String, dynamic> json) {
     final blockchain = json['blockchain'] as Map<String, dynamic>? ?? const {};
@@ -799,6 +834,15 @@ class Rental {
           (json['extension'] as Map<String, dynamic>?)?['status'] as String? ??
               'none',
       expiryReason: json['expiryReason'] as String? ?? '',
+      overdueReturn: json['overdueInfo'] is Map
+          ? json['overdueInfo']['isOverdue'] == true
+          : null,
+      overdueNeedsAttention: json['overdueInfo'] is Map &&
+          json['overdueInfo']['needsAttention'] == true,
+      overdueSince:
+          json['overdueInfo'] is Map && json['overdueInfo']['since'] is String
+              ? DateTime.tryParse(json['overdueInfo']['since'] as String)
+              : null,
       extension: json['extension'] is Map<String, dynamic>
           ? RentalExtension.fromJson(json['extension'] as Map<String, dynamic>)
           : null,

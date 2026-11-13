@@ -17,6 +17,13 @@ String bookingStatusText(Booking booking, Rental? rental,
   if (booking.status == 'rejected') return 'Declined';
   if (booking.awaitingPayment) return 'Awaiting payment';
   if (booking.status == 'pending') return 'Awaiting Owner approval';
+  if (rental?.status == 'scheduled' && rental!.awaitingReceipt) {
+    return handoverReviewRequired(rental)
+        ? 'Handover needs review'
+        : rental.handover?.receiptStatus == 'processing'
+            ? 'Confirming item receipt'
+            : 'Awaiting renter confirmation';
+  }
   return rental == null
       ? const {
             'approved': 'Scheduled',

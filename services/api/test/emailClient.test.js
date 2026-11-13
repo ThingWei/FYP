@@ -3,6 +3,24 @@ import assert from 'node:assert/strict';
 import { env } from '../src/config/env.js';
 import { createEmailClient } from '../src/integrations/emailClient.js';
 
+test('overdue emails use safe participant copy and the existing SMTP transport without changing password resets', async () => {
+  const original = { ...env };
+  const messages = [];
+  Object.assign(env, { emailMode: 'smtp', emailFrom: 'RentHub <sender@example.test>', smtpHost: 'smtp.example.test',
+    smtpUsername: 'sender@example.test', smtpPassword: 'test-only', passwordResetSecret: undefined });
+  const client = createEmailClient({ smtpTransportFactory: () => ({ sendMail: async value => { messages.push(value); return { accepted: [value.to] }; } }) });
+  try {
+    for (const owner of [false, true]) await client.sendOverdueReminder({ email: 'demo@example.test', displayName: 'Demo <Test>',
+      itemTitle: 'Camera <b>example</b>', bookingReference: 'RH-BKG-2026-DEMO', returnDate: '1 Nov 2026', owner, followup: true });
+    assert.match(messages[0].text, /New bookings are unavailable/);
+    assert.match(messages[1].text, /Report item not returned/);
+    assert.match(messages[0].html, /Demo &lt;Test&gt;/);
+    assert.match(messages[0].html, /Camera &lt;b&gt;example&lt;\/b&gt;/);
+    assert.ok(messages.every(m => m.subject.includes('overdue') && !m.text.includes('http') && m.text.includes('24 hours overdue')));
+    await assert.rejects(client.sendPasswordResetCode({ email: 'demo@example.test', displayName: 'Demo', code: '012345' }));
+  } finally { Object.assign(env, original); }
+});
+
 test('sends the reset code through a configured Nodemailer SMTP transport', async () => {
   const original = {
     emailMode: env.emailMode,
