@@ -136,7 +136,7 @@ class _AdminSystemStatusState extends State<AdminSystemStatus> {
                                 'up' || 'healthy' => 'Available',
                                 'configured' => 'Configured',
                                 'disabled' => 'Switched off',
-                                'development' => 'Demonstration',
+                                'development' => 'Test environment',
                                 'down' ||
                                 'degraded' ||
                                 'failed' =>
@@ -157,7 +157,7 @@ class _AdminSystemStatusState extends State<AdminSystemStatus> {
                                           : service.key == 'authentication'
                                               ? 'Sign-in is configured. This check does not sign in a user.'
                                               : service.key == 'blockchain'
-                                                  ? 'Supporting rental records use a demonstration network.'
+                                                  ? 'Supporting rental records use a test network.'
                                                   : service.key == 'ai'
                                                       ? 'Automated assistance supports human review.'
                                                       : service.key ==

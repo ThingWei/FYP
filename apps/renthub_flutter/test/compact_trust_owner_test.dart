@@ -178,15 +178,19 @@ void main() {
           final labels =
               tester.widgetList<Text>(summary).map((t) => t.data).toList();
           expect(labels.first, startsWith('RM '));
-          final help = find.byTooltip('Why this item?').first;
-          expect(tester.getSize(help).width, greaterThanOrEqualTo(48));
-          expect(tester.getSize(help).height, greaterThanOrEqualTo(48));
-          await tester.tap(help);
-          await tester.pumpAndSettle();
-          expect(find.textContaining('Based on your marketplace activity'),
-              findsOneWidget);
-          await tester.tap(find.text('Close'));
-          await tester.pumpAndSettle();
+          if (mode != ListingViewMode.list) {
+            final help = find.byTooltip('Why this item?').first;
+            expect(tester.getSize(help).width, greaterThanOrEqualTo(48));
+            expect(tester.getSize(help).height, greaterThanOrEqualTo(48));
+            await tester.tap(help);
+            await tester.pumpAndSettle();
+            expect(find.textContaining('Based on your marketplace activity'),
+                findsOneWidget);
+            await tester.tap(find.text('Close'));
+            await tester.pumpAndSettle();
+          } else {
+            expect(find.byTooltip('Why this item?'), findsNothing);
+          }
           for (final action in ['Save compact item', 'Compare compact item']) {
             final size = tester.getSize(find.byTooltip(action).first);
             expect(size.width, greaterThanOrEqualTo(48));

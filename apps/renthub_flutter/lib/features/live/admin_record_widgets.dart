@@ -557,7 +557,7 @@ String _summary(String type, Map row) => switch (type) {
               '${adminLabel(entry['documentType'])} · ${adminLabel(entry['status'])}')
           .join('  /  '),
       'transactions' =>
-        '${adminMoney(row['amount'])}${row['simulated'] == true ? ' · Demo payment' : ''}',
+        '${adminMoney(row['amount'])}${row['simulated'] == true ? ' · Payment' : ''}',
       'bookings' =>
         adminMoney(row['pricing'] is Map ? row['pricing']['total'] : null),
       'reviews' =>
@@ -775,12 +775,7 @@ class _AdminRecordDialogState extends State<_AdminRecordDialog> {
                       const SizedBox(height: 12)
                     ],
                     Row(children: [
-                      Expanded(
-                          child: Text('Malaysia time (MYT)',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: AppColors.secondaryText))),
+                      const Spacer(),
                       OutlinedButton(
                           onPressed: () => Navigator.pop(context),
                           child: const Text('Close'))
@@ -800,8 +795,8 @@ class _AdminRecordDialogState extends State<_AdminRecordDialog> {
             clipBehavior: Clip.antiAlias,
             child: ConstrainedBox(
                 constraints: BoxConstraints(
-                    maxWidth: 940,
-                    maxHeight: MediaQuery.sizeOf(context).height * .88),
+                    maxWidth: 720,
+                    maxHeight: MediaQuery.sizeOf(context).height * .78),
                 child: content));
   }
 }
@@ -986,7 +981,7 @@ class AdminRecordDetails extends StatelessWidget {
       }
     }
     if (row['simulated'] == true) {
-      fields['Payment environment'] = 'Demonstration — no real money collected';
+      fields['Payment environment'] = 'Simulated';
     }
     if (row['accountNames'] is Map) {
       for (final key in [
@@ -1162,8 +1157,7 @@ class AdminRecordDetails extends StatelessWidget {
           }
         }
         if (values['simulatedSettlement'] == true) {
-          fields['Settlement environment'] =
-              'Demonstration — no real money transferred';
+          fields['Settlement environment'] = 'Simulated';
         }
       }
     }
@@ -1297,6 +1291,13 @@ class AdminRecordDetails extends StatelessWidget {
             },
             icon: const Icon(Icons.open_in_new),
             label: const Text('Open source webpage')),
+      if (row['vehicleGrantRef'] is String)
+        AdminDetailSection(
+            title: 'Vehicle registration document',
+            icon: Icons.description_outlined,
+            child: _AdminPhotoGallery(
+                references: [row['vehicleGrantRef'] as String],
+                label: 'Private registration document')),
       if (identity)
         _AdminIdentityDocuments(row: row, expanded: type == 'verification'),
       if (type == 'listings' && row['listingType'] != 'service')
@@ -1534,6 +1535,12 @@ class _AdminIdentityDocuments extends StatelessWidget {
       if (refs is List && refs.isNotEmpty) {
         groups[type] = refs.whereType<String>().toList();
       }
+      final holder = current is Map && current['holderPhotoRef'] is String
+          ? current['holderPhotoRef']
+          : previous?['holderPhotoRef'];
+      if (type == 'mykad' && holder is String) {
+        groups['holder_photo'] = [holder];
+      }
     }
     return Padding(
         padding: const EdgeInsets.only(bottom: 16),
@@ -1551,7 +1558,9 @@ class _AdminIdentityDocuments extends StatelessWidget {
                 const Text('No documents are available for this record.'),
               for (final entry in groups.entries)
                 AdminDetailSection(
-                    title: adminLabel(entry.key),
+                    title: entry.key == 'holder_photo'
+                        ? 'Person holding their MyKad'
+                        : adminLabel(entry.key),
                     icon: Icons.badge_outlined,
                     child: _AdminPhotoGallery(
                         references: entry.value, label: adminLabel(entry.key))),

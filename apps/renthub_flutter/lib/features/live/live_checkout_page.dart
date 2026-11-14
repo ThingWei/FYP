@@ -11,6 +11,7 @@ import '../../shared/models/domain_models.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_authenticated_page.dart';
 import 'live_booking_charges.dart';
+import 'live_checkout_rewards.dart';
 import 'live_renthub_controller.dart';
 import 'live_agreement.dart';
 
@@ -43,6 +44,7 @@ enum _DemoPaymentOutcome { success, declined, cancelled }
 
 class _LiveCheckoutPageState extends State<LiveCheckoutPage>
     with WidgetsBindingObserver {
+  final scrollController = ScrollController();
   Booking? booking;
   bool loading = true,
       paying = false,
@@ -50,7 +52,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
       blocked = false,
       acceptedFinalTotal = false,
       recorded = false;
-  bool choosing = false, revisedTotal = false;
+  bool choosing = false, rewardChanging = false, revisedTotal = false;
   String? error, message, attemptKey;
   String? attemptOutcome;
   bool foreground = true;
@@ -62,7 +64,11 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
       revisedTotal ||
       (widget.estimatedTotal != null &&
           booking != null &&
-          (widget.estimatedTotal! - booking!.total).abs() > .01);
+          (widget.estimatedTotal! -
+                      (booking!.charges?.rewardDiscount ?? 0) -
+                      booking!.total)
+                  .abs() >
+              .01);
   bool get payable =>
       booking != null &&
       booking!.canContinuePayment &&
@@ -74,6 +80,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
       !loading &&
       !uncertain &&
       !choosing &&
+      !rewardChanging &&
       foreground &&
       error == null &&
       (!changedTotal || acceptedFinalTotal);
@@ -93,6 +100,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
 
   @override
   void dispose() {
+    scrollController.dispose();
     decisionGeneration++;
     loadGeneration++;
     WidgetsBinding.instance.removeObserver(this);
@@ -137,23 +145,30 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
           method = successful.first.method;
           attemptOutcome = 'success';
           message =
-              'Your demo payment is recorded. Finish updating this request without making another payment.';
+              'Your payment is recorded. Finish updating this request without making another payment.';
         } else if (value.awaitingPayment &&
             ((current.isNotEmpty && current.first.status == 'failed') ||
                 (attempts.isNotEmpty &&
                     attempts.every((a) => a.status == 'failed')))) {
           attemptKey = null;
           message =
-              'The demo payment was declined. Your request is still unpaid; you can try again.';
+              'The payment was declined. Your request is still unpaid; you can try again.';
         } else if (value.paymentStatus == 'authorized' &&
             value.status == 'pending') {
-          message = 'Demo payment complete — awaiting Owner approval';
+          message = 'Payment complete — awaiting Owner approval';
         } else if (value.paymentStatus != 'unpaid' ||
             value.status != 'pending') {
           message =
               'This request does not need another payment. Its current booking status is ${value.status}.';
         }
       });
+      if (value.paymentStatus != 'unpaid') {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && scrollController.hasClients) {
+            scrollController.jumpTo(0);
+          }
+        });
+      }
     } catch (exception) {
       if (isCurrent()) {
         setState(() {
@@ -202,7 +217,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
     if (selected == null) return;
     if (!foreground || decision != decisionGeneration) {
       setState(() => message =
-          'Payment was not confirmed. Choose Continue demo payment to try again.');
+          'Payment was not confirmed. Choose Continue payment to try again.');
       return;
     }
     if (selected == _DemoPaymentOutcome.cancelled) {
@@ -212,6 +227,42 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
       return;
     }
     await _pay(selected.name);
+  }
+
+  Future<void> _applyReward(String rewardId) async {
+    if (!payable ||
+        paying ||
+        loading ||
+        choosing ||
+        rewardChanging ||
+        uncertain ||
+        attemptKey != null) {
+      return;
+    }
+    final auth = context.read<AuthController>();
+    final account = auth.user?.id;
+    bool current() => mounted && auth.user?.id == account;
+    setState(() => rewardChanging = true);
+    try {
+      await controller.api.request(
+          'PUT', '/rewards/checkout/${widget.bookingId}',
+          body: {'rewardId': rewardId});
+      if (current()) await _load();
+    } catch (_) {
+      // Read the authoritative total after a lost response. Never repeat the
+      // reward or payment mutation automatically.
+      if (current()) {
+        await _load();
+        if (current() && error == null) {
+          setState(() =>
+              message = 'Check your saved reward and total before continuing.');
+        }
+      }
+    } finally {
+      // This state belongs to the route, not a child card that can be rebuilt
+      // or disposed while its refreshed charges/checkbox are being inserted.
+      if (current()) setState(() => rewardChanging = false);
+    }
   }
 
   Future<void> _pay(String outcome) async {
@@ -268,7 +319,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
         setState(() {
           attemptKey = null;
           message =
-              'The demo payment was declined. Your request is still unpaid; you can try again.';
+              'The payment was declined. Your request is still unpaid; you can try again.';
         });
       }
       await _load();
@@ -285,7 +336,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
         await _load();
         if (mounted && payable && message == null) {
           setState(() => message =
-              'No completed payment was found. You may retry the same demo attempt.');
+              'No completed payment was found. You may retry the same payment attempt.');
         }
       }
     } finally {
@@ -293,7 +344,8 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
     }
   }
 
-  Widget card(List<Widget> children) => Card(
+  Widget card(List<Widget> children, {Key? key}) => Card(
+      key: key,
       child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -323,16 +375,21 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
                           : loading && booking == null
                               ? const Center(child: CircularProgressIndicator())
                               : ListView(
+                                  controller: scrollController,
                                   padding: const EdgeInsets.all(16),
                                   children: [
                                       card([
-                                        Text('RentHub demo checkout',
+                                        Text('Checkout',
                                             style: Theme.of(context)
                                                 .textTheme
                                                 .headlineSmall),
                                         const SizedBox(height: 8),
+                                        const Text('Simulated payment',
+                                            style: TextStyle(
+                                                color:
+                                                    AppColors.secondaryText)),
                                         const Text(
-                                            'No real money is taken. Payment does not confirm the booking; the Owner must still approve your request.')
+                                            'Owner approval is required after payment.')
                                       ]),
                                       if (booking?.awaitingPayment == true)
                                         card([
@@ -398,7 +455,21 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
                                         ]),
                                         if (payable)
                                           card([
-                                            Text('Choose a demo payment method',
+                                            CheckoutRewardsSection(
+                                                booking: booking!,
+                                                enabled: !paying &&
+                                                    !loading &&
+                                                    !uncertain &&
+                                                    !choosing &&
+                                                    !rewardChanging &&
+                                                    attemptKey == null,
+                                                onApply: _applyReward)
+                                          ],
+                                              key: ValueKey(
+                                                  'checkout-rewards-${widget.bookingId}')),
+                                        if (payable)
+                                          card([
+                                            Text('Payment method',
                                                 style: Theme.of(context)
                                                     .textTheme
                                                     .titleMedium),
@@ -406,17 +477,17 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
                                             for (final entry in const [
                                               (
                                                 'card',
-                                                'Demo Card',
+                                                'Card',
                                                 Icons.credit_card
                                               ),
                                               (
                                                 'fpx',
-                                                'Demo FPX',
+                                                'FPX',
                                                 Icons.account_balance_outlined
                                               ),
                                               (
                                                 'wallet',
-                                                'Demo Wallet',
+                                                'Wallet',
                                                 Icons
                                                     .account_balance_wallet_outlined
                                               )
@@ -443,7 +514,7 @@ class _LiveCheckoutPageState extends State<LiveCheckoutPage>
                                                     ready ? _openDemo : null,
                                                 child: Text(recorded
                                                     ? 'Finish recording payment'
-                                                    : 'Continue demo payment'))
+                                                    : 'Continue payment'))
                                           ]),
                                         if (booking!.charges == null)
                                           const Text(
@@ -500,9 +571,9 @@ class _DemoPaymentDialog extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
               child: Text(switch (method) {
-            'fpx' => 'Demo FPX',
-            'wallet' => 'Demo Wallet',
-            _ => 'Demo Card',
+            'fpx' => 'FPX',
+            'wallet' => 'Wallet',
+            _ => 'Card',
           })),
         ]),
         content: SizedBox(
@@ -526,7 +597,7 @@ class _DemoPaymentDialog extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Demo total'),
+                        const Text('Total'),
                         const SizedBox(height: 4),
                         Text(formatMoney(total),
                             style: Theme.of(context)
@@ -546,8 +617,7 @@ class _DemoPaymentDialog extends StatelessWidget {
                     'Test card ending 4242. Do not enter a real card number.',
                 }),
                 const SizedBox(height: 8),
-                const Text(
-                    'No real money will be taken. Owner approval is still required.',
+                const Text('Owner approval is still required.',
                     style: TextStyle(color: AppColors.secondaryText)),
               ],
             ),
@@ -568,7 +638,7 @@ class _DemoPaymentDialog extends StatelessWidget {
               onPressed: expired
                   ? null
                   : () => Navigator.pop(context, _DemoPaymentOutcome.success),
-              child: const Text('Pay demo', textAlign: TextAlign.center)),
+              child: const Text('Pay', textAlign: TextAlign.center)),
         ],
       );
 }

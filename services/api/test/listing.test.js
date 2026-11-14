@@ -1,3 +1,4 @@
+import { reviewPhoto } from './helpers/reviewPhoto.js';
 import test, { after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -684,7 +685,7 @@ test('all 22 physical subcategories forward stored photos and retain inconclusiv
           risk_indicators: [], reasons: ['Detail views require manual review'] };
       };
       const created = await request(app).post('/api/v1/listings').set(ownerHeaders)
-        .send({ ...cameraInput, title: 'Representative item photo evidence', category, subcategory });
+        .send({ ...cameraInput, title: 'Representative item photo evidence', category, subcategory, ...(category === 'Vehicles' && ['Cars', 'Motorcycles'].includes(subcategory) && { vehicleGrantRef: await reviewPhoto('u-owner', 'vehicle_grant') }) });
       assert.equal(created.status, 201, `${category}/${subcategory}: ${JSON.stringify(created.body.error)}`);
       const submitted = await request(app).post(`/api/v1/listings/${created.body.data.id}/submit`).set(ownerHeaders);
       assert.equal(submitted.status, 200);

@@ -87,6 +87,8 @@ export const listingController = {
         req.params.id,
         req.body.status,
         req.body.reason,
+        req.user,
+        req.body.vehicleGrantReviewed,
       )),
     ),
   ),

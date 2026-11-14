@@ -11,6 +11,7 @@ import '../renter/booking/booking_flow.dart' show formatDateRange;
 import 'live_authenticated_page.dart';
 import 'live_booking_charges.dart';
 import 'live_renthub_controller.dart';
+import 'live_rental_progress.dart' show rentalEventTime;
 
 /// Only retry this read. Never replay checkout or booking writes here.
 Future<dynamic> readAgreement(ApiClient api, String path) async {
@@ -69,12 +70,14 @@ class BookingAgreementDocument {
       this.renterAcceptedAt,
       this.ownerApprovedAt,
       this.recordStatus,
-      this.demonstrationNetwork);
+      this.demonstrationNetwork,
+      {this.proof});
   final Booking booking;
   final AgreementTerms? terms;
   final DateTime? renterAcceptedAt, ownerApprovedAt;
   final String recordStatus;
   final bool demonstrationNetwork;
+  final BlockchainProof? proof;
   factory BookingAgreementDocument.fromJson(Map<String, dynamic> row) {
     if (row['booking'] is! Map ||
         row['history'] is! Map ||
@@ -92,7 +95,54 @@ class BookingAgreementDocument {
         date(history['renterAcceptedAt']),
         date(history['ownerApprovedAt']),
         record['status'] as String? ?? 'unavailable',
-        record['demonstrationNetwork'] == true);
+        record['demonstrationNetwork'] == true,
+        proof: record['proof'] is Map
+            ? BlockchainProof.fromJson(
+                Map<String, dynamic>.from(record['proof']))
+            : null);
+  }
+}
+
+class BlockchainProof {
+  const BlockchainProof(
+      this.network, this.state, this.recordedAt, this.references);
+  final String network;
+  final String? state;
+  final DateTime? recordedAt;
+  final Map<String, String> references;
+  factory BlockchainProof.fromJson(Map<String, dynamic> row) {
+    final references = <String, String>{};
+    for (final entry in {
+      'contractAddress': 'Contract address',
+      'deploymentTransactionHash': 'Deployment transaction',
+      'lastTransactionHash': 'Latest recorded transaction'
+    }.entries) {
+      final value = row[entry.key];
+      if (value is String &&
+          RegExp(entry.key == 'contractAddress'
+                  ? r'^0x[a-fA-F0-9]{40}$'
+                  : r'^0x[a-fA-F0-9]{64}$')
+              .hasMatch(value)) {
+        references[entry.value] = value;
+      }
+    }
+    var index = 0;
+    for (final value
+        in row['signatureTransactionHashes'] as List? ?? const []) {
+      if (value is String && RegExp(r'^0x[a-fA-F0-9]{64}$').hasMatch(value)) {
+        references['Signature transaction ${++index}'] = value;
+      }
+    }
+    return BlockchainProof(
+        row['network'] is String &&
+                (row['network'] as String)
+                    .toLowerCase()
+                    .contains('demonstration')
+            ? 'Local test network'
+            : row['network'] as String? ?? 'Network not recorded',
+        row['recordedState'] as String?,
+        DateTime.tryParse('${row['recordedAt'] ?? ''}'),
+        references);
   }
 }
 
@@ -312,11 +362,6 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
                                         Text(service
                                             ? 'RentHub keeps this service booking and its recorded acceptance for review.'
                                             : 'RentHub records rental amounts and status changes to support later review. This does not store or verify the full agreement text.'),
-                                        if (document!.demonstrationNetwork) ...[
-                                          const SizedBox(height: 8),
-                                          const Text(
-                                              'RentHub’s local demonstration network uses test funds, not real money.')
-                                        ],
                                         if (status == 'unavailable') ...[
                                           const SizedBox(height: 8),
                                           const Text(
@@ -331,6 +376,49 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
                                                   Navigator.pop(context, terms),
                                           child: const Text(
                                               'I have reviewed these terms')),
+                                    if (document != null && !service)
+                                      Card(
+                                          child: ExpansionTile(
+                                              title: const Text(
+                                                  'Blockchain proof'),
+                                              leading: const Icon(
+                                                  Icons.verified_outlined),
+                                              expandedCrossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
+                                              childrenPadding:
+                                                  const EdgeInsets.all(16),
+                                              children: [
+                                            const Text(
+                                                'Saved rental record. The full agreement text is not stored here.'),
+                                            if (document!.proof == null)
+                                              const Text(
+                                                  'Blockchain proof is not available for this record.')
+                                            else ...[
+                                              Text(document!.proof!.network),
+                                              Text(
+                                                  'Recorded state: ${document!.proof!.state ?? 'Not available'}'),
+                                              Text(
+                                                  'Recorded: ${rentalEventTime(document!.proof!.recordedAt)}'),
+                                              for (final entry in document!
+                                                  .proof!.references.entries)
+                                                Padding(
+                                                    padding: const EdgeInsets
+                                                        .symmetric(vertical: 8),
+                                                    child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(entry.key),
+                                                          SelectableText(
+                                                              entry.value)
+                                                        ])),
+                                              if (document!
+                                                  .proof!.references.isEmpty)
+                                                const Text(
+                                                    'No transaction references were recorded.'),
+                                            ],
+                                          ])),
                                     if (widget.bookingId != null)
                                       OutlinedButton(
                                           onPressed: () =>

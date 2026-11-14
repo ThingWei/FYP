@@ -19,8 +19,13 @@ bool get listingCameraSupported =>
 
 Future<List<String>> pickListingPhotos(BuildContext context, int remaining,
     {String purpose = 'listing_image'}) async {
-  if (!const ['listing_image', 'handover_evidence', 'return_evidence']
-      .contains(purpose)) {
+  if (!const [
+    'listing_image',
+    'handover_evidence',
+    'return_evidence',
+    'vehicle_grant',
+    'verification_holder_photo'
+  ].contains(purpose)) {
     throw ArgumentError('Unsupported photo purpose');
   }
   if (remaining <= 0) return [];
@@ -55,8 +60,11 @@ Future<List<String>> pickListingPhotos(BuildContext context, int remaining,
     final photo = await Navigator.push<ListingPhotoSelection>(
         context,
         MaterialPageRoute(
-            builder: (_) =>
-                const LiveAuthenticatedPage(child: LiveListingCameraPage())));
+            builder: (_) => LiveAuthenticatedPage(
+                child: LiveListingCameraPage(
+                    client: ListingCameraClient(
+                        preferFront:
+                            purpose == 'verification_holder_photo')))));
     if (photo != null) selections.add(photo);
   } else {
     final files = await FilePicker.pickFiles(
@@ -71,8 +79,12 @@ Future<List<String>> pickListingPhotos(BuildContext context, int remaining,
       return [];
     }
     for (final file in files) {
-      if ((await file.length() ?? 0) > 10 * 1024 * 1024) {
-        throw ApiException(400, 'Choose photos smaller than 10 MB.',
+      final maxMb =
+          ['vehicle_grant', 'verification_holder_photo'].contains(purpose)
+              ? 20
+              : 10;
+      if ((await file.length() ?? 0) > maxMb * 1024 * 1024) {
+        throw ApiException(400, 'Choose photos smaller than $maxMb MB.',
             code: 'LISTING_PHOTO_TOO_LARGE');
       }
       selections
@@ -91,7 +103,11 @@ Future<List<String>> pickListingPhotos(BuildContext context, int remaining,
                 child: ListingPhotoBatchPreview(
                     title: purpose == 'listing_image'
                         ? 'Review listing photos'
-                        : 'Review condition photos',
+                        : purpose == 'vehicle_grant'
+                            ? 'Review vehicle registration photo'
+                            : purpose == 'verification_holder_photo'
+                                ? 'Review photo of you holding your MyKad'
+                                : 'Review condition photos',
                     photos: selections,
                     upload: (photo) async {
                       if (account != controller.profile?.id) {

@@ -43,8 +43,9 @@ class AdminPayoutChart extends StatelessWidget {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const RentHubSectionHeader('Owner payouts',
                   help:
-                      'Recorded demo payouts for completed rentals and services. These are not real sales or RentHub revenue.'),
-              const Text('Demo payouts, not real sales or RentHub revenue.',
+                      'Recorded simulated payouts for completed rentals and services. These are not real sales or RentHub revenue.'),
+              const Text(
+                  'Simulated payouts, not real sales or RentHub revenue.',
                   style: TextStyle(color: AppColors.secondaryText)),
               const SizedBox(height: 16),
               if (!valid)
@@ -81,9 +82,6 @@ class AdminPayoutChart extends StatelessWidget {
                                     semanticsLabel:
                                         'Owner payouts for ${row['month']}: RM ${(row['amount'] as num).toStringAsFixed(2)}')),
                           ])),
-                const SizedBox(height: 8),
-                const Text('Months follow Malaysia time.',
-                    style: TextStyle(color: AppColors.secondaryText)),
               ],
             ])));
   }

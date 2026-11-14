@@ -83,6 +83,8 @@ Future<LiveRentHubController> mountDetail(WidgetTester tester, DetailApi api,
 Future<void> openDates(WidgetTester tester, String title) async {
   await tester.scrollUntilVisible(find.text(title), 300,
       scrollable: find.byType(Scrollable).first);
+  await tester.ensureVisible(find.text(title));
+  await tester.pumpAndSettle();
   await tester.tap(find.text(title));
   await tester.pumpAndSettle();
 }

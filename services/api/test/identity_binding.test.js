@@ -1,3 +1,4 @@
+import { reviewPhoto } from './helpers/reviewPhoto.js';
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
@@ -34,13 +35,13 @@ function mockValid(t, number = '900101-07-1234') {
 }
 async function submit(id) {
   await request(app).post('/api/v1/users/session').set(identity(id)).expect(201);
-  const response = await request(app).post('/api/v1/users/me/verification').set(identity(id)).send(input).expect(200);
+  const response = await request(app).post('/api/v1/users/me/verification').set(identity(id)).send({ ...input, holderPhotoRef: await reviewPhoto(id) }).expect(200);
   return { id: response.body.data._id, attempt: response.body.data.verification.history.at(-1).attemptId,
     response: response.body.data };
 }
 function approve(user) {
   return request(app).patch('/api/v1/users/' + user.id + '/verification').set(ADMIN)
-    .send({ status: 'approved', attemptId: user.attempt });
+    .send({ status: 'approved', holderPhotoReviewed: true, attemptId: user.attempt });
 }
 test('two pending accounts do not reserve identity; first approval blocks the other', async t => {
   mockValid(t);
@@ -66,7 +67,7 @@ test('already bound MyKad rejects a different account at submission without crea
   mockValid(t);
   const owner = await submit('already-bound'); await approve(owner).expect(200);
   await request(app).post('/api/v1/users/session').set(identity('new-account')).expect(201);
-  const blocked = await request(app).post('/api/v1/users/me/verification').set(identity('new-account')).send(input).expect(409);
+  const blocked = await request(app).post('/api/v1/users/me/verification').set(identity('new-account')).send({ ...input, holderPhotoRef: await reviewPhoto('new-account') }).expect(409);
   assert.equal(blocked.body.error.code, 'MYKAD_ALREADY_LINKED');
   assert.equal((await UserModel.findOne({ authId: 'new-account' })).verification.history.length, 0);
 });
@@ -75,7 +76,7 @@ test('rejected attempt can be resubmitted on the same account with a fresh priva
   const first = await submit('retry-user');
   await request(app).patch('/api/v1/users/' + first.id + '/verification').set(ADMIN)
     .send({ status: 'rejected', attemptId: first.attempt, reason: 'Please provide clearer evidence.' }).expect(200);
-  const second = await request(app).post('/api/v1/users/me/verification').set(identity('retry-user')).send(input).expect(200);
+  const second = await request(app).post('/api/v1/users/me/verification').set(identity('retry-user')).send({ ...input, holderPhotoRef: await reviewPhoto('retry-user') }).expect(200);
   assert.equal(second.body.data.verification.history.length, 2);
   await approve({ id: first.id, attempt: second.body.data.verification.history.at(-1).attemptId }).expect(200);
 });
@@ -103,7 +104,7 @@ test('missing secret fails clearly without persisting a false pending result', a
   mockValid(t);
   env.kycIdentityMatchSecret = undefined;
   await request(app).post('/api/v1/users/session').set(identity('no-key')).expect(201);
-  const response = await request(app).post('/api/v1/users/me/verification').set(identity('no-key')).send(input).expect(503);
+  const response = await request(app).post('/api/v1/users/me/verification').set(identity('no-key')).send({ ...input, holderPhotoRef: await reviewPhoto('no-key') }).expect(503);
   assert.equal(response.body.error.code, 'IDENTITY_BINDING_NOT_CONFIGURED');
   assert.equal((await UserModel.findOne({ authId: 'no-key' })).verification.history.length, 0);
 });
@@ -138,7 +139,7 @@ test('binding survives deactivation, suspension and banning', async t => {
   for (const status of ['deactivated', 'suspended', 'banned']) {
     await UserModel.updateOne({ _id: user.id }, { accountStatus: status });
     await request(app).post('/api/v1/users/session').set(identity('other-' + status)).expect(201);
-    const response = await request(app).post('/api/v1/users/me/verification').set(identity('other-' + status)).send(input).expect(409);
+    const response = await request(app).post('/api/v1/users/me/verification').set(identity('other-' + status)).send({ ...input, holderPhotoRef: await reviewPhoto('other-' + status) }).expect(409);
     assert.equal(response.body.error.code, 'MYKAD_ALREADY_LINKED');
     assert.equal((await UserModel.findById(user.id).select('+verifiedIdentityFingerprint')).verifiedIdentityFingerprint, fingerprint);
   }
@@ -195,7 +196,7 @@ test('usable approved legacy fingerprint blocks a duplicate new claim before opt
   mockValid(t);
   await legacy('legacy-known', '900101071234');
   await request(app).post('/api/v1/users/session').set(identity('new-vs-legacy')).expect(201);
-  await request(app).post('/api/v1/users/me/verification').set(identity('new-vs-legacy')).send(input).expect(409);
+  await request(app).post('/api/v1/users/me/verification').set(identity('new-vs-legacy')).send({ ...input, holderPhotoRef: await reviewPhoto('new-vs-legacy') }).expect(409);
   assert.equal(await UserModel.countDocuments({ verifiedIdentityFingerprint: { $exists: true } }), 0);
 });
 

@@ -20,10 +20,10 @@ class TrustCohort {
   final double? averageRating;
   bool get established => status == 'established' && score != null;
   String get label => established
-      ? '$score / 100'
+      ? '$score%'
       : status == 'unavailable'
           ? 'Score unavailable'
-          : 'Building trust';
+          : '—';
   factory TrustCohort.fromJson(dynamic raw) {
     if (raw is! Map) return const TrustCohort();
     int count(String key) => raw[key] is num && (raw[key] as num).isFinite

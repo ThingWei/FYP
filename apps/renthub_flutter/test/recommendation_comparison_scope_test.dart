@@ -45,6 +45,11 @@ Map<String, dynamic> feed({String id = 'l-camera'}) => {
         'items': [item(id)]
       },
       'trending': {'status': 'location_required', 'items': []},
+      'nearby': {
+        'status': 'ready',
+        'items': [item('l-nearby')],
+        'scope': 'nearby'
+      },
       'recentlyViewed': {'status': 'empty', 'items': []},
     };
 User person(String id) => User.fromJson({
@@ -320,7 +325,7 @@ void main() {
     expect(c.comparisonListings.single.id, 'l-phone');
     expect(api.calls.length, 1);
   });
-  testWidgets('GPS timeout resets controls and ignores its late reading',
+  testWidgets('Home does not request or consume GPS readings outside filters',
       (tester) async {
     final c = LiveRentHubController(FeedApi())..profile = person('u-renter');
     addTearDown(c.dispose);
@@ -333,18 +338,9 @@ void main() {
                 onOpen: (_) async {},
                 positionClient: gps))));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Use current location'));
-    await tester.pump();
+    expect(find.text('Use current location'), findsNothing);
+    expect(find.text('Choose area'), findsNothing);
     await tester.pump(const Duration(seconds: 16));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Current location is unavailable.'),
-        findsOneWidget);
-    expect(
-        tester
-            .widget<TextButton>(
-                find.widgetWithText(TextButton, 'Use current location'))
-            .onPressed,
-        isNotNull);
     gps.reply.complete(const CurrentLocationReading(3, 101, 10));
     await tester.pumpAndSettle();
     expect(c.recommendationCentre, isNull);
@@ -482,7 +478,8 @@ void main() {
     expect(c.comparisonListings.single.id, 'l-camera');
   });
   for (final width in [360.0, 390.0]) {
-    testWidgets('home sections, retry, see-all and coarse GPS at $width',
+    testWidgets(
+        'home sections, retry and see-all without location controls at $width',
         (tester) async {
       await tester.binding.setSurfaceSize(Size(width, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -509,15 +506,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(gps.calls, 0);
       expect(find.text('Recommended For You'), findsOneWidget);
-      expect(find.text('Trending Near You'), findsOneWidget);
+      expect(find.text('Trending Now'), findsOneWidget);
       expect(find.text('Recently Viewed'), findsOneWidget);
       expect(find.text('Retry'), findsOneWidget);
-      await reveal(tester, find.text('Use current location'));
-      await tester.tap(find.text('Use current location'));
-      await tester.pumpAndSettle();
-      expect(gps.calls, 1);
-      expect(find.textContaining('Reported accuracy: 80 m.'), findsOneWidget);
-      expect(c.recommendationCentre, isNotNull);
+      expect(find.text('Use current location'), findsNothing);
+      expect(find.text('Choose area'), findsNothing);
+      expect(gps.calls, 0);
       await reveal(tester, find.text('See all'));
       await tester.tap(find.text('See all'));
       await tester.pumpAndSettle();
@@ -531,7 +525,7 @@ void main() {
         appSettings: true),
     const CurrentLocationFailure('GPS is disabled', locationSettings: true),
   ]) {
-    testWidgets('GPS recovery keeps manual area usable: ${failure.message}',
+    testWidgets('Home stays usable without requesting GPS: ${failure.message}',
         (tester) async {
       final c = LiveRentHubController(FeedApi())..profile = person('u-renter');
       addTearDown(c.dispose);
@@ -543,16 +537,11 @@ void main() {
                   onOpen: (_) async {},
                   positionClient: Gps(error: failure)))));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Use current location'));
-      await tester.pumpAndSettle();
-      expect(find.text(failure.message), findsOneWidget);
+      expect(find.text('Use current location'), findsNothing);
+      expect(find.text(failure.message), findsNothing);
       expect(c.recommendationCentre, isNull);
-      expect(
-          tester
-              .widget<TextButton>(
-                  find.widgetWithText(TextButton, 'Choose area'))
-              .onPressed,
-          isNotNull);
+      expect(find.text('Choose area'), findsNothing);
+      expect(find.text('Recommended For You'), findsOneWidget);
     });
   }
   testWidgets(

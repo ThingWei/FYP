@@ -12,12 +12,18 @@ class ListingPhotoSelection {
 
 /// Separate from identity scanning: listing photos have no document checks.
 class ListingCameraClient {
+  ListingCameraClient({this.preferFront = false});
+  final bool preferFront;
   CameraController? _camera;
   Future<void> initialize() async {
     final cameras = await availableCameras();
     if (cameras.isEmpty) throw CameraException('NoCamera', '');
     final description = cameras
-            .where((c) => c.lensDirection == CameraLensDirection.back)
+            .where((c) =>
+                c.lensDirection ==
+                (preferFront
+                    ? CameraLensDirection.front
+                    : CameraLensDirection.back))
             .firstOrNull ??
         cameras.first;
     final camera = CameraController(description, ResolutionPreset.high,

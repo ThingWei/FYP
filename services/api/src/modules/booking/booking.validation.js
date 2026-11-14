@@ -17,6 +17,7 @@ export const createBookingValidation = [
       'idempotencyKey',
       'startDate',
       'endDate',
+      'pickupTime', 'returnTime',
       'fulfilmentMethod',
       'serviceVenue',
       'serviceLocation',
@@ -38,6 +39,7 @@ export const createBookingValidation = [
   // semantics and are normalized only after the listing type is known.
   body('startDate').isISO8601({ strict: true }),
   body('endDate').isISO8601({ strict: true }),
+  ...['pickupTime', 'returnTime'].map(field => body(field).optional().custom(textInput).bail().matches(/^([01]\d|2[0-3]):[0-5]\d$/)),
   body('fulfilmentMethod').optional().isIn(['pickup', 'owner_delivery']),
   body('serviceLocation').optional().custom(validateLocation),
   body('deliveryLocation').optional().custom(validateLocation),

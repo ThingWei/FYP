@@ -94,9 +94,8 @@ void main() {
           api.catalogCalls.last.queryParameters.containsKey('catalogBrandId'),
           false);
       await press(tester, find.text('Future phone'));
-      expect(find.text('Product selected'), findsOneWidget);
-      expect(
-          find.textContaining('Found in rental references.'), findsOneWidget);
+      expect(find.text('Product selected'), findsNothing);
+      expect(find.textContaining('Found in rental references.'), findsNothing);
       expect(tester.widget<TextFormField>(field('Model')).enabled, true);
       expect(
           tester

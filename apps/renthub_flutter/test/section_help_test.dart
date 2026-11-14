@@ -133,7 +133,7 @@ void main() {
             TextField(controller: text),
             const Text('Uploaded photo 1'),
             FilledButton(onPressed: () => writes++, child: const Text('Save')),
-            const Text('Demo payment only. No real money is taken.'),
+            const Text('Payment only. No real money is taken.'),
           ]),
           scale: 1.8));
       await t.tap(find.byTooltip('About Product'));
@@ -144,8 +144,8 @@ void main() {
       expect(text.text, 'Camera draft');
       expect(writes, 0);
       expect(find.text('Uploaded photo 1'), findsOneWidget);
-      expect(find.text('Demo payment only. No real money is taken.'),
-          findsOneWidget);
+      expect(
+          find.text('Payment only. No real money is taken.'), findsOneWidget);
       expect(t.takeException(), isNull);
     });
   }

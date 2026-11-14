@@ -321,15 +321,19 @@ void main() {
         final fee = field('Delivery fee (RM)');
         await tester.scrollUntilVisible(fee, 250,
             scrollable: find.byType(Scrollable).first);
-        await tester.enterText(fee, '12.50');
-        await tester.enterText(fee, 'abc123');
-        expect(tester.widget<TextFormField>(fee).controller!.text, '12.50');
+        expect(
+            tester
+                .widget<TextField>(
+                    find.descendant(of: fee, matching: find.byType(TextField)))
+                .readOnly,
+            isTrue);
       }
       await tap(tester, 'Choose location');
       await confirm(tester);
       expect(tester.widget<TextFormField>(field('Location')).controller!.text,
           'Entrance 12');
-      expect(find.textContaining('Location selected'), findsOneWidget);
+      expect(find.textContaining('Location selected'), findsNothing);
+      expect(find.text('Choose location'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -377,7 +381,8 @@ void main() {
     await tap(tester, 'Choose location');
     await confirm(tester);
     expect(find.text('10 km'), findsOneWidget);
-    expect(find.textContaining('approximate public locations'), findsOneWidget);
+    expect(find.textContaining('approximate public locations'), findsNothing);
+    expect(find.text('Listing type'), findsNothing);
     expect(
         tester.widget<TextFormField>(field('Min RM')).controller!.text, '50');
     expect(tester.takeException(), isNull);

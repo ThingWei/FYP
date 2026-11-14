@@ -101,7 +101,7 @@ test('importing asking prices preserves an existing completed-rental count, medi
     location: 'Kuala Lumpur', dailyPrice: 60, status: 'inactive' });
   await BookingModel.create({ publicId: 'RH-BKG-2026-REF1', listingId: 'l-reference-history', listingTitle: 'Canon EOS R50',
     listingType: 'physical', renterId: 'u-reference-renter', renterName: 'Renter', ownerId: owner['x-user-id'],
-    startDate: '2026-10-01', endDate: '2026-10-01', fulfilmentMethod: 'pickup', status: 'completed',
+    startDate: '2026-10-01', endDate: '2026-10-01', fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', status: 'completed',
     paymentStatus: 'settled', completedAt: new Date(), sourceType: 'marketplace', pricing: { baseAmount: 60, total: 60 } });
   let evidence;
   aiClient.recommendPrice = async (input) => { evidence = input.market_evidence; return { available: true, suggested_daily_price: 60 }; };

@@ -28,7 +28,7 @@ export function adminRecordRegistry(auditModel) {
   return {
     users: entry(UserModel, userFields, ['displayName', 'email'], 'accountStatus'),
     verification: entry(UserModel, userFields, ['displayName', 'email']),
-    listings: entry(ListingModel, 'title description ownerId ownerName listingType category subcategory brand productModel dailyPrice securityDeposit deliveryFee fulfilmentMethods condition itemAgeYears images verified itemVerification moderationReason serviceDetails', ['title', 'brand', 'productModel', 'ownerName']),
+    listings: entry(ListingModel, 'title description ownerId ownerName listingType category subcategory brand productModel dailyPrice securityDeposit deliveryFee fulfilmentMethods condition itemAgeYears images verified itemVerification moderationReason serviceDetails vehicleGrantRef vehicleGrantReview', ['title', 'brand', 'productModel', 'ownerName']),
     bookings: entry(BookingModel, 'listingId listingTitle listingType renterId renterName ownerId ownerName category startDate endDate fulfilmentMethod serviceVenue serviceVenueMode paymentStatus pricing extensionCharges agreement renterNote ownerDecisionReason cancellationReason decidedAt cancelledAt activatedAt completedAt expiredAt expiresAt sourceType', ['publicId', 'listingTitle', 'renterName', 'ownerName']),
     rentals: entry(RentalModel, 'bookingId listingId listingType renterId ownerId category startDate endDate expiredAt expiryReason handover returnSubmission returnOutcome serviceDeliveredAt serviceCompletedAt extension extensionHistory', ['publicId', 'bookingId', 'listingId']),
     transactions: entry(PaymentModel, 'bookingId payerId payeeId amount currency type method status simulated reason metadata', ['publicId', 'bookingId', 'type']),
@@ -116,7 +116,7 @@ export function createAdminRecordsService(auditModel) {
         raw.mykadIdentityStatus = hasApprovedMykad(raw) ? 'approved' :
           mykad?.status ?? (raw.verification?.documentType === 'mykad' ? raw.verification.status : 'unverified');
       }
-      const check = value => value && Object.fromEntries(['status', 'documentType', 'reason', 'submittedAt', 'reviewedAt', 'verifiedAt', 'reviewNotes', 'identityMatch', 'documentRefs', 'licenceClasses', 'expiresAt', 'latestAttemptId', 'holderMatch']
+      const check = value => value && Object.fromEntries(['status', 'documentType', 'reason', 'submittedAt', 'reviewedAt', 'verifiedAt', 'reviewNotes', 'identityMatch', 'documentRefs', 'licenceClasses', 'expiresAt', 'latestAttemptId', 'holderMatch', 'holderPhotoRef', 'holderPhotoReview']
         .filter(key => value[key] !== undefined).map(key => [key, value[key]]));
       const attempt = value => ({ ...check(value), attemptId: value.attemptId, reviewReason: value.reviewReason,
         aiEvidence: reviewEvidence(value.aiEvidence, value.documentType) });

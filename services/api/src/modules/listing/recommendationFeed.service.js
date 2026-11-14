@@ -25,10 +25,15 @@ export const recommendationFeed = {
   async home(identity, query) {
     const { filter } = await recommendationUser(identity);
     const limit = Math.min(Number(query.limit) || 30, 30);
+    const splitNearby = query.separateNearby === 'true';
+    const generalQuery = { ...query };
+    if (splitNearby) for (const key of ['latitude','longitude','radiusKm','location']) delete generalQuery[key];
+    const trendingQuery = splitNearby ? generalQuery : query;
     const work = (key, task) => query.section && query.section !== key ? Promise.resolve(undefined) : safely(task);
-    const [recommended, trending, recentlyViewed] = await Promise.all([
+    const [recommended, trending, recentlyViewed, nearby] = await Promise.all([
       work('recommended', async () => section(await listingService.recommended(identity, query))),
       work('trending', async () => {
+        const query = trendingQuery;
         const scope = query.latitude !== undefined ? 'nearby' : query.location?.trim() ? 'area' : 'marketplace';
         const since = new Date(Date.now() - 30 * DAY);
         const [candidates, views, bookings, availability] = await Promise.all([
@@ -69,8 +74,18 @@ export const recommendationFeed = {
         const byId = new Map(listings.map(item => [item.publicId, item.toJSON()]));
         return section(ids.filter(id => byId.has(id)).slice(0, limit).map(id => byId.get(id)));
       }),
+      splitNearby || query.section === 'nearby' ? work('nearby', async () => {
+        if (query.latitude === undefined) return { status: 'empty', items: [] };
+        const [candidates, availability] = await Promise.all([
+          ListingModel.find(recommendationCandidateFilter(filter, query)).sort({ updatedAt: -1, publicId: 1 }).limit(1000), availabilityContext(query),
+        ]);
+        const items = candidates.filter(item => !availability.hasDates || !availability.unavailable.has(item.publicId)).sort((a,b) =>
+          (proximityScore(b,query) ?? 0) - (proximityScore(a,query) ?? 0) ||
+          Number(a.listingType === 'physical' && availability.unavailable.has(a.publicId)) - Number(b.listingType === 'physical' && availability.unavailable.has(b.publicId)) || a.publicId.localeCompare(b.publicId));
+        return { ...section(items.slice(0,limit).map(item => rerankRecommendations([{ ...item.toJSON(), recommendation: { reason: 'Near your selected area', adapter: 'nearby-public-area-v1' } }],query,availability)[0])), scope: 'nearby' };
+      }) : undefined,
     ]);
-    return { recommended, trending, recentlyViewed, nearbyUsesApproximateLocations: true };
+    return { recommended, trending, recentlyViewed, ...(splitNearby || query.section === 'nearby' ? { nearby } : {}), nearbyUsesApproximateLocations: true };
   },
   async complements(identity, listingId, query) {
     // Search/category filters describe discovery, not accessory eligibility.

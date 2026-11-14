@@ -383,7 +383,8 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               style: const TextStyle(color: AppColors.secondaryText),
             ),
             const SizedBox(height: 16),
-            const DisputeProgressPanel(),
+            const Text(
+                'An administrator reviews information from both parties. Reporting an issue does not automatically approve a refund.'),
             if (widget.rental.listingType == 'physical') _conditionRecords(),
             const SizedBox(height: 20),
             DropdownButtonFormField<String>(
@@ -613,7 +614,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                   subtitle: Text(
                     claim.decisionReason.isEmpty
                         ? claim.description
-                        : '${claim.decisionReason}${claim.payoutStatus == 'pending_funding' ? '\nDemo payout is waiting for funding. No payment has been made.' : ''}',
+                        : '${claim.decisionReason}${claim.payoutStatus == 'pending_funding' ? '\nPayout is waiting for funding. No payment has been made.' : ''}',
                   ),
                   trailing: StatusBadge(claim.status),
                 ),

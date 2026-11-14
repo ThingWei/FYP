@@ -1,8 +1,8 @@
 export const TRUST_VERSION = 'renthub-trust-v1';
-export const TRUST_POLICY_VERSION = 'recorded-rentals-v2';
+export const TRUST_POLICY_VERSION = 'recorded-rentals-v3';
 export const TRUST_WINDOW_DAYS = 365;
-export const TRUST_MIN_COMPLETIONS = 3;
-export const TRUST_MIN_PARTNERS = 2;
+export const TRUST_MIN_COMPLETIONS = 1;
+export const TRUST_MIN_PARTNERS = 1;
 const day = 86_400_000;
 const date = value => value ? new Date(value).getTime() : NaN;
 const money = value => typeof value === 'number' && Number.isFinite(value) && value > 0;

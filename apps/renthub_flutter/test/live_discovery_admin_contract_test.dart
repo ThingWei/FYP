@@ -214,8 +214,9 @@ void main() {
     await tester.tap(find.text('Platform Settings').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Fees and identity checks'), findsOneWidget);
-    expect(find.text('Listing categories'), findsOneWidget);
+    expect(find.text('Fees and identity checks'), findsNothing);
+    expect(find.text('Listing categories'), findsNothing);
+    expect(find.text('Support and customer messages'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

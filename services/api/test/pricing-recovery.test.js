@@ -143,7 +143,7 @@ test('every subcategory has actionable no-data recovery and a usable exact-refer
 });
 
 test('completed simulated history is an opt-in fallback, never relabelled as clean payment evidence', async () => {
-  await BookingModel.create({ ...booking, ownerId: 'u-other', renterId: 'u-tester', renterName: 'Tester', listingTitle: 'Speaker fixture', fulfilmentMethod: 'pickup' });
+  await BookingModel.create({ ...booking, ownerId: 'u-other', renterId: 'u-tester', renterName: 'Tester', listingTitle: 'Speaker fixture', fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00' });
   await PaymentModel.collection.insertOne(payment);
   const before = await BookingModel.findOne().lean();
   const clean = await request(app).post(endpoint).set(headers).send({ itemProfile: profile, rentalDurationDays: 2, evidenceMode: 'demonstration' }).expect(200);

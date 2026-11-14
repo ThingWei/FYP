@@ -150,14 +150,14 @@ void main() {
       addTearDown(c.dispose);
       addTearDown(controller.dispose);
       await showReceipt(t, controller, width: w);
-      expect(find.text('Handover photos & condition'), findsOneWidget);
+      expect(find.text('Handover'), findsOneWidget);
       expect(find.text('Condition: Fair'), findsOneWidget);
       expect(find.byType(PageView), findsOneWidget);
       expect(find.text('Existing mark on the base'), findsOneWidget);
       await t.ensureVisible(find.byTooltip('Next handover photo'));
       await t.tap(find.byTooltip('Next handover photo'));
       await t.pumpAndSettle();
-      expect(find.textContaining('Photo 2 of 2'), findsOneWidget);
+      expect(find.textContaining('2 / 2'), findsOneWidget);
       await prepareReceipt(t);
       expect(api.posts, isEmpty);
       await press(t, 'Confirm item received');
@@ -266,6 +266,8 @@ void main() {
     final c = ReceiptController(api);
     addTearDown(c.dispose);
     await showReceipt(t, c);
+    await t.tap(find.text('Details'));
+    await t.pumpAndSettle();
     expect(find.text('Renter confirmation was not recorded'), findsOneWidget);
     expect(find.text('Review handover'), findsNothing);
     expect(find.byType(PageView), findsOneWidget);
@@ -277,7 +279,7 @@ void main() {
     final c = ReceiptController(api);
     addTearDown(c.dispose);
     await showReceipt(t, c);
-    expect(find.text('Handover photos & condition'), findsNothing);
+    expect(find.text('Handover'), findsNothing);
     expect(find.byType(PageView), findsNothing);
     expect(api.posts, isEmpty);
   });

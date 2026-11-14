@@ -357,7 +357,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Refund'), findsOneWidget);
     expect(find.text('RM 12.50'), findsOneWidget);
-    expect(find.textContaining('no real money'), findsOneWidget);
+    expect(find.text('Simulated payment'), findsOneWidget);
     expect(
         api.calls
             .where((call) => call.$1 == 'POST' && !call.$2.endsWith('/read')),

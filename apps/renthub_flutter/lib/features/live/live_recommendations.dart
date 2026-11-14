@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:latlong2/latlong.dart';
 import '../../core/location/current_location.dart';
 import '../../core/recommendations/recommendation_models.dart';
 import '../../core/theme/app_theme.dart';
@@ -206,9 +205,6 @@ class LiveRecommendationHomeContent extends StatefulWidget {
 class _LiveRecommendationHomeContentState
     extends State<LiveRecommendationHomeContent> with WidgetsBindingObserver {
   String? _user;
-  bool locating = false;
-  String? locationMessage;
-  int locationGeneration = 0;
   @override
   void initState() {
     super.initState();
@@ -217,7 +213,6 @@ class _LiveRecommendationHomeContentState
 
   @override
   void dispose() {
-    locationGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -229,9 +224,6 @@ class _LiveRecommendationHomeContentState
     if (_user != controller.profile?.id) {
       controller.prepareRecommendationAccount();
       _user = controller.profile?.id;
-      locationGeneration++;
-      locating = false;
-      locationMessage = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(controller.ensureRecommendationFeed());
       });
@@ -247,200 +239,17 @@ class _LiveRecommendationHomeContentState
     }
   }
 
-  Future<void> _gps() async {
-    final c = context.read<LiveRentHubController>();
-    final user = c.profile?.id;
-    final generation = ++locationGeneration;
-    setState(() {
-      locating = true;
-      locationMessage = null;
-    });
-    try {
-      final reading =
-          await (widget.positionClient ?? AndroidCurrentLocationClient())
-              .current()
-              .timeout(const Duration(seconds: 15));
-      if (!mounted ||
-          generation != locationGeneration ||
-          user != c.profile?.id) {
-        return;
-      }
-      final area = ListingLocationSelection(
-          label: 'Current location',
-          point: LatLng(reading.latitude, reading.longitude),
-          source: 'gps',
-          accuracyMeters: reading.accuracy);
-      c.setRecommendationArea(area, c.recommendationRadius);
-      widget.onAreaChanged?.call(area, c.recommendationRadius);
-      setState(() => locationMessage =
-          'Reported accuracy: ${reading.accuracy.round()} m.${reading.approximate || reading.accuracy > 50 ? ' Approximate—adjust the area if needed.' : ''}');
-    } catch (error) {
-      if (mounted && generation == locationGeneration) {
-        setState(() => locationMessage = error is CurrentLocationFailure
-            ? error.message
-            : 'Current location is unavailable. Choose an area or try again.');
-      }
-    } finally {
-      if (mounted && generation == locationGeneration) {
-        setState(() => locating = false);
-      }
-    }
-  }
-
-  Future<void> _choose() async {
-    final c = context.read<LiveRentHubController>();
-    final user = c.profile?.id;
-    final generation = ++locationGeneration;
-    setState(() => locating = false);
-    final selected = await Navigator.push<ListingLocationSelection>(
-        context,
-        MaterialPageRoute(
-            builder: (_) => LiveLocationPicker(
-                api: ListingLocationApi(c.api),
-                initialSelection: c.recommendationCentre,
-                positionClient: widget.positionClient,
-                searchAreaOnly: true,
-                title: 'Choose your search area')));
-    if (!mounted ||
-        generation != locationGeneration ||
-        user != c.profile?.id ||
-        selected == null) {
-      return;
-    }
-    setState(() => locationMessage = null);
-    c.setRecommendationArea(selected, c.recommendationRadius);
-    widget.onAreaChanged?.call(selected, c.recommendationRadius);
-  }
-
-  void _setRadius(int radius) {
-    final c = context.read<LiveRentHubController>();
-    c.setRecommendationArea(c.recommendationCentre, radius);
-    widget.onAreaChanged?.call(c.recommendationCentre, radius);
-  }
-
   String _trendingTitle(RecommendationSection section) =>
-      section.basis == 'highlights'
-          ? section.scope == 'nearby' || section.scope == 'area'
-              ? 'Rentals Near You'
-              : 'Explore Rentals'
-          : section.scope == 'marketplace'
-              ? 'Trending Now'
-              : 'Trending Near You';
-
-  String _areaLabel(LiveRentHubController c) => [
-        c.recommendationCentre != null
-            ? '${c.recommendationCentre!.label} · ${c.recommendationRadius} km · Approximate area. Listings without pins are excluded.'
-            : c.recommendationFilters['location']?.isNotEmpty == true
-                ? '${c.recommendationFilters['location']} · Approximate area'
-                : 'All areas · choose an area for nearby listings',
-        if (locationMessage != null) locationMessage!,
-      ].join('\n');
-
-  Widget _nearbyControls(LiveRentHubController c) => Wrap(
-          spacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            TextButton.icon(
-                onPressed: _choose,
-                icon: const Icon(Icons.place_outlined),
-                label: Text(c.recommendationCentre == null
-                    ? 'Choose area'
-                    : 'Change area')),
-            IconButton(
-                tooltip: locating
-                    ? 'Finding current location'
-                    : 'Use current location',
-                onPressed: locating ? null : _gps,
-                icon: const Icon(Icons.my_location)),
-            if (c.recommendationCentre != null)
-              PopupMenuButton<int>(
-                  tooltip: 'Nearby radius and clear area',
-                  onSelected: (value) {
-                    if (value == 0) {
-                      locationGeneration++;
-                      setState(() {
-                        locating = false;
-                        locationMessage = null;
-                      });
-                      c.setRecommendationArea(null, 10);
-                      widget.onAreaChanged?.call(null, 10);
-                    } else {
-                      _setRadius(value);
-                    }
-                  },
-                  itemBuilder: (_) => [
-                        for (final km in [5, 10, 25, 50])
-                          CheckedPopupMenuItem<int>(
-                              value: km,
-                              checked: c.recommendationRadius == km,
-                              child: Text('$km km')),
-                        const PopupMenuItem<int>(
-                            value: 0, child: Text('Clear area')),
-                      ],
-                  icon: const Icon(Icons.tune)),
-          ]);
+      section.basis == 'highlights' ? 'Explore Rentals' : 'Trending Now';
 
   @override
   Widget build(BuildContext context) {
     final c = context.watch<LiveRentHubController>();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (widget.showAreaControls)
-        Card(
-            child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                          c.recommendationCentre?.label ??
-                              'Discover rentals around you',
-                          style: Theme.of(context).textTheme.titleMedium),
-                      Wrap(spacing: 8, children: [
-                        TextButton.icon(
-                            onPressed: locating ? null : _gps,
-                            icon: const Icon(Icons.my_location),
-                            label: Text(locating
-                                ? 'Finding location…'
-                                : 'Use current location')),
-                        TextButton.icon(
-                            onPressed: _choose,
-                            icon: const Icon(Icons.map_outlined),
-                            label: const Text('Choose area')),
-                        if (c.recommendationCentre != null)
-                          TextButton(
-                              onPressed: () {
-                                locationGeneration++;
-                                setState(() {
-                                  locating = false;
-                                  locationMessage = null;
-                                });
-                                c.setRecommendationArea(null, 10);
-                                widget.onAreaChanged?.call(null, 10);
-                              },
-                              child: const Text('Clear area')),
-                      ]),
-                      if (c.recommendationCentre != null)
-                        DropdownButtonFormField<int>(
-                            initialValue: c.recommendationRadius,
-                            decoration: const InputDecoration(
-                                labelText: 'Nearby radius'),
-                            items: [
-                              for (final km in [5, 10, 25, 50])
-                                DropdownMenuItem(
-                                    value: km, child: Text('$km km'))
-                            ],
-                            onChanged: (v) {
-                              if (v != null) {
-                                _setRadius(v);
-                              }
-                            }),
-                      if (locationMessage != null) Text(locationMessage!),
-                      const Text(
-                          'Nearby uses approximate listing areas. Listings without a usable map pin are not included.'),
-                    ]))),
-      for (final entry in const {
+      for (final entry in {
         'recommended': 'Recommended For You',
-        'trending': 'Trending Near You',
+        if (c.recommendationCentre != null) 'nearby': 'Near You',
+        'trending': 'Trending Now',
         'recentlyViewed': 'Recently Viewed'
       }.entries)
         RecommendationSectionView(
@@ -448,23 +257,16 @@ class _LiveRecommendationHomeContentState
                 ? _trendingTitle(c.recommendationSections[entry.key] ??
                     const RecommendationSection('empty'))
                 : entry.value,
-            headerActions: entry.key == 'trending' && !widget.showAreaControls
-                ? _nearbyControls(c)
+            contextLabel: entry.key == 'nearby'
+                ? '${c.recommendationRadius} km · Approximate area'
                 : null,
-            contextLabel: entry.key != 'trending' || widget.showAreaControls
-                ? null
-                : _areaLabel(c),
-            emptyMessage: entry.key == 'trending' &&
-                    c.recommendationSections['trending']?.status == 'empty'
-                ? c.recommendationCentre == null
-                    ? 'No rentals match these filters yet. Try Explore or adjust your filters.'
-                    : 'No rentals match this area yet. Try a wider radius or another area.'
+            emptyMessage: entry.key == 'nearby'
+                ? 'No nearby rentals match your filters.'
                 : null,
             mode: widget.viewMode,
             section: c.recommendationSections[entry.key] ??
                 const RecommendationSection('empty'),
-            loading: c.recommendationLoadingSections.contains(entry.key) ||
-                entry.key == 'trending' && locating,
+            loading: c.recommendationLoadingSections.contains(entry.key),
             refreshFailed: c.recommendationFailures.contains(entry.key),
             onRetry: () => c.refreshRecommendationFeed(section: entry.key),
             actions: widget.actions,

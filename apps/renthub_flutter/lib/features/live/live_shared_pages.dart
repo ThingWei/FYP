@@ -23,6 +23,7 @@ import 'live_renthub_controller.dart';
 import 'live_location_picker.dart';
 import 'live_location_field.dart';
 import 'live_photo_widgets.dart';
+import 'live_listing_photo_picker.dart';
 import 'live_loyalty_page.dart';
 import 'live_kyc_scanner_page.dart';
 import 'driving_evidence_review.dart';
@@ -422,9 +423,7 @@ class LiveProfilePage extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('Edit profile'),
-              subtitle: Text(profile?.phone.isEmpty ?? true
-                  ? 'Add your phone number'
-                  : profile!.phone),
+              subtitle: const Text('Name and contact details'),
               trailing: const Icon(Icons.chevron_right),
               onTap: profile == null
                   ? null
@@ -467,9 +466,7 @@ class LiveProfilePage extends StatelessWidget {
               leading: const Icon(Icons.location_on_outlined),
               title: const Text('Saved addresses'),
               subtitle: Text(
-                profile?.addresses.isEmpty ?? true
-                    ? 'No saved addresses'
-                    : '${profile!.addresses.length} saved | ${profile.addresses.where((item) => item.isDefault).firstOrNull?.label ?? 'No default'}',
+                '${profile?.deliveryAddresses.length ?? 0} saved locations',
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.push<void>(
@@ -603,7 +600,7 @@ class _LiveEditProfilePageState extends State<_LiveEditProfilePage> {
                 TextFormField(
                   controller: phone,
                   decoration: (const InputDecoration(
-                    labelText: 'Phone number',
+                    labelText: 'Phone number (optional)',
                     hintText: '+60 12-345 6789',
                   )).copyWith(counterText: '', errorMaxLines: 3),
                   keyboardType: TextInputType.phone,
@@ -765,7 +762,9 @@ class _LiveAddressesPage extends StatelessWidget {
                                   ...controller.profile!.addresses
                                 ];
                                 final added = UserAddress(
-                                    id: initial?.id,
+                                    id: initial?.automatic == true
+                                        ? null
+                                        : initial?.id,
                                     label: label.text.trim(),
                                     line1: line1.text.trim(),
                                     line2: initial?.line2 ?? '',
@@ -840,7 +839,8 @@ class _LiveAddressesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final addresses =
-        context.watch<LiveRentHubController>().profile?.addresses ?? const [];
+        context.watch<LiveRentHubController>().profile?.deliveryAddresses ??
+            const [];
     return Scaffold(
       appBar: AppBar(title: const Text('Saved Addresses')),
       floatingActionButton: FloatingActionButton.extended(
@@ -873,27 +873,62 @@ class _LiveAddressesPage extends StatelessWidget {
                         '${address.line1}\n${address.postcode} ${address.city}, ${address.state}',
                       ),
                       isThreeLine: true,
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (action) => action == 'edit'
-                            ? _add(context, initial: address, index: index)
-                            : action == 'default'
-                                ? _setDefault(context, index)
-                                : _remove(context, index),
-                        itemBuilder: (_) => [
-                          const PopupMenuItem(
-                              value: 'edit',
-                              child: Text('Edit and confirm pin')),
-                          if (!address.isDefault)
-                            const PopupMenuItem(
-                              value: 'default',
-                              child: Text('Set as default'),
+                      trailing: address.automatic
+                          ? Wrap(children: [
+                              IconButton(
+                                  tooltip: 'Save address details',
+                                  icon: const Icon(
+                                      Icons.edit_location_alt_outlined),
+                                  onPressed: () =>
+                                      _add(context, initial: address)),
+                              IconButton(
+                                  tooltip: 'Remove recent location',
+                                  icon: const Icon(Icons.delete_outline),
+                                  onPressed: () async {
+                                    final accepted = await confirmAction(
+                                        context,
+                                        title: 'Remove location?',
+                                        message:
+                                            'Remove this location from your profile?',
+                                        action: 'Remove',
+                                        destructive: true);
+                                    if (!accepted || !context.mounted) return;
+                                    try {
+                                      await context
+                                          .read<LiveRentHubController>()
+                                          .removeRecentLocation(address.id!);
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(SnackBar(
+                                                content:
+                                                    Text(friendlyError(e))));
+                                      }
+                                    }
+                                  }),
+                            ])
+                          : PopupMenuButton<String>(
+                              onSelected: (action) => action == 'edit'
+                                  ? _add(context,
+                                      initial: address, index: index)
+                                  : action == 'default'
+                                      ? _setDefault(context, index)
+                                      : _remove(context, index),
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(
+                                    value: 'edit',
+                                    child: Text('Edit and confirm pin')),
+                                if (!address.isDefault)
+                                  const PopupMenuItem(
+                                    value: 'default',
+                                    child: Text('Set as default'),
+                                  ),
+                                const PopupMenuItem(
+                                  value: 'remove',
+                                  child: Text('Remove'),
+                                ),
+                              ],
                             ),
-                          const PopupMenuItem(
-                            value: 'remove',
-                            child: Text('Remove'),
-                          ),
-                        ],
-                      ),
                     ),
                   );
                 },
@@ -1176,7 +1211,9 @@ class _VerificationReviewUpdate extends StatelessWidget {
 }
 
 class LiveVerificationPage extends StatefulWidget {
-  const LiveVerificationPage({super.key, this.driving = false});
+  const LiveVerificationPage(
+      {super.key, this.driving = false, this.holderPhotoPicker});
+  final Future<String?> Function(BuildContext)? holderPhotoPicker;
   final bool driving;
 
   @override
@@ -1193,6 +1230,37 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
 
   bool submitting = false;
   bool updatingLicence = false;
+  String? holderPhotoRef;
+  bool pickingHolder = false;
+  Future<void> _pickHolderPhoto() async {
+    if (pickingHolder || submitting) return;
+    final c = context.read<LiveRentHubController>(),
+        account = context.read<LiveRentHubController>().accountGeneration;
+    final draft = draftGeneration;
+    setState(() => pickingHolder = true);
+    try {
+      final custom = widget.holderPhotoPicker;
+      final refs = custom == null
+          ? await pickListingPhotos(context, 1,
+              purpose: 'verification_holder_photo')
+          : [await custom(context)].whereType<String>().toList();
+      if (mounted &&
+          account == c.accountGeneration &&
+          draft == draftGeneration &&
+          documentType == 'mykad' &&
+          refs.isNotEmpty) {
+        setState(() => holderPhotoRef = refs.single);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(error))));
+      }
+    } finally {
+      if (mounted) setState(() => pickingHolder = false);
+    }
+  }
+
   final MykadDraft mykadDraft = MykadDraft();
   final List<String> otherDocumentRefs = [];
   List<String> get documentRefs =>
@@ -1500,7 +1568,17 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
   }
 
   Future<void> _submit() async {
-    if (submitting || captureUploading || checkingPair || checkingLicence) {
+    if (submitting ||
+        captureUploading ||
+        checkingPair ||
+        checkingLicence ||
+        pickingHolder) {
+      return;
+    }
+    if (documentType == 'mykad' && holderPhotoRef == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Add a photo of you holding your MyKad for administrator review.')));
       return;
     }
     if (documentRefs.length != requiredDocuments) {
@@ -1548,6 +1626,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
     try {
       await context.read<LiveRentHubController>().submitIdentityVerification(
           documentType, documentRefs,
+          holderPhotoRef: documentType == 'mykad' ? holderPhotoRef : null,
           licenceSource:
               documentType == 'driving_licence' ? licenceDraft.source : null);
       if (mounted) setState(() => updatingLicence = false);
@@ -1642,6 +1721,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                   ? null
                   : (value) => setState(() {
                         documentType = value ?? 'mykad';
+                        holderPhotoRef = null;
                         updatingLicence = false;
                         _invalidatePairRequest();
                         mykadDraft.clear();
@@ -1764,7 +1844,7 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                 subtitle: Text(
                   documentType == 'driving_licence'
                       ? 'Upload a clear licence image. MyJPJ: show the full digital licence, not only a QR code. Files remain protected.'
-                      : 'Manual file upload is available as a development fallback. Files remain protected.',
+                      : 'Upload a clear photo. Your documents stay private.',
                 ),
                 trailing: documentRefs.length < requiredDocuments
                     ? IconButton(
@@ -1797,6 +1877,39 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                     onRetry: _checkCurrentLicence),
                 const SizedBox(height: 16),
               ],
+              if (documentType == 'mykad')
+                Card(
+                    child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text('Photo of you holding your MyKad',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium),
+                              const Text(
+                                  'Show your face and MyKad clearly. Only you and administrators can view this photo.'),
+                              if (holderPhotoRef != null)
+                                PhotoAttachmentTile(
+                                    reference: holderPhotoRef!,
+                                    label: 'You holding your MyKad',
+                                    onRemove: submitting || pickingHolder
+                                        ? null
+                                        : () => setState(
+                                            () => holderPhotoRef = null)),
+                              OutlinedButton.icon(
+                                  onPressed: submitting ||
+                                          captureUploading ||
+                                          pickingHolder
+                                      ? null
+                                      : _pickHolderPhoto,
+                                  icon: const Icon(Icons.add_a_photo_outlined),
+                                  label: Text(pickingHolder
+                                      ? 'Adding photo...'
+                                      : holderPhotoRef == null
+                                          ? 'Add holder photo'
+                                          : 'Replace holder photo')),
+                            ]))),
               if (documentType == 'mykad' && documentRefs.length == 2) ...[
                 MykadPairStatus(
                   checking: checkingPair,
@@ -1812,7 +1925,10 @@ class _LiveVerificationPageState extends State<LiveVerificationPage> {
                         checkingPair ||
                         checkingLicence ||
                         documentRefs.length != requiredDocuments ||
-                        (documentType == 'mykad' && !mykadDraft.pairChecked) ||
+                        (documentType == 'mykad' &&
+                            (!mykadDraft.pairChecked ||
+                                holderPhotoRef == null ||
+                                pickingHolder)) ||
                         (documentType == 'driving_licence' &&
                             !licenceDraft.canSubmit)
                     ? null

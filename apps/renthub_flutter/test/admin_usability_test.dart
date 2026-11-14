@@ -514,6 +514,10 @@ void main() {
       await t.tap(find.text('Open details'));
       await t.pumpAndSettle();
       expect(find.text(adminRecordTitles[type]!), findsOneWidget);
+      if (type == 'users' || type == 'verification') {
+        expect(find.text('Trust score'), findsNothing);
+        expect(find.text('View trust score'), findsNothing);
+      }
       await t.ensureVisible(find.text('Record information'));
       await t.tap(find.text('Record information'));
       await t.pumpAndSettle();
@@ -679,7 +683,8 @@ void main() {
       }
       await t.tap(find.text('Platform Settings').first);
       await t.pumpAndSettle();
-      expect(find.text('Fees and identity checks'), findsOneWidget);
+      expect(find.text('Fees and identity checks'), findsNothing);
+      expect(find.text('Support and customer messages'), findsOneWidget);
       expect(find.text('Passport'), findsNothing);
       final scroll = t.state<ScrollableState>(find
           .descendant(

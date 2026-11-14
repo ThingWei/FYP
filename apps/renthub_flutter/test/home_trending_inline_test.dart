@@ -1,3 +1,5 @@
+import 'package:latlong2/latlong.dart';
+import 'package:renthub_flutter/core/location/confirmed_location.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renthub_flutter/core/recommendations/recommendation_models.dart';
@@ -11,6 +13,12 @@ import 'recommendation_comparison_scope_test.dart' as fixture;
 class InlineFeedApi extends fixture.FeedApi {
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
+    if (path.startsWith('/listings/recommended?')) {
+      calls.add((method, path, body));
+      return [
+        {...fixture.item('l-nearby'), 'title': 'Local camera'}
+      ];
+    }
     if (!path.startsWith('/listings/recommendation-feed')) {
       return super.request(method, path, body: body);
     }
@@ -25,15 +33,24 @@ class InlineFeedApi extends fixture.FeedApi {
       },
       'trending': {
         'status': 'ready',
-        'scope': nearby ? 'nearby' : 'marketplace',
+        'scope': 'marketplace',
         'basis': 'highlights',
         'items': [
           {
-            ...fixture.item(nearby ? 'l-nearby' : 'l-general'),
-            'title': nearby ? 'Local camera' : 'General camera',
+            ...fixture.item('l-general'),
+            'title': 'General camera',
             'sourceType': 'demo_seed'
           }
         ]
+      },
+      'nearby': {
+        'status': nearby ? 'ready' : 'empty',
+        'items': nearby
+            ? [
+                {...fixture.item('l-nearby'), 'title': 'Local camera'}
+              ]
+            : [],
+        'scope': 'nearby'
       },
       'recentlyViewed': {'status': 'empty', 'items': []},
     };
@@ -80,7 +97,7 @@ void main() {
   });
   for (final width in [360.0, 390.0, 1200.0]) {
     testWidgets(
-        'Home displays picks immediately and refreshes inline after GPS at $width',
+        'Home keeps trends and filtered nearby results separate at $width',
         (t) async {
       viewport(t, width);
       final api = InlineFeedApi();
@@ -101,25 +118,46 @@ void main() {
       expect(find.text('Explore Rentals'), findsOneWidget);
       expect(c.recommendationSections['trending']!.items.single.title,
           'General camera');
-      await press(t, find.byTooltip('Use current location'));
-      expect(gps.calls, 1);
+      expect(find.byTooltip('Use current location'), findsNothing);
+      await press(t, find.byTooltip('Filters and sorting'));
+      Navigator.of(t.element(find.byType(LiveDiscoveryFilterPage))).pop(
+          const DiscoveryFilters(
+              centre: ListingLocationSelection(
+                  label: 'Campus', point: LatLng(3.14, 101.68)),
+              radiusKm: 25));
+      await t.pumpAndSettle();
+      expect(gps.calls, 0);
       expect(find.byType(ListingCollectionPage), findsNothing);
       expect(find.byType(LiveMarketplacePage), findsOneWidget);
-      expect(find.text('Rentals Near You'), findsOneWidget);
+      expect(find.text('Near You'), findsOneWidget);
+      expect(find.text('Choose area'), findsNothing);
+      expect(find.text('Change area'), findsNothing);
       expect(c.recommendationSections['trending']!.items.single.title,
+          'General camera');
+      expect(c.recommendationSections['nearby']!.items.single.title,
           'Local camera');
-      expect(c.marketplaceViews['home-discovery']!.filters.centre, isNotNull);
-      expect(find.textContaining('Approximate area'), findsWidgets);
-      // Radius changes also update Home in place and persist to its filter draft.
-      await press(t, find.byTooltip('Nearby radius and clear area'));
-      await t.tap(find.widgetWithText(CheckedPopupMenuItem<int>, '25 km'));
-      await t.pumpAndSettle();
       expect(c.recommendationRadius, 25);
       expect(c.marketplaceViews['home-discovery']!.filters.radiusKm, 25);
-      expect(api.calls.where((call) => call.$2.contains('radiusKm=25')),
+      final requests = api.calls.map((r) => r.$2).toList();
+      expect(
+          requests.where((r) =>
+              r.startsWith('/listings/recommendation-feed?') &&
+              r.contains('radiusKm=25')),
           isNotEmpty);
-      expect(c.recommendationSections['trending']!.items.single.demonstration,
-          isTrue);
+      expect(
+          requests.where((r) =>
+              r.startsWith('/listings/recommendation-feed?') &&
+              r.contains('separateNearby=true')),
+          isNotEmpty);
+      final sections = t
+          .widgetList<RecommendationSectionView>(
+              find.byType(RecommendationSectionView))
+          .map((s) => s.title)
+          .toList();
+      expect(sections.indexOf('Near You'),
+          sections.indexOf('Recommended For You') + 1);
+      expect(sections.indexOf('Explore Rentals'),
+          sections.indexOf('Near You') + 1);
       expect(t.takeException(), isNull);
     });
     testWidgets(

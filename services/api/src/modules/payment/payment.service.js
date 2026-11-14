@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { recordRewardFunding } from '../loyalty/checkoutRewards.js';
 import { bookingPaymentDeadline, payableBookingFilter } from '../booking/bookingDeadlines.js';
 import { expireDuePendingBookings } from '../booking/bookingExpiry.js';
 import { paymentAdapter } from '../../integrations/paymentAdapter.js';
@@ -10,7 +11,7 @@ import { PAYMENT_STATUSES, PAYMENT_TYPES } from './payment.model.js';
 import { paymentRepository } from './payment.repository.js';
 import { withOperationLock } from '../booking/bookingRequestLock.js';
 import { PaymentModel } from './payment.model.js';
-import { bookingBalance, cents, planAllocations } from './paymentLedger.js';
+import { bookingBalance, cents, planAllocations, ledgerEntry } from './paymentLedger.js';
 import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
 import { assertNoOverdueReturn } from '../rental/overdueEligibility.js';
 
@@ -50,7 +51,9 @@ async function requireActiveUser(identity, role) {
 
 export async function captureBookingPayment(booking) {
   if (['captured', 'settled', 'partially_refunded', 'refunded'].includes(booking.paymentStatus)) {
-    return paymentRepository.findCapture(booking.publicId);
+    const saved = await paymentRepository.findCapture(booking.publicId);
+    if (saved?.status === 'succeeded') await recordRewardFunding(booking);
+    return saved;
   }
   const authorization = await paymentRepository.findAuthorization(booking.publicId);
   if (!authorization || authorization.status !== 'authorized') {
@@ -79,6 +82,7 @@ export async function captureBookingPayment(booking) {
       simulated: true,
     });
   }
+  if (capture.status === 'succeeded') await recordRewardFunding(booking);
   booking.paymentStatus = 'captured';
   return capture;
 }
@@ -227,6 +231,8 @@ export const paymentService = {
       $and: [{ $or: [{ paymentLeaseUntil: { $exists: false } }, { paymentLeaseUntil: { $lte: new Date() } }] }] },
       { $set: { paymentLeaseToken: token, paymentLeaseUntil: new Date(Date.now() + 60_000) } });
     if (!claim) throw new AppError('Check payment status before trying again', 409, 'PAYMENT_IN_PROGRESS');
+    // A reward change may have won the lease after the initial read.
+    booking.pricing = claim.pricing;
     try {
       // A recovered/crashed attempt may have persisted while the lease was expiring.
       const recorded = await paymentRepository.findByIdempotencyKey(input.idempotencyKey);
@@ -393,9 +399,23 @@ export const paymentService = {
           current.distributed = (cents(current.distributed) + cents(refund.amount)) / 100;
           current.held = Math.max(cents(current.captured) - cents(current.distributed), 0) / 100;
         }
-        booking.paymentStatus = current.held === 0 ? (current.distributed === totalRefundedCents / 100 ? 'refunded' : 'settled') : 'partially_refunded';
-        if (!refund.isNew) await booking.save();
-        else await commitLifecycle(`refund:${refund._id}`, booking.listingId, [refund, booking], ensureOwned, {
+        let rewardReturn;
+        let returnedCredits = 0;
+        if (booking.pricing.rewardDiscount > 0) {
+          const savedReturns = await PaymentModel.find({ bookingId: booking.publicId, type: 'platform_retention', status: 'succeeded', 'metadata.rewardReversal': 'true' });
+          returnedCredits = savedReturns.reduce((sum, entry) => sum + cents(entry.amount), 0);
+          // A full refund returns the platform contribution to the platform,
+          // never to the renter as extra cash. Prior Owner payouts are untouched.
+          if (current.held > 0 && cents(current.customerCaptured) === totalRefundedCents && cents(current.distributed) === totalRefundedCents) {
+            rewardReturn = ledgerEntry(booking, 'platform_retention', current.held, `reward-reversal:${booking.publicId}`, { reason: 'Unused reward funding returned after full refund', metadata: { rewardReversal: 'true' } });
+            returnedCredits += cents(current.held);
+            current.distributed += current.held;
+            current.held = 0;
+          }
+        }
+        booking.paymentStatus = current.held === 0 ? (cents(current.distributed) - returnedCredits === totalRefundedCents ? 'refunded' : 'settled') : 'partially_refunded';
+        if (!refund.isNew && !rewardReturn) await booking.save();
+        else await commitLifecycle(refund.isNew ? `refund:${refund._id}` : `reward-refund-recovery:${refund._id}`, booking.listingId, [...(refund.isNew ? [refund] : []), ...(rewardReturn ? [rewardReturn] : []), booking], ensureOwned, {
           notifications: [{ userId: booking.renterId, category: 'payment', type: 'payment_refunded', title: 'Refund processed',
             body: `RM ${refund.amount.toFixed(2)} was refunded for ${booking.listingTitle}.`, entityType: 'payment', entityId: refund.publicId,
             dedupeKey: `refund:${refund.publicId}:processed` }],

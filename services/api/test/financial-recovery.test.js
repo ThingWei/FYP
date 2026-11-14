@@ -36,7 +36,7 @@ beforeEach(async () => {
   }
   await BookingModel.create({ publicId: bookingId, listingId: 'camera', listingTitle: 'Camera', listingType: 'physical', category: 'Devices',
     renterId: 'renter', renterName: 'Renter', ownerId: 'owner', startDate: new Date('2027-01-01'), endDate: new Date('2027-01-03'),
-    fulfilmentMethod: 'pickup', damageWaiverSelected: true,
+    fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', damageWaiverSelected: true,
     pricing: { baseAmount: 300, securityDeposit: 100, damageWaiverFee: 10, deliveryFee: 20, platformFee: 0, total: 430,
       originalDailyRate: 100, originalRentalDays: 3 }, status: 'active', paymentStatus: 'captured' });
   await RentalModel.create({ publicId: rentalId, bookingId, listingId: 'camera', listingType: 'physical', category: 'Devices',

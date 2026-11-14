@@ -42,6 +42,7 @@ const editableFields = new Set([
   'locationDetails',
   'state',
   'images',
+  'vehicleGrantRef',
 ]);
 
 function onlyEditableFields(value) {
@@ -55,6 +56,7 @@ const listingId = param('id').custom(textInput).bail().trim()
   .withMessage('Invalid listing identifier');
 
 const listingFields = [
+  body('vehicleGrantRef').optional({ nullable: true }).custom(textInput).bail().custom(isUploadReference),
   body('priceProvenance').optional().custom((value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value) ||
         Object.keys(value).some((key) => !['origin', 'suggestedAmount', 'modelVersion'].includes(key)) ||
@@ -202,7 +204,8 @@ export const listMineValidation = [
 ];
 
 export const recommendationValidation = [
-  query('section').optional().isIn(['recommended', 'trending', 'recentlyViewed']),
+  query('section').optional().isIn(['recommended', 'nearby', 'trending', 'recentlyViewed']),
+  query('separateNearby').optional().isIn(['true', 'false']),
   query().custom(validateNearby),
   query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 30 }).toInt(),
   query('search').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
@@ -356,6 +359,7 @@ export const bundleValidation = [
 
 export const moderationValidation = [
   listingId,
+  body('vehicleGrantReviewed').optional().custom(value => value === true),
   body('status').isIn(['active', 'rejected']),
   body('reason').optional().custom(textInput).bail().trim().isLength({ max: 500 }),
 ];

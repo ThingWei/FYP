@@ -55,7 +55,7 @@ void main() {
         expect(find.byTooltip('About $title'), findsNothing);
       }
       expect(find.text('Image 1'), findsOneWidget);
-      expect(find.textContaining('Add at least 3 clear views'), findsOneWidget);
+      expect(find.textContaining('3–10 photos'), findsOneWidget);
       await openHelp(t, 'Product details for price comparisons');
       expect(find.textContaining('Optional: help avoid comparing'),
           findsOneWidget);
@@ -106,8 +106,8 @@ void main() {
     expect(find.text('Choose CSV').hitTestable(), findsNothing);
     expect(api.imports, 0);
     expect(api.saves, 0);
-    expect(find.textContaining('Advertised rental prices are not completed'),
-        findsOneWidget);
+    expect(
+        find.textContaining('Advertised prices are separate'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
   testWidgets('application settings has a clean navigation label', (t) async {

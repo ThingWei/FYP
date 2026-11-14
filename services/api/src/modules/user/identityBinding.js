@@ -87,6 +87,8 @@ export async function approveMykadAtomically(user, attempt) {
     'verification.tier': user.verification.tier,
     'verification.documentType': 'mykad',
     'verification.documentRefs': user.verification.documentRefs,
+    'verification.holderPhotoRef': attempt.holderPhotoRef,
+    'verification.history.$[attempt].holderPhotoReview': attempt.holderPhotoReview,
     'verification.ocrResult': user.verification.ocrResult,
     'verification.reason': user.verification.reason,
     'verification.reviewedAt': user.verification.reviewedAt,
@@ -98,7 +100,7 @@ export async function approveMykadAtomically(user, attempt) {
       'verification.documents': { $elemMatch: { documentType: 'mykad',
         latestAttemptId: attempt.attemptId, status: 'pending' } },
       'verification.history': { $elemMatch: { attemptId: attempt.attemptId,
-        status: 'pending', identityFingerprint: attempt.identityFingerprint } },
+        status: 'pending', identityFingerprint: attempt.identityFingerprint, holderPhotoRef: attempt.holderPhotoRef } },
       $or: [{ verifiedIdentityFingerprint: { $exists: false } },
             { verifiedIdentityFingerprint: attempt.identityFingerprint }],
     }, { $set: set }, { new: true, runValidators: true, arrayFilters: [

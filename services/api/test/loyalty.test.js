@@ -192,7 +192,7 @@ test('redeems configured rewards and audits administrator rule changes', async (
     ownerId: 'u-referrer',
     startDate: new Date('2026-10-02T00:00:00Z'),
     endDate: new Date('2026-10-03T00:00:00Z'),
-    fulfilmentMethod: 'pickup',
+    fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
     pricing: {
       baseAmount: 170,
       securityDeposit: 300,

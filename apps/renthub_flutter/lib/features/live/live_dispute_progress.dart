@@ -49,7 +49,7 @@ class DisputeProgressPanel extends StatelessWidget {
     final next = dispute == null
         ? 'Tell us what happened and attach helpful photos. The other party can respond, then an administrator reviews the case.'
         : dispute!.closed
-            ? 'Read the decision below. Any amounts shown are demonstration payments.'
+            ? 'Read the decision below. Any amounts shown are simulated payments.'
             : status == 'more_evidence_required'
                 ? 'Read the administrator’s message below and add the requested information.'
                 : stage == 2
@@ -110,7 +110,7 @@ class DisputeDecisionPanel extends StatelessWidget {
             style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 8),
         Text(
-            'Demo payment update: renter ${formatMoney(dispute.renterAmount)}, Owner ${formatMoney(dispute.ownerAmount)}.'),
+            'Payment update: renter ${formatMoney(dispute.renterAmount)}, Owner ${formatMoney(dispute.ownerAmount)}.'),
         const SizedBox(height: 8),
         Text(
             dispute.blockchainStatus == 'confirmed'

@@ -1,5 +1,7 @@
 # Renter-confirmed handover
 
+14 November 2026 follow-up: new physical bookings include pickup/delivery and return appointments, displayed during handover/return review. These do not change daily charges, booked-day eligibility or overdue deadlines. Legacy times remain unspecified. See [the appointment and private-evidence handoff](TRUST_COMPARISON_AND_REVIEW_EVIDENCE_RESULT.md).
+
 Implemented 12 November 2026 for physical rentals. Service bookings retain their
 existing start/delivery/completion flow. No live bookings, payments or protected
 photos were changed for verification.

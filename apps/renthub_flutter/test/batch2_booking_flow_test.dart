@@ -119,7 +119,7 @@ void main() {
     expect(repository.createCalls, 1);
   });
 
-  testWidgets('agreement acceptance gates demo payment', (tester) async {
+  testWidgets('agreement acceptance gates payment', (tester) async {
     _mobileSize(tester);
     final draft = BookingDraft(listing: camera, today: today);
     await tester.pumpWidget(

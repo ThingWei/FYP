@@ -84,8 +84,8 @@ void main() {
     expect(rental.handover!.condition, 'Fair');
     expect(rental.handover!.notes, 'Scratch on base');
     expect(rental.handover!.photos, ['upload://UPL-PHOTO']);
-    expect(rentalEventTime(rental.handover!.recordedAt),
-        '7 Nov 2026, 11:05 pm MYT');
+    expect(
+        rentalEventTime(rental.handover!.recordedAt), '7 Nov 2026, 11:05 pm');
     expect(rental.returnSubmission, isNull);
   });
   for (final width in [360.0, 390.0, 1024.0]) {
@@ -105,8 +105,7 @@ void main() {
               body: ListView(children: [
             RentalProgressPanel(rental: record('scheduled', type: 'service'))
           ]))));
-      await tester.tap(find.text('See booking progress'));
-      await tester.pumpAndSettle();
+      expect(find.text('See booking progress'), findsNothing);
       expect(find.text('Service'), findsOneWidget);
       expect(find.byIcon(Icons.work_outline), findsOneWidget);
       expect(find.text('Before handover'), findsNothing);
@@ -118,9 +117,8 @@ void main() {
       (tester) async {
     await tester
         .pumpWidget(root(RentalProgressPanel(rental: record('scheduled'))));
-    await tester.tap(find.text('Return record'));
-    await tester.pumpAndSettle();
-    expect(find.text('No condition record yet.'), findsOneWidget);
+    expect(find.text('Return record'), findsNothing);
+    expect(find.text('No condition record yet.'), findsNothing);
     expect(find.text('Before handover'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -135,7 +133,7 @@ void main() {
             blockchainReference: '0xPRIVATEHASH'))));
     expect(find.textContaining('0xPRIVATEHASH'), findsNothing);
     expect(find.text('A supporting rental record was saved.'), findsOneWidget);
-    expect(find.textContaining('Demo payment update'), findsOneWidget);
+    expect(find.textContaining('Payment update'), findsOneWidget);
   });
   testWidgets('case flow explains missing information without deciding blame',
       (tester) async {

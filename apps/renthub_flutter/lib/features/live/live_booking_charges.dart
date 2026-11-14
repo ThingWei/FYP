@@ -8,6 +8,7 @@ import '../../shared/models/domain_models.dart';
 import '../renter/booking/booking_flow.dart' show formatMoney;
 import 'live_rental_progress.dart';
 import 'live_renthub_controller.dart';
+import 'live_appointments.dart';
 
 class LiveBookingPaymentDetails extends StatelessWidget {
   const LiveBookingPaymentDetails({super.key, required this.booking});
@@ -139,7 +140,10 @@ class LivePaymentSummary extends StatelessWidget {
                   'deposit_release' => 'Deposit returned',
                   'deposit_deduction' => 'Deposit deduction',
                   'owner_settlement' => 'Owner earnings',
-                  'platform_retention' => 'Platform fee retained',
+                  'platform_retention' => payment.rewardReversal
+                      ? 'Unused reward returned to RentHub'
+                      : 'Platform fee retained',
+                  'reward_credit' => 'Reward covered by RentHub',
                   'capture' => 'Payment collected',
                   _ => 'Payment update'
                 },
@@ -153,7 +157,7 @@ class LivePaymentSummary extends StatelessWidget {
               'voided' => 'Cancelled',
               _ => 'Pending'
             }),
-            const Text('Demo payment — no real money was transferred.'),
+            const Text('Simulated payment'),
           ])));
 }
 
@@ -171,6 +175,9 @@ class LiveBookingCharges extends StatelessWidget {
           Text(formatMoney(amount)),
         ]));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (booking.listingType == 'physical')
+        RentalAppointments(
+            pickup: booking.pickupTime, returnTime: booking.returnTime),
       Text('Charges', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 8),
       if (charges != null) ...[
@@ -183,6 +190,14 @@ class LiveBookingCharges extends StatelessWidget {
         if (charges.platform > 0) row('Platform fee', charges.platform),
         if (booking.listingType != 'service')
           row('Delivery fee', charges.delivery),
+        if (charges.rewardDiscount > 0)
+          Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(children: [
+                const Expanded(child: Text('Reward discount')),
+                Text('−${formatMoney(charges.rewardDiscount)}',
+                    style: const TextStyle(color: AppColors.success))
+              ])),
       ] else
         const Text(
             'The detailed charge breakdown is unavailable for this record.'),

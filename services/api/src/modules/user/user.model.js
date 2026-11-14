@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { applicationTrust, realTrustScore } from './trustPolicy.js';
-import { coordinatesSchema } from '../../core/location.js';
+import { coordinatesSchema, locationSchema } from '../../core/location.js';
 import { ADMIN_ROLES, MARKETPLACE_ROLES } from './rolePolicy.js';
 
 export const USER_ROLES = ['renter', 'owner', 'admin'];
@@ -40,6 +40,8 @@ const verificationDocumentSchema = new mongoose.Schema(
 const verificationAttemptSchema = new mongoose.Schema(
   {
     attemptId: { type: String, required: true, trim: true },
+    holderPhotoRef: { type: String, maxlength: 100 },
+    holderPhotoReview: { reference: String, reviewedBy: String, reviewedAt: Date },
     documentType: { type: String, enum: KYC_DOCUMENT_TYPES, required: true },
     documentRefs: {
       type: [String],
@@ -138,6 +140,7 @@ const userSchema = new mongoose.Schema(
     reactivatedAt: Date,
     accessRevokedAt: Date,
     verification: {
+      holderPhotoRef: { type: String, maxlength: 100 },
       status: {
         type: String,
         enum: VERIFICATION_STATUSES,
@@ -201,6 +204,7 @@ const userSchema = new mongoose.Schema(
       classReviewConfirmed: { type: Boolean, default: false },
       legacyRecord: { type: mongoose.Schema.Types.Mixed },
     },
+    recentLocations: { type: [{ publicId: String, label: String, location: locationSchema }], default: [] },
     addresses: {
       type: [addressSchema],
       validate: {

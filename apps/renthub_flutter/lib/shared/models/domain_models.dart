@@ -1,4 +1,5 @@
 import '../../core/utils/calendar_date.dart';
+import '../../core/utils/display_copy.dart';
 import '../../core/location/confirmed_location.dart';
 import '../../core/booking/checkout_models.dart';
 import '../../core/trust/trust_profile.dart';
@@ -26,6 +27,7 @@ class UserAddress {
     this.longitude,
     this.line2 = '',
     this.isDefault = false,
+    this.automatic = false,
   });
 
   final String label, line1, line2, city, state, postcode;
@@ -43,6 +45,7 @@ class UserAddress {
           state: state,
           postcode: postcode);
   final bool isDefault;
+  final bool automatic;
 
   factory UserAddress.fromJson(Map<String, dynamic> json) => UserAddress(
         id: json['_id'] as String?,
@@ -101,6 +104,7 @@ class User {
     this.verificationDocuments = const {},
     this.drivingEligibility = const DrivingEligibility(),
     this.addresses = const [],
+    this.recentLocations = const [],
     this.language = 'en',
     this.pushNotifications = true,
     this.emailNotifications = true,
@@ -133,10 +137,18 @@ class User {
       verificationDocuments: verificationDocuments,
       drivingEligibility: drivingEligibility,
       addresses: addresses,
+      recentLocations: recentLocations,
       language: language,
       pushNotifications: pushNotifications,
       emailNotifications: emailNotifications);
   final List<UserAddress> addresses;
+  final List<UserAddress> recentLocations;
+  List<UserAddress> get deliveryAddresses => [
+        ...addresses,
+        ...recentLocations.where((recent) => !addresses.any((saved) =>
+            saved.latitude == recent.latitude &&
+            saved.longitude == recent.longitude))
+      ];
   final String language;
   final bool pushNotifications, emailNotifications;
 
@@ -174,6 +186,23 @@ class User {
           )
           .toList(),
       language: settings['language'] as String? ?? 'en',
+      recentLocations: [
+        for (final raw in json['recentLocations'] as List? ?? const [])
+          if (raw is Map && raw['location'] is Map)
+            UserAddress(
+                id: raw['publicId'] as String?,
+                label: raw['label'] as String? ?? 'Recent location',
+                automatic: true,
+                line1: '${raw['location']['displayAddress'] ?? ''}',
+                city: '${raw['location']['city'] ?? ''}',
+                state: '${raw['location']['state'] ?? ''}',
+                postcode: '${raw['location']['postcode'] ?? ''}',
+                latitude: (raw['location']['coordinates']?['latitude'] as num?)
+                    ?.toDouble(),
+                longitude:
+                    (raw['location']['coordinates']?['longitude'] as num?)
+                        ?.toDouble())
+      ],
       pushNotifications: settings['pushNotifications'] as bool? ?? true,
       emailNotifications: settings['emailNotifications'] as bool? ?? true,
     );
@@ -231,6 +260,7 @@ class Listing {
     required this.dailyPrice,
     this.subcategory = '',
     this.requiredLicenceClass = '',
+    this.vehicleGrantRef,
     this.brand = '',
     this.productModel = '',
     this.isbn = '',
@@ -244,6 +274,7 @@ class Listing {
     this.priceOrigin = 'unknown',
     this.itemAgeYears,
     this.condition = 'Good',
+    this.conditionRecorded = true,
     this.ownerName = 'RentHub Owner',
     this.ownerTrustScore = 50,
     this.ownerTrustProfile = const TrustRoleSummary(),
@@ -292,6 +323,12 @@ class Listing {
     this.itemVerificationReasons = const [],
     this.itemVerification = const {},
   });
+  final String? vehicleGrantRef;
+  final bool conditionRecorded;
+  bool get requiresVehicleGrant =>
+      !isService &&
+      category == 'Vehicles' &&
+      ['cars', 'motorcycles'].contains(subcategory.trim().toLowerCase());
   final String id, title, category, condition, ownerName, location;
   final double? latitude, longitude;
   final String state, locationPrecision, venueMode;
@@ -354,10 +391,11 @@ class Listing {
         j['itemVerification'] as Map<String, dynamic>? ?? const {};
     return Listing(
       id: j['publicId'] ?? j['id'] ?? j['_id'],
-      title: j['title'] as String? ?? '',
+      title: displayCopy(j['title'] as String? ?? ''),
       requiredLicenceClass: j['requiredLicenceClass'] as String? ?? '',
       category: j['category'],
       subcategory: j['subcategory'] as String? ?? '',
+      vehicleGrantRef: j['vehicleGrantRef'] as String?,
       brand: j['brand'] as String? ?? '',
       productModel: j['productModel'] as String? ?? '',
       isbn: j['isbn'] as String? ?? '',
@@ -374,6 +412,8 @@ class Listing {
       itemAgeYears: (j['itemAgeYears'] as num?)?.toDouble(),
       dailyPrice: (j['dailyPrice'] as num?)?.toDouble() ?? 0,
       condition: j['condition'] ?? (j['status'] == 'draft' ? '' : 'Good'),
+      conditionRecorded: j['condition'] is String &&
+          (j['condition'] as String).trim().isNotEmpty,
       ownerName: j['ownerName'] ?? 'RentHub Owner',
       ownerTrustScore: (j['ownerTrustScore'] as num?)?.toDouble() ?? 50,
       ownerTrustProfile: j['ownerTrustProfile'] is Map &&
@@ -566,6 +606,8 @@ class Booking {
     required this.listingId,
     required this.start,
     required this.end,
+    this.pickupTime,
+    this.returnTime,
     required this.status,
     this.listingTitle = '',
     this.listingType = 'physical',
@@ -589,6 +631,7 @@ class Booking {
     this.agreementAcceptedAt,
   });
   final String id, listingId, status;
+  final String? pickupTime, returnTime;
   final String listingTitle, listingType, renterName, ownerId, paymentStatus;
   final String ownerName, renterId;
   final BookingCharges? charges;
@@ -635,8 +678,10 @@ class Booking {
           ? parseApiCalendarDate(endValue)
           : DateTime.parse(endValue),
       status: json['status'] as String,
-      listingTitle: json['listingTitle'] as String? ?? '',
+      listingTitle: displayCopy(json['listingTitle'] as String? ?? ''),
       listingType: listingType,
+      pickupTime: json['pickupTime'] as String?,
+      returnTime: json['returnTime'] as String?,
       renterName: json['renterName'] as String? ?? '',
       ownerId: json['ownerId'] as String? ?? '',
       ownerName: json['ownerName'] as String? ?? '',
@@ -767,6 +812,8 @@ class Rental {
     this.ownerId = '',
     this.start,
     this.end,
+    this.pickupTime,
+    this.returnTime,
     this.expiryReason = '',
     this.overdueReturn,
     this.overdueNeedsAttention = false,
@@ -785,6 +832,7 @@ class Rental {
     this.blockchainError = '',
   });
   final String id, status, bookingId, listingId, listingType, renterId, ownerId;
+  final String? pickupTime, returnTime;
   final DateTime? start, end;
   final String extensionStatus, expiryReason;
   final RentalExtension? extension;
@@ -818,6 +866,8 @@ class Rental {
       bookingId: json['bookingId'] as String? ?? '',
       listingId: json['listingId'] as String? ?? '',
       listingType: listingType,
+      pickupTime: json['pickupTime'] as String?,
+      returnTime: json['returnTime'] as String?,
       renterId: json['renterId'] as String? ?? '',
       ownerId: json['ownerId'] as String? ?? '',
       start: json['startDate'] == null
@@ -926,9 +976,11 @@ class Transaction {
     this.status, {
     this.type = '',
     this.bookingId = '',
+    this.rewardReversal = false,
   });
   final String id, status, type, bookingId;
   final double amount;
+  final bool rewardReversal;
 
   factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
         (json['publicId'] ?? json['id'] ?? json['_id']) as String,
@@ -936,6 +988,8 @@ class Transaction {
         json['status'] as String,
         type: json['type'] as String? ?? '',
         bookingId: json['bookingId'] as String? ?? '',
+        rewardReversal: json['metadata'] is Map &&
+            '${json['metadata']['rewardReversal']}' == 'true',
       );
 }
 
@@ -1065,7 +1119,7 @@ class Conversation {
     return Conversation(
       id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
       bookingId: json['bookingId'] as String,
-      listingTitle: json['listingTitle'] as String,
+      listingTitle: displayCopy(json['listingTitle'] as String),
       otherParticipantName: other['displayName'] as String? ?? 'RentHub user',
       unreadCount: (json['unreadCount'] as num?)?.toInt() ?? 0,
       lastMessageText: json['lastMessageText'] as String? ?? '',
@@ -1103,8 +1157,8 @@ class RentHubNotification {
       RentHubNotification(
         id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
         category: json['category'] as String,
-        title: json['title'] as String,
-        body: json['body'] as String,
+        title: displayCopy(json['title'] as String),
+        body: displayCopy(json['body'] as String),
         entityId: json['entityId'] as String,
         entityType: json['entityType'] as String? ?? '',
         type: json['type'] as String? ?? '',
@@ -1147,7 +1201,7 @@ class Review {
         json['text'] as String,
         rentalId: json['rentalId'] as String? ?? '',
         listingId: json['listingId'] as String? ?? '',
-        listingTitle: json['listingTitle'] as String? ?? '',
+        listingTitle: displayCopy(json['listingTitle'] as String? ?? ''),
         authorId: json['authorId'] as String? ?? '',
         authorName: json['authorName'] as String? ?? 'RentHub user',
         authorRole: json['authorRole'] as String? ?? '',
@@ -1207,7 +1261,7 @@ class Dispute {
       rentalId: json['rentalId'] as String? ?? '',
       bookingId: json['bookingId'] as String? ?? '',
       listingId: json['listingId'] as String? ?? '',
-      listingTitle: json['listingTitle'] as String? ?? '',
+      listingTitle: displayCopy(json['listingTitle'] as String? ?? ''),
       listingType: json['listingType'] as String? ?? 'physical',
       category: json['category'] as String? ?? 'other',
       description: json['description'] as String? ?? '',
@@ -1278,7 +1332,7 @@ class InsuranceClaim {
       id: (json['publicId'] ?? json['id'] ?? json['_id']) as String,
       disputeId: json['disputeId'] as String,
       rentalId: json['rentalId'] as String,
-      listingTitle: json['listingTitle'] as String? ?? '',
+      listingTitle: displayCopy(json['listingTitle'] as String? ?? ''),
       description: json['description'] as String? ?? '',
       amountRequested: (json['amountRequested'] as num).toDouble(),
       status: json['status'] as String,

@@ -1,11 +1,10 @@
-import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/trust/trust_profile.dart';
 import '../../core/network/user_facing_error.dart';
 import 'live_renthub_controller.dart';
 import 'live_subject_reviews.dart';
+import '../../shared/widgets/trust_indicator.dart';
 
 Future<void> openTrustDetails(BuildContext context, String userId,
         {String role = 'overall'}) =>
@@ -26,7 +25,7 @@ class TrustSummaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TextButton.icon(
       onPressed: () => openTrustDetails(context, userId, role: role),
-      icon: const Icon(Icons.verified_user_outlined, size: 20),
+      icon: TrustIndicator(cohort: summary.application, size: 32),
       label: Text('$prefix: ${summary.application.label}',
           overflow: TextOverflow.ellipsis, maxLines: 2));
 }
@@ -82,7 +81,6 @@ class _LiveTrustPageState extends State<LiveTrustPage> {
   Widget build(BuildContext context) {
     final allowed = account != null &&
         context.watch<LiveRentHubController>().profile?.id == account;
-    final role = profile?.forRole(widget.role) ?? const TrustRoleSummary();
     return Scaffold(
         appBar: AppBar(title: const Text('Trust score'), actions: [
           IconButton(
@@ -113,17 +111,26 @@ class _LiveTrustPageState extends State<LiveTrustPage> {
                                       child: const Text('Try again'))
                                 ]))),
                       if (profile != null) ...[
-                        TrustActivityCard(
-                            title: widget.role == 'owner'
-                                ? 'Owner rental history'
-                                : widget.role == 'renter'
-                                    ? 'Renter rental history'
-                                    : 'Rental history',
-                            cohort: role.application),
-                        const SizedBox(height: 16),
-                        const RentHubSectionHeader('How it works',
-                            help:
-                                'The score uses completed rentals from the last 12 months, published reviews and recorded handover, return or service times. Only disputes with an explicit administrator finding of responsibility affect the score.\n\nA score needs at least 3 completed rentals with 2 different people. New scores grow gradually as more history becomes available. Identity verification is shown separately.'),
+                        if (widget.role == 'overall')
+                          Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                    child: TrustActivityCard(
+                                        title: 'Owner trust score',
+                                        cohort: profile!.owner.application)),
+                                Expanded(
+                                    child: TrustActivityCard(
+                                        title: 'Renter trust score',
+                                        cohort: profile!.renter.application)),
+                              ])
+                        else
+                          TrustActivityCard(
+                              title: widget.role == 'owner'
+                                  ? 'Owner trust score'
+                                  : 'Renter trust score',
+                              cohort:
+                                  profile!.forRole(widget.role).application),
                       ],
                       const SizedBox(height: 16),
                       SubjectReviewsSection(
@@ -144,55 +151,16 @@ class TrustActivityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
       child: Padding(
-          padding: const EdgeInsets.all(20),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Icon(demo ? Icons.science_outlined : Icons.verified_user_outlined,
-                  color: AppColors.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                  child: Text(title,
-                      style: Theme.of(context).textTheme.titleLarge))
-            ]),
+          padding: const EdgeInsets.all(16),
+          child: Column(children: [
+            Text(title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 16),
-            Text(
-                demo && cohort.established
-                    ? 'Demo score ${cohort.label}'
-                    : cohort.label,
-                style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 8),
-            Text(demo
-                ? 'Based on simulated payments or labelled demonstration rentals. This is not genuine marketplace history.'
-                : 'Based on recorded, completed rentals. Payments in this demonstration are simulated.'),
-            const SizedBox(height: 20),
-            Wrap(spacing: 24, runSpacing: 16, children: [
-              _TrustFact('Completed rentals', '${cohort.completedRentals}'),
-              _TrustFact('Different people', '${cohort.distinctPartners}'),
-              _TrustFact('Published reviews', '${cohort.reviewCount}'),
-              if (cohort.averageRating != null)
-                _TrustFact('Average review', '${cohort.averageRating} / 5'),
-              if (cohort.measuredTimeliness > 0)
-                _TrustFact('Recorded on time',
-                    '${cohort.timelyRentals} of ${cohort.measuredTimeliness}'),
-              _TrustFact('Confirmed issues', '${cohort.confirmedIssues}'),
-            ]),
-            if (!cohort.established && cohort.status != 'unavailable') ...[
-              const SizedBox(height: 16),
-              const Text(
-                  'Keep completing rentals with different people to build a history. Unproven reports do not reduce your score.')
-            ],
+            Center(child: TrustIndicator(cohort: cohort)),
+            if (cohort.status == 'unavailable')
+              const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text('Score unavailable')),
           ])));
-}
-
-class _TrustFact extends StatelessWidget {
-  const _TrustFact(this.label, this.value);
-  final String label, value;
-  @override
-  Widget build(BuildContext context) => SizedBox(
-      width: 160,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(value, style: Theme.of(context).textTheme.titleLarge),
-        Text(label, style: const TextStyle(color: AppColors.secondaryText))
-      ]));
 }

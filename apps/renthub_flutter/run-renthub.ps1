@@ -422,7 +422,8 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'admin-record-details-v1' -and `
             $response.data.capabilities -contains 'trust-profile-v1' -and `
             $response.data.capabilities -contains 'user-records-messaging-v2' -and `
-            $response.data.capabilities -contains 'renter-handover-ack-v1'
+            $response.data.capabilities -contains 'renter-handover-ack-v1' -and `
+            $response.data.capabilities -contains 'review-evidence-appointments-v1'
     }
     catch {
         return $false

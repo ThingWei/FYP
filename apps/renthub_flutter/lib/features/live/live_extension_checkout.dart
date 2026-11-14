@@ -50,7 +50,7 @@ class _LiveExtensionCheckoutState extends State<LiveExtensionCheckout> {
         uncertain = false;
         if (updated.extension?.paymentStatus == 'authorized') {
           message =
-              'Demo payment complete — awaiting Owner approval. Your rental dates have not changed yet.';
+              'Payment complete — awaiting Owner approval. Your rental dates have not changed yet.';
         } else if (updated.extension?.paymentStatus == 'captured') {
           message = 'The Owner approved and the extra days are paid.';
         }
@@ -79,8 +79,8 @@ class _LiveExtensionCheckoutState extends State<LiveExtensionCheckout> {
                 FilledButton(
                     onPressed: () => Navigator.pop(context, true),
                     child: Text(selectedOutcome == 'success'
-                        ? 'Demo success'
-                        : 'Demo decline'))
+                        ? 'Successful payment'
+                        : 'Declined payment'))
               ],
             ));
     if (!mounted || accepted != true) return;
@@ -112,10 +112,10 @@ class _LiveExtensionCheckoutState extends State<LiveExtensionCheckout> {
         rental = updated;
         if (updated.extension?.paymentStatus == 'authorized') {
           message =
-              'Demo payment complete — awaiting Owner approval. Your rental dates have not changed yet.';
+              'Payment complete — awaiting Owner approval. Your rental dates have not changed yet.';
         } else {
           message =
-              'Demo payment declined. You can try again or leave this request unpaid.';
+              'Payment declined. You can try again or leave this request unpaid.';
           attemptKey = null;
         }
       });
@@ -143,7 +143,7 @@ class _LiveExtensionCheckoutState extends State<LiveExtensionCheckout> {
             child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
                 child: ListView(padding: const EdgeInsets.all(20), children: [
-                  const Text('Demo checkout',
+                  const Text('Checkout',
                       style:
                           TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
@@ -181,14 +181,12 @@ class _LiveExtensionCheckoutState extends State<LiveExtensionCheckout> {
                         isExpanded: true,
                         initialValue: method,
                         decoration:
-                            const InputDecoration(labelText: 'Demo method'),
+                            const InputDecoration(labelText: 'Payment method'),
                         items: const [
+                          DropdownMenuItem(value: 'card', child: Text('Card')),
+                          DropdownMenuItem(value: 'fpx', child: Text('FPX')),
                           DropdownMenuItem(
-                              value: 'card', child: Text('Demo Card')),
-                          DropdownMenuItem(
-                              value: 'fpx', child: Text('Demo FPX')),
-                          DropdownMenuItem(
-                              value: 'wallet', child: Text('Demo Wallet'))
+                              value: 'wallet', child: Text('Wallet'))
                         ],
                         onChanged: busy || attemptKey != null
                             ? null
@@ -200,7 +198,7 @@ class _LiveExtensionCheckoutState extends State<LiveExtensionCheckout> {
                             : () =>
                                 _pay(attemptKey == null ? 'success' : outcome),
                         child: Text(attemptKey == null
-                            ? 'Continue demo payment'
+                            ? 'Continue payment'
                             : 'Retry same attempt')),
                     if (attemptKey == null)
                       TextButton(

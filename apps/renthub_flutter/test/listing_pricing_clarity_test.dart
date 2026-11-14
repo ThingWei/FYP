@@ -351,7 +351,7 @@ void main() {
       expect(find.textContaining('unfinished draft', skipOffstage: false),
           findsNothing);
       await tester.ensureVisible(find.text('Save changes & submit for review'));
-      expect(find.textContaining('Changes to a published listing need review'),
+      expect(find.textContaining('Changes need review before publication.'),
           findsOneWidget);
       expect(api.writeCalls, isEmpty);
       expect(tester.takeException(), isNull);

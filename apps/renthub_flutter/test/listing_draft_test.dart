@@ -63,8 +63,18 @@ void main() {
         await tester.ensureVisible(field('Location'));
         await tester.enterText(field('Location'), '');
         if (service) {
-          await tester.ensureVisible(field('Duration (minutes)'));
-          await tester.enterText(field('Duration (minutes)'), '');
+          await tester.ensureVisible(field('Service duration'));
+          expect(
+              tester
+                  .widget<TextField>(find.descendant(
+                      of: field('Service duration'),
+                      matching: find.byType(TextField)))
+                  .readOnly,
+              isTrue);
+          tester
+              .widget<TextFormField>(field('Service duration'))
+              .controller!
+              .clear();
         }
         await press(tester, 'Save Draft');
         expect(api.writes, hasLength(1));

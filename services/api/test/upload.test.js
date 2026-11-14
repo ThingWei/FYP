@@ -105,6 +105,32 @@ test('rejects a file whose bytes do not match an allowed format', async () => {
   assert.equal(response.body.error.code, 'UNSUPPORTED_FILE');
 });
 
+for (const purpose of ['vehicle_grant', 'verification_holder_photo']) {
+  test(`${purpose} uses the private photo limit and rejects document/PDF uploads`, async () => {
+    const previous = { ordinary: env.maxUploadBytes, privatePhoto: env.maxVerificationUploadBytes };
+    env.maxUploadBytes = 100;
+    env.maxVerificationUploadBytes = 500;
+    try {
+      const bytes = Buffer.alloc(300);
+      png.copy(bytes);
+      const upload = await request(app).post('/api/v1/uploads').set(identity())
+        .field('purpose', purpose).attach('file', bytes, { filename: 'synthetic.png', contentType: 'image/png' }).expect(201);
+      const asset = await UploadAssetModel.findOne({ publicId: upload.body.data.id });
+      assert.equal(asset.visibility, 'private');
+      assert.equal(asset.purpose, purpose);
+      await request(app).get(`/api/v1/uploads/public/${asset.publicId}/content`).expect(404);
+      await request(app).get(`/api/v1/uploads/${asset.publicId}/content`).set(identity('other')).expect(403);
+      await request(app).post('/api/v1/uploads').set(identity()).field('purpose', purpose)
+        .attach('file', Buffer.from('%PDF-1.4 synthetic'), { filename: 'document.pdf', contentType: 'application/pdf' }).expect(415);
+      await request(app).post('/api/v1/uploads').set(identity()).field('purpose', purpose)
+        .attach('file', Buffer.alloc(501), { filename: 'large.png', contentType: 'image/png' }).expect(413);
+    } finally {
+      env.maxUploadBytes = previous.ordinary;
+      env.maxVerificationUploadBytes = previous.privatePhoto;
+    }
+  });
+}
+
 test('retains item photos referenced by previous moderation evidence', async () => {
   const uploaded = await request(app).post('/api/v1/uploads').set(identity())
     .field('purpose', 'listing_image')

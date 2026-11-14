@@ -27,7 +27,7 @@ String rentalEventTime(DateTime? value) {
   if (value == null) return 'Time not recorded';
   final myt = value.toUtc().add(const Duration(hours: 8));
   final hour = myt.hour % 12 == 0 ? 12 : myt.hour % 12;
-  return '${rentalDay(myt)}, $hour:${myt.minute.toString().padLeft(2, '0')} ${myt.hour < 12 ? 'am' : 'pm'} MYT';
+  return '${rentalDay(myt)}, $hour:${myt.minute.toString().padLeft(2, '0')} ${myt.hour < 12 ? 'am' : 'pm'}';
 }
 
 String rentalStatusLabel(String status) =>
@@ -46,15 +46,15 @@ String rentalStatusLabel(String status) =>
 
 String rentalPaymentLabel(String status) =>
     const {
-      'unpaid': 'Demo payment needed',
-      'pending': 'Demo payment pending',
-      'authorized': 'Demo payment ready',
-      'captured': 'Demo payment completed',
-      'settled': 'Demo payment settled',
-      'failed': 'Demo payment declined',
-      'refunded': 'Demo payment refunded',
-      'partially_refunded': 'Demo payment partly refunded',
-      'voided': 'Demo payment released',
+      'unpaid': 'Payment needed',
+      'pending': 'Payment pending',
+      'authorized': 'Payment ready',
+      'captured': 'Payment completed',
+      'settled': 'Payment settled',
+      'failed': 'Payment declined',
+      'refunded': 'Payment refunded',
+      'partially_refunded': 'Payment partly refunded',
+      'voided': 'Payment released',
     }[status] ??
     'Payment status unavailable';
 
@@ -86,14 +86,14 @@ class RentalJourney {
     final date = start == null ? 'the booked day' : rentalDay(start);
     final steps = service
         ? const [
-            'Request & demo payment',
+            'Request & payment',
             'Owner approval',
             'Service in progress',
             'Review completed service',
             'Completed'
           ]
         : const [
-            'Request & demo payment',
+            'Request & payment',
             'Owner approval',
             'Collection or delivery',
             'Rental in progress',
@@ -104,7 +104,7 @@ class RentalJourney {
       if (status == 'expired' && rental?.expiryReason == 'not_collected') {
         return RentalJourney(
             'Expired — item not collected',
-            'The booked dates ended without a recorded handover. No rental started. Check payment details for the released demo hold.',
+            'The booked dates ended without a recorded handover. No rental started. Check payment details for the released payment hold.',
             -1,
             steps,
             paused: true);
@@ -212,7 +212,7 @@ class RentalJourney {
         paid
             ? 'The request is paid but the Owner still needs to approve it. Pending requests do not reserve dates.'
             : owner
-                ? 'The renter needs to finish demo payment before you can approve this request.'
+                ? 'The renter needs to finish payment before you can approve this request.'
                 : 'Complete payment within 10 minutes to send your request for Owner approval.',
         paid ? 1 : 0,
         steps);
@@ -265,25 +265,6 @@ class RentalProgressPanel extends StatelessWidget {
                       journey: journey,
                       service: (rental?.listingType ?? booking?.listingType) ==
                           'service')),
-              ExpansionTile(
-                  title: Text(
-                      (rental?.listingType ?? booking?.listingType) == 'service'
-                          ? 'See booking progress'
-                          : 'Return record'),
-                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if ((rental?.listingType ?? booking?.listingType) !=
-                        'service') ...[
-                      const Divider(height: 24),
-                      RentalConditionSection(
-                          title: 'At return', record: rental?.returnSubmission),
-                      const SizedBox(height: 12),
-                      const Text(
-                          'Photos support a fair review for both parties. They do not automatically prove who caused damage.',
-                          style: TextStyle(color: AppColors.secondaryText)),
-                    ],
-                  ]),
             ])));
   }
 }

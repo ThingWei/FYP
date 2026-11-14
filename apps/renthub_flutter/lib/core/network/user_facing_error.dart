@@ -17,6 +17,24 @@ class UserFacingError {
     }
     if (error is ApiException) {
       final known = <String, String>{
+        'APPOINTMENT_TIMES_REQUIRED':
+            'Choose pickup and return appointment times before continuing.',
+        'PRIVATE_REVIEW_PHOTO_REQUIRED':
+            'Choose your own photo using the correct private document field, then try again.',
+        'STALE_LISTING_REVIEW':
+            'This listing changed. Refresh its details and review the current document before deciding.',
+        'INVALID_APPOINTMENT_TIMES':
+            'For a same-day rental, choose a return time later than pickup.',
+        'VEHICLE_GRANT_REQUIRED':
+            'Add the vehicle registration document before submitting. Existing pending listings need a corrected submission before approval.',
+        'VEHICLE_CATEGORY_REQUIRED':
+            'Choose a specific vehicle category before submitting or approving.',
+        'VEHICLE_GRANT_REVIEW_REQUIRED':
+            'Review the registration photo and confirm the review before approving.',
+        'MYKAD_HOLDER_PHOTO_REQUIRED':
+            'Add a photo of you holding your MyKad. An older pending submission needs resubmission with this photo.',
+        'MYKAD_HOLDER_REVIEW_REQUIRED':
+            'Review the holder photo and confirm the review before approving.',
         'OVERDUE_RETURN_REQUIRED':
             'Return your overdue item before making another booking. You can still message the Owner, submit your return or report an issue.',
         'DISPUTE_WINDOW_CLOSED':
@@ -101,7 +119,7 @@ class UserFacingError {
         'CATALOG_UNAVAILABLE':
             'Product search is temporarily unavailable. Try again or enter the product manually.',
         'EXTENSION_PAYMENT_REQUIRED':
-            'The renter needs to complete demo payment for these extra days before Owner approval.',
+            'The renter needs to complete payment for these extra days before Owner approval.',
         'EXTENSION_CHANGED':
             'The extra-day request changed. Refresh and review the current dates and price.',
         'INVALID_EXTENSION_STATE':

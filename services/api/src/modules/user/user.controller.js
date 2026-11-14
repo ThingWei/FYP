@@ -11,6 +11,8 @@ const sessionMetadata = (req) => ({
 });
 
 export const userController = {
+  removeRecentLocation: asyncHandler(async (req, res) => ok(res, await userService.removeRecentLocation(req.user, req.params.id))),
+  marketplaceProfile: asyncHandler(async (req, res) => ok(res, await userService.marketplaceProfile(req.user, req.params.id))),
   trust: asyncHandler(async (req, res) => ok(res, await userService.getTrust(req.user, req.params.id))),
   clearBrowsingHistory: asyncHandler(async (req, res) => ok(res, await userService.clearBrowsingHistory(req.user))),
   localLogin: asyncHandler(async (req, res) =>

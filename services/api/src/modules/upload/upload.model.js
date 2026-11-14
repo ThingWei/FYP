@@ -4,6 +4,8 @@ export const UPLOAD_PURPOSES = [
   'listing_image',
   'avatar',
   'verification_document',
+  'verification_holder_photo',
+  'vehicle_grant',
   'handover_evidence',
   'return_evidence',
   'dispute_evidence',

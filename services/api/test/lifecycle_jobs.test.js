@@ -30,7 +30,7 @@ function booking(overrides) {
     ownerId: 'u-owner',
     startDate: overrides.startDate,
     endDate: overrides.endDate,
-    fulfilmentMethod: 'pickup',
+    fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
     pricing: {
       baseAmount: 100,
       securityDeposit: 50,

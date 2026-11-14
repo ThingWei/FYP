@@ -4,10 +4,12 @@ import '../../core/network/user_facing_error.dart';
 import '../../core/trust/trust_profile.dart';
 import 'live_renthub_controller.dart';
 import 'live_trust_page.dart';
+import 'live_subject_reviews.dart';
 
 class LiveContactProfilePage extends StatefulWidget {
-  const LiveContactProfilePage({super.key, required this.threadId});
-  final String threadId;
+  const LiveContactProfilePage({super.key, this.threadId, this.userId})
+      : assert(threadId != null || userId != null);
+  final String? threadId, userId;
   @override
   State<LiveContactProfilePage> createState() => _LiveContactProfilePageState();
 }
@@ -17,6 +19,17 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
   Object? error;
   bool loading = true;
   String? account;
+  int generation = 0;
+  @override
+  void didUpdateWidget(covariant LiveContactProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId ||
+        oldWidget.threadId != widget.threadId) {
+      profile = null;
+      load();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -30,18 +43,24 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
 
   Future<void> load() async {
     final c = context.read<LiveRentHubController>();
+    final request = ++generation;
+    bool current() =>
+        mounted && request == generation && c.profile?.id == account;
     setState(() {
       loading = true;
       error = null;
     });
     try {
       final row = Map<String, dynamic>.from(await c.api.request(
-          'GET', '/messages/threads/${widget.threadId}/participant') as Map);
-      if (mounted && c.profile?.id == account) setState(() => profile = row);
+          'GET',
+          widget.userId != null
+              ? '/users/${Uri.encodeComponent(widget.userId!)}/profile'
+              : '/messages/threads/${widget.threadId}/participant') as Map);
+      if (current()) setState(() => profile = row);
     } catch (e) {
-      if (mounted) setState(() => error = e);
+      if (current()) setState(() => error = e);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (current()) setState(() => loading = false);
     }
   }
 
@@ -54,7 +73,7 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
         appBar: AppBar(title: const Text('Profile')),
         body: !allowed
             ? const Center(
-                child: Text('Your session changed. Return to Messages.'))
+                child: Text('Your session changed. Go back to continue.'))
             : loading
                 ? const Center(child: CircularProgressIndicator())
                 : error != null
@@ -82,11 +101,28 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
                                           child: Padding(
                                               padding: const EdgeInsets.all(24),
                                               child: Column(children: [
-                                                const CircleAvatar(
-                                                    radius: 36,
-                                                    child: Icon(
-                                                        Icons.person_outline,
-                                                        size: 40)),
+                                                CircleAvatar(
+                                                    radius: 40,
+                                                    child: ClipOval(
+                                                        child: p['avatarUrl']
+                                                                    is String &&
+                                                                (p['avatarUrl']
+                                                                        as String)
+                                                                    .isNotEmpty
+                                                            ? Image.network(context.read<LiveRentHubController>().api.publicPhotoUrl(p['avatarUrl'] as String),
+                                                                width: 80,
+                                                                height: 80,
+                                                                fit: BoxFit
+                                                                    .cover,
+                                                                errorBuilder: (_,
+                                                                        __,
+                                                                        ___) =>
+                                                                    const Icon(Icons.person_outline,
+                                                                        size:
+                                                                            40))
+                                                            : const Icon(
+                                                                Icons.person_outline,
+                                                                size: 40))),
                                                 const SizedBox(height: 16),
                                                 Text('${p['displayName']}',
                                                     style: Theme.of(context)
@@ -105,6 +141,14 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
                                                             true
                                                         ? 'Identity verified'
                                                         : 'Identity not verified')),
+                                                if ('${p['bio'] ?? ''}'
+                                                    .isNotEmpty)
+                                                  Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                              top: 12),
+                                                      child:
+                                                          Text('${p['bio']}')),
                                                 const SizedBox(height: 12),
                                                 TrustSummaryButton(
                                                     userId: '${p['id']}',
@@ -113,6 +157,15 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
                                                                 'trustProfile'])
                                                             .overall),
                                               ]))),
+                                      SubjectReviewsSection(
+                                          userId: '${p['id']}',
+                                          role: 'overall'),
                                     ]))));
   }
 }
+
+Future<void> openMarketplaceProfile(BuildContext context, String userId) =>
+    Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+            builder: (_) => LiveContactProfilePage(userId: userId)));

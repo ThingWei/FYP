@@ -159,6 +159,8 @@ Assert-Launcher (-not (Test-RentHubApiReady)) 'API without grouped conversations
 $script:apiHealthFixture.data.capabilities += 'user-records-messaging-v2'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'API without renter-confirmed handover must not be reused.'
 $script:apiHealthFixture.data.capabilities += 'renter-handover-ack-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'API without appointment and private review-photo support must not be reused.'
+$script:apiHealthFixture.data.capabilities += 'review-evidence-appointments-v1'
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 Assert-Launcher (Test-RentHubApiReady -Port 4321) 'Current API can run on a custom port'
 Assert-Launcher ($script:lastReadyUri -eq 'http://localhost:4321/api/v1/ready') 'Readiness uses the selected port'

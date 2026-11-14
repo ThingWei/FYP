@@ -104,6 +104,9 @@ const rentalSchema = new mongoose.Schema(
       lastProcessedAt: Date,
     },
     contractAddress: String,
+    pickupTime: { type: String, match: /^([01]\d|2[0-3]):[0-5]\d$/ },
+    returnTime: { type: String, match: /^([01]\d|2[0-3]):[0-5]\d$/ },
+    appointmentTimezone: { type: String, enum: ['Asia/Kuala_Lumpur'] },
     transactionHash: String,
     blockchain: {
       mode: { type: String, enum: ['disabled', 'ganache'], default: 'disabled' },

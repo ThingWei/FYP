@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,9 @@ import 'package:renthub_flutter/features/live/live_shared_pages.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
 
 class RecordingAccountApiClient extends ApiClient {
+  @override
+  Future<Uint8List> downloadBytes(String path) async => base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
   RecordingAccountApiClient(this.responses) : super('http://example.invalid');
 
   Map<String, dynamic>? adminRecord;
@@ -208,11 +213,12 @@ void main() {
     await controller.reviewIdentityVerification(
       '507f1f77bcf86cd799439011',
       'approved',
+      holderPhotoReviewed: true,
     );
 
     expect(api.calls.single.$2, '/users/507f1f77bcf86cd799439011/verification');
     final body = api.calls.single.$3 as Map<String, dynamic>;
-    expect(body, {'status': 'approved'});
+    expect(body, {'status': 'approved', 'holderPhotoReviewed': true});
     expect(
       (controller.users.single['verification']
           as Map<String, dynamic>)['status'],
@@ -254,6 +260,7 @@ void main() {
           {
             'attemptId': 'KYC-000000000000000000000001',
             'documentType': 'mykad',
+            'holderPhotoRef': 'upload://UPL-HOLDER',
             'status': 'pending',
           }
         ],
@@ -287,11 +294,15 @@ void main() {
         findsNothing);
     expect(find.text('Verification tier'), findsNothing);
     expect(api.calls, isEmpty);
+    await tester.tap(
+        find.text('Face and held card reviewed against the submitted MyKad'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm'));
     await tester.pumpAndSettle();
     expect(api.calls.single.$3, {
       'status': 'approved',
       'attemptId': 'KYC-000000000000000000000001',
+      'holderPhotoReviewed': true,
     });
     expect(find.text('Approve'), findsNothing);
     expect(find.text('Approved'), findsWidgets);

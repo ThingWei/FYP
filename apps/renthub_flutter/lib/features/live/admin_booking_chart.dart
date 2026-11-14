@@ -57,9 +57,8 @@ class _AdminBookingChartState extends State<AdminBookingChart> {
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const RentHubSectionHeader('Bookings at a glance',
-              help:
-                  'All physical and service bookings, including demonstrations.'),
-          const Text('Demo bookings included.',
+              help: 'Physical-item and service bookings.'),
+          const Text('Sample bookings included.',
               style: TextStyle(color: AppColors.secondaryText)),
           const SizedBox(height: 16),
           if (!valid && widget.loading)

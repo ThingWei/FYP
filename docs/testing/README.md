@@ -9,6 +9,9 @@ lifecycle. It does not add another business module or introduce Toys & Entertain
 - [Latest execution and remaining manual work](PLATFORM_TEST_EXECUTION_RESULT.md)
 - [Normal startup and supervisor operating guide](../../README.md)
 - [Overdue reminder and Owner-protection walkthrough](../OVERDUE_REMINDERS_AND_OWNER_PROTECTION_RESULT.md#verification-and-demonstration)
+- [Current trust, comparison, appointment and private-document walkthrough](../TRUST_COMPARISON_AND_REVIEW_EVIDENCE_RESULT.md#short-walkthrough)
+
+For new executions after 14 November 2026, include both physical appointment times in P0-09/P0-11/P0-16/P0-17, a private registration photo for Cars/Motorcycles in P0-08, and the separate MyKad holder photo/manual review in P0-05/P0-06. Check extension reserved-range blocking in P0-20 and collapsed saved proof in P0-26. Existing completed result sheets remain unchanged; these additions do not pass their earlier variants automatically.
 
 ## What to do first
 

@@ -1,0 +1,40 @@
+import test, { before, beforeEach, after } from 'node:test';
+import assert from 'node:assert/strict';
+import request from 'supertest';
+import { app } from '../src/app.js';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { connectDatabase, disconnectDatabase } from '../src/config/database.js';
+import { UserModel } from '../src/modules/user/user.model.js';
+import { rememberConfirmedLocation } from '../src/modules/user/recentLocations.js';
+let mongo;
+before(async () => { mongo = await MongoMemoryServer.create(); await connectDatabase(mongo.getUri()); });
+after(async () => { await disconnectDatabase(); await mongo.stop(); });
+beforeEach(async () => { await UserModel.deleteMany({}); await UserModel.create({ authId: 'recent-owner', email: 'recent@example.invalid', displayName: 'Owner', roles: ['renter','owner'], activeRole: 'owner', addresses: [{ label: 'Home', line1: 'Existing address', city: 'Ipoh', state: 'Perak', postcode: '01000' }] }); });
+test('confirmed locations deduplicate and retain unknown address parts without changing saved-address IDs', async () => {
+ const before = await UserModel.findOne({ authId: 'recent-owner' });
+ const point = { coordinates: { latitude: 3.14, longitude: 101.71 }, displayAddress: 'Confirmed entrance', source: 'gps' };
+ await Promise.all(Array.from({ length: 4 }, () => rememberConfirmedLocation('recent-owner', point, 'Pickup')));
+ const result = await UserModel.findOne({ authId: 'recent-owner' });
+ assert.equal(result.recentLocations.length, 1); assert.equal(result.recentLocations[0].location.postcode, '');
+ assert.equal(result.addresses[0]._id.toString(), before.addresses[0]._id.toString()); assert.equal(result.addresses[0].postcode, '01000');
+});
+test('remembering is bounded and invalid or absent pins do not create entries', async () => {
+ await rememberConfirmedLocation('recent-owner', { displayAddress: 'No pin' }, 'Pickup');
+ assert.equal((await UserModel.findOne({ authId: 'recent-owner' })).recentLocations.length, 0);
+ for (let i=0;i<13;i++) await rememberConfirmedLocation('recent-owner', { coordinates: { latitude: 3+i/100, longitude: 101.7 }, displayAddress: `Entrance ${i}` }, 'Pickup');
+ const row = await UserModel.findOne({ authId: 'recent-owner' }); assert.equal(row.recentLocations.length, 10); assert.equal(row.recentLocations[0].location.displayAddress, 'Entrance 12');
+});
+test('recent locations stay private and only their account can remove them', async () => {
+ const headers = { 'x-user-id': 'recent-owner', 'x-user-email':'recent@example.invalid', 'x-user-name':'Owner', 'x-user-roles':'owner' };
+ const other = { 'x-user-id':'another', 'x-user-email':'another@example.invalid', 'x-user-name':'Another', 'x-user-roles':'renter' };
+ await UserModel.create({ authId:'another', email:'another@example.invalid', displayName:'Another', roles:['renter','owner'], activeRole:'renter' });
+ await rememberConfirmedLocation('recent-owner', { displayAddress:'PRIVATE ENTRANCE ONLY', coordinates:{latitude:3.14,longitude:101.71} }, 'Pickup');
+ const user = await UserModel.findOne({authId:'recent-owner'}); const key = user.recentLocations[0].publicId;
+ const publicResult = await request(app).get('/api/v1/users/recent-owner/profile').set(other).expect(200);
+ assert.ok(!JSON.stringify(publicResult.body).includes('PRIVATE ENTRANCE ONLY'));
+ const mine = await request(app).get('/api/v1/users/me').set(headers).expect(200); assert.equal(mine.body.data.recentLocations.length,1);
+ await request(app).delete(`/api/v1/users/me/recent-locations/${key}`).set(other).expect(200);
+ assert.equal((await UserModel.findOne({authId:'recent-owner'})).recentLocations.length,1);
+ await request(app).delete(`/api/v1/users/me/recent-locations/${key}`).set(headers).expect(200);
+ const after=await UserModel.findOne({authId:'recent-owner'}); assert.equal(after.recentLocations.length,0); assert.equal(after.addresses[0]._id.toString(),user.addresses[0]._id.toString());
+});

@@ -32,10 +32,10 @@ after(async () => { await disconnectDatabase(); await mongo.stop(); });
 async function seedListing(overrides = {}) {
   return ListingModel.create({ ...listingInput, publicId: `l-map-${++sequence}`, ownerId: 'u-map-owner', ownerName: 'Map Owner', status: 'active', publicGeoPoint: approximatePoint(point), ...overrides });
 }
-const bookingInput = (listing, overrides = {}) => ({ listingId: listing.publicId, idempotencyKey: `location-test:${++sequence}`, startDate: '2026-11-10', endDate: '2026-11-11', fulfilmentMethod: 'pickup', agreementAccepted: true, agreementVersion: 'renthub-booking-v1', ...overrides });
+const bookingInput = (listing, overrides = {}) => ({ listingId: listing.publicId, idempotencyKey: `location-test:${++sequence}`, startDate: '2026-11-10', endDate: '2026-11-11', fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', agreementAccepted: true, agreementVersion: 'renthub-booking-v1', ...overrides });
 
 test('booking location states distinguish privacy, missing legacy pins and online bookings', () => {
-  const booking = { listingType: 'physical', fulfilmentMethod: 'pickup', status: 'pending', ownerId: 'owner', renterId: 'renter', pickupLocationSnapshot: place() };
+  const booking = { listingType: 'physical', fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', status: 'pending', ownerId: 'owner', renterId: 'renter', pickupLocationSnapshot: place() };
   const hidden = bookingLocations(booking, { authId: 'renter', roles: ['renter'] });
   assert.equal(hidden.locationStates.pickupLocation, 'hidden_until_approval');
   assert.equal(hidden.pickupLocation, null);
@@ -58,7 +58,7 @@ test('Owner-set delivery fee is snapshotted, server-controlled, charged once and
   // overlapping pending request from the same renter.
   await request(app).post(`/api/v1/bookings/${pickup.body.data.publicId}/cancel`).set(renter)
     .send({ reason: 'Switching this request from pickup to delivery' }).expect(200);
-  const input = bookingInput(listing, { fulfilmentMethod: 'owner_delivery', deliveryLocation: place('Delivery entrance') });
+  const input = bookingInput(listing, { fulfilmentMethod: 'owner_delivery', pickupTime: '09:00', returnTime: '18:00', deliveryLocation: place('Delivery entrance') });
   const delivered = await request(app).post('/api/v1/bookings').set(renter).send(input).expect(201);
   const id = delivered.body.data.publicId;
   assert.equal(delivered.body.data.pricing.deliveryFee, 23.45);
@@ -147,8 +147,8 @@ test('saved addresses require owned stable identifiers and new/changed pins', as
 
 test('booking snapshots remain immutable; pending counterpart locations are withheld; idempotency includes destinations', async () => {
   const listing = await seedListing();
-  await request(app).post('/api/v1/bookings').set(renter).send(bookingInput(listing, { fulfilmentMethod: 'owner_delivery' })).expect(422);
-  const input = bookingInput(listing, { fulfilmentMethod: 'owner_delivery', deliveryLocation: place('Renter private home', { latitude: 3.15, longitude: 101.70 }) });
+  await request(app).post('/api/v1/bookings').set(renter).send(bookingInput(listing, { fulfilmentMethod: 'owner_delivery', pickupTime: '09:00', returnTime: '18:00' })).expect(422);
+  const input = bookingInput(listing, { fulfilmentMethod: 'owner_delivery', pickupTime: '09:00', returnTime: '18:00', deliveryLocation: place('Renter private home', { latitude: 3.15, longitude: 101.70 }) });
   const created = await request(app).post('/api/v1/bookings').set(renter).send(input).expect(201);
   const id = created.body.data.publicId;
   assert.equal(created.body.data.pickupLocationSnapshot, null);

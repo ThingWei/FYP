@@ -3,6 +3,18 @@ import 'package:flutter/material.dart';
 import '../../core/network/user_facing_error.dart';
 import 'live_catalog_page.dart';
 
+String _variantLabel(Map<String, dynamic> item) =>
+    ['variant', 'edition', 'packageType', 'includedLens']
+        .map((k) => item[k])
+        .whereType<String>()
+        .where((v) => v.isNotEmpty)
+        .map((v) => v == 'body_only'
+            ? 'Body only'
+            : v == 'with_lens'
+                ? 'Camera with lens'
+                : v)
+        .join(' ? ');
+
 Future<Map<String, dynamic>?> showCatalogPicker(
   BuildContext context, {
   required String title,
@@ -257,31 +269,9 @@ class _CatalogPickerState extends State<CatalogPicker> {
                                     minVerticalPadding: 12,
                                     title:
                                         Text('${item[widget.labelKey] ?? ''}'),
-                                    subtitle: item['selectionSource'] == null
+                                    subtitle: _variantLabel(item).isEmpty
                                         ? null
-                                        : Text([
-                                            switch (item['selectionSource']) {
-                                              'rental_reference' =>
-                                                'Found in rental references',
-                                              'marketplace_evidence' =>
-                                                'Found in reviewed marketplace evidence',
-                                              _ => 'Catalogue suggestion',
-                                            },
-                                            ...[
-                                              'variant',
-                                              'edition',
-                                              'packageType',
-                                              'includedLens'
-                                            ]
-                                                .map((key) => item[key])
-                                                .whereType<String>()
-                                                .where((v) => v.isNotEmpty)
-                                                .map((v) => v == 'body_only'
-                                                    ? 'Body only'
-                                                    : v == 'with_lens'
-                                                        ? 'Camera with lens'
-                                                        : v),
-                                          ].join(' · ')),
+                                        : Text(_variantLabel(item)),
                                     trailing: const Icon(Icons.chevron_right),
                                     onTap: () => Navigator.pop(context, item)),
                               if (nextLimit != null)

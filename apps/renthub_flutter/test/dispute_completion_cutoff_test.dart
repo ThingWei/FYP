@@ -144,8 +144,7 @@ Future<void> tap(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  test('cutoff is final completion, not elapsed dates or captured demo payment',
-      () {
+  test('cutoff is final completion, not elapsed dates or captured payment', () {
     for (final type in ['physical', 'service']) {
       for (final status in [
         'active',

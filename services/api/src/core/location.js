@@ -46,6 +46,8 @@ export function publicArea(value) {
   return [details.city, details.state || value.state].filter(Boolean).join(', ') || 'Area available after confirmation';
 }
 export function publicListing(value) {
+  delete value.vehicleGrantRef;
+  delete value.vehicleGrantReview;
   if (value.priceProvenance) value.priceProvenance = { origin: value.priceProvenance.origin ?? 'unknown' };
   value.location = publicArea(value);
   const point = value.publicGeoPoint ?? approximatePoint(value.coordinates);
@@ -58,6 +60,8 @@ export function publicListing(value) {
 export function ownedListing(document) {
   const value = document.toJSON(); // Public transform remains the safe default everywhere else.
   const raw = document.toObject();
+  value.vehicleGrantRef = raw.vehicleGrantRef;
+  value.vehicleGrantReview = raw.vehicleGrantReview;
   value.coordinates = raw.coordinates ?? null;
   value.locationDetails = raw.locationDetails;
   value.location = raw.location;

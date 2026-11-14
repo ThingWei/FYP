@@ -113,23 +113,11 @@ void main() {
     expect(journey.paused, isTrue);
     expect(journey.next, contains('No rental started'));
   });
-  testWidgets(
-      'related items are after the agreement at the bottom of listing details',
+  testWidgets('listing details no longer show complementary suggestions',
       (t) async {
     await detail.mountDetail(t, detail.DetailApi());
-    await t.scrollUntilVisible(find.byType(LiveComplementsSection), 350,
-        scrollable: find.byType(Scrollable).first);
-    await t.pumpAndSettle();
-    expect(find.text('You Might Also Need'), findsOneWidget);
-    final list = find
-        .ancestor(
-            of: find.byType(LiveComplementsSection),
-            matching: find.byType(ListView))
-        .first;
-    final delegate =
-        t.widget<ListView>(list).childrenDelegate as SliverChildListDelegate;
-    final sections = delegate.children;
-    expect(sections.last, isA<LiveComplementsSection>());
+    expect(find.byType(LiveComplementsSection), findsNothing);
+    expect(find.text('You Might Also Need'), findsNothing);
     expect(t.takeException(), isNull);
   });
   for (final width in [360.0, 390.0, 1440.0]) {

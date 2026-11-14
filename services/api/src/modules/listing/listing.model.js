@@ -77,6 +77,8 @@ const listingSchema = new mongoose.Schema(
     },
     ownerId: { type: String, required: true, trim: true, index: true },
     ownerName: { type: String, required: true, trim: true, maxlength: 80 },
+    vehicleGrantRef: { type: String, maxlength: 100 },
+    vehicleGrantReview: { reference: String, reviewedBy: String, reviewedAt: Date },
     ownerTrustScore: { type: Number, min: 0, max: 100, default: 50 },
     ownerTrustProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
     title: { type: String, required: function () { return this.status !== 'draft'; }, trim: true, maxlength: 120, default: '' },

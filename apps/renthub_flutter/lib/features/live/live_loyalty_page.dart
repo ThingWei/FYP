@@ -191,7 +191,7 @@ class _LiveLoyaltyPageState extends State<LiveLoyaltyPage> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'This prototype records the reward code; checkout redemption is a separate feature.',
+                'Choose this reward at checkout.',
                 style: TextStyle(color: AppColors.secondaryText),
               ),
             ],

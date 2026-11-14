@@ -13,6 +13,7 @@ import { NotificationModel } from '../src/modules/communication/notification.mod
 import { PlatformSettingModel } from '../src/modules/admin/platformSetting.model.js';
 import { aiClient } from '../src/integrations/aiClient.js';
 import { assertMarketplaceIdentity, resolveKycRequirement } from '../src/modules/user/kycRequirements.js';
+import { reviewPhoto } from './helpers/reviewPhoto.js';
 
 let mongodb;
 const headers = (id, roles = 'renter,owner') => ({
@@ -20,6 +21,7 @@ const headers = (id, roles = 'renter,owner') => ({
 });
 const member = headers('u-member');
 const admin = headers('u-admin', 'admin');
+let vehicleGrantRef;
 
 async function setIdentity(status, documentType = 'mykad') {
   await UserModel.updateOne({ authId: 'u-member' }, { $set: {
@@ -30,6 +32,7 @@ async function setIdentity(status, documentType = 'mykad') {
 
 function listingInput(category) {
   return { title: `Synthetic ${category} listing`, category, dailyPrice: 10, location: 'Kuala Lumpur',
+    ...(category === 'Vehicles' && { subcategory: 'Cars', vehicleGrantRef }),
     coordinates: { latitude: 3.14, longitude: 101.68 },
     ...(category === 'Services' ? { listingType: 'service', serviceDetails: {
       packageName: 'Synthetic service', durationMinutes: 60, venueMode: 'flexible',
@@ -52,6 +55,7 @@ beforeEach(async () => {
   const adminSession = await request(app).post('/api/v1/users/session').set(admin);
   assert.equal(memberSession.status, 201, JSON.stringify(memberSession.body));
   assert.equal(adminSession.status, 201, JSON.stringify(adminSession.body));
+  vehicleGrantRef = await reviewPhoto('u-member', 'vehicle_grant');
 });
 after(async () => { await disconnectDatabase(); await mongodb.stop(); });
 
@@ -91,7 +95,7 @@ for (const category of LISTING_CATEGORIES) {
       const booking = await request(app).post('/api/v1/bookings').set(member).send({
         listingId: publicListing.publicId, startDate: '2027-01-10', endDate: '2027-01-10',
         idempotencyKey: `identity-test:${category}:${status}`,
-        fulfilmentMethod: 'pickup', serviceVenue: 'Kuala Lumpur',
+        fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', serviceVenue: 'Kuala Lumpur',
         ...(category === 'Services' && { serviceLocation: { displayAddress: 'Kuala Lumpur', coordinates: { latitude: 3.14, longitude: 101.68 } } }),
         agreementAccepted: true, agreementVersion: 'renthub-booking-v1',
       });
@@ -106,7 +110,7 @@ for (const category of LISTING_CATEGORIES) {
       // A direct admin request must not publish a stale/legacy pending listing.
       await ListingModel.updateOne({ publicId: draft.body.data.id }, { $set: { status: 'pending_review' } });
       const publication = await request(app).patch(`/api/v1/listings/${draft.body.data.id}/moderation`).set(admin)
-        .send({ status: 'active' });
+        .send({ status: 'active', ...(category === 'Vehicles' && { vehicleGrantReviewed: true }) });
       assert.equal(publication.status, 403);
       assert.equal(publication.body.error.code, 'KYC_REQUIRED');
       assert.equal((await ListingModel.findOne({ publicId: draft.body.data.id })).status, 'pending_review');
@@ -120,7 +124,7 @@ for (const category of LISTING_CATEGORIES) {
     const submitted = await request(app).post(`/api/v1/listings/${draft.body.data.id}/submit`).set(member);
     assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
     const published = await request(app).patch(`/api/v1/listings/${draft.body.data.id}/moderation`).set(admin)
-      .send({ status: 'active' });
+      .send({ status: 'active', ...(category === 'Vehicles' && { vehicleGrantReviewed: true }) });
     assert.equal(published.status, 200, JSON.stringify(published.body));
     assert.equal(published.body.data.verified, true);
     if (category === 'Vehicles') await UserModel.updateOne({ authId: 'u-member' }, { $set: { drivingEligibility: {
@@ -130,7 +134,7 @@ for (const category of LISTING_CATEGORIES) {
     const booking = await request(app).post('/api/v1/bookings').set(member).send({
       listingId: publicListing.publicId, startDate: '2027-01-10', endDate: '2027-01-10',
       idempotencyKey: `identity-test:${category}:approved`,
-      fulfilmentMethod: 'pickup', serviceVenue: 'Kuala Lumpur',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', serviceVenue: 'Kuala Lumpur',
       ...(category === 'Services' && { serviceLocation: { displayAddress: 'Kuala Lumpur', coordinates: { latitude: 3.14, longitude: 101.68 } } }),
       agreementAccepted: true, agreementVersion: 'renthub-booking-v1',
     });

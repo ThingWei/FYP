@@ -223,7 +223,7 @@ class LicenceController extends LiveRentHubController {
       'upload://UPL-TEST';
   @override
   Future<void> submitIdentityVerification(String type, List<String> refs,
-      {String? licenceSource}) async {
+      {String? licenceSource, String? holderPhotoRef}) async {
     submissions++;
     submittedSource = licenceSource;
   }

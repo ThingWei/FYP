@@ -115,11 +115,11 @@ void main() {
       expect(find.textContaining('2 extra day(s)'), findsOneWidget);
       expect(find.text('Total RM 200.00'), findsOneWidget);
       expect(data.keys, isEmpty);
-      await tapText(tester, 'Continue demo payment');
-      await tapText(tester, 'Demo success');
+      await tapText(tester, 'Continue payment');
+      await tapText(tester, 'Successful payment');
       expect(data.keys, hasLength(1));
       expect(find.textContaining('awaiting Owner approval'), findsOneWidget);
-      expect(find.text('Continue demo payment'), findsNothing);
+      expect(find.text('Continue payment'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }
@@ -128,15 +128,15 @@ void main() {
       (tester) async {
     final data = ExtensionController();
     await mount(tester, data);
-    await tapText(tester, 'Continue demo payment');
+    await tapText(tester, 'Continue payment');
     await tapText(tester, 'Cancel');
     expect(data.keys, isEmpty);
     await tapText(tester, 'Test a decline');
-    await tapText(tester, 'Demo decline');
-    expect(find.textContaining('Demo payment declined'), findsOneWidget);
+    await tapText(tester, 'Declined payment');
+    expect(find.textContaining('Payment declined'), findsOneWidget);
     final first = data.keys.single;
-    await tapText(tester, 'Continue demo payment');
-    await tapText(tester, 'Demo success');
+    await tapText(tester, 'Continue payment');
+    await tapText(tester, 'Successful payment');
     expect(data.keys, hasLength(2));
     expect(data.keys.last, isNot(first));
   });
@@ -144,10 +144,10 @@ void main() {
       (tester) async {
     final data = ExtensionController()..loseResponse = true;
     await mount(tester, data);
-    await tapText(tester, 'Continue demo payment');
-    await tapText(tester, 'Demo success');
+    await tapText(tester, 'Continue payment');
+    await tapText(tester, 'Successful payment');
     expect(find.textContaining('private server'), findsNothing);
-    expect(find.text('Continue demo payment'), findsNothing);
+    expect(find.text('Continue payment'), findsNothing);
     await tapText(tester, 'Check payment status before retry');
     expect(find.textContaining('awaiting Owner approval'), findsOneWidget);
     expect(data.keys, hasLength(1));
@@ -156,11 +156,11 @@ void main() {
       (tester) async {
     final data = ExtensionController();
     final auth = await mount(tester, data);
-    await tapText(tester, 'Continue demo payment');
+    await tapText(tester, 'Continue payment');
     auth.user = null;
     auth.notifyListeners();
     await tester.pumpAndSettle();
-    await tapText(tester, 'Demo success');
+    await tapText(tester, 'Successful payment');
     expect(data.keys, isEmpty);
     expect(find.text('Sign in required'), findsOneWidget);
   });
@@ -168,7 +168,7 @@ void main() {
       (tester) async {
     final data = ExtensionController()..failRead = true;
     await mount(tester, data);
-    expect(find.text('Continue demo payment'), findsNothing);
+    expect(find.text('Continue payment'), findsNothing);
     expect(find.textContaining('private error'), findsNothing);
     data.failRead = false;
     await tapText(tester, 'Refresh status');

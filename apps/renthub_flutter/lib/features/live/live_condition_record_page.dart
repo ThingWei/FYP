@@ -13,6 +13,7 @@ import 'live_listing_photo_picker.dart';
 import 'live_photo_widgets.dart';
 import 'live_rental_progress.dart';
 import 'live_renthub_controller.dart';
+import 'live_appointments.dart';
 
 Future<void> openConditionRecord(BuildContext context, Rental rental,
         {required bool handover}) =>
@@ -179,7 +180,7 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
             ? 'The booked dates have ended. Handover is closed. Open the booking again to check its expiry and payment status.'
             : handoverDate == null
                 ? 'The booked start date is not available. Check the latest rental status before handover.'
-                : 'You can send handover from $handoverDate (Malaysia time), when you give the item to the renter. The renter must confirm receipt before the rental starts.';
+                : 'You can send handover from $handoverDate, when you give the item to the renter. The renter must confirm receipt before the rental starts.';
     return PopScope(
         canPop: !busy,
         child: Scaffold(
@@ -210,6 +211,9 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                       style: Theme.of(context)
                                           .textTheme
                                           .titleLarge),
+                                  RentalAppointments(
+                                      pickup: widget.rental.pickupTime,
+                                      returnTime: widget.rental.returnTime),
                                   if (!ready) ...[
                                     const SizedBox(height: 16),
                                     DecoratedBox(

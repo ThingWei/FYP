@@ -1,5 +1,7 @@
 # MyKad readability, screen screening and account binding result
 
+14 November 2026 follow-up: new MyKad submissions also require a private photo of the person holding their card for manual admin review. It is separate from the unchanged two-card AI pipeline. Existing approvals remain valid; pending attempts missing it need resubmission. See [the current review-evidence handoff](TRUST_COMPARISON_AND_REVIEW_EVIDENCE_RESULT.md).
+
 Implemented and verified: 13 October 2026.
 
 Current follow-up adds enclosing-phone screening and one-MyKad-per-verified-account binding. Scanner contract: `opencv-document-yolo-v6`; required-field contract: `mykad-required-fields-v2`; API capability: `mykad-screen-account-binding-v1`.

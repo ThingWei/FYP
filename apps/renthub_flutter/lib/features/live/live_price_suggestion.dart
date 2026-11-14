@@ -183,7 +183,7 @@ class PriceSuggestionView {
       if (references > 0)
         '$references advertised price${references == 1 ? '' : 's'}',
       if (rentals > 0)
-        '$rentals ${demonstrationHistory ? 'demo rental' : 'rental'} record${rentals == 1 ? '' : 's'}',
+        '$rentals ${demonstrationHistory ? 'sample rental' : 'rental'} record${rentals == 1 ? '' : 's'}',
     ];
     return [
       hasComparisons
@@ -201,7 +201,7 @@ class PriceSuggestionView {
               .containsKey('marketplace_completed_rental_count') &&
           (evidence.containsKey('simulated_completed_rental_count') ||
               evidence.containsKey('demo_seed_completed_rental_count'))
-      ? '${count('marketplace_completed_rental_count')} marketplace rentals; ${count(evidence.containsKey('simulated_completed_rental_count') ? 'simulated_completed_rental_count' : 'demo_seed_completed_rental_count')} demonstration rentals.'
+      ? '${count('marketplace_completed_rental_count')} marketplace rentals; ${count(evidence.containsKey('simulated_completed_rental_count') ? 'simulated_completed_rental_count' : 'demo_seed_completed_rental_count')} sample rentals.'
       : 'The source of the rental examples was not supplied.';
 }
 
@@ -255,8 +255,7 @@ class LivePriceSuggestion extends StatelessWidget {
             ],
             if (view.demonstrationHistory) ...[
               const SizedBox(height: 8),
-              const Text(
-                  'Based on completed demo rentals with simulated payment, not verified paid rentals.'),
+              const Text('Based on sample rentals with simulated payments.'),
             ],
             RentHubSectionHeader('How this estimate was calculated',
                 help: view.calculationDetails.join('\n\n'),

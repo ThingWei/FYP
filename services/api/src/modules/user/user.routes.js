@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { param } from 'express-validator';
 import { authenticate, authorize } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { userController } from './user.controller.js';
@@ -67,8 +68,10 @@ userRouter.post(
 );
 userRouter.post('/session', authenticate, userController.startSession);
 userRouter.get('/me', authenticate, userController.me);
+userRouter.delete('/me/recent-locations/:id', authenticate, param('id').isHexadecimal().isLength({ min: 24, max: 24 }), validate, userController.removeRecentLocation);
 userRouter.get('/me/trust', authenticate, userController.trust);
 userRouter.get('/:id/trust', authenticate, trustProfileValidation, validate, userController.trust);
+userRouter.get('/:id/profile', authenticate, trustProfileValidation, validate, userController.marketplaceProfile);
 userRouter.get('/me/sessions', authenticate, userController.localSessions);
 userRouter.post(
   '/me/sessions/revoke-others',

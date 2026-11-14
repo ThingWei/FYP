@@ -1,3 +1,4 @@
+import { reviewPhoto } from './helpers/reviewPhoto.js';
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
@@ -34,6 +35,7 @@ beforeEach(async () => {
   const response = await request(app).post('/api/v1/users/session').set(renter).expect(201);
   userId = response.body.data._id;
   await request(app).post('/api/v1/users/session').set(admin).expect(201);
+  await reviewPhoto(renter['x-user-id'], 'verification_holder_photo', 'UPL-HOLDER');
   for (const id of ['TESTFRONT', 'TESTBACK']) {
     await UploadAssetModel.create({ publicId: 'UPL-' + id, uploadedBy: renter['x-user-id'],
       purpose: 'verification_document', visibility: 'private', originalName: 'synthetic.png',
@@ -43,7 +45,7 @@ beforeEach(async () => {
 });
 function submission() {
   return request(app).post('/api/v1/users/me/verification').set(renter)
-    .send({ documentType: 'mykad', documentRefs: [front, back] });
+    .send({ documentType: 'mykad', holderPhotoRef: 'upload://UPL-HOLDER', documentRefs: [front, back] });
 }
 function mockAnalysis(t, fields, outcome = 'manual_review') {
   t.mock.method(storageAdapter, 'download', async () => Buffer.from('synthetic private pixels'));
@@ -149,7 +151,7 @@ for (const failure of ['missing', 'mismatch', 'unreadable_address', 'screen_copy
       'verification.status': 'pending', 'verification.history.0.status': 'pending',
       'verification.documents.0.status': 'pending' });
     const approval = await request(app).patch('/api/v1/users/' + userId + '/verification').set(admin)
-      .send({ status: 'approved', attemptId: result.body.data.verification.history[0].attemptId }).expect(409);
+      .send({ status: 'approved', holderPhotoReviewed: true, attemptId: result.body.data.verification.history[0].attemptId }).expect(409);
     assert.equal(approval.body.error.code, 'DOCUMENT_TYPE_VALIDATION_FAILED');
   });
 }
@@ -158,7 +160,7 @@ test('matched readable pair stays pending for admin and never becomes automatic 
   const result = await submission().expect(200);
   assert.equal(result.body.data.verification.status, 'pending');
   const approval = await request(app).patch('/api/v1/users/' + userId + '/verification').set(admin)
-    .send({ status: 'approved', attemptId: result.body.data.verification.history[0].attemptId }).expect(200);
+    .send({ status: 'approved', holderPhotoReviewed: true, attemptId: result.body.data.verification.history[0].attemptId }).expect(200);
   assert.equal(approval.body.data.verification.status, 'approved');
 });
 
@@ -197,7 +199,7 @@ test('draft pair preflight is private and read-only, and front replacement reche
     assert.ok(!JSON.stringify(response.body).includes('ocr_text'));
   }
   const submission = await request(app).post('/api/v1/users/me/verification').set(renter)
-    .send({ documentType: 'mykad', documentRefs: ['upload://UPL-NEWFRONT', back] }).expect(200);
+    .send({ documentType: 'mykad', holderPhotoRef: 'upload://UPL-HOLDER', documentRefs: ['upload://UPL-NEWFRONT', back] }).expect(200);
   assert.equal(submission.body.data.verification.status, 'resubmission_required');
   assert.deepEqual(calls.at(-1), ['new-front', 'retained-back']);
 });

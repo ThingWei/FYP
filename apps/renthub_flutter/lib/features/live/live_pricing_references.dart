@@ -346,8 +346,7 @@ class _LivePricingReferencesPageState extends State<LivePricingReferencesPage> {
       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('Saved references ($total)',
             style: Theme.of(context).textTheme.titleLarge),
-        const Text(
-            'Advertised rental prices are not completed RentHub rentals. Times are shown in Malaysia time (MYT).'),
+        const Text('Advertised prices are separate from completed rentals.'),
         AdminRecordToolbar(
             page: page,
             limit: widget.api.pageSize,

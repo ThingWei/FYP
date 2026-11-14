@@ -1,3 +1,5 @@
+import '../../core/utils/display_copy.dart';
+
 class AdminRecordPageState {
   List<Map<String, dynamic>> items = [];
   int page = 1, limit = 20, total = 0, generation = 0, revision = -1;
@@ -138,11 +140,12 @@ String adminLabel(Object? value) {
     'return_submitted': 'Return awaiting review',
     'completion_pending': 'Completion awaiting review',
     'voided': 'Payment released',
-    'card': 'Demo card',
-    'fpx': 'Demo FPX',
-    'wallet': 'Demo wallet',
+    'card': 'Card',
+    'fpx': 'FPX',
+    'wallet': 'Wallet',
     'system': 'RentHub',
     'owner_settlement': 'Owner payment',
+    'reward_credit': 'Reward covered by RentHub',
     'platform_retention': 'Platform fee retained',
     'deposit_deduction': 'Deposit deduction',
     'dispute_release': 'Dispute settlement',
@@ -227,7 +230,7 @@ String adminLabel(Object? value) {
   };
   if (value == null || key.isEmpty || key == 'null') return 'Not available';
   if (value is bool) return value ? 'Yes' : 'No';
-  return labels[key] ?? key;
+  return labels[key] ?? displayCopy(key);
 }
 
 String adminDate(Object? value, {bool calendar = false}) {

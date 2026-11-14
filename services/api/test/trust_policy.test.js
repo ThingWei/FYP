@@ -24,31 +24,34 @@ test('recorded trust merges eligible cohorts without double-counting or changing
 });
 
 test('recorded trust keeps minimum history, payment proof, moderation and responsibility rules', () => {
-  for (const n of [0, 1, 2]) assert.equal(calculateTrustProfile('owner', trustFacts(n, true), now).owner.recorded.score, null);
+  assert.equal(calculateTrustProfile('owner', trustFacts(0, true), now).owner.recorded.score, null);
+  for (const n of [1, 2]) assert.equal(calculateTrustProfile('owner', trustFacts(n, true), now).owner.recorded.status, 'established');
   const f = trustFacts(3, true); f.payments = []; assert.equal(calculateTrustProfile('owner', f, now).owner.recorded.completedRentals, 0);
   const reviewed = trustFacts(3, true); reviewed.reviews[0].status = 'hidden';
   assert.equal(calculateTrustProfile('owner', reviewed, now).owner.recorded.reviewCount, 2);
   const singlePartner = trustFacts(3, true); for (const b of singlePartner.bookings) b.renterId = 'only'; for (const r of singlePartner.rentals) r.renterId = 'only';
-  assert.equal(calculateTrustProfile('owner', singlePartner, now).owner.recorded.score, null);
+  assert.equal(calculateTrustProfile('owner', singlePartner, now).owner.recorded.status, 'established');
   const duplicateRental = trustFacts(3, true); duplicateRental.rentals[1].publicId = duplicateRental.rentals[0].publicId;
   assert.equal(calculateTrustProfile('owner', duplicateRental, now).owner.recorded.completedRentals, 2);
 });
 
-test('new users and fewer than three completions do not receive an earned score',()=>{
-  for(const count of [0,1,2]) {const profile=owner(trustFacts(count));assert.equal(profile.score,null);assert.equal(profile.status,'insufficient_history');assert.equal(realTrustScore(profile),50);}
+test('new users have no earned score and the first qualifying completion establishes a score',()=>{
+  const empty=owner(trustFacts(0)); assert.equal(empty.score,null); assert.equal(empty.status,'insufficient_history'); assert.equal(realTrustScore(empty),50);
+  for(const count of [1,2]) {const value=owner(trustFacts(count)); assert.equal(value.status,'established'); assert.ok(value.score>0 && value.score<100);}
 });
+
 test('three completions across two partners establish a smoothed score, not 100',()=>{
   const value=owner(trustFacts());assert.equal(value.status,'established');assert.equal(value.completedRentals,3);assert.equal(value.distinctPartners,2);assert.equal(value.score,71);assert.equal(value.reviewCount,3);
   assert.ok(owner(trustFacts(10)).score>value.score);
 });
-test('repeating transactions with only one partner does not establish a score',()=>{
-  const f=trustFacts();for(const b of f.bookings)b.renterId='renter0';for(const r of f.rentals)r.renterId='renter0';assert.equal(owner(f).score,null);
+test('a completed history with one partner remains measurable',()=>{
+  const f=trustFacts();for(const b of f.bookings)b.renterId='renter0';for(const r of f.rentals)r.renterId='renter0';assert.ok(owner(f).score>0);
 });
 test('demonstrations, simulated payments and genuine activity remain separate',()=>{
   const demo=calculateTrustProfile('owner',trustFacts(3,true),now);
   assert.equal(demo.owner.demo.score,71);assert.equal(demo.owner.marketplace.score,null);assert.equal(realTrustScore(demo.owner.marketplace),50);
   for(const origin of ['booking','listing','snapshot']) {const f=trustFacts();if(origin==='booking')f.bookings.forEach(b=>b.sourceType='demo_seed');if(origin==='listing')f.listings[0].sourceType='demo_seed';if(origin==='snapshot')f.bookings.forEach(b=>b.pricingEvidenceSnapshot={sourceType:'demo_seed'});assert.equal(owner(f).completedRentals,0);}
-  const mixed=trustFacts();mixed.payments[0].simulated=true;assert.equal(owner(mixed).score,null);
+  const mixed=trustFacts();mixed.payments[0].simulated=true;assert.equal(owner(mixed).completedRentals,2);assert.ok(owner(mixed).score>0);
 });
 test('unpaid, unknown-origin, future, missing-date and mismatched records are excluded',()=>{
   for(const change of [f=>f.payments=[],f=>f.payments.forEach(p=>p.simulated=undefined),f=>f.bookings.forEach(b=>b.sourceType=undefined),f=>f.bookings.forEach(b=>b.completedAt=undefined),f=>f.bookings.forEach(b=>b.completedAt='2028-01-01'),f=>f.rentals.forEach(r=>r.ownerId='other'),f=>f.bookings.forEach(b=>b.status='cancelled')]) {const f=trustFacts();change(f);assert.equal(owner(f).completedRentals,0);}

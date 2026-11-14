@@ -566,7 +566,12 @@ class LiveRentHubController extends ChangeNotifier {
   bool get recommendationNeedsRefresh =>
       recommendationDirty ||
       recommendationFailures.isNotEmpty ||
-      const ['recommended', 'trending', 'recentlyViewed'].any((key) =>
+      [
+        'recommended',
+        if (recommendationCentre != null) 'nearby',
+        'trending',
+        'recentlyViewed'
+      ].any((key) =>
           !recommendationSuccessAt.containsKey(key) ||
           DateTime.now().difference(recommendationSuccessAt[key]!).inSeconds >=
               60);
@@ -625,7 +630,12 @@ class LiveRentHubController extends ChangeNotifier {
         generation = _recommendationGeneration,
         revision = _recommendationRevision;
     final keys = section == null
-        ? ['recommended', 'trending', 'recentlyViewed']
+        ? [
+            'recommended',
+            if (recommendationCentre != null) 'nearby',
+            'trending',
+            'recentlyViewed'
+          ]
         : [section];
     final requests = {
       for (final key in keys) key: (_recommendationRequests[key] ?? 0) + 1
@@ -649,6 +659,7 @@ class LiveRentHubController extends ChangeNotifier {
     try {
       final query = Uri(queryParameters: {
         ...recommendationQuery,
+        'separateNearby': 'true',
         if (section != null) 'section': section
       }).query;
       final response = await api
@@ -670,8 +681,12 @@ class LiveRentHubController extends ChangeNotifier {
       if (generation == _recommendationGeneration && profile?.id == userId) {
         recommendationDirty = revision != _recommendationRevision ||
             recommendationFailures.isNotEmpty ||
-            const ['recommended', 'trending', 'recentlyViewed']
-                .any((key) => !recommendationSuccessAt.containsKey(key));
+            [
+              'recommended',
+              if (recommendationCentre != null) 'nearby',
+              'trending',
+              'recentlyViewed'
+            ].any((key) => !recommendationSuccessAt.containsKey(key));
         if (!recommendationDirty) recommendationUpdatedAt = DateTime.now();
       }
     } catch (_) {
@@ -923,7 +938,11 @@ class LiveRentHubController extends ChangeNotifier {
       ],
     );
     if (file == null) return null;
-    final maxBytes = purpose == 'verification_document'
+    final maxBytes = [
+      'verification_document',
+      'verification_holder_photo',
+      'vehicle_grant'
+    ].contains(purpose)
         ? 20 * 1024 * 1024
         : 10 * 1024 * 1024;
     if ((await file.length() ?? 0) > maxBytes) {
@@ -994,11 +1013,20 @@ class LiveRentHubController extends ChangeNotifier {
 
   Future<String> uploadConditionPhoto(Uint8List bytes, String filename,
       {required String purpose}) async {
-    if (!const ['handover_evidence', 'return_evidence'].contains(purpose)) {
+    if (!const [
+      'handover_evidence',
+      'return_evidence',
+      'vehicle_grant',
+      'verification_holder_photo'
+    ].contains(purpose)) {
       throw ArgumentError('Unsupported condition photo purpose');
     }
-    if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024) {
-      throw ApiException(400, 'Choose a photo smaller than 10 MB.',
+    final maxMb =
+        ['vehicle_grant', 'verification_holder_photo'].contains(purpose)
+            ? 20
+            : 10;
+    if (bytes.isEmpty || bytes.length > maxMb * 1024 * 1024) {
+      throw ApiException(400, 'Choose a photo smaller than $maxMb MB.',
           code: 'INVALID_PHOTO');
     }
     final account = _accountGeneration;
@@ -1577,6 +1605,24 @@ class LiveRentHubController extends ChangeNotifier {
         );
       });
 
+  Future<void> refreshRememberedLocations() async {
+    final account = _accountGeneration;
+    try {
+      final value = User.fromJson(Map<String, dynamic>.from(
+          await api.request('GET', '/users/me') as Map));
+      if (!_sameAccount(account)) return;
+      profile = value;
+      notifyListeners();
+    } catch (_) {/* A secondary refresh must not invalidate a saved record. */}
+  }
+
+  Future<void> removeRecentLocation(String id) => _perform(() async {
+        final account = _accountGeneration;
+        final value = User.fromJson(Map<String, dynamic>.from(await api.request(
+            'DELETE', '/users/me/recent-locations/$id') as Map));
+        if (_sameAccount(account)) profile = value;
+      });
+
   Future<void> updateAccountSettings({
     required String language,
     required bool pushNotifications,
@@ -1628,9 +1674,11 @@ class LiveRentHubController extends ChangeNotifier {
     String documentType,
     List<String> documentRefs, {
     String? licenceSource,
+    String? holderPhotoRef,
   }) =>
       _perform(() async {
-        profile = User.fromJson(
+        final account = _accountGeneration;
+        final updated = User.fromJson(
           await api.request(
             'POST',
             documentType == 'driving_licence'
@@ -1639,10 +1687,16 @@ class LiveRentHubController extends ChangeNotifier {
             body: {
               'documentType': documentType,
               'documentRefs': documentRefs,
+              if (holderPhotoRef != null) 'holderPhotoRef': holderPhotoRef,
               if (licenceSource != null) 'licenceSource': licenceSource,
             },
           ) as Map<String, dynamic>,
         );
+        if (!_sameAccount(account)) {
+          throw ApiException(401, 'Your account changed.',
+              code: 'SESSION_CHANGED');
+        }
+        profile = updated;
       });
 
   Future<void> reviewIdentityVerification(
@@ -1655,6 +1709,7 @@ class LiveRentHubController extends ChangeNotifier {
     String? expiresAt,
     bool identityMatchConfirmed = false,
     bool classReviewConfirmed = false,
+    bool holderPhotoReviewed = false,
   }) =>
       _perform(() async {
         final updated = await api.request(
@@ -1666,6 +1721,8 @@ class LiveRentHubController extends ChangeNotifier {
             'status': status,
             if (reason.trim().isNotEmpty) 'reason': reason.trim(),
             if (attemptId != null) 'attemptId': attemptId,
+            if (!driving && status == 'approved')
+              'holderPhotoReviewed': holderPhotoReviewed,
             if (driving && status == 'approved') ...{
               'licenceClasses': licenceClasses,
               'expiresAt': expiresAt,
@@ -1964,6 +2021,8 @@ class LiveRentHubController extends ChangeNotifier {
     required Listing listing,
     required DateTime start,
     required DateTime end,
+    String? pickupTime,
+    String? returnTime,
     String agreementVersion = 'renthub-booking-v1',
     String fulfilmentMethod = 'pickup',
     String serviceVenue = 'To be confirmed',
@@ -1993,6 +2052,10 @@ class LiveRentHubController extends ChangeNotifier {
             if (serviceLocation != null) 'serviceLocation': serviceLocation,
             if (deliveryLocation != null) 'deliveryLocation': deliveryLocation,
             if (!listing.isService) 'fulfilmentMethod': fulfilmentMethod,
+            if (!listing.isService) ...{
+              'pickupTime': pickupTime,
+              'returnTime': returnTime
+            },
             if (!listing.isService)
               'damageWaiverSelected': damageWaiverSelected,
             if (renterNote.trim().isNotEmpty) 'renterNote': renterNote.trim(),
@@ -2006,6 +2069,9 @@ class LiveRentHubController extends ChangeNotifier {
               code: 'SESSION_CHANGED');
         }
         _replaceBooking(booking);
+        if (deliveryLocation != null || serviceLocation != null) {
+          unawaited(refreshRememberedLocations());
+        }
         return booking;
       });
 
@@ -2661,6 +2727,9 @@ class LiveRentHubController extends ChangeNotifier {
               as Map<String, dynamic>,
         );
         ownerListings.insert(0, listing);
+        if (payload['locationDetails'] != null) {
+          unawaited(refreshRememberedLocations());
+        }
         if (submitForReview) {
           listing = Listing.fromJson(
               await api.request('POST', '/listings/${listing.id}/submit')
@@ -2815,6 +2884,9 @@ class LiveRentHubController extends ChangeNotifier {
         );
         // Retain the saved draft if the authoritative submit gate rejects it.
         _replaceOwnerListing(listing);
+        if (payload['locationDetails'] != null) {
+          unawaited(refreshRememberedLocations());
+        }
         if (submitForReview && listing.status == 'draft') {
           listing = Listing.fromJson(
             await api.request('POST', '/listings/$id/submit')
@@ -2956,6 +3028,7 @@ class LiveRentHubController extends ChangeNotifier {
     String id,
     String status, {
     String reason = '',
+    bool vehicleGrantReviewed = false,
   }) =>
       _perform(() async {
         await api.request(
@@ -2963,6 +3036,7 @@ class LiveRentHubController extends ChangeNotifier {
           '/listings/$id/moderation',
           body: {
             'status': status,
+            if (vehicleGrantReviewed) 'vehicleGrantReviewed': true,
             if (reason.trim().isNotEmpty) 'reason': reason.trim(),
           },
         );

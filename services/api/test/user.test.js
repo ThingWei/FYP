@@ -1,3 +1,4 @@
+import { reviewPhoto } from './helpers/reviewPhoto.js';
 import test, { after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -643,6 +644,7 @@ test('submits and reviews identity verification with audit and notification', as
     .post('/api/v1/users/me/verification')
     .set(owner)
     .send({
+      holderPhotoRef: await reviewPhoto(owner['x-user-id']),
       documentType: 'mykad',
       documentRefs: [
         'local://verification/mykad-front.jpg',
@@ -662,6 +664,7 @@ test('submits and reviews identity verification with audit and notification', as
     .post('/api/v1/users/me/verification')
     .set(owner)
     .send({
+      holderPhotoRef: await reviewPhoto(owner['x-user-id']),
       documentType: 'mykad',
       documentRefs: ['local://verification/mykad-front.jpg'],
     });
@@ -676,7 +679,7 @@ test('submits and reviews identity verification with audit and notification', as
   const reviewed = await request(app)
     .patch(`/api/v1/users/${target._id}/verification`)
     .set(admin)
-    .send({ status: 'approved' });
+    .send({ status: 'approved', holderPhotoReviewed: true });
   assert.equal(reviewed.status, 200);
   assert.equal(reviewed.body.data.verification.status, 'approved');
   assert.equal(reviewed.body.data.verification.tier, 'basic');
@@ -788,7 +791,7 @@ test('licence evidence without MyKad cannot be approved and AI identifiers remai
   const reviewed = await request(app)
     .patch(`/api/v1/users/${user._id}/verification`)
     .set(admin)
-    .send({ status: 'approved', attemptId: submitted.body.data.verification.history[0].attemptId });
+    .send({ status: 'approved', holderPhotoReviewed: true, attemptId: submitted.body.data.verification.history[0].attemptId });
   assert.equal(reviewed.status, 409);
   assert.equal(reviewed.body.error.code, 'MYKAD_REQUIRED');
   assert.equal(submitted.body.data.drivingEligibility.status, 'pending');
@@ -872,14 +875,14 @@ async function syntheticMykadAccount(t) {
   await request(app).post('/api/v1/users/session').set(renter);
   await request(app).post('/api/v1/users/session').set(admin);
   const mykad = await request(app).post('/api/v1/users/me/verification').set(renter)
-    .send({ documentType: 'mykad', documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
+    .send({ documentType: 'mykad', holderPhotoRef: await reviewPhoto(renter['x-user-id']), documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
   assert.equal(mykad.status, 200);
   assert.equal(mykad.body.data.verification.status, 'pending');
   assert.equal(mykad.body.data.verification.history[0].aiEvidence.outcome, 'manual_review');
   assert.equal(mykad.body.data.identityMatchFingerprint, undefined);
   const id = mykad.body.data._id;
   const approval = await request(app).patch(`/api/v1/users/${id}/verification`).set(admin)
-    .send({ status: 'approved', attemptId: mykad.body.data.verification.history[0].attemptId });
+    .send({ status: 'approved', holderPhotoReviewed: true, attemptId: mykad.body.data.verification.history[0].attemptId });
   assert.equal(approval.status, 200);
   return { renter, admin, id, mismatch: () => { licenceIdentity = '910101-07-1234'; } };
 }
@@ -902,7 +905,7 @@ test('synthetic field-risk evidence stays pending and is persisted without raw O
   const renter = identity();
   await request(app).post('/api/v1/users/session').set(renter);
   const response = await request(app).post('/api/v1/users/me/verification').set(renter)
-    .send({ documentType: 'mykad', documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
+    .send({ documentType: 'mykad', holderPhotoRef: await reviewPhoto(renter['x-user-id']), documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
   assert.equal(response.status, 200);
   assert.equal(response.body.data.verification.status, 'pending');
   const stored = await UserModel.findById(response.body.data._id).lean();
@@ -970,7 +973,7 @@ for (const [outcome, validationStatus] of [
     await request(app).post('/api/v1/users/session').set(renter);
     await request(app).post('/api/v1/users/session').set(admin);
     const response = await request(app).post('/api/v1/users/me/verification').set(renter)
-      .send({ documentType: 'mykad', documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
+      .send({ documentType: 'mykad', holderPhotoRef: await reviewPhoto(renter['x-user-id']), documentRefs: ['local://verification/front.jpg', 'local://verification/back.jpg'] });
     assert.equal(response.status, 200, JSON.stringify(response.body));
     const verification = response.body.data.verification;
     assert.equal(verification.status, 'resubmission_required');
@@ -982,7 +985,7 @@ for (const [outcome, validationStatus] of [
     assert.equal(stored.verification.history[0].aiEvidence.ocr_text, undefined);
     assert.deepEqual(stored.verification.history[0].aiEvidence.reasons, reasons);
     const approval = await request(app).patch(`/api/v1/users/${stored._id}/verification`).set(admin)
-      .send({ status: 'approved', attemptId: verification.history[0].attemptId });
+      .send({ status: 'approved', holderPhotoReviewed: true, attemptId: verification.history[0].attemptId });
     assert.equal(approval.status, 409);
     assert.equal(approval.body.error.code, 'INVALID_VERIFICATION_STATE');
   });
@@ -1003,7 +1006,7 @@ for (const useCamelCase of [false, true]) {
     const stored = await UserModel.findById(id).lean();
     const attemptId = stored.verification.history[0].attemptId;
     const approval = await request(app).patch(`/api/v1/users/${id}/verification`).set(admin)
-      .send({ status: 'approved', attemptId });
+      .send({ status: 'approved', holderPhotoReviewed: true, attemptId });
     assert.equal(approval.status, 409);
     assert.equal(approval.body.error.code, 'DOCUMENT_TYPE_VALIDATION_FAILED');
     const resubmission = await request(app).patch(`/api/v1/users/${id}/verification`).set(admin)
@@ -1033,7 +1036,7 @@ test('dedicated driving eligibility requires complete admin review and stores cl
     .send({ ...drivingApproval, attemptId });
   assert.equal(unauthorized.status, 403);
   const incomplete = await request(app).patch(`/api/v1/users/${id}/driving-eligibility`).set(admin)
-    .send({ status: 'approved', attemptId });
+    .send({ status: 'approved', holderPhotoReviewed: true, attemptId });
   assert.equal(incomplete.status, 400);
   const expired = await request(app).patch(`/api/v1/users/${id}/driving-eligibility`).set(admin)
     .send({ ...drivingApproval, attemptId, expiresAt: '2000-01-01' });
@@ -1110,7 +1113,7 @@ test('legacy passport and incomplete licence history remain readable but cannot 
 test('MyKad requires distinct front/back uploads and driving submission respects upload ownership', async (t) => {
   await request(app).post('/api/v1/users/session').set(identity());
   const mykad = await request(app).post('/api/v1/users/me/verification').set(identity())
-    .send({ documentType: 'mykad', documentRefs: ['local://verification/front.jpg'] });
+    .send({ documentType: 'mykad', holderPhotoRef: await reviewPhoto('u-renter'), documentRefs: ['local://verification/front.jpg'] });
   assert.equal(mykad.status, 400);
   assert.equal(mykad.body.error.code, 'MYKAD_SIDES_REQUIRED');
   const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
@@ -1417,7 +1420,7 @@ test('blocks deactivation while an account has an open booking', async () => {
     ownerId: 'u-another-owner',
     startDate: new Date('2026-10-10T00:00:00Z'),
     endDate: new Date('2026-10-11T00:00:00Z'),
-    fulfilmentMethod: 'pickup',
+    fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
     pricing: {
       baseAmount: 50,
       securityDeposit: 20,

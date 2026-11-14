@@ -94,7 +94,7 @@ AlertDialog rentHubDialog(
         clipBehavior: clipBehavior,
         shape: shape,
         alignment: alignment,
-        constraints: constraints,
+        constraints: constraints ?? const BoxConstraints(maxWidth: 560),
         scrollable: scrollable);
 
 bool _logoutPromptOpen = false;

@@ -34,8 +34,9 @@ import {
 import { drivingEligibilityCheck, hasApprovedMykad, LICENCE_CLASSES, reviewedLicenceExpiry } from './drivingEligibility.js';
 import { fingerprintForNumber, assertBindingReady, assertIdentityNotLinked, approveMykadAtomically } from './identityBinding.js';
 import { drivingAssessment, DRIVING_CONTRACT } from './drivingAssistance.js';
-import { withTrustProfile, refreshTrustProfile } from './trust.service.js';
+import { withTrustProfile, refreshTrustProfile, availableTrustProfile } from './trust.service.js';
 import { visibleTrustUser } from './trustVisibility.js';
+import { requirePrivateReviewPhoto } from '../upload/privateReviewPhoto.js';
 
 const OPEN_BOOKING_STATUSES = ['pending', 'approved', 'active', 'disputed'];
 const OPEN_RENTAL_STATUSES = [
@@ -451,6 +452,19 @@ export const userService = {
     return refreshTrustProfile(target.authId);
   },
 
+  async marketplaceProfile(identity, id) {
+    const user = await visibleTrustUser(identity, id);
+    return { id: user.authId, displayName: user.displayName, avatarUrl: user.avatarUrl || '', bio: user.bio || '',
+      roles: user.roles.filter(role => ['renter', 'owner'].includes(role)), verified: hasApprovedMykad(user),
+      joinedAt: user.createdAt, trustProfile: await availableTrustProfile(user.authId) };
+  },
+
+  async removeRecentLocation(identity, id) {
+    const user = await requireCurrentUser(identity);
+    await UserModel.updateOne({ _id: user._id }, { $pull: { recentLocations: { publicId: id } } });
+    return withTrustProfile(await UserModel.findById(user._id));
+  },
+
   async deactivateMe(identity, reason) {
     const user = await requireCurrentUser(identity);
     const participant = {
@@ -612,6 +626,10 @@ export const userService = {
     if (input.documentType === 'mykad' && (input.documentRefs.length !== 2 || new Set(input.documentRefs).size !== 2)) {
       throw new AppError('Upload distinct MyKad front and back images', 400, 'MYKAD_SIDES_REQUIRED');
     }
+    if (input.documentType === 'mykad') {
+      if (!input.holderPhotoRef || input.documentRefs.includes(input.holderPhotoRef)) throw new AppError('Add a separate photo of you holding your MyKad.', 422, 'MYKAD_HOLDER_PHOTO_REQUIRED');
+      await requirePrivateReviewPhoto(identity.authId, input.holderPhotoRef, 'verification_holder_photo');
+    }
     const images = await uploadService.readOwnedReferences(
       identity,
       input.documentRefs,
@@ -670,6 +688,7 @@ export const userService = {
       attemptId,
       documentType: input.documentType,
       documentRefs: input.documentRefs,
+      holderPhotoRef: input.documentType === 'mykad' ? input.holderPhotoRef : undefined,
       aiEvidence: evidence,
       ...(!driving && input.documentType === 'mykad' && fingerprint && { identityFingerprint: fingerprint }),
       status,
@@ -694,6 +713,7 @@ export const userService = {
       user.verification.status === 'approved' ? user.verification.tier : 'none';
     user.verification.documentType = input.documentType;
     user.verification.documentRefs = input.documentRefs;
+    user.verification.holderPhotoRef = input.documentType === 'mykad' ? input.holderPhotoRef : undefined;
     user.verification.ocrResult = evidence;
     user.verification.reason = reason;
     user.verification.submittedAt = submittedAt;
@@ -829,6 +849,12 @@ export const userService = {
         'DOCUMENT_TYPE_VALIDATION_FAILED',
       );
     }
+    if (mykadApproval) {
+      if (!attempt.holderPhotoRef) throw new AppError('Request resubmission with a photo of the person holding their MyKad before approval.', 409, 'MYKAD_HOLDER_PHOTO_REQUIRED');
+      await requirePrivateReviewPhoto(user.authId, attempt.holderPhotoRef, 'verification_holder_photo');
+      if (input.holderPhotoReviewed !== true) throw new AppError('Review the person holding their MyKad before approval.', 409, 'MYKAD_HOLDER_REVIEW_REQUIRED');
+      attempt.holderPhotoReview = { reference: attempt.holderPhotoRef, reviewedBy: identity.authId, reviewedAt: new Date() };
+    }
     if (input.drivingOnly && !driving) throw new AppError('Select a driving eligibility attempt', 400, 'INVALID_DRIVING_ATTEMPT');
     if (driving && input.status === 'approved') {
       if (attempt.aiEvidence?.drivingAssistance?.canReview === false) {
@@ -906,6 +932,7 @@ export const userService = {
     user.verification.tier = user.verification.status === 'approved' ? 'basic' : 'none';
     user.verification.documentType = attempt.documentType;
     user.verification.documentRefs = attempt.documentRefs;
+    if (!driving) user.verification.holderPhotoRef = attempt.holderPhotoRef;
     user.verification.ocrResult = attempt.aiEvidence;
     user.verification.reason = input.reason?.trim() ?? '';
     user.verification.reviewedAt = reviewedAt;

@@ -1,3 +1,6 @@
+import 'live_value_pickers.dart';
+import 'live_contact_profile.dart';
+import 'live_appointments.dart';
 import '../../shared/widgets/section_help.dart';
 import 'live_booking_summary.dart';
 import 'live_notification_icon.dart';
@@ -10,6 +13,8 @@ import 'live_overdue_rental.dart';
 import 'live_reviews_list.dart';
 import 'user_record_pagination.dart';
 import 'live_trust_page.dart';
+import '../../shared/widgets/trust_indicator.dart';
+import '../../core/trust/trust_profile.dart';
 import 'live_price_suggestion.dart';
 import '../../core/pricing/price_origin_draft.dart';
 import '../../core/validation/product_identity_validation.dart';
@@ -44,7 +49,6 @@ import 'live_dispute_page.dart';
 import 'live_review_page.dart';
 import 'live_shared_pages.dart';
 import 'live_item_verification_panel.dart';
-import 'live_item_photo_summary.dart';
 
 class LiveOwnerShell extends StatefulWidget {
   const LiveOwnerShell({
@@ -273,17 +277,24 @@ class LiveOwnerDashboard extends StatelessWidget {
                 _LiveMetric(
                     'Active orders', '$active', Icons.local_shipping_outlined),
                 _LiveMetric(
-                  'Trust score',
+                  'Owner trust score',
                   controller.profile?.trustProfile.owner.application
                               .established ==
                           true
-                      ? '${controller.profile!.trustProfile.owner.application.score} / 100'
-                      : 'Building trust',
+                      ? '${controller.profile!.trustProfile.owner.application.score}%'
+                      : controller
+                              .profile?.trustProfile.owner.application.label ??
+                          '—',
                   onTap: controller.profile == null
                       ? null
                       : () => openTrustDetails(context, controller.profile!.id,
                           role: 'owner'),
                   Icons.verified_user_outlined,
+                  leading: TrustIndicator(
+                      cohort:
+                          controller.profile?.trustProfile.owner.application ??
+                              const TrustCohort(),
+                      size: 40),
                 ),
               ],
             ),
@@ -340,7 +351,7 @@ class LiveOwnerDashboard extends StatelessWidget {
                 spacing: 16,
                 children: [
                   Text('Reviews received',
-                      style: Theme.of(context).textTheme.titleLarge),
+                      style: Theme.of(context).textTheme.titleMedium),
                   TextButton(
                       onPressed: () => Navigator.push<void>(
                           context,
@@ -362,10 +373,30 @@ class LiveOwnerDashboard extends StatelessWidget {
               for (final review in controller.receivedReviews.take(3))
                 Card(
                   child: ListTile(
-                    leading: CircleAvatar(child: Text('${review.rating}')),
-                    title:
-                        Text('${review.authorName} • ${review.listingTitle}'),
-                    subtitle: Text(review.text),
+                    dense: true,
+                    title: Text(review.authorName,
+                        style: Theme.of(context).textTheme.titleSmall),
+                    subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            for (var star = 1; star <= 5; star++)
+                              Icon(
+                                  star <= review.rating
+                                      ? Icons.star
+                                      : Icons.star_outline,
+                                  size: 16,
+                                  color: AppColors.warning)
+                          ]),
+                          Text(review.listingTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall),
+                          Text(review.text,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall),
+                        ]),
                     trailing: review.flagged
                         ? const StatusBadge('Flagged')
                         : IconButton(
@@ -402,7 +433,9 @@ class _OwnerMetrics extends StatelessWidget {
 }
 
 class _LiveMetric extends StatelessWidget {
-  const _LiveMetric(this.label, this.value, this.icon, {this.onTap});
+  const _LiveMetric(this.label, this.value, this.icon,
+      {this.onTap, this.leading});
+  final Widget? leading;
   final VoidCallback? onTap;
 
   final String label, value;
@@ -418,7 +451,7 @@ class _LiveMetric extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(icon, color: AppColors.primary),
+                  leading ?? Icon(icon, color: AppColors.primary),
                   const SizedBox(height: 8),
                   Text(value, style: Theme.of(context).textTheme.titleLarge),
                   Text(label,
@@ -713,6 +746,34 @@ class _LiveListingFormState extends State<LiveListingForm> {
   late final priceOrigin =
       PriceOriginDraft(origin: widget.listing?.priceOrigin ?? 'unknown');
   late final List<String> images;
+  late String? vehicleGrantRef = widget.listing?.vehicleGrantRef;
+  bool addingGrant = false;
+  bool get needsGrant =>
+      !widget.isService &&
+      category == 'Vehicles' &&
+      ['cars', 'motorcycles'].contains(subcategory.trim().toLowerCase());
+  Future<void> pickGrant() async {
+    if (addingGrant || saving) return;
+    final controller = context.read<LiveRentHubController>(),
+        account = context.read<LiveRentHubController>().accountGeneration;
+    setState(() => addingGrant = true);
+    try {
+      final photos =
+          await pickListingPhotos(context, 1, purpose: 'vehicle_grant');
+      if (mounted &&
+          controller.accountGeneration == account &&
+          photos.isNotEmpty) {
+        setState(() => vehicleGrantRef = photos.single);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(error))));
+      }
+    } finally {
+      if (mounted) setState(() => addingGrant = false);
+    }
+  }
 
   static const subcategories = <String, List<String>>{
     RentHubCategories.devices: [
@@ -1341,7 +1402,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   }
 
   Future<void> _save({bool submitForReview = true}) async {
-    if (saving || checkingIdentity || addingImages) return;
+    if (saving || checkingIdentity || addingImages || addingGrant) return;
     if (!submitForReview && widget.listing?.status == 'active') return;
     if (submitForReview) {
       if (!InputValidation.validate(context) ||
@@ -1357,6 +1418,12 @@ class _LiveListingFormState extends State<LiveListingForm> {
       }
     }
     if (submitForReview) {
+      if (needsGrant && vehicleGrantRef == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Add the vehicle registration document before submitting.')));
+        return;
+      }
       setState(() => checkingIdentity = true);
       final approved = await ensureMarketplaceIdentity(context,
           action: 'submit or publish a listing');
@@ -1392,6 +1459,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       'title': title.text.trim(),
       'description': description.text.trim(),
       'category': category,
+      'vehicleGrantRef': needsGrant ? vehicleGrantRef : null,
       'listingType': widget.isService ? 'service' : 'physical',
       'dailyPrice': price.text.trim().isEmpty ? null : double.parse(price.text),
       if (!widget.isService) 'priceProvenance': priceOrigin.toJson(),
@@ -1531,6 +1599,40 @@ class _LiveListingFormState extends State<LiveListingForm> {
                       ),
                       const SizedBox(height: 12),
                       const ListingSectionHeading('Photos'),
+                      if (needsGrant)
+                        Card(
+                            child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text('Vehicle registration document',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium),
+                                      const Text('Private · Admin review'),
+                                      if (vehicleGrantRef != null)
+                                        PhotoAttachmentTile(
+                                            reference: vehicleGrantRef!,
+                                            label:
+                                                'Vehicle registration document',
+                                            onRemove: saving || addingGrant
+                                                ? null
+                                                : () => setState(() =>
+                                                    vehicleGrantRef = null)),
+                                      OutlinedButton.icon(
+                                          onPressed: saving || addingGrant
+                                              ? null
+                                              : pickGrant,
+                                          icon: const Icon(
+                                              Icons.upload_file_outlined),
+                                          label: Text(addingGrant
+                                              ? 'Adding document...'
+                                              : vehicleGrantRef == null
+                                                  ? 'Add registration photo'
+                                                  : 'Replace registration photo')),
+                                    ]))),
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -1560,16 +1662,11 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                 ],
                               ),
                               Text(
-                                widget.isService
-                                    ? 'Add photos of your work. JPEG, PNG or WebP, up to 10 MB each.'
-                                    : 'Add at least 3 clear views of the item. JPEG, PNG or WebP, up to 10 MB each.',
-                                style:
-                                    TextStyle(color: AppColors.secondaryText),
-                              ),
-                              if (!widget.isService) ...[
-                                const SizedBox(height: 8),
-                                Text(ItemPhotoSummary.photoGuidance(category)),
-                              ],
+                                  widget.isService
+                                      ? 'JPEG, PNG, WebP · Max 10 MB'
+                                      : '3–10 photos · JPEG, PNG, WebP · Max 10 MB',
+                                  style: const TextStyle(
+                                      color: AppColors.secondaryText)),
                               for (var index = 0;
                                   index < images.length;
                                   index++)
@@ -1773,40 +1870,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   child: Text(manualModel
                                       ? 'Choose from the catalogue'
                                       : 'Enter model manually'))),
-                        if (selectedSuggestionSource == 'rental_reference' ||
-                            selectedSuggestionSource == 'marketplace_evidence')
-                          ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const Icon(Icons.check_circle_outline,
-                                  color: AppColors.primary),
-                              title: const Text('Product selected'),
-                              subtitle: Text(selectedSuggestionSource ==
-                                      'rental_reference'
-                                  ? 'Found in rental references. This does not verify your item or its price.'
-                                  : 'Found in reviewed marketplace evidence. This does not verify your item or its price.'))
-                        else if (canonicalProductId != null)
-                          const ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(
-                              Icons.check_circle_outline,
-                              color: AppColors.primary,
-                            ),
-                            title: Text('Product found'),
-                            subtitle: Text(
-                              'This matches a catalogue entry, not proof of authenticity.',
-                            ),
-                          )
-                        else if (brand.text.trim().isNotEmpty &&
-                            productModel.text.trim().isNotEmpty)
-                          const ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(Icons.info_outline),
-                            title: Text('Manual product entry'),
-                            subtitle: Text(
-                              'You can still list this item. Price suggestions may use broader comparisons.',
-                            ),
-                          ),
-                        const SizedBox(height: 12),
                         ListingFieldPair(
                           first: TextFormField(
                             controller: itemAge,
@@ -1924,46 +1987,20 @@ class _LiveListingFormState extends State<LiveListingForm> {
                       ],
                       const SizedBox(height: 12),
                       if (!widget.isService) ...[
-                        TextFormField(
-                          controller: deposit,
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          decoration: (const InputDecoration(
-                                  labelText: 'Security deposit (RM)'))
-                              .copyWith(counterText: '', errorMaxLines: 3),
-                          validator: InputValidation.compose(
-                              InputRules.securityDepositRm.validate,
-                              (value) => double.tryParse(value ?? '') == null
-                                  ? 'Enter a valid deposit'
-                                  : null),
-                          inputFormatters: InputValidation.formatters(
-                              InputRules.securityDepositRm, deposit),
-                          autovalidateMode: AutovalidateMode.onUserInteraction,
-                          maxLength: InputRules.securityDepositRm.maxLength,
-                          maxLengthEnforcement:
-                              InputValidation.lengthEnforcement,
-                        ),
+                        ListingValuePicker(
+                            controller: deposit,
+                            label: 'Security deposit (RM)',
+                            rule: InputRules.securityDepositRm,
+                            enabled: !saving),
                       ],
                       if (!widget.isService) ...[
                         const SizedBox(height: 12),
-                        TextFormField(
-                          controller: deliveryFee,
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          decoration: const InputDecoration(
-                              labelText: 'Delivery fee (RM)',
-                              helperText:
-                                  'One fixed charge per booking. Enter 0 for free delivery.',
-                              helperMaxLines: 3),
-                          validator: const InputRule('Delivery fee',
-                                  kind: InputKind.money, max: 100000)
-                              .validate,
-                          inputFormatters: InputValidation.formatters(
-                              const InputRule('Delivery fee',
-                                  kind: InputKind.money, max: 100000),
-                              deliveryFee),
-                          autovalidateMode: AutovalidateMode.onUserInteraction,
-                        ),
+                        ListingValuePicker(
+                            controller: deliveryFee,
+                            label: 'Delivery fee (RM)',
+                            rule: const InputRule('Delivery fee',
+                                kind: InputKind.money, max: 100000),
+                            enabled: !saving),
                       ],
                       const ListingSectionHeading('Location and availability'),
                       if (widget.isService)
@@ -2011,30 +2048,15 @@ class _LiveListingFormState extends State<LiveListingForm> {
                             }),
                       const SizedBox(height: 12),
                       if (widget.isService)
-                        TextFormField(
-                          controller: duration,
-                          keyboardType: TextInputType.number,
-                          decoration: (const InputDecoration(
-                                  labelText: 'Duration (minutes)'))
-                              .copyWith(counterText: '', errorMaxLines: 3),
-                          validator: InputValidation.compose(
-                              InputRules.durationMinutes.validate, (value) {
-                            final parsed = int.tryParse(value ?? '');
-                            return parsed != null && parsed >= 15
-                                ? null
-                                : 'Minimum duration is 15 minutes';
-                          }),
-                          inputFormatters: InputValidation.formatters(
-                              InputRules.durationMinutes, duration),
-                          autovalidateMode: AutovalidateMode.onUserInteraction,
-                          maxLength: InputRules.durationMinutes.maxLength,
-                          maxLengthEnforcement:
-                              InputValidation.lengthEnforcement,
-                        ),
+                        ListingValuePicker(
+                            controller: duration,
+                            label: 'Service duration',
+                            rule: InputRules.durationMinutes,
+                            duration: true,
+                            enabled: !saving),
                       const SizedBox(height: 20),
-                      Text(widget.listing?.status == 'active'
-                          ? 'Changes to a published listing need review before it can appear again.'
-                          : 'You can save an unfinished draft and complete it later. All required details and approved MyKad verification are needed only when submitting for review.'),
+                      if (widget.listing?.status == 'active')
+                        const Text('Changes need review before publication.'),
                       if (widget.listing?.status != 'active') ...[
                         const SizedBox(height: 12),
                         OutlinedButton(
@@ -2724,7 +2746,7 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                 )
               : Text(
                   booking.listingType == 'physical'
-                      ? 'Approve the booked dates for ${booking.listingTitle}. Submit condition photos on the booked day. The rental starts and demo payment is captured after the renter confirms receipt.'
+                      ? 'Approve the booked dates for ${booking.listingTitle}. Submit condition photos on the booked day. The rental starts and payment is captured after the renter confirms receipt.'
                       : 'Confirm ${booking.listingTitle}. Payment will be captured when the service starts.',
                 ),
           actions: [
@@ -2864,22 +2886,39 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                                         booking.id, rental?.id)),
                             if (rental != null)
                               OverdueRentalPanel(rental: rental, owner: true),
+                            if (booking.listingType == 'physical' &&
+                                booking.paymentStatus != 'unpaid')
+                              Card(
+                                  child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12),
+                                      child: RentalAppointments(
+                                          pickup: rental?.pickupTime ??
+                                              booking.pickupTime,
+                                          returnTime: rental?.returnTime ??
+                                              booking.returnTime))),
+                            RentalProgressPanel(
+                                booking: booking,
+                                rental: rental,
+                                owner: true,
+                                showSummary: false),
                             if (rental != null &&
                                 rental.listingType == 'physical')
                               HandoverPhotosSection(
                                   rental: rental,
                                   owner: true,
                                   ownerName: booking.ownerName),
+                            if (rental?.returnSubmission != null)
+                              ReturnPhotosSection(rental: rental!),
                             Text(booking.listingTitle,
                                 style: Theme.of(context).textTheme.titleMedium),
                             const SizedBox(height: 6),
                             Text('${booking.renterName} · ${booking.id}'),
                             TextButton.icon(
-                                onPressed: () => openTrustDetails(
-                                    context, booking.renterId,
-                                    role: 'renter'),
+                                onPressed: () => openMarketplaceProfile(
+                                    context, booking.renterId),
                                 icon: const Icon(Icons.verified_user_outlined),
-                                label: const Text('Renter trust history')),
+                                label: const Text('Renter profile')),
                             if (payment != null)
                               LivePaymentSummary(payment: payment),
                             BookingLocationsButton(bookingId: booking.id),
@@ -2894,12 +2933,7 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                             if (booking.displayStatus == 'pending' &&
                                 booking.paymentStatus != 'authorized')
                               const Text(
-                                  'Waiting for the renter to complete demo payment.'),
-                            RentalProgressPanel(
-                                booking: booking,
-                                rental: rental,
-                                owner: true,
-                                showSummary: false),
+                                  'Waiting for the renter to complete payment.'),
                             Text(formatDateRange(booking.start, booking.end)),
                             LiveBookingPaymentDetails(booking: booking),
                             if (_submitting && _busyBookingId == booking.id)
@@ -3138,7 +3172,7 @@ class _OwnerRentalCard extends StatelessWidget {
             child: const Text('Approve Extension'),
           ),
           Text(rental.extension?.paymentStatus == 'authorized'
-              ? 'Extra days: ${formatMoney(rental.extension!.amount)} demo payment ready'
+              ? 'Extra days: ${formatMoney(rental.extension!.amount)} payment ready'
               : 'Awaiting renter payment for extra days'),
         ],
       );

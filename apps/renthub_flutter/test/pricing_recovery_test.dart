@@ -80,8 +80,7 @@ void main() {
               suggestion: view, onUse: () => applies++, onRetry: () {}),
           1.5));
       expect(find.text('Rental price guide'), findsOneWidget);
-      expect(
-          find.textContaining('completed demo rentals with simulated payment'),
+      expect(find.textContaining('sample rentals with simulated payments'),
           findsOneWidget);
       expect(find.textContaining('confirmed market price'), findsOneWidget);
       expect(find.textContaining('Estimated range:'), findsNothing);

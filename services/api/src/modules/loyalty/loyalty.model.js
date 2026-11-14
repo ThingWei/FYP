@@ -48,9 +48,11 @@ const rewardSchema = new mongoose.Schema(
     currency: { type: String, enum: ['MYR'], default: 'MYR' },
     status: {
       type: String,
-      enum: ['available', 'used', 'expired'],
+      enum: ['available', 'reserved', 'used', 'expired'],
       default: 'available',
     },
+    bookingId: String,
+    usedAt: Date,
   },
   { _id: false },
 );

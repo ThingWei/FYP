@@ -68,7 +68,7 @@ async function setupBooking() {
       idempotencyKey: 'payment-booking-test',
       startDate: '2026-11-20',
       endDate: '2026-11-22',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       damageWaiverSelected: true,
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',

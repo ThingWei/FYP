@@ -1,6 +1,5 @@
 import '../../shared/widgets/section_help.dart';
 import '../../shared/widgets/renthub_dialog.dart';
-import 'live_trust_page.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/validation/input_validation.dart';
 import '../../core/validation/input_rules.dart';
@@ -23,6 +22,7 @@ import 'admin_system_status.dart';
 import 'admin_booking_chart.dart';
 import 'admin_payout_chart.dart';
 import 'live_agreement.dart';
+import 'live_photo_widgets.dart';
 
 class LiveAdminApp extends StatelessWidget {
   const LiveAdminApp({super.key});
@@ -280,10 +280,6 @@ class _AdminRecordSection extends StatelessWidget {
             ];
           case 'users':
             return [
-              action(
-                  'View trust history',
-                  () => openTrustDetails(context,
-                      row['authId'] as String? ?? row['id'] as String)),
               if (row['accountStatus'] == 'active' &&
                   !(row['roles'] as List? ?? []).contains('admin'))
                 action('Suspend',
@@ -717,6 +713,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
         TextEditingController(text: '${assistance?['validUntil'] ?? ''}');
     bool identityMatchConfirmed = false;
     bool classReviewConfirmed = false;
+    bool holderPhotoReviewed = false;
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -741,6 +738,41 @@ class _AdminVerificationState extends State<_AdminVerification> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(user['displayName'] as String),
+                if (!driving && status == 'approved') ...[
+                  if (attempt['holderPhotoRef'] is String)
+                    PhotoAttachmentTile(
+                        reference: attempt['holderPhotoRef'] as String,
+                        label: 'Person holding their MyKad')
+                  else
+                    const Text(
+                        'A holder photo is missing. Request resubmission before approving.'),
+                  FormField<bool>(
+                      initialValue: false,
+                      validator: (_) => attempt['holderPhotoRef'] is! String
+                          ? 'Request resubmission with a holder photo.'
+                          : !holderPhotoReviewed
+                              ? 'Confirm that you reviewed the holder photo.'
+                              : null,
+                      builder: (field) => Column(children: [
+                            CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text(
+                                    'Face and held card reviewed against the submitted MyKad'),
+                                value: holderPhotoReviewed,
+                                onChanged: attempt['holderPhotoRef'] is! String
+                                    ? null
+                                    : (value) {
+                                        setDialogState(() =>
+                                            holderPhotoReviewed =
+                                                value == true);
+                                        field.didChange(value);
+                                      }),
+                            if (field.hasError)
+                              Text(field.errorText!,
+                                  style:
+                                      const TextStyle(color: AppColors.error)),
+                          ])),
+                ],
                 const SizedBox(height: 12),
                 if (driving) ...[
                   Text('MyKad identity: $mykadLabel'),
@@ -863,6 +895,7 @@ class _AdminVerificationState extends State<_AdminVerification> {
             expiresAt: expiry.text.trim(),
             identityMatchConfirmed: identityMatchConfirmed,
             classReviewConfirmed: classReviewConfirmed,
+            holderPhotoReviewed: holderPhotoReviewed,
           );
     } catch (exception) {
       if (context.mounted) {
@@ -1323,6 +1356,8 @@ class _AdminListings extends StatelessWidget {
     String status,
   ) async {
     final reason = TextEditingController();
+    final grantRequired = listing.requiresVehicleGrant;
+    bool grantReviewed = false;
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => rentHubDialog(
@@ -1340,7 +1375,46 @@ class _AdminListings extends StatelessWidget {
                 maxLength: InputRules.rejectionReason.maxLength,
                 maxLengthEnforcement: InputValidation.lengthEnforcement,
               )
-            : Text(listing.title),
+            : SingleChildScrollView(
+                child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                    Text(listing.title),
+                    if (grantRequired) ...[
+                      if (listing.vehicleGrantRef != null)
+                        PhotoAttachmentTile(
+                            reference: listing.vehicleGrantRef!,
+                            label: 'Vehicle registration document')
+                      else
+                        const Text(
+                            'The registration document is missing. Reject with a reason requesting a corrected submission.'),
+                      FormField<bool>(
+                          initialValue: false,
+                          validator: (value) => listing.vehicleGrantRef == null
+                              ? 'Request the missing registration document.'
+                              : value != true
+                                  ? 'Confirm the document review first.'
+                                  : null,
+                          builder: (field) => Column(children: [
+                                CheckboxListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text(
+                                        'Registration document reviewed for this vehicle'),
+                                    value: field.value == true,
+                                    onChanged: listing.vehicleGrantRef == null
+                                        ? null
+                                        : (value) {
+                                            grantReviewed = value == true;
+                                            field.didChange(value);
+                                          }),
+                                if (field.hasError)
+                                  Text(field.errorText!,
+                                      style: const TextStyle(
+                                          color: AppColors.error)),
+                              ])),
+                    ],
+                  ])),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1364,6 +1438,7 @@ class _AdminListings extends StatelessWidget {
                 listing.id,
                 status,
                 reason: reason.text,
+                vehicleGrantReviewed: grantReviewed,
               );
         } catch (exception) {
           if (context.mounted) {
@@ -1893,7 +1968,7 @@ class _AdminDisputesClaims extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'This records demonstration payouts, without moving real money. Divide the full remaining balance between the participants.',
+                    'Divide the remaining balance between the participants.',
                     style: TextStyle(color: AppColors.secondaryText),
                   ),
                 ],
@@ -1966,7 +2041,7 @@ class _AdminDisputesClaims extends StatelessWidget {
             children: [
               if (status == 'approved')
                 const Text(
-                    'Approval records the amount only. Payout stays pending until a funded demo protection pool is available; no money is paid now.'),
+                    'Approval records the amount only. Payout stays pending until a funded protection fund is available; no money is paid now.'),
               if (status == 'approved')
                 TextFormField(
                   controller: amount,
@@ -2126,7 +2201,7 @@ class _AdminDisputesClaims extends StatelessWidget {
               child: ListTile(
                 title: Text(claim.listingTitle),
                 subtitle: Text(
-                  '${claim.id} • Requested ${formatMoney(claim.amountRequested)}\n${claim.description}${claim.payoutStatus == 'pending_funding' ? '\nApproved; payout awaits a funded demo protection pool. No money has been paid.' : ''}',
+                  '${claim.id} • Requested ${formatMoney(claim.amountRequested)}\n${claim.description}${claim.payoutStatus == 'pending_funding' ? '\nApproved; payout awaits a funded protection fund. No money has been paid.' : ''}',
                 ),
                 isThreeLine: true,
                 trailing: claim.status == 'pending'
@@ -2986,24 +3061,6 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
     if (!platformFormKey.currentState!.validate()) return;
     try {
       await context.read<LiveRentHubController>().updatePlatformSettings({
-        'marketplaceFeePercent': double.parse(marketplaceFee.text),
-        'maintenanceMode': maintenanceMode,
-        'highValueKycEnabled': highValueKycEnabled,
-        'highValueThreshold': double.parse(highValueThreshold.text),
-        'reportAutoHideThreshold': int.parse(reportThreshold.text),
-        'verificationOcrThreshold': int.parse(ocrThreshold.text),
-        'verificationManualReviewThreshold':
-            double.parse(reviewThreshold.text) / 100,
-        'minimumVerificationAge': int.parse(minimumAge.text),
-        'kycRequirements': kycDocuments.entries
-            .map(
-              (entry) => {
-                'category': entry.key,
-                'documentTypes': entry.value.toList()..sort(),
-                'highValueOnly': kycHighValueOnly[entry.key] ?? false,
-              },
-            )
-            .toList(),
         'supportEmail': supportEmail.text.trim(),
         'bookingPolicy': bookingPolicy.text.trim(),
         'contentPolicy': contentPolicy.text.trim(),
@@ -3012,9 +3069,6 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
           'verificationUpdate': verificationTemplate.text.trim(),
           'reportResolved': reportResolvedTemplate.text.trim(),
         },
-        'categories': categoryStates.entries
-            .map((entry) => {'name': entry.key, 'active': entry.value})
-            .toList(),
       });
       if (mounted) {
         showMockSuccess(context, 'Platform settings saved.');
@@ -3097,322 +3151,79 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                     style: Theme.of(context).textTheme.headlineSmall),
                 const SizedBox(height: 16),
                 Form(
-                  key: platformFormKey,
-                  child: Column(
-                    children: [
-                      Card(
+                    key: platformFormKey,
+                    child: Card(
                         child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text('Fees and identity checks',
-                                  style:
-                                      Theme.of(context).textTheme.titleLarge),
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 16,
-                                runSpacing: 12,
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  _RuleField(
-                                    controller: marketplaceFee,
-                                    label: 'Marketplace fee (%)',
-                                    validator: (value) {
-                                      final number =
-                                          double.tryParse(value ?? '');
-                                      return number == null ||
-                                              number < 0 ||
-                                              number > 20
-                                          ? 'Enter 0 to 20'
-                                          : null;
-                                    },
-                                    rule: const InputRule('Marketplace fee',
-                                        kind: InputKind.decimal,
-                                        maxLength: 30,
-                                        max: 20),
-                                  ),
-                                  _RuleField(
-                                    controller: highValueThreshold,
-                                    label: 'Additional-document threshold (RM)',
-                                    validator: (value) =>
-                                        (double.tryParse(value ?? '') ?? -1) < 0
-                                            ? 'Enter zero or more'
-                                            : null,
-                                    rule: const InputRule(
-                                        'Additional-document threshold',
-                                        kind: InputKind.money,
-                                        maxLength: 30,
-                                        max: 1000000),
-                                  ),
-                                  _RuleField(
-                                    controller: reportThreshold,
-                                    label: 'Auto-hide report threshold',
-                                    validator: (value) {
-                                      final number = int.tryParse(value ?? '');
-                                      return number == null ||
-                                              number < 1 ||
-                                              number > 100
-                                          ? 'Enter 1 to 100'
-                                          : null;
-                                    },
-                                    rule: const InputRule(
-                                        'Auto-hide report threshold',
-                                        kind: InputKind.integer,
-                                        maxLength: 30,
-                                        min: 1,
-                                        max: 100),
-                                  ),
-                                  _RuleField(
-                                    controller: ocrThreshold,
-                                    label: 'Text readability requirement (%)',
-                                    validator: (value) {
-                                      final number = int.tryParse(value ?? '');
-                                      return number == null ||
-                                              number < 0 ||
-                                              number > 100
-                                          ? 'Enter 0 to 100'
-                                          : null;
-                                    },
-                                    rule: const InputRule(
-                                        'OCR confidence threshold',
-                                        kind: InputKind.integer,
-                                        maxLength: 30,
-                                        max: 100),
-                                  ),
-                                  _RuleField(
-                                    controller: reviewThreshold,
-                                    label: 'Manual review requirement (%)',
-                                    validator: (value) {
-                                      final number =
-                                          double.tryParse(value ?? '');
-                                      return number == null ||
-                                              number < 0 ||
-                                              number > 100
-                                          ? 'Enter 0 to 100'
-                                          : null;
-                                    },
-                                    rule: const InputRule(
-                                        'Manual-review threshold',
-                                        kind: InputKind.decimal,
-                                        maxLength: 30,
-                                        max: 100),
-                                  ),
-                                  _RuleField(
-                                    controller: minimumAge,
-                                    label: 'Minimum verification age',
-                                    validator: (value) {
-                                      final number = int.tryParse(value ?? '');
-                                      return number == null ||
-                                              number < 18 ||
-                                              number > 100
-                                          ? 'Enter 18 to 100'
-                                          : null;
-                                    },
-                                    rule: const InputRule(
-                                        'Minimum verification age',
-                                        kind: InputKind.integer,
-                                        maxLength: 30,
-                                        min: 18,
-                                        max: 100),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: const Text(
-                                    'Enable high-value additional-document rules'),
-                                value: highValueKycEnabled,
-                                onChanged: (value) =>
-                                    setState(() => highValueKycEnabled = value),
-                              ),
-                              const Divider(height: 28),
-                              Text(
-                                'Identity requirements',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const Text(
-                                'MyKad approval is required before renting or publishing a listing. Vehicle renters also need an approved driving licence.',
-                                style:
-                                    TextStyle(color: AppColors.secondaryText),
-                              ),
-                              for (final category in kycDocuments.keys)
-                                ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  leading:
-                                      const Icon(Icons.verified_user_outlined),
-                                  title: Text(category),
-                                  subtitle: Text(category == 'Vehicles'
-                                      ? 'MyKad • Driving licence for renters'
-                                      : 'MyKad'),
-                                  trailing: const Tooltip(
-                                      message: 'Required by RentHub policy',
-                                      child:
-                                          Icon(Icons.lock_outline, size: 20)),
-                                ),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: RentHubSectionHeader('Maintenance mode',
-                                    help:
-                                        'Use during planned maintenance. Save to apply the change.',
-                                    style:
-                                        Theme.of(context).textTheme.bodyLarge),
-                                value: maintenanceMode,
-                                onChanged: (value) =>
-                                    setState(() => maintenanceMode = value),
-                              ),
-                              TextFormField(
-                                controller: supportEmail,
-                                decoration: (const InputDecoration(
-                                        labelText: 'Support email'))
-                                    .copyWith(
-                                        counterText: '', errorMaxLines: 3),
-                                validator: InputValidation.compose(
-                                    InputRules.supportEmail.validate,
-                                    (value) => value != null &&
-                                            RegExp(r'^[^@]+@[^@]+\.[^@]+$')
-                                                .hasMatch(value)
-                                        ? null
-                                        : 'Enter a valid email'),
-                                inputFormatters: InputValidation.formatters(
-                                    InputRules.supportEmail, supportEmail),
-                                autovalidateMode:
-                                    AutovalidateMode.onUserInteraction,
-                                maxLength: InputRules.supportEmail.maxLength,
-                                maxLengthEnforcement:
-                                    InputValidation.lengthEnforcement,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text('Support and customer messages',
-                                  style:
-                                      Theme.of(context).textTheme.titleLarge),
-                              const SizedBox(height: 12),
-                              for (final field in [
-                                (bookingPolicy, 'Booking policy', 10),
-                                (contentPolicy, 'Content policy', 10),
-                                (
-                                  bookingApprovedTemplate,
-                                  'Booking-approved message',
-                                  5
-                                ),
-                                (
-                                  verificationTemplate,
-                                  'Verification-update message',
-                                  5
-                                ),
-                                (
-                                  reportResolvedTemplate,
-                                  'Report-resolved message',
-                                  5
-                                ),
-                              ]) ...[
-                                TextFormField(
-                                  controller: field.$1,
-                                  minLines: field.$2.contains('policy') ? 2 : 1,
-                                  maxLines: field.$2.contains('policy') ? 4 : 2,
-                                  decoration:
-                                      (InputDecoration(labelText: field.$2))
-                                          .copyWith(
-                                              counterText: '',
-                                              errorMaxLines: 3),
-                                  validator: InputValidation.compose(
-                                      InputRule(field.$2,
-                                              minLength: field.$1 ==
-                                                          bookingPolicy ||
-                                                      field.$1 == contentPolicy
-                                                  ? 10
-                                                  : 5,
-                                              maxLength: field.$1 ==
-                                                          bookingPolicy ||
-                                                      field.$1 == contentPolicy
-                                                  ? 3000
-                                                  : 300)
-                                          .validate,
-                                      (value) => (value?.trim().length ?? 0) <
-                                              field.$3
-                                          ? 'Enter at least ${field.$3} characters'
-                                          : null),
-                                  inputFormatters: InputValidation.formatters(
-                                      InputRule(field.$2,
-                                          minLength:
-                                              field.$1 == bookingPolicy ||
-                                                      field.$1 == contentPolicy
-                                                  ? 10
-                                                  : 5,
-                                          maxLength:
-                                              field.$1 == bookingPolicy ||
-                                                      field.$1 == contentPolicy
-                                                  ? 3000
-                                                  : 300),
-                                      field.$1),
-                                  autovalidateMode:
-                                      AutovalidateMode.onUserInteraction,
-                                  maxLength: InputRule(field.$2,
-                                          minLength:
-                                              field.$1 == bookingPolicy ||
-                                                      field.$1 == contentPolicy
-                                                  ? 10
-                                                  : 5,
-                                          maxLength:
-                                              field.$1 == bookingPolicy ||
-                                                      field.$1 == contentPolicy
-                                                  ? 3000
-                                                  : 300)
-                                      .maxLength,
-                                  maxLengthEnforcement:
-                                      InputValidation.lengthEnforcement,
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const RentHubSectionHeader('Listing categories'),
-                              for (final entry in categoryStates.entries)
-                                SwitchListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  secondary: const Icon(Icons.lock_outline),
-                                  title: Text(entry.key),
-                                  value: entry.value,
-                                  onChanged: (value) => setState(
-                                    () => categoryStates[entry.key] = value,
-                                  ),
-                                ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: FilledButton.icon(
-                                  onPressed:
-                                      data.loading ? null : _savePlatform,
-                                  icon: const Icon(Icons.save_outlined),
-                                  label: const Text('Save settings'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                                  Text('Support and customer messages',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleLarge),
+                                  const SizedBox(height: 16),
+                                  TextFormField(
+                                      controller: supportEmail,
+                                      decoration: const InputDecoration(
+                                          labelText: 'Support email'),
+                                      validator:
+                                          InputRules.supportEmail.validate),
+                                  const SizedBox(height: 16),
+                                  for (final field in [
+                                    (bookingPolicy, 'Booking policy'),
+                                    (contentPolicy, 'Content policy'),
+                                    (
+                                      bookingApprovedTemplate,
+                                      'Booking approved message'
+                                    ),
+                                    (
+                                      verificationTemplate,
+                                      'Verification update message'
+                                    ),
+                                    (
+                                      reportResolvedTemplate,
+                                      'Report resolved message'
+                                    )
+                                  ]) ...[
+                                    TextFormField(
+                                        controller: field.$1,
+                                        minLines: 1,
+                                        maxLines: 4,
+                                        decoration: InputDecoration(
+                                            labelText: field.$2,
+                                            errorMaxLines: 3),
+                                        validator: InputRule(field.$2,
+                                                minLength: field.$2.contains(
+                                                        'policy')
+                                                    ? 10
+                                                    : 5,
+                                                maxLength: field.$2
+                                                        .contains('policy')
+                                                    ? 3000
+                                                    : 300)
+                                            .validate,
+                                        inputFormatters:
+                                            InputValidation.formatters(
+                                                InputRule(field.$2,
+                                                    maxLength: field.$2
+                                                            .contains('policy')
+                                                        ? 3000
+                                                        : 300),
+                                                field.$1),
+                                        autovalidateMode:
+                                            AutovalidateMode.onUserInteraction),
+                                    const SizedBox(height: 16),
+                                  ],
+                                  Align(
+                                      alignment: Alignment.centerRight,
+                                      child: FilledButton.icon(
+                                          onPressed: data.loading
+                                              ? null
+                                              : _savePlatform,
+                                          icon: const Icon(Icons.save_outlined),
+                                          label: const Text('Save settings'))),
+                                ])))),
                 const SizedBox(height: 32),
                 RentHubSectionHeader('Points and referral rewards',
                     help:
@@ -3588,7 +3399,7 @@ class _AdminPlatformSettingsState extends State<_AdminPlatformSettings> {
                       ),
                     ),
                   const SizedBox(height: 24),
-                  Text('Recent points ledger',
+                  Text('Recent rewards',
                       style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
                   for (final entry in data.adminRewardLedger.take(20))
@@ -3648,8 +3459,7 @@ class _DeferredAdminModule extends StatelessWidget {
   @override
   Widget build(BuildContext context) => RentHubFeedbackState(
         kind: FeedbackKind.empty,
-        title: '$title remains in prototype mode',
-        message:
-            'This module has no Phase 1–5 backend contract yet. Its existing UI remains available in mock mode.',
+        title: '$title is unavailable',
+        message: 'This feature is not available yet.',
       );
 }

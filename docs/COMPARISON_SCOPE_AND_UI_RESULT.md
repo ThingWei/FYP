@@ -1,5 +1,9 @@
 # RentHub recommendation and comparison scope/UI result
 
+Latest presentation: [two/three-item podium with short winning-factor badges](PODIUM_TRUST_AND_LISTING_UI_RESULT.md), replacing the earlier text summary. The physical-only category/subcategory and maximum-three rules below remain.
+
+14 November 2026 follow-up: the live comparison now uses a balance icon and separate price/deposit/rating/condition highlights with explicit ties and missing data. The complementary section is removed from listing details; its API remains. See [the improvements handoff](TRUST_COMPARISON_AND_REVIEW_EVIDENCE_RESULT.md).
+
 Updated: 15 October 2026
 
 ## Implemented comparison rules

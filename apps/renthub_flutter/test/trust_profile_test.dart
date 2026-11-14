@@ -115,11 +115,9 @@ void main() {
           const LiveTrustPage(userId: 'u-trust', role: 'owner'), c,
           scale: 1.4));
       await t.pumpAndSettle();
-      expect(find.text('71 / 100'), findsOneWidget);
+      expect(find.text('71%'), findsWidgets);
       expect(find.text('Demo activity'), findsNothing);
-      expect(
-          find.textContaining('Payments in this demonstration are simulated.'),
-          findsOneWidget);
+      expect(find.text('Payments are simulated.'), findsNothing);
       expect(api.calls, contains('GET /users/me/trust'));
       expect(c.profile!.trustScore, 71);
       expect(t.takeException(), isNull);
@@ -136,11 +134,11 @@ void main() {
     await t
         .pumpWidget(host(const LiveTrustPage(userId: 'u-trust'), controller));
     await t.pumpAndSettle();
-    expect(find.text('71 / 100'), findsOneWidget);
+    expect(find.text('71%'), findsWidgets);
     api.fail = true;
     await t.tap(find.byTooltip('Refresh trust score'));
     await t.pumpAndSettle();
-    expect(find.text('71 / 100'), findsOneWidget);
+    expect(find.text('71%'), findsWidgets);
     expect(find.text('Try again'), findsOneWidget);
     expect(find.textContaining('private server'), findsNothing);
     api.fail = false;
@@ -161,7 +159,7 @@ void main() {
     await t.pump();
     api.pending!.complete(profile(real: true));
     await t.pumpAndSettle();
-    expect(find.text('71 / 100'), findsNothing);
+    expect(find.text('71%'), findsNothing);
     expect(find.textContaining('Your session changed'), findsOneWidget);
     expect(c.profile!.id, 'u-other');
     expect(c.profile!.trustProfile.supported, isFalse);

@@ -9,11 +9,15 @@ export async function bookingBalance(bookingId) {
   const payments = await PaymentModel.find({ bookingId, status: 'succeeded' });
   let captured = 0;
   let distributed = 0;
+  let customerCaptured = 0, customerPaidOut = 0, rewardCredits = 0;
   for (const payment of payments) {
-    if (payment.type === 'capture') captured += cents(payment.amount);
+    if (payment.type === 'capture') { captured += cents(payment.amount); customerCaptured += cents(payment.amount); }
+    if (payment.type === 'reward_credit') { captured += cents(payment.amount); rewardCredits += cents(payment.amount); }
     if (outflows.has(payment.type)) distributed += cents(payment.amount);
+    if (['refund', 'deposit_release', 'dispute_release'].includes(payment.type)) customerPaidOut += cents(payment.amount);
   }
   return { captured: captured / 100, distributed: distributed / 100,
+    ...(rewardCredits > 0 ? { customerCaptured: customerCaptured / 100, customerPaidOut: customerPaidOut / 100, rewardCredits: rewardCredits / 100 } : {}),
     held: Math.max(captured - distributed, 0) / 100,
     reconciliationRequired: distributed > captured };
 }
@@ -38,6 +42,10 @@ export async function planAllocations(booking, key, allocations) {
   }
   const balance = await bookingBalance(booking.publicId);
   const requested = allocations.reduce((sum, item) => sum + (item.type === 'deposit_deduction' ? 0 : cents(item.amount)), 0);
+  const toRenter = allocations.filter(item => ['refund', 'deposit_release', 'dispute_release'].includes(item.type)).reduce((sum, item) => sum + cents(item.amount), 0);
+  if (balance.rewardCredits > 0 && toRenter > cents(balance.customerCaptured) - cents(balance.customerPaidOut)) {
+    throw new AppError('Rewards cannot be refunded as cash. Allocate only the renter-paid amount to the renter.', 409, 'REWARD_CREDIT_NOT_REFUNDABLE');
+  }
   if (balance.reconciliationRequired || requested > cents(balance.held)) {
     throw new AppError('Some money has already been refunded or paid out. An administrator must review the remaining balance.', 409, 'SETTLEMENT_REVIEW_REQUIRED');
   }

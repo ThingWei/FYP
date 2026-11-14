@@ -81,7 +81,7 @@ class DraftController extends LiveRentHubController {
 
   @override
   Future<void> submitIdentityVerification(String type, List<String> refs,
-      {String? licenceSource}) async {
+      {String? licenceSource, String? holderPhotoRef}) async {
     submissions++;
   }
 }
@@ -184,9 +184,12 @@ void main() {
                       data: MediaQueryData(
                           size: Size(width, 1000),
                           textScaler: const TextScaler.linear(1.3)),
-                      child: const LiveVerificationPage()))));
+                      child: LiveVerificationPage(
+                          holderPhotoPicker: (_) async =>
+                              'upload://UPL-HOLDER')))));
       await tapVisible(tester, find.byTooltip('Upload document image'));
       await tapVisible(tester, find.byTooltip('Upload document image'));
+      await tapVisible(tester, find.text('Add holder photo'));
       expect(controller.calls.single, [front, back]);
       expect(await canSubmit(tester), isFalse);
       controller.replies[0].complete(result([front, back]));

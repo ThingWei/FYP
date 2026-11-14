@@ -107,7 +107,9 @@ class ListingCollection extends StatelessWidget {
                                 SizedBox(
                                     width: 72,
                                     child: ListingCardPhoto(
-                                        listing: item, showBadges: false)),
+                                        listing: item,
+                                        showBadges: false,
+                                        showReason: false)),
                                 const SizedBox(width: 8),
                                 Expanded(
                                     child: ListingCardSummary(
@@ -185,9 +187,13 @@ class ListingCollection extends StatelessWidget {
 
 class ListingCardPhoto extends StatelessWidget {
   const ListingCardPhoto(
-      {super.key, required this.listing, this.showBadges = true});
+      {super.key,
+      required this.listing,
+      this.showBadges = true,
+      this.showReason = true});
   final Listing listing;
   final bool showBadges;
+  final bool showReason;
   @override
   Widget build(BuildContext context) {
     final fallback = Center(
@@ -219,7 +225,6 @@ class ListingCardPhoto extends StatelessWidget {
                 top: 4,
                 child: Wrap(spacing: 4, runSpacing: 4, children: [
                   if (listing.promotionActive) _ListingBadge('Promoted'),
-                  if (listing.demonstration) _ListingBadge('Demo'),
                 ])),
           if (listing.verified)
             const Positioned(
@@ -229,7 +234,7 @@ class ListingCardPhoto extends StatelessWidget {
                     message: 'Verified listing',
                     child: Icon(Icons.verified,
                         color: AppColors.success, size: 24))),
-          if (listing.recommendationReason.isNotEmpty)
+          if (showReason && listing.recommendationReason.isNotEmpty)
             Positioned(
                 left: 0,
                 bottom: 0,
@@ -273,11 +278,9 @@ class ListingCardSummary extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall),
-            if (showBadges &&
-                (listing.promotionActive || listing.demonstration))
+            if (showBadges && listing.promotionActive)
               Wrap(spacing: 4, runSpacing: 4, children: [
                 if (listing.promotionActive) const _ListingBadge('Promoted'),
-                if (listing.demonstration) const _ListingBadge('Demo'),
               ]),
             if (listing.recommendationAvailability.isNotEmpty)
               Tooltip(

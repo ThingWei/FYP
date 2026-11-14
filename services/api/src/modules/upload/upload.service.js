@@ -12,6 +12,7 @@ import { MessageModel } from '../communication/message.model.js';
 import { UploadAssetModel, UPLOAD_PURPOSES } from './upload.model.js';
 
 const PUBLIC_PURPOSES = new Set(['listing_image', 'avatar']);
+const OWNER_ADMIN_PURPOSES = new Set(['vehicle_grant', 'verification_holder_photo']);
 const TYPES = [
   { type: 'image/jpeg', extension: '.jpg', matches: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
   { type: 'image/png', extension: '.png', matches: (b) => b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) },
@@ -131,7 +132,7 @@ export const uploadService = {
     if (!file?.buffer?.length) {
       throw new AppError('A file is required', 400, 'FILE_REQUIRED');
     }
-    const maxBytes = purpose === 'verification_document' ? env.maxVerificationUploadBytes : env.maxUploadBytes;
+    const maxBytes = ['verification_document', 'verification_holder_photo', 'vehicle_grant'].includes(purpose) ? env.maxVerificationUploadBytes : env.maxUploadBytes;
     if (file.buffer.length > maxBytes) {
       throw new AppError('File exceeds the upload size limit', 413, 'FILE_TOO_LARGE', { maxBytes });
     }
@@ -140,7 +141,7 @@ export const uploadService = {
       throw new AppError('Only JPEG, PNG, WebP, and PDF files are accepted', 415, 'UNSUPPORTED_FILE');
     }
     if (
-      purpose === 'listing_image' ||
+      ['vehicle_grant', 'verification_holder_photo'].includes(purpose) || purpose === 'listing_image' ||
       purpose === 'avatar' ||
       purpose === 'message_image'
     ) {
@@ -206,7 +207,8 @@ export const uploadService = {
     if (!asset) throw new AppError('Upload not found', 404, 'NOT_FOUND');
     const isAdmin = identity.roles?.includes('admin');
     const reference = `upload://${asset.publicId}`;
-    if (asset.uploadedBy !== identity.authId && !isAdmin && !(await participantMayRead(identity, reference))) {
+    if (asset.uploadedBy !== identity.authId && !isAdmin &&
+        (OWNER_ADMIN_PURPOSES.has(asset.purpose) || !(await participantMayRead(identity, reference)))) {
       throw new AppError('You cannot access this upload', 403, 'FORBIDDEN');
     }
     return asset;
@@ -225,9 +227,14 @@ export const uploadService = {
         $or: [
           { avatarUrl: publicPath },
           { 'verification.documentRefs': reference },
+          { 'verification.holderPhotoRef': reference },
+          { 'verification.history.documentRefs': reference },
+          { 'verification.history.holderPhotoRef': reference },
         ],
       }),
       ListingModel.exists({ $or: [
+        { vehicleGrantRef: reference },
+        { 'vehicleGrantReview.reference': reference },
         { images: publicPath },
         { images: reference },
         { 'itemVerificationHistory.images': publicPath },

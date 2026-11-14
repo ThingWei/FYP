@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 export const PAYMENT_TYPES = [
+  'reward_credit',
   'authorization',
   'capture',
   'refund',

@@ -65,7 +65,7 @@ async function seedRental(type = 'physical') {
     ownerId: 'u-owner',
     startDate: new Date('2026-09-20'),
     endDate: new Date('2026-09-22'),
-    ...(physical ? { fulfilmentMethod: 'pickup' } : { serviceVenue: 'Petaling Jaya' }),
+    ...(physical ? { fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00' } : { serviceVenue: 'Petaling Jaya' }),
     damageWaiverSelected: physical,
     pricing: {
       baseAmount: physical ? 255 : 450,

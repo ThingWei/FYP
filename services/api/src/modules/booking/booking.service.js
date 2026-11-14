@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import mongoose from 'mongoose';
+import { rememberLocationAfterSave } from '../user/recentLocations.js';
 import { bookingLocations, validateLocation } from '../../core/location.js';
 import { env } from '../../config/env.js';
 import { physicalRentalDate } from '../../core/calendarDate.js';
@@ -34,6 +35,7 @@ import { expireDuePendingBookings } from './bookingExpiry.js';
 import { expireUncollectedRentals } from '../rental/uncollectedExpiry.js';
 import { assertNoOverdueReturn } from '../rental/overdueEligibility.js';
 import { rentalRepository } from '../rental/rental.repository.js';
+import { bookingAppointments, agreementProof } from './appointments.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -60,6 +62,7 @@ function requestFingerprint(input, dates) {
     listingId: input.listingId,
     startDate: dates.startDate.toISOString(),
     endDate: dates.endDate.toISOString(),
+    pickupTime: input.pickupTime ?? null, returnTime: input.returnTime ?? null,
     fulfilmentMethod: input.fulfilmentMethod ?? null,
     serviceVenue: input.serviceVenue?.trim() || null,
     serviceLocation: canonicalLocation(input.serviceLocation),
@@ -273,6 +276,7 @@ async function createBooking(input, identity, ensureLockOwned) {
         },
       );
     }
+    const appointments = bookingAppointments(listing, input);
     const fingerprint = requestFingerprint(input, { startDate, endDate });
     const replay = await findIdempotentBooking(
       renter.authId,
@@ -345,6 +349,7 @@ async function createBooking(input, identity, ensureLockOwned) {
           ownerName: ownerNameSnapshot,
           idempotencyKey: input.idempotencyKey,
           idempotencyFingerprint: fingerprint,
+          ...appointments,
           startDate,
           endDate,
           fulfilmentMethod: input.fulfilmentMethod,
@@ -386,6 +391,7 @@ async function createBooking(input, identity, ensureLockOwned) {
       }
       throw error;
     }
+    await rememberLocationAfterSave(renter.authId, input.deliveryLocation ?? input.serviceLocation, 'Booking location');
     await ensureBookingThread(booking);
     await notifyPaymentDue(booking);
     await notifyUser({
@@ -427,6 +433,7 @@ export const bookingService = {
       history: { renterAcceptedAt: booking.agreement?.acceptedAt ?? null,
         ownerApprovedAt: rental ? booking.decidedAt ?? null : null },
       record: { status: recordStatus, demonstrationNetwork: blockchain?.localPrototype === true,
+        proof: agreementProof(rental),
         explanation: booking.listingType === 'physical' ? 'RentHub records rental amounts and status changes to support later review.' : 'RentHub keeps this service booking and its recorded acceptance for review.' } };
   },
 
@@ -566,6 +573,7 @@ export const bookingService = {
           ownerId: booking.ownerId,
           startDate: booking.startDate,
           endDate: booking.endDate,
+          pickupTime: booking.pickupTime, returnTime: booking.returnTime, appointmentTimezone: booking.appointmentTimezone,
           status: 'scheduled',
           ...(agreement && {
             contractAddress: agreement.contractAddress,

@@ -33,6 +33,7 @@ apiCapabilities.push('admin-record-details-v1');
 apiCapabilities.push('trust-profile-v1');
 apiCapabilities.push('user-records-messaging-v2');
 apiCapabilities.push('renter-handover-ack-v1');
+apiCapabilities.push('review-evidence-appointments-v1');
 app.use(
   helmet(),
   cors({ origin: env.corsOrigins }),

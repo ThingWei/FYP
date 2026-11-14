@@ -1,4 +1,5 @@
 import { recommendationCandidateFilter } from './recommendationFilters.js';
+import { rememberLocationAfterSave } from '../user/recentLocations.js';
 import { requireListingPin, approximatePoint, nearbyFilter } from '../../core/location.js';
 import { AppError } from '../../core/errors.js';
 import { physicalRentalDate } from '../../core/calendarDate.js';
@@ -13,6 +14,8 @@ import { ReviewModel } from '../review/review.model.js';
 import { UserModel } from '../user/user.model.js';
 import { availableTrustProfile } from '../user/trust.service.js';
 import { realTrustScore, ownerTrustSummary, applicationTrust } from '../user/trustPolicy.js';
+import { needsVehicleGrant, requireVehicleGrant } from './vehicleGrant.js';
+import { requirePrivateReviewPhoto } from '../upload/privateReviewPhoto.js';
 import { assertMarketplaceIdentity } from '../user/kycRequirements.js';
 import { hasApprovedMykad } from '../user/drivingEligibility.js';
 import {
@@ -103,6 +106,7 @@ function listingInput(input) {
   const listingType =
     input.listingType ?? (input.category === 'Services' ? 'service' : 'physical');
   return {
+    ...(input.vehicleGrantRef !== undefined && { vehicleGrantRef: input.vehicleGrantRef }),
     ...(input.title !== undefined && { title: input.title }),
     ...(input.description !== undefined && { description: input.description }),
     ...(input.category !== undefined && { category: input.category }),
@@ -716,8 +720,9 @@ export const listingService = {
     const trust = await availableTrustProfile(owner.authId);
     if (input.coordinates || input.locationDetails) requireListingPin(input);
     await uploadService.assertOwnedReferences(identity, input.images, ['listing_image']);
+    if (input.vehicleGrantRef) await requirePrivateReviewPhoto(identity.authId, input.vehicleGrantRef, 'vehicle_grant');
     const normalizedInput = await withResolvedProductIdentity(input);
-    return listingRepository.create({
+    const created = await listingRepository.create({
       ...listingInput(normalizedInput),
       ownerId: owner.authId,
       ownerName: owner.displayName,
@@ -726,6 +731,8 @@ export const listingService = {
       verified: hasApprovedMykad(owner),
       status: 'draft',
     });
+    await rememberLocationAfterSave(owner.authId, created.locationDetails, 'Pickup');
+    return created;
   },
 
   async listMine(identity, query) {
@@ -755,6 +762,7 @@ export const listingService = {
   async update(id, input, identity) {
     const listing = await requireOwnedListing(id, identity);
     await uploadService.assertOwnedReferences(identity, input.images, ['listing_image']);
+    if (input.vehicleGrantRef) await requirePrivateReviewPhoto(identity.authId, input.vehicleGrantRef, 'vehicle_grant');
     if (listing.status === 'pending_review') {
       throw new AppError(
         'A listing cannot be edited while under review',
@@ -784,11 +792,13 @@ export const listingService = {
     }));
     // Edited photos/category/condition must never inherit an old automated result.
     listing.itemVerification = undefined;
+    if (input.vehicleGrantRef !== undefined || input.category !== undefined || input.subcategory !== undefined) listing.vehicleGrantReview = undefined;
     if (listing.status === 'active' || listing.status === 'rejected') {
       listing.status = 'draft';
       listing.moderationReason = '';
     }
     await listing.save();
+    if (input.locationDetails) await rememberLocationAfterSave(identity.authId, listing.locationDetails, 'Pickup');
     return listing;
   },
 
@@ -802,6 +812,8 @@ export const listingService = {
       );
     }
     assertListingReadyToSubmit(listing);
+    requireVehicleGrant(listing);
+    if (needsVehicleGrant(listing)) await requirePrivateReviewPhoto(identity.authId, listing.vehicleGrantRef, 'vehicle_grant');
     if (listing.listingType === 'physical' && listing.images.length < 3) {
       throw new AppError(
         'At least three item images are required before submission',
@@ -857,7 +869,7 @@ export const listingService = {
     return listing;
   },
 
-  async moderate(id, status, reason) {
+  async moderate(id, status, reason, identity, vehicleGrantReviewed) {
     const listing = await listingRepository.findById(id);
     if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
     if (listing.status !== 'pending_review') {
@@ -871,6 +883,12 @@ export const listingService = {
       throw new AppError('A rejection reason is required', 400, 'REASON_REQUIRED');
     }
     if (status === 'active') {
+      requireVehicleGrant(listing);
+      if (needsVehicleGrant(listing)) {
+        await requirePrivateReviewPhoto(listing.ownerId, listing.vehicleGrantRef, 'vehicle_grant');
+        if (vehicleGrantReviewed !== true) throw new AppError('Review the vehicle registration document before approval.', 409, 'VEHICLE_GRANT_REVIEW_REQUIRED');
+        listing.vehicleGrantReview = { reference: listing.vehicleGrantRef, reviewedBy: identity.authId, reviewedAt: new Date() };
+      }
       const owner = await UserModel.findOne({ authId: listing.ownerId });
       if (!owner || owner.accountStatus !== 'active') {
         throw new AppError('The Owner account must be active before publishing this listing', 403, 'OWNER_ACCOUNT_RESTRICTED');
@@ -880,8 +898,10 @@ export const listingService = {
     }
     listing.status = status;
     listing.moderationReason = status === 'rejected' ? reason.trim() : '';
-    await listing.save();
-    return listing;
+    await listing.validate();
+    const updated = await ListingModel.findOneAndUpdate({ _id: listing._id, status: 'pending_review', updatedAt: listing.updatedAt, vehicleGrantRef: listing.vehicleGrantRef ?? null }, { $set: { status: listing.status, verified: listing.verified, moderationReason: listing.moderationReason, ...(listing.vehicleGrantReview && { vehicleGrantReview: listing.vehicleGrantReview.toObject() }) } }, { new: true, runValidators: true });
+    if (!updated) throw new AppError('This listing changed. Refresh and review the current submission.', 409, 'STALE_LISTING_REVIEW');
+    return updated;
   },
 
   async getAvailability(id) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'live_listing_gallery.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/user_facing_error.dart';
 import '../../core/theme/app_theme.dart';
@@ -9,6 +10,65 @@ import 'live_dispute_page.dart';
 import 'live_photo_widgets.dart';
 import 'live_rental_progress.dart';
 import 'live_renthub_controller.dart';
+
+class ReturnPhotosSection extends StatelessWidget {
+  const ReturnPhotosSection({super.key, required this.rental});
+  final Rental rental;
+  @override
+  Widget build(BuildContext context) {
+    final record = rental.returnSubmission;
+    if (rental.listingType != 'physical' || record == null) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+        child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.assignment_return_outlined,
+                        color: AppColors.primary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: Text('Return',
+                            style: Theme.of(context).textTheme.titleMedium))
+                  ]),
+                  const SizedBox(height: 12),
+                  Text(
+                      'Condition: ${record.condition.isEmpty ? 'Not recorded' : record.condition}',
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  if (record.notes.isNotEmpty)
+                    Text(record.notes,
+                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                  if (record.photos.isNotEmpty)
+                    Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: ListingPhotoCarousel(
+                            photos: record.photos,
+                            title: 'Return',
+                            compact: true))
+                  else
+                    const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: Text('No return photos were saved.')),
+                  ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      title: const Text('Details'),
+                      children: [
+                        ListTile(
+                            dense: true,
+                            title: const Text('Returned by renter'),
+                            subtitle: Text(rentalEventTime(record.recordedAt))),
+                        if (record.notes.isNotEmpty)
+                          ListTile(
+                              dense: true,
+                              title: const Text('Notes'),
+                              subtitle: Text(record.notes)),
+                      ]),
+                ])));
+  }
+}
 
 /// Participant-only saved condition evidence, separate from the progress rail.
 class HandoverPhotosSection extends StatefulWidget {
@@ -101,7 +161,7 @@ class _HandoverPhotosSectionState extends State<HandoverPhotosSection> {
       final accepted = await confirmAction(context,
           title: 'Confirm item received?',
           message:
-              'Confirm that you have received the item and reviewed the Owner’s condition and photos. This starts the rental and completes the demo payment. You can still report a problem during the rental.',
+              'Confirm that you have received the item and reviewed the Owner’s condition and photos. This starts the rental and completes the payment. You can still report a problem during the rental.',
           action: 'Confirm receipt');
       if (!current() || !accepted) return;
       await c.runRentalAction(rental, 'handover-acknowledge',
@@ -151,7 +211,7 @@ class _HandoverPhotosSectionState extends State<HandoverPhotosSection> {
                 : 'Renter confirmation was not recorded';
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 16),
+      margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
           color: AppColors.blueSurface,
@@ -166,11 +226,13 @@ class _HandoverPhotosSectionState extends State<HandoverPhotosSection> {
                   color: AppColors.primary),
               const SizedBox(width: 12),
               Expanded(
-                  child: Text('Handover photos & condition',
+                  child: Text('Handover',
                       style: Theme.of(context).textTheme.titleMedium))
             ]),
             const SizedBox(height: 12),
-            Text(status, style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (rental.awaitingReceipt ||
+                record?.receiptStatus == 'acknowledged')
+              Text(status, style: const TextStyle(fontWeight: FontWeight.w600)),
             if (record == null)
               const Padding(
                   padding: EdgeInsets.only(top: 8),
@@ -178,23 +240,18 @@ class _HandoverPhotosSectionState extends State<HandoverPhotosSection> {
             else ...[
               const SizedBox(height: 12),
               Text(
-                  'Condition: ${record.condition.isEmpty ? 'Not recorded' : record.condition}'),
-              Text(
-                  '${widget.ownerName.isEmpty ? 'Owner submitted' : 'Submitted by ${widget.ownerName}'}: ${rentalEventTime(record.recordedAt)}'),
+                  'Condition: ${record.condition.isEmpty ? 'Not recorded' : record.condition}',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
               if (record.notes.isNotEmpty)
-                Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(record.notes)),
-              if (record.acknowledgedAt != null)
-                Text(
-                    'Receipt confirmed: ${rentalEventTime(record.acknowledgedAt)}'),
+                Text(record.notes,
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
               if (record.photos.isEmpty)
                 const Text('No photos were saved for this older record.')
               else ...[
                 const SizedBox(height: 12),
                 LayoutBuilder(
                     builder: (context, box) => SizedBox(
-                        height: (box.maxWidth * .75).clamp(150.0, 320.0),
+                        height: 160,
                         child: PageView.builder(
                             controller: pages,
                             itemCount: record.photos.length,
@@ -205,29 +262,49 @@ class _HandoverPhotosSectionState extends State<HandoverPhotosSection> {
                                 controller: c,
                                 width: box.maxWidth,
                                 height: double.infinity)))),
-                Row(children: [
-                  IconButton(
-                      tooltip: 'Previous handover photo',
-                      onPressed: selected > 0
-                          ? () => pages.previousPage(
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOut)
-                          : null,
-                      icon: const Icon(Icons.chevron_left)),
-                  Expanded(
-                      child: Text(
-                          'Photo ${selected + 1} of ${record.photos.length} · Tap to enlarge',
-                          textAlign: TextAlign.center)),
-                  IconButton(
-                      tooltip: 'Next handover photo',
-                      onPressed: selected + 1 < record.photos.length
-                          ? () => pages.nextPage(
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOut)
-                          : null,
-                      icon: const Icon(Icons.chevron_right))
-                ]),
+                if (record.photos.length > 1)
+                  Row(children: [
+                    IconButton(
+                        tooltip: 'Previous handover photo',
+                        onPressed: selected > 0
+                            ? () => pages.previousPage(
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOut)
+                            : null,
+                        icon: const Icon(Icons.chevron_left)),
+                    Expanded(
+                        child: Text('${selected + 1} / ${record.photos.length}',
+                            textAlign: TextAlign.center)),
+                    IconButton(
+                        tooltip: 'Next handover photo',
+                        onPressed: selected + 1 < record.photos.length
+                            ? () => pages.nextPage(
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOut)
+                            : null,
+                        icon: const Icon(Icons.chevron_right))
+                  ]),
               ],
+              ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('Details'),
+                  children: [
+                    ListTile(
+                        dense: true,
+                        title: const Text('Submitted by Owner'),
+                        subtitle: Text(rentalEventTime(record.recordedAt))),
+                    ListTile(
+                        dense: true,
+                        title: Text(status),
+                        subtitle: record.acknowledgedAt == null
+                            ? null
+                            : Text(rentalEventTime(record.acknowledgedAt))),
+                    if (record.notes.isNotEmpty)
+                      ListTile(
+                          dense: true,
+                          title: const Text('Notes'),
+                          subtitle: Text(record.notes)),
+                  ]),
             ],
             if (error != null)
               Padding(

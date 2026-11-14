@@ -76,8 +76,5 @@ class LiveLocationField extends StatelessWidget {
             onPressed: !enabled ? null : () => _open(context),
             icon: const Icon(Icons.map_outlined),
             label: const Text('Choose location')),
-        Text(value == null
-            ? 'Choose the entrance or pickup point.'
-            : 'Location selected. You can change it if needed.'),
       ]);
 }

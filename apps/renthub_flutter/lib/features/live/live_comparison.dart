@@ -7,6 +7,7 @@ import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/renthub_components.dart';
 import 'live_renthub_controller.dart';
 import 'live_recommendations.dart';
+import 'comparison_summary.dart';
 
 Future<void> toggleLiveComparison(BuildContext context, Listing listing) async {
   final c = context.read<LiveRentHubController>();
@@ -172,6 +173,7 @@ class LiveComparisonContent extends StatelessWidget {
                           Text(
                               'Comparing ${items.length} of 3 items · ${items.first.category}'),
                           const SizedBox(height: 16),
+                          ComparisonSummary(items: items),
                           if (constraints.maxWidth < 900) ...[
                             for (final item in items)
                               Card(

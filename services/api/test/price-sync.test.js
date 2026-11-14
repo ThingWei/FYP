@@ -239,7 +239,7 @@ test('automatic evidence reaches inference, source disable and stale dates exclu
     condition: 'Excellent', itemAgeYears: 3, fulfilmentMethods: ['pickup'], location: 'Kuala Lumpur', dailyPrice: 60, status: 'inactive' });
   await BookingModel.create({ publicId: 'RH-BKG-2026-SYNC1', listingId: listing.publicId, listingTitle: listing.title, listingType: 'physical',
     renterId: 'source-renter', renterName: 'Renter', ownerId: 'source-owner', startDate: '2026-10-01', endDate: '2026-10-01',
-    fulfilmentMethod: 'pickup', status: 'completed', paymentStatus: 'settled', completedAt: new Date(), sourceType: 'marketplace', pricing: { baseAmount: 60, total: 60 } });
+    fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', status: 'completed', paymentStatus: 'settled', completedAt: new Date(), sourceType: 'marketplace', pricing: { baseAmount: 60, total: 60 } });
   let evidence;
   aiClient.recommendPrice = async (input) => { evidence = input.market_evidence; return { available: true, suggested_daily_price: 65 }; };
   const payload = { itemProfile: { category: 'Devices', subcategory: 'Cameras', brand: 'Canon', product_model: 'EOS R50', condition: 'Excellent', item_age_years: 3 }, rentalDurationDays: 1 };

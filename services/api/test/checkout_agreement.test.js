@@ -21,7 +21,7 @@ const other = { 'x-user-id': 'checkout-other', 'x-user-roles': 'renter' };
 const admin = { 'x-user-id': 'checkout-admin', 'x-user-roles': 'admin' };
 let mongo, id;
 const originalAuthorize = paymentAdapter.authorize;
-const input = { listingId: 'l-checkout', startDate: '2026-12-20', endDate: '2026-12-20', fulfilmentMethod: 'pickup', agreementAccepted: true, agreementVersion: 'renthub-rental-v2', idempotencyKey: 'booking-checkout-v2' };
+const input = { listingId: 'l-checkout', startDate: '2026-12-20', endDate: '2026-12-20', fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', agreementAccepted: true, agreementVersion: 'renthub-rental-v2', idempotencyKey: 'booking-checkout-v2' };
 const pay = (key, extra = {}, headers = renter) => request(app).post('/api/v1/payments/authorizations').set(headers).send({ bookingId: id, method: 'card', idempotencyKey: key, ...extra });
 before(async () => { mongo = await MongoMemoryServer.create(); await connectDatabase(mongo.getUri()); await Promise.all([BookingModel.init(), PaymentModel.init()]); });
 after(async () => { paymentAdapter.authorize = originalAuthorize; await disconnectDatabase(); await mongo.stop(); });

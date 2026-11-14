@@ -135,7 +135,7 @@ async function createCameraBooking({ idempotencyKey, headers = renter, listingId
       idempotencyKey: idempotencyKey ?? `booking-test:${bookingSequence}`,
       startDate,
       endDate,
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       damageWaiverSelected: true,
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
@@ -337,7 +337,7 @@ test('normalizes physical rental input to Malaysian calendar dates without a one
       idempotencyKey: 'booking-test:date-only',
       startDate: '2026-10-05',
       endDate: '2026-10-05',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });
@@ -354,7 +354,7 @@ test('normalizes physical rental input to Malaysian calendar dates without a one
       idempotencyKey: 'booking-test:legacy-malaysia-midnight',
       startDate: '2026-10-05T16:00:00.000Z',
       endDate: '2026-10-05T16:00:00.000Z',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });
@@ -390,7 +390,7 @@ test('vehicle bookings require approved MyKad and Driving Licence evidence', asy
       idempotencyKey: 'booking-test:vehicle-missing-licence',
       startDate: '2026-11-10',
       endDate: '2026-11-10',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });
@@ -424,7 +424,7 @@ test('vehicle bookings require approved MyKad and Driving Licence evidence', asy
       idempotencyKey: 'booking-test:vehicle-eligible',
       startDate: '2026-11-10',
       endDate: '2026-11-10',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });
@@ -451,7 +451,7 @@ test('vehicle requests enforce MyKad, independent eligibility, validity through 
     { mykad: 'approved', driving: { ...validDriving, identityMatchConfirmed: false }, code: 'DRIVING_ELIGIBILITY_REVIEW_REQUIRED' },
   ];
   const payload = { listingId: 'l-driving-check', startDate: '2026-11-10', endDate: '2026-11-10',
-    fulfilmentMethod: 'pickup', agreementAccepted: true, agreementVersion: 'renthub-booking-v1' };
+    fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00', agreementAccepted: true, agreementVersion: 'renthub-booking-v1' };
   for (const [index, fixture] of cases.entries()) {
     await UserModel.updateOne({ authId: 'u-renter' }, { $set: {
       'verification.documents': [{ documentType: 'mykad', status: fixture.mykad }],
@@ -507,7 +507,7 @@ test('requires the current booking agreement before creating a request', async (
       idempotencyKey: 'booking-test:missing-agreement',
       startDate: '2026-09-20T00:00:00.000Z',
       endDate: '2026-09-22T00:00:00.000Z',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
     });
 
   assert.equal(response.status, 422);
@@ -710,7 +710,7 @@ test('rejects reuse of a booking idempotency key for changed input', async () =>
       idempotencyKey,
       startDate: '2026-09-20T00:00:00.000Z',
       endDate: '2026-09-23T00:00:00.000Z',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       damageWaiverSelected: true,
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
@@ -1020,7 +1020,7 @@ test('locks approved dates against another booking', async () => {
       idempotencyKey: 'booking-test:availability-conflict',
       startDate: '2026-09-22T00:00:00.000Z',
       endDate: '2026-09-23T00:00:00.000Z',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });
@@ -1068,7 +1068,7 @@ test('locks approved dates against another booking', async () => {
       idempotencyKey: 'booking-test:adjacent-future',
       startDate: '2026-09-23T00:00:00.000Z',
       endDate: '2026-09-25T00:00:00.000Z',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });
@@ -1087,7 +1087,7 @@ test('released booking states do not occupy listing availability', async () => {
     ownerId: 'u-owner',
     startDate: new Date('2026-10-10T00:00:00.000Z'),
     endDate: new Date('2026-10-15T00:00:00.000Z'),
-    fulfilmentMethod: 'pickup',
+    fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
     pricing: {
       baseAmount: 510,
       securityDeposit: 300,
@@ -1125,7 +1125,7 @@ test('active and unresolved disputed physical rentals occupy dates', async () =>
       ownerId: 'u-owner',
       startDate: new Date('2026-10-10T00:00:00.000Z'),
       endDate: new Date('2026-10-15T00:00:00.000Z'),
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       pricing: {
         baseAmount: 510,
         securityDeposit: 300,
@@ -1169,7 +1169,7 @@ test('approval expires only competing pending physical requests and releases aut
       idempotencyKey: 'booking-test:approval-race-b',
       startDate: '2026-09-20T00:00:00.000Z',
       endDate: '2026-09-22T00:00:00.000Z',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });
@@ -1181,7 +1181,7 @@ test('approval expires only competing pending physical requests and releases aut
       idempotencyKey: 'booking-test:approval-race-non-overlap',
       startDate: '2026-09-23',
       endDate: '2026-09-24',
-      fulfilmentMethod: 'pickup',
+      fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00',
       agreementAccepted: true,
       agreementVersion: 'renthub-booking-v1',
     });

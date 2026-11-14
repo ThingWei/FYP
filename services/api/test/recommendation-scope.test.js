@@ -40,8 +40,27 @@ const makeListing = (publicId, overrides={}) => ListingModel.create({publicId,ow
 const makeBooking = (listingId, overrides={}) => BookingModel.create({publicId:`RH-BKG-2026-T${++sequence}`,
   listingId,listingTitle:'Camera',listingType:'physical',renterId:'u-renter',renterName:'Renter',ownerId:'u-owner',
   startDate:new Date(Date.now()-DAY), endDate:new Date(), status:'completed',completedAt:new Date(),
-  fulfilmentMethod:'pickup',pricing:{baseAmount:50,securityDeposit:0,total:50},...overrides});
+  fulfilmentMethod:'pickup', pickupTime: '09:00', returnTime: '18:00',pricing:{baseAmount:50,securityDeposit:0,total:50},...overrides});
 const rank = payload => payload.candidates.map(item => ({item_id:item.item_id,score:.5,adapter:'test-hybrid',reason:'Based on marketplace activity'}));
+
+test('separate nearby Home keeps location-weighted recommendations and general trends distinct', async t => {
+  await makeListing('l-local-home');
+  const far = {latitude:1.51,longitude:103.72};
+  await makeListing('l-far-home', {coordinates:far,publicGeoPoint:approximatePoint(far),locationDetails:{coordinates:far,displayAddress:'Private far entrance',city:'Johor Bahru'}});
+  await makeListing('l-own-home', {ownerId:'u-renter'});
+  await ListingViewModel.create({userId:'u-other',listingId:'l-far-home',day:malaysiaDay(),lastViewedAt:new Date(),expiresAt:new Date(Date.now()+90*DAY)});
+  let payload;
+  t.mock.method(aiClient,'recommendItems',async input=>{payload=input;return rank(input);});
+  const response=await request(app).get(`/api/v1/listings/recommendation-feed?separateNearby=true&${query}`).set(renter).expect(200);
+  assert.deepEqual(response.body.data.recommended.items.map(row=>row.publicId),['l-local-home']);
+  assert.deepEqual(response.body.data.nearby.items.map(row=>row.publicId),['l-local-home']);
+  assert.deepEqual(response.body.data.trending.items.map(row=>row.publicId),['l-far-home']);
+  assert.equal(response.body.data.trending.scope,'marketplace');
+  assert.equal(payload.latitude,undefined); assert.equal(payload.longitude,undefined);
+  assert.ok(!JSON.stringify(response.body).includes('Private far entrance'));
+  const local=response.body.data.nearby.items[0]; assert.equal(local.locationPrecision,'approximate');
+  await request(app).get('/api/v1/listings/recommendation-feed?separateNearby=yes').set(renter).expect(422);
+});
 
 test('Home has honest marketplace picks without requesting location or inventing trends', async () => {
   await makeListing('l-seed-pick', { sourceType: 'demo_seed' });

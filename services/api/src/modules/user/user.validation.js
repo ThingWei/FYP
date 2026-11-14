@@ -99,15 +99,17 @@ export const roleValidation = [body('role').isIn(USER_ROLES)];
 
 export const verificationSubmissionValidation = [
   body().custom((value) => {
-    const allowed = new Set(['documentType', 'documentRefs', 'licenceSource']);
+    const allowed = new Set(['documentType', 'documentRefs', 'licenceSource', 'holderPhotoRef']);
     const unknown = Object.keys(value).filter((field) => !allowed.has(field));
     if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(', ')}`);
     if (value.licenceSource && value.documentType !== 'driving_licence') throw new Error('Licence source is only used for driving evidence');
+    if (value.holderPhotoRef && value.documentType !== 'mykad') throw new Error('The holder photo is only used for MyKad review');
     return true;
   }),
   body('documentType').isIn(['mykad', 'driving_licence']),
   body('licenceSource').optional().isIn(['physical', 'myjpj']),
   body('documentRefs').isArray({ min: 1, max: 2 }),
+  body('holderPhotoRef').optional().custom(textInput).bail().custom(isUploadReference),
   body('documentRefs.*').custom(textInput).bail().trim()
     .custom((value) => isUploadReference(value))
     .withMessage('Each document must reference an uploaded image'),
@@ -194,6 +196,7 @@ export const accountDeactivationValidation = [
 
 export const verificationDecisionValidation = [
   ...targetUserValidation,
+  body('holderPhotoReviewed').optional().custom(value => value === true),
   body('status').isIn(
     VERIFICATION_STATUSES.filter((status) =>
       ['approved', 'rejected', 'resubmission_required'].includes(status),

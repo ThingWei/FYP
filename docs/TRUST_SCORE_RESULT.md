@@ -1,5 +1,9 @@
 # Working RentHub trust scores
 
+Latest policy: [recorded-rentals-v3 and the compact percentage display](PODIUM_TRUST_AND_LISTING_UI_RESULT.md). A role score now appears after its first qualifying completion; empty history shows a neutral dash. Earlier thresholds and execution notes below describe previous versions.
+
+Current display update (14 November 2026): scores appear as percentage circles, with green 80–100, yellow 50–79 and red 0–49. Building/unavailable histories remain neutral. Calculation and provenance rules are unchanged. See [the current improvements handoff](TRUST_COMPARISON_AND_REVIEW_EVIDENCE_RESULT.md).
+
 Implemented 28 October 2026; application trust updated 13 November 2026. See [the current compact-card, unified-trust and Owner attention handoff](COMPACT_CARDS_TRUST_AND_OWNER_ATTENTION_RESULT.md).
 
 ## What users can do

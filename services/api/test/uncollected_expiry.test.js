@@ -22,7 +22,7 @@ async function fixture({ status = 'scheduled', type = 'physical', captured = fal
   const booking = await BookingModel.create({ publicId: `RH-BKG-2026-${id}`, listingId: `listing-${id}`,
     listingTitle: 'Demo camera', listingType: type, renterId: 'renter', renterName: 'Demo Renter', ownerId: 'owner',
     startDate: new Date(new Date(endDate).getTime() - 86400000), endDate: new Date(endDate),
-    ...(type === 'physical' ? { fulfilmentMethod: 'pickup' } : { serviceVenue: 'Online' }),
+    ...(type === 'physical' ? { fulfilmentMethod: 'pickup', pickupTime: '09:00', returnTime: '18:00' } : { serviceVenue: 'Online' }),
     status: 'approved', paymentStatus: captured ? 'captured' : 'authorized',
     pricing: { baseAmount: 100, securityDeposit: 50, total: 150 } });
   const rental = await RentalModel.create({ publicId: `RH-RNT-2026-${id}`, bookingId: booking.publicId,

@@ -127,6 +127,14 @@ Future<void> tapText(WidgetTester tester, String text) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> chooseAppointments(WidgetTester tester) async {
+  for (final label in ['Pickup / delivery time', 'Return time']) {
+    await tapText(tester, label);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+  }
+}
+
 void main() {
   testWidgets('leaving new checkout refreshes a previously empty booking count',
       (tester) async {
@@ -164,6 +172,7 @@ void main() {
                   child: const Text('Open listing'));
             })))));
     await tapText(tester, 'Open listing');
+    await chooseAppointments(tester);
     await tapText(tester, 'Review');
     await tapText(tester, 'I have reviewed these terms');
     await tapText(
@@ -280,6 +289,7 @@ void main() {
                     fail('Duplicate must not report a newly submitted booking'),
               ))));
       await tester.pumpAndSettle();
+      await chooseAppointments(tester);
       await tapText(tester, 'Review');
       await tapText(tester, 'I have reviewed these terms');
       await tapText(
