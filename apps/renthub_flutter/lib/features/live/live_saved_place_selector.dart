@@ -27,9 +27,11 @@ class SavedPlaceSelector extends StatefulWidget {
       {super.key,
       required this.addresses,
       required this.onSelected,
+      this.onCleared,
       this.enabled = true});
   final List<UserAddress> addresses;
   final ValueChanged<UserAddress> onSelected;
+  final VoidCallback? onCleared;
   final bool enabled;
   @override
   State<SavedPlaceSelector> createState() => _SavedPlaceSelectorState();
@@ -48,7 +50,19 @@ class _SavedPlaceSelectorState extends State<SavedPlaceSelector> {
         initialValue: value,
         isExpanded: true,
         itemHeight: 64,
-        decoration: const InputDecoration(labelText: 'Saved places (optional)'),
+        decoration: InputDecoration(
+            labelText: 'Saved places (optional)',
+            suffixIcon: value == null
+                ? null
+                : IconButton(
+                    tooltip: 'Clear saved place',
+                    onPressed: !widget.enabled
+                        ? null
+                        : () {
+                            setState(() => selected = null);
+                            widget.onCleared?.call();
+                          },
+                    icon: const Icon(Icons.close))),
         selectedItemBuilder: (context) => places.values
             .map((place) => Align(
                 alignment: Alignment.centerLeft,

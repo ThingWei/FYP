@@ -13,6 +13,16 @@ Future<void> openTrustDetails(BuildContext context, String userId,
         MaterialPageRoute(
             builder: (_) => LiveTrustPage(userId: userId, role: role)));
 
+class TrustScoreLink extends StatelessWidget {
+  const TrustScoreLink({super.key, required this.userId});
+  final String userId;
+  @override
+  Widget build(BuildContext context) => TextButton.icon(
+      onPressed: () => openTrustDetails(context, userId),
+      icon: const Icon(Icons.verified_user_outlined),
+      label: const Text('Trust score'));
+}
+
 class TrustSummaryButton extends StatelessWidget {
   const TrustSummaryButton(
       {super.key,
@@ -112,18 +122,35 @@ class _LiveTrustPageState extends State<LiveTrustPage> {
                                 ]))),
                       if (profile != null) ...[
                         if (widget.role == 'overall')
-                          Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                    child: TrustActivityCard(
-                                        title: 'Owner trust score',
-                                        cohort: profile!.owner.application)),
-                                Expanded(
-                                    child: TrustActivityCard(
-                                        title: 'Renter trust score',
-                                        cohort: profile!.renter.application)),
-                              ])
+                          LayoutBuilder(builder: (context, bounds) {
+                            final cards = [
+                              TrustActivityCard(
+                                  title: 'Owner trust score',
+                                  cohort: profile!.owner.application),
+                              TrustActivityCard(
+                                  title: 'Renter trust score',
+                                  cohort: profile!.renter.application),
+                            ];
+                            if (bounds.maxWidth < 560 ||
+                                MediaQuery.textScalerOf(context).scale(14) >
+                                    21) {
+                              return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    cards[0],
+                                    const SizedBox(height: 12),
+                                    cards[1]
+                                  ]);
+                            }
+                            return Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: cards[0]),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: cards[1])
+                                ]);
+                          })
                         else
                           TrustActivityCard(
                               title: widget.role == 'owner'

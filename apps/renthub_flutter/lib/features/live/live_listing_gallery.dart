@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/models/domain_models.dart';
 import 'live_photo_widgets.dart';
 import 'live_listing_photo_viewer.dart';
 
@@ -95,6 +96,31 @@ class _ListingPhotoCarouselState extends State<ListingPhotoCarousel> {
                 icon: const Icon(Icons.chevron_right)),
           ]),
       ]);
+}
+
+class ListingRowThumbnail extends StatelessWidget {
+  const ListingRowThumbnail({super.key, required this.listing, this.size = 64});
+  final Listing listing;
+  final double size;
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+          width: size,
+          height: size,
+          child: listing.images.isEmpty
+              ? ColoredBox(
+                  color: AppColors.primaryLight,
+                  child: Icon(listing.isService
+                      ? Icons.design_services_outlined
+                      : Icons.inventory_2_outlined))
+              : LivePhotoThumbnail(
+                  reference: listing.images.first,
+                  label: listing.title,
+                  width: size,
+                  height: size,
+                  interactive: false,
+                  fit: BoxFit.cover)));
 }
 
 class ListingDetailCell extends StatelessWidget {

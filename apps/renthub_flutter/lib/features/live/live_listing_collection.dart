@@ -128,7 +128,7 @@ class ListingCollection extends StatelessWidget {
               maxLines: lines,
               textDirection: Directionality.of(context),
               textScaler: MediaQuery.textScalerOf(context))
-            ..layout(maxWidth: math.max(1, width - 24));
+            ..layout(maxWidth: math.max(1, width - 16));
           final height = painter.height;
           painter.dispose();
           return height;
@@ -139,10 +139,8 @@ class ListingCollection extends StatelessWidget {
                 width,
                 (height, item) => math.max(
                     height,
-                    width -
-                        8 +
+                    width +
                         16 +
-                        8 +
                         4 +
                         measure(item.title, theme.titleSmall, 2) +
                         measure(
@@ -253,14 +251,16 @@ class ListingCardSummary extends StatelessWidget {
       {super.key,
       required this.listing,
       this.actions,
+      this.fillHeight = false,
       this.showBadges = false});
   final Listing listing;
   final Widget? actions;
   final bool showBadges;
+  final bool fillHeight;
   @override
   Widget build(BuildContext context) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: fillHeight ? MainAxisSize.max : MainAxisSize.min,
           children: [
             Text(
                 'RM ${listing.displayPrice.toStringAsFixed(2)} / ${listing.priceUnit}',
@@ -287,6 +287,7 @@ class ListingCardSummary extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall)),
+            if (fillHeight && actions != null) const Spacer(),
             if (actions != null)
               IconButtonTheme(
                   data: IconButtonThemeData(
@@ -307,13 +308,23 @@ class ListingProductCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
           onTap: onOpen,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            ListingCardPhoto(listing: listing),
-            Padding(
+          child: LayoutBuilder(builder: (context, box) {
+            Widget summary(bool fill) => Padding(
                 padding: const EdgeInsets.all(8),
-                child: ListingCardSummary(listing: listing, actions: actions)),
-          ])));
+                child: ListingCardSummary(
+                    listing: listing, actions: actions, fillHeight: fill));
+            return Column(
+                mainAxisSize:
+                    box.hasBoundedHeight ? MainAxisSize.max : MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ListingCardPhoto(listing: listing),
+                  if (box.hasBoundedHeight)
+                    Expanded(child: summary(true))
+                  else
+                    summary(false),
+                ]);
+          })));
 }
 
 class _ListingBadge extends StatelessWidget {

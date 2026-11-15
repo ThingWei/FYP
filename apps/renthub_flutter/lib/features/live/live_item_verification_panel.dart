@@ -1,3 +1,4 @@
+import 'live_listing_photo_viewer.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -339,8 +340,17 @@ class _ItemPhotoReviewDialogState extends State<_ItemPhotoReviewDialog> {
                                                 label:
                                                     'Listing photo ${index + 1}',
                                                 controller: widget.controller,
-                                                evidence:
-                                                    evidenceByIndex[index],
+                                                onOpen: () => Navigator.push<void>(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                        builder: (_) => ListingPhotoViewer(
+                                                            photos: List.unmodifiable(
+                                                                listing.images),
+                                                            title:
+                                                                listing.title,
+                                                            initialIndex: index,
+                                                            evidenceByIndex: Map.unmodifiable(evidenceByIndex)))),
+                                                evidence: evidenceByIndex[index],
                                                 width: box.maxWidth,
                                                 height: double.infinity)),
                                       ))),

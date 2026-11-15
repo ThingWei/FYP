@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { param } from 'express-validator';
 import { authenticate, authorize } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { reviewController } from './review.controller.js';
@@ -30,6 +31,7 @@ reviewRouter.get(
 );
 
 reviewRouter.use(authenticate);
+reviewRouter.get('/rental/:rentalId', param('rentalId').isString().bail().matches(/^RH-RNT-\d{4}-[A-Z0-9]+$/), validate, reviewController.forRental);
 reviewRouter.get('/subjects/:subjectId', subjectReviewsValidation, validate, reviewController.listSubject);
 reviewRouter.get('/mine', reviewListValidation, validate, reviewController.listMine);
 reviewRouter.get(

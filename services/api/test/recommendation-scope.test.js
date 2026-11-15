@@ -43,6 +43,24 @@ const makeBooking = (listingId, overrides={}) => BookingModel.create({publicId:`
   fulfilmentMethod:'pickup', pickupTime: '09:00', returnTime: '18:00',pricing:{baseAmount:50,securityDeposit:0,total:50},...overrides});
 const rank = payload => payload.candidates.map(item => ({item_id:item.item_id,score:.5,adapter:'test-hybrid',reason:'Based on marketplace activity'}));
 
+test('Home sections apply specific-category filters before limiting Recently Viewed', async t => {
+  await makeListing('l-recent-camera');
+  await makeListing('l-recent-phone', { subcategory: 'Smartphones' });
+  await makeListing('l-recent-car', { category: 'Vehicles', subcategory: 'Cars' });
+  await makeListing('l-recent-expensive', { dailyPrice: 500 });
+  await makeListing('l-recent-busy');
+  await makeBooking('l-recent-busy', { status: 'approved', startDate: new Date('2030-06-01'), endDate: new Date('2030-06-03') });
+  const now = new Date();
+  await ListingViewModel.create(['l-recent-camera', 'l-recent-phone', 'l-recent-car', 'l-recent-expensive', 'l-recent-busy'].map((listingId, index) => ({
+    listingId, userId: 'u-renter', day: malaysiaDay(now), lastViewedAt: new Date(+now + index), expiresAt: new Date(+now + 90 * DAY) })));
+  t.mock.method(aiClient, 'recommendItems', async input => rank(input));
+  const response = await request(app).get(`/api/v1/listings/recommendation-feed?${query}&separateNearby=true&category=Devices&subcategory=Cameras&type=physical&maxPrice=60&availableFrom=2030-06-01&availableTo=2030-06-04`).set(renter).expect(200);
+  for (const section of ['recommended', 'trending', 'recentlyViewed', 'nearby']) {
+    assert.deepEqual(response.body.data[section].items.map(row => row.publicId), ['l-recent-camera'], section);
+  }
+  assert.equal(await ListingViewModel.countDocuments(), 5);
+});
+
 test('separate nearby Home keeps location-weighted recommendations and general trends distinct', async t => {
   await makeListing('l-local-home');
   const far = {latitude:1.51,longitude:103.72};
@@ -175,7 +193,9 @@ test('recent/trending exclude stale, unpinned, inactive, blocked, own and restri
   t.mock.method(aiClient,'recommendItems',async payload=>rank(payload));
   const feed=(await request(app).get(`/api/v1/listings/recommendation-feed?${query}`).set(renter).expect(200)).body.data;
   assert.deepEqual(feed.trending.items.map(i=>i.publicId),['l-camera']);
-  assert.deepEqual(new Set(feed.recentlyViewed.items.map(i=>i.publicId)),new Set(['l-camera','l-unpinned']));
+  assert.deepEqual(feed.recentlyViewed.items.map(i=>i.publicId), ['l-camera']);
+  const withoutRadius = (await request(app).get('/api/v1/listings/recommendation-feed?section=recentlyViewed').set(renter).expect(200)).body.data;
+  assert.deepEqual(new Set(withoutRadius.recentlyViewed.items.map(i=>i.publicId)),new Set(['l-camera','l-unpinned']));
   assert.ok(!JSON.stringify(feed).includes('Private entrance'));
   assert.ok(!JSON.stringify(feed).includes('3.14234'));
   assert.ok(!JSON.stringify(feed).includes('locationDetails'));

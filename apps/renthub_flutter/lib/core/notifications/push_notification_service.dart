@@ -138,7 +138,7 @@ class PushNotificationService {
         PushRegistrationState.denied =>
           'Notifications are blocked by this device. Allow RentHub notifications in Android settings, then try again.',
         PushRegistrationState.registered =>
-          'This device is registered for push notifications. Delivery also requires the API to be running.',
+          'Notifications are enabled on this device.',
         PushRegistrationState.failed =>
           'Phone push could not be updated on this device. Check your connection and try again.',
       };

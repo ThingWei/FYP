@@ -204,6 +204,7 @@ export const listMineValidation = [
 ];
 
 export const recommendationValidation = [
+  query('subcategory').optional().custom(textInput).bail().trim().isLength({ min: 1, max: 100 }),
   query('section').optional().isIn(['recommended', 'nearby', 'trending', 'recentlyViewed']),
   query('separateNearby').optional().isIn(['true', 'false']),
   query().custom(validateNearby),

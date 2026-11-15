@@ -42,6 +42,8 @@ Real-device gestures, TalkBack, the Windows mouse/keyboard walkthrough and live-
 
 ## Try it
 
+Follow-up: [Owner navigation, Home filters and review access](OWNER_NAVIGATION_AND_FILTER_RECOVERY_RESULT.md) replaces the two profile trust links with one Trust score destination and adds dedicated Owner listing/review pages.
+
 Rebuild/reopen the app. Open an item, tap its location, open a photo and swipe/zoom/close it. Open the Owner profile to see the two labelled role scores. Check service location fields and swipe the amount/duration presets. Existing records need no migration.
 
 ## Commit message

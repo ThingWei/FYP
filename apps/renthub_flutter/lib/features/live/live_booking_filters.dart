@@ -54,13 +54,13 @@ class _BookingFiltersToolbarState extends State<BookingFiltersToolbar> {
 
   Future<void> apply(BookingListFilters filters) => context
       .read<LiveRentHubController>()
-      .filterBookings(widget.collection, filters);
+      .filterBookings(widget.collection, filters.copyWith(category: ''));
   Future<void> showFilters() async {
     final c = context.read<LiveRentHubController>();
     final currentAccount = c.profile?.id;
     var draft = c
         .filtersForBookings(widget.collection)
-        .copyWith(query: search.text.trim());
+        .copyWith(query: search.text.trim(), category: '');
     var limit = c.userRecordPages[widget.collection]?.limit ?? 20;
     final result = await showDialog<(BookingListFilters, int)>(
         context: context,
@@ -103,28 +103,12 @@ class _BookingFiltersToolbarState extends State<BookingFiltersToolbar> {
                             'Booking type',
                             draft.listingType,
                             const {
-                              '': 'Items and services',
+                              '': 'All',
                               'physical': 'Physical items',
                               'service': 'Services'
                             },
                             (v) => draft =
                                 draft.copyWith(listingType: v, category: '')),
-                        dropdown(
-                            'Category',
-                            draft.category,
-                            {
-                              '': 'All categories',
-                              if (draft.listingType != 'service') ...const {
-                                'Devices': 'Devices',
-                                'Vehicles': 'Vehicles',
-                                'Equipment': 'Equipment',
-                                'Books': 'Books',
-                                'Clothing': 'Clothing'
-                              },
-                              if (draft.listingType != 'physical')
-                                'Services': 'Services'
-                            },
-                            (v) => draft = draft.copyWith(category: v)),
                         dropdown(
                             'Payment',
                             draft.paymentStatus,

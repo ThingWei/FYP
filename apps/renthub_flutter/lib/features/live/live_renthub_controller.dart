@@ -2333,8 +2333,10 @@ class LiveRentHubController extends ChangeNotifier {
               ? canManageBooking(booking)
               : profile?.roles.contains(UserRole.admin) == true;
       state.bookings = [
-        if (belongs) booking,
-        ...state.bookings.where((item) => item.id != booking.id),
+        if (belongs && !state.bookings.any((item) => item.id == booking.id))
+          booking,
+        for (final item in state.bookings)
+          if (item.id != booking.id) item else if (belongs) booking,
       ];
     }
     notifyListeners();
@@ -2359,8 +2361,10 @@ class LiveRentHubController extends ChangeNotifier {
                   rental.renterId != profile!.id
               : profile?.roles.contains(UserRole.admin) == true;
       state.rentals = [
-        if (belongs) rental,
-        ...state.rentals.where((item) => item.id != rental.id),
+        if (belongs && !state.rentals.any((item) => item.id == rental.id))
+          rental,
+        for (final item in state.rentals)
+          if (item.id != rental.id) item else if (belongs) rental,
       ];
     }
   }
@@ -2876,6 +2880,12 @@ class LiveRentHubController extends ChangeNotifier {
     return (await api.request('GET', '/catalog/models?$parameters') as List)
         .map((item) => Map<String, dynamic>.from(item as Map))
         .toList();
+  }
+
+  void refreshOwnedListingSnapshot(Listing listing) {
+    if (profile?.id != listing.ownerId) return;
+    _replaceOwnerListing(listing);
+    notifyListeners();
   }
 
   void _replaceOwnerListing(Listing listing) {

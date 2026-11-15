@@ -4,7 +4,7 @@ import { BookingModel } from '../booking/booking.model.js';
 import { notifyUser } from '../communication/notification.service.js';
 import { RentalModel } from '../rental/rental.model.js';
 import { UserModel } from '../user/user.model.js';
-import { REVIEW_STATUSES } from './review.model.js';
+import { REVIEW_STATUSES, ReviewModel } from './review.model.js';
 import { reviewRepository } from './review.repository.js';
 import { refreshTrustAfterActivity } from '../user/trust.service.js';
 import { visibleTrustUser } from '../user/trustVisibility.js';
@@ -43,6 +43,21 @@ function withEditState(review, identity) {
 }
 
 export const reviewService = {
+  async forRental(rentalId, identity) {
+    await activeUser(identity);
+    const rental = await RentalModel.findOne({ publicId: rentalId });
+    const role = rental?.ownerId === identity.authId ? 'owner' : rental?.renterId === identity.authId ? 'renter' : null;
+    if (!role) throw new AppError('Rental not found', 404, 'NOT_FOUND');
+    const counterpart = role === 'owner' ? rental.renterId : rental.ownerId;
+    const fields = '-_id publicId rentalId listingId listingTitle listingType authorId authorName authorRole subjectId subjectName subjectRole overallRating communicationRating conditionRating valueRating text status createdAt editedAt';
+    const [written, received] = await Promise.all([
+      ReviewModel.findOne({ rentalId, authorId: identity.authId, subjectId: counterpart, authorRole: role }).select(fields).lean(),
+      ReviewModel.findOne({ rentalId, authorId: counterpart, subjectId: identity.authId,
+        authorRole: role === 'owner' ? 'renter' : 'owner', status: 'published' }).select(fields).lean(),
+    ]);
+    return { writtenReview: written ? withEditState(written, identity) : null,
+      receivedReview: received ? { ...received, canEdit: false } : null };
+  },
   async listSubject(subjectId, identity, query) {
     const target = await visibleTrustUser(identity, subjectId);
     const { page, limit } = pageOptions(query);

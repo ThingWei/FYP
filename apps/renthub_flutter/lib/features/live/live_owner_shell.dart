@@ -1,3 +1,7 @@
+import 'live_owner_listing_details.dart';
+import 'live_listing_gallery.dart';
+import 'live_listing_photo_viewer.dart';
+import 'live_rental_reviews.dart';
 import 'live_value_pickers.dart';
 import 'live_contact_profile.dart';
 import 'live_appointments.dart';
@@ -48,9 +52,7 @@ import 'live_photo_widgets.dart';
 import 'live_listing_photo_picker.dart';
 import 'live_agreement.dart';
 import 'live_dispute_page.dart';
-import 'live_review_page.dart';
 import 'live_shared_pages.dart';
-import 'live_item_verification_panel.dart';
 
 class LiveOwnerShell extends StatefulWidget {
   const LiveOwnerShell({
@@ -327,7 +329,8 @@ class LiveOwnerDashboard extends StatelessWidget {
                       )
                     else
                       for (final rental in controller.ownerRentals.take(3))
-                        _OwnerRentalCard(rental: rental),
+                        _OwnerRentalCard(
+                            key: ValueKey(rental.id), rental: rental),
                     TextButton(
                         onPressed: () => Navigator.push<void>(
                             context,
@@ -512,14 +515,25 @@ class LiveOwnerListingsPage extends StatelessWidget {
                   final listing = controller.ownerListings[index];
                   return Card(
                     child: ListTile(
-                      onTap: listing.isService
-                          ? null
-                          : () => showItemPhotoReview(context, listing),
-                      leading: CircleAvatar(
-                        child: Icon(listing.isService
-                            ? Icons.design_services_outlined
-                            : Icons.inventory_2_outlined),
-                      ),
+                      onTap: () async {
+                        Future<void> edit(Listing current) =>
+                            Navigator.push<void>(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => LiveListingForm(
+                                        isService: current.isService,
+                                        listing: current)));
+                        if (listing.status == 'draft') {
+                          await edit(listing);
+                        } else if (context.mounted) {
+                          await Navigator.push<void>(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => LiveOwnerListingDetailsPage(
+                                      initial: listing, onEdit: edit)));
+                        }
+                      },
+                      leading: ListingRowThumbnail(listing: listing, size: 56),
                       title: Text(listing.title.trim().isEmpty
                           ? 'Untitled listing'
                           : listing.title),
@@ -527,7 +541,7 @@ class LiveOwnerListingsPage extends StatelessWidget {
                         '${listing.dailyPrice > 0 ? formatMoney(listing.dailyPrice) : 'Price not set'} · ${listing.status.replaceAll('_', ' ')}'
                         '${listing.promotionActive ? '\n${listing.promotionLabel} · ${listing.promotionDiscountPercent.toStringAsFixed(0)}% off' : ''}'
                         '${listing.bundleActive ? '\n${listing.bundleTitle}' : ''}'
-                        '${listing.itemVerificationOutcome.isNotEmpty && !listing.isService ? '\n${listing.itemPhotoCheckLabel} · Tap to view' : ''}',
+                        '${listing.itemVerificationOutcome.isNotEmpty && !listing.isService ? '\n${listing.itemPhotoCheckLabel}' : ''}',
                       ),
                       isThreeLine: listing.promotionActive ||
                           listing.bundleActive ||
@@ -1638,6 +1652,17 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                 PhotoAttachmentTile(
                                     reference: images[index],
                                     label: 'Image ${index + 1}',
+                                    onOpen: () => Navigator.push<void>(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (_) => ListingPhotoViewer(
+                                                photos:
+                                                    List<String>.unmodifiable(
+                                                        images),
+                                                title: title.text.trim().isEmpty
+                                                    ? 'Listing photos'
+                                                    : title.text.trim(),
+                                                initialIndex: index))),
                                     onRemove: saving || addingImages
                                         ? null
                                         : () => _removeImage(index)),
@@ -2977,7 +3002,8 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
 }
 
 class _OwnerRentalCard extends StatelessWidget {
-  const _OwnerRentalCard({required this.rental, this.embedded = false});
+  const _OwnerRentalCard(
+      {super.key, required this.rental, this.embedded = false});
   final bool embedded;
 
   final Rental rental;
@@ -3049,35 +3075,7 @@ class _OwnerRentalCard extends StatelessWidget {
     Widget? action, actionNote;
     List<Widget> extensionActions = [];
     if (rental.status == 'completed') {
-      final matching = context
-          .watch<LiveRentHubController>()
-          .reviews
-          .where((review) => review.rentalId == rental.id)
-          .toList();
-      final existing = matching.isEmpty ? null : matching.first;
-      action = OutlinedButton.icon(
-        onPressed: existing != null && !existing.canEdit
-            ? null
-            : () => Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => LiveReviewPage(
-                      rental: rental,
-                      subject: 'Renter for $itemTitle',
-                      existing: existing,
-                      reviewingRenter: true,
-                    ),
-                  ),
-                ),
-        icon: const Icon(Icons.rate_review_outlined),
-        label: Text(
-          existing == null
-              ? 'Review Renter'
-              : existing.canEdit
-                  ? 'Edit Renter Review'
-                  : 'Renter Reviewed',
-        ),
-      );
+      action = RentalReviewsButton(rental: rental, owner: true);
     } else if (rental.status == 'scheduled' && rental.awaitingReceipt) {
       actionNote = const Text('Waiting for renter confirmation',
           textAlign: TextAlign.center);

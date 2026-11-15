@@ -8,6 +8,8 @@ import { recommendationFeed } from './recommendationFeed.service.js';
 const bodyData = (req) => matchedData(req, { locations: ['body'] });
 
 export const listingController = {
+  getOwned: asyncHandler(async (req, res) =>
+    ok(res, ownedListing(await listingService.getOwned(req.params.id, req.user)))),
   searchSuggestions: asyncHandler(async(req,res)=>ok(res,await listingService.searchSuggestions(req.user,req.query))),
   recommendationFeed: asyncHandler(async (req, res) => ok(res, await recommendationFeed.home(req.user, req.query))),
   recordView: asyncHandler(async (req, res) => ok(res, await recommendationFeed.recordView(req.user, req.params.id))),

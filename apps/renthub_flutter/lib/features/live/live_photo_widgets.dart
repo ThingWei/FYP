@@ -233,6 +233,8 @@ class LivePhotoThumbnail extends StatefulWidget {
       this.controller,
       this.evidence,
       this.onOpen,
+      this.interactive = true,
+      this.fit = BoxFit.contain,
       this.width = 96,
       this.height = 96});
   final String reference;
@@ -240,6 +242,8 @@ class LivePhotoThumbnail extends StatefulWidget {
   final LiveRentHubController? controller;
   final Map? evidence;
   final VoidCallback? onOpen;
+  final bool interactive;
+  final BoxFit fit;
   final double width;
   final double height;
 
@@ -283,6 +287,10 @@ class _LivePhotoThumbnailState extends State<LivePhotoThumbnail> {
               future: bytes,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
+                  if (!widget.interactive) {
+                    return const Center(
+                        child: Icon(Icons.broken_image_outlined));
+                  }
                   return ColoredBox(
                       color: AppColors.surface,
                       child: Center(
@@ -297,18 +305,27 @@ class _LivePhotoThumbnailState extends State<LivePhotoThumbnail> {
                 }
                 final data = snapshot.data!;
                 return Semantics(
-                    button: true,
-                    label: 'Preview ${widget.label}',
+                    button: widget.interactive,
+                    image: !widget.interactive,
+                    label: widget.interactive
+                        ? 'Preview ${widget.label}'
+                        : widget.label,
                     child: InkWell(
-                      onTap: widget.onOpen ??
-                          () => showPhotoBytes(context, data, widget.label,
-                              evidence: widget.evidence),
+                      onTap: !widget.interactive
+                          ? null
+                          : widget.onOpen ??
+                              () => showPhotoBytes(context, data, widget.label,
+                                  evidence: widget.evidence),
                       child: isPdfBytes(data)
                           ? const Center(
                               child:
                                   Icon(Icons.picture_as_pdf_outlined, size: 40))
                           : PhotoWithDetections(
-                              bytes: data, evidence: widget.evidence),
+                              bytes: data,
+                              evidence: widget.evidence,
+                              fit: widget.evidence == null
+                                  ? widget.fit
+                                  : BoxFit.contain),
                     ));
               },
             )),
@@ -317,16 +334,25 @@ class _LivePhotoThumbnailState extends State<LivePhotoThumbnail> {
 
 class PhotoAttachmentTile extends StatelessWidget {
   const PhotoAttachmentTile(
-      {super.key, required this.reference, required this.label, this.onRemove});
+      {super.key,
+      required this.reference,
+      required this.label,
+      this.onRemove,
+      this.onOpen});
   final String reference;
   final String label;
   final VoidCallback? onRemove;
+  final VoidCallback? onOpen;
   @override
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(children: [
         LivePhotoThumbnail(
-            reference: reference, label: label, width: 72, height: 72),
+            reference: reference,
+            label: label,
+            width: 72,
+            height: 72,
+            onOpen: onOpen),
         const SizedBox(width: 12),
         Expanded(child: Text(label)),
         if (onRemove != null)
@@ -338,15 +364,23 @@ class PhotoAttachmentTile extends StatelessWidget {
 }
 
 class PhotoWithDetections extends StatelessWidget {
-  const PhotoWithDetections({super.key, required this.bytes, this.evidence});
+  const PhotoWithDetections(
+      {super.key,
+      required this.bytes,
+      this.evidence,
+      this.fit = BoxFit.contain,
+      this.errorWidget});
   final Uint8List bytes;
   final Map? evidence;
+  final BoxFit fit;
+  final Widget? errorWidget;
   @override
   Widget build(BuildContext context) => SizedBox.expand(
           child: Stack(fit: StackFit.expand, children: [
         Image.memory(bytes,
-            fit: BoxFit.contain,
+            fit: fit,
             errorBuilder: (_, __, ___) =>
+                errorWidget ??
                 const Center(child: Text('Image cannot be displayed'))),
         if (evidence != null)
           IgnorePointer(

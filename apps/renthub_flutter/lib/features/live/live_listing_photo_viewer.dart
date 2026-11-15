@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'live_renthub_controller.dart';
+import 'live_photo_widgets.dart';
 
 /// Uses the existing authorized photo loader; bytes live only with this route.
 class ListingPhotoViewer extends StatefulWidget {
@@ -9,11 +10,13 @@ class ListingPhotoViewer extends StatefulWidget {
       {super.key,
       required this.photos,
       required this.title,
+      this.evidenceByIndex = const {},
       this.initialIndex = 0})
       : assert(initialIndex >= 0);
   final List<String> photos;
   final String title;
   final int initialIndex;
+  final Map<int, Map> evidenceByIndex;
   @override
   State<ListingPhotoViewer> createState() => _ListingPhotoViewerState();
 }
@@ -123,6 +126,7 @@ class _ListingPhotoViewerState extends State<ListingPhotoViewer> {
                                       label:
                                           '${widget.title}, photo ${index + 1}',
                                       active: index == selected,
+                                      evidence: widget.evidenceByIndex[index],
                                       onZoom: (value) {
                                         if (mounted &&
                                             index == selected &&
@@ -169,12 +173,14 @@ class _GalleryPhoto extends StatefulWidget {
       required this.label,
       required this.active,
       required this.onZoom,
+      this.evidence,
       required this.retry});
   final Future<Uint8List> data;
   final String label;
   final bool active;
   final ValueChanged<bool> onZoom;
   final VoidCallback retry;
+  final Map? evidence;
   @override
   State<_GalleryPhoto> createState() => _GalleryPhotoState();
 }
@@ -219,8 +225,13 @@ class _GalleryPhotoState extends State<_GalleryPhoto> {
                 onInteractionUpdate: (_) =>
                     widget.onZoom(transform.value.getMaxScaleOnAxis() > 1.01),
                 child: SizedBox.expand(
-                    child: Image.memory(snapshot.data!,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => retry))));
+                    child: widget.evidence == null
+                        ? Image.memory(snapshot.data!,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => retry)
+                        : PhotoWithDetections(
+                            bytes: snapshot.data!,
+                            evidence: widget.evidence,
+                            errorWidget: retry))));
       });
 }

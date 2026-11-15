@@ -403,8 +403,7 @@ void main() {
       await tester.pumpWidget(host(c, page()));
       await tester.pumpAndSettle();
       expect(find.text('Raise Dispute'), findsNothing);
-      expect(
-          find.text(owner ? 'Review Renter' : 'Rate & Review'), findsOneWidget);
+      expect(find.text('Reviews'), findsOneWidget);
       c.disputes = [historicalCase];
       c.notifyListeners();
       await tester.pumpWidget(host(c, page()));

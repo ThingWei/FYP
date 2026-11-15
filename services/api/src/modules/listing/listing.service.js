@@ -715,6 +715,13 @@ export const listingService = {
     return listing;
   },
 
+  async getOwned(id, identity) {
+    await requireOwner(identity);
+    const listing = await listingRepository.findOwnedById(id, identity.authId);
+    if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
+    return listing;
+  },
+
   async create(input, identity) {
     const owner = await requireOwner(identity);
     const trust = await availableTrustProfile(owner.authId);

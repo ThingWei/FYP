@@ -163,7 +163,7 @@ void main() {
     await tester.tap(find.byType(LivePhotoThumbnail));
     await tester.pumpAndSettle();
     expect(find.byType(InteractiveViewer), findsOneWidget);
-    await tester.tap(find.byTooltip('Close photo'));
+    await tester.tap(find.byTooltip('Close photos'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });

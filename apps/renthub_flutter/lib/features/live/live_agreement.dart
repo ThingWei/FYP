@@ -276,8 +276,18 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
                                         Text('Status: ${booking.status}')
                                       ],
                                       if (booking == null)
-                                        const Text(
-                                            'Review before submitting. Final charges are shown at checkout; Owner approval is still required.'),
+                                        const Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text('Review before submitting.'),
+                                              SizedBox(height: 8),
+                                              Text(
+                                                  'Final charges are shown at checkout.'),
+                                              SizedBox(height: 8),
+                                              Text(
+                                                  'Owner approval is required.'),
+                                            ]),
                                     ]),
                                     section('Booking details', [
                                       Text(

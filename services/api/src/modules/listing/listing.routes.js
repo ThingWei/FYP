@@ -64,6 +64,7 @@ listingRouter.get(
   validate,
   listingController.listAdmin,
 );
+listingRouter.get('/owner/:id', authenticate, authorize('owner'), listingIdValidation, validate, listingController.getOwned);
 listingRouter.post(
   '/',
   authenticate,

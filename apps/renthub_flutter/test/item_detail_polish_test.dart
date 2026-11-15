@@ -110,15 +110,14 @@ void main() {
     addTearDown(c.dispose);
     await t.pumpWidget(host(c, const LiveContactProfilePage(userId: 'owner')));
     await t.pumpAndSettle();
-    expect(find.text('Owner trust score: 69%'), findsOneWidget);
-    expect(find.text('Renter trust score: 81%'), findsOneWidget);
+    expect(find.widgetWithText(TrustScoreLink, 'Trust score'), findsOneWidget);
+    expect(find.byType(TrustSummaryButton), findsNothing);
     expect(find.textContaining('73%'), findsNothing);
-    final owner =
-        find.widgetWithText(TrustSummaryButton, 'Owner trust score: 69%');
-    await t.tap(owner);
+    await t.tap(find.byType(TrustScoreLink));
     await t.pumpAndSettle();
-    expect(t.widget<LiveTrustPage>(find.byType(LiveTrustPage)).role, 'owner');
+    expect(t.widget<LiveTrustPage>(find.byType(LiveTrustPage)).role, 'overall');
     expect(find.text('69%'), findsWidgets);
+    expect(find.text('81%'), findsWidgets);
     expect(t.takeException(), isNull);
   });
 

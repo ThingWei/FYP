@@ -1,3 +1,4 @@
+import 'live_rental_reviews.dart';
 import 'live_saved_place_selector.dart';
 import 'live_contact_profile.dart';
 import 'live_listing_gallery.dart';
@@ -47,7 +48,6 @@ import 'live_checkout_page.dart';
 import 'live_extension_checkout.dart';
 import 'live_extension_dates.dart';
 import 'live_dispute_page.dart';
-import 'live_review_page.dart';
 import 'live_recommendations.dart';
 import 'live_listing_collection.dart';
 import 'live_comparison.dart';
@@ -809,6 +809,7 @@ class _LiveDiscoveryFilterPageState extends State<LiveDiscoveryFilterPage> {
                   maxLength: centre == null ? 100 : 240,
                   onChanged: (value) => setState(() => centre = value)),
               if (centre != null) ...[
+                const SizedBox(height: 20),
                 DropdownButtonFormField<int>(
                     isExpanded: true,
                     initialValue: radiusKm,
@@ -942,11 +943,7 @@ class LiveSavedListingsPage extends StatelessWidget {
               itemBuilder: (context, listing) {
                 return Card(
                   child: ListTile(
-                    leading: Icon(
-                      listing.isService
-                          ? Icons.design_services_outlined
-                          : Icons.inventory_2_outlined,
-                    ),
+                    leading: ListingRowThumbnail(listing: listing, size: 56),
                     title: Text(listing.title),
                     subtitle: Text(
                       '${formatMoney(listing.displayPrice)} / ${listing.priceUnit} · ${listing.location}',
@@ -1086,6 +1083,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   final venue = TextEditingController(text: '');
   final delivery = TextEditingController();
   ListingLocationSelection? serviceLocation, deliveryLocation;
+  UserAddress? selectedSavedPlace;
   final note = TextEditingController();
   bool submitting = false;
   bool checkingIdentity = false;
@@ -2095,8 +2093,24 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                                     .read<LiveRentHubController>()
                                     .profile!
                                     .deliveryAddresses,
+                                onCleared: () {
+                                  final previous = selectedSavedPlace;
+                                  setState(() {
+                                    if (previous != null &&
+                                        delivery.text == previous.line1 &&
+                                        deliveryLocation?.point.latitude ==
+                                            previous.latitude &&
+                                        deliveryLocation?.point.longitude ==
+                                            previous.longitude) {
+                                      delivery.clear();
+                                      deliveryLocation = null;
+                                    }
+                                    selectedSavedPlace = null;
+                                  });
+                                },
                                 onSelected: (address) {
                                   setState(() {
+                                    selectedSavedPlace = address;
                                     delivery.text = address.line1;
                                     deliveryLocation = address.mapLocation;
                                   });
@@ -2531,41 +2545,10 @@ class _RenterRentalActions extends StatelessWidget {
           )
         : null;
     if (rental.status == 'completed') {
-      final matching = context
-          .watch<LiveRentHubController>()
-          .reviews
-          .where((review) => review.rentalId == rental.id)
-          .toList();
-      final existing = matching.isEmpty ? null : matching.first;
-      return Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          FilledButton.icon(
-            onPressed: existing != null && !existing.canEdit
-                ? null
-                : () => Navigator.push<void>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => LiveReviewPage(
-                          rental: rental,
-                          subject: 'Owner for ${rental.listingId}',
-                          existing: existing,
-                        ),
-                      ),
-                    ),
-            icon: const Icon(Icons.star_outline),
-            label: Text(
-              existing == null
-                  ? 'Rate & Review'
-                  : existing.canEdit
-                      ? 'Edit Review'
-                      : 'Review Submitted',
-            ),
-          ),
-          if (disputeButton != null) disputeButton,
-        ],
-      );
+      return RentHubActionGroup(children: [
+        RentalReviewsButton(rental: rental),
+        if (disputeButton != null) disputeButton,
+      ]);
     }
     if (rental.listingType == 'service' &&
         rental.status == 'completion_pending') {

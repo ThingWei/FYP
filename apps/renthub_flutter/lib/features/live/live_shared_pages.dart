@@ -409,22 +409,7 @@ class LiveProfilePage extends StatelessWidget {
                     const SizedBox(height: 8),
                     StatusBadge('$role account'),
                     const SizedBox(height: 8),
-                    if (profile != null)
-                      Wrap(
-                          alignment: WrapAlignment.center,
-                          spacing: 12,
-                          runSpacing: 8,
-                          children: [
-                            for (final trustRole in ['owner', 'renter'])
-                              TrustSummaryButton(
-                                  userId: profile.id,
-                                  role: trustRole,
-                                  prefix: trustRole == 'owner'
-                                      ? 'Owner trust score'
-                                      : 'Renter trust score',
-                                  summary:
-                                      profile.trustProfile.forRole(trustRole)),
-                          ]),
+                    if (profile != null) TrustScoreLink(userId: profile.id),
                   ],
                 ),
               ),

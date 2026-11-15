@@ -70,7 +70,9 @@ export const recommendationFeed = {
         const views = await ListingViewModel.find({ userId: identity.authId,
           lastViewedAt: { $gte: new Date(Date.now() - 90 * DAY) } }).sort({ lastViewedAt: -1 }).limit(1000).lean();
         const ids = [...new Set(views.map(row => row.listingId))];
-        const listings = await ListingModel.find({ ...filter, publicId: { $in: ids } });
+        const availability = await availabilityContext(generalQuery);
+        const listings = await ListingModel.find({ ...recommendationCandidateFilter(filter, generalQuery),
+          publicId: { $in: ids, ...(availability.hasDates && { $nin: [...availability.unavailable] }) } });
         const byId = new Map(listings.map(item => [item.publicId, item.toJSON()]));
         return section(ids.filter(id => byId.has(id)).slice(0, limit).map(id => byId.get(id)));
       }),

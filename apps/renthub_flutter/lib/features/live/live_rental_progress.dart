@@ -139,7 +139,7 @@ class RentalJourney {
     if (status == 'completed') {
       return RentalJourney(
           'Completed',
-          'The ${service ? 'service' : 'rental'} is complete. You can review your agreement and leave feedback.',
+          'Agreement and reviews are available below.',
           steps.length,
           steps);
     }

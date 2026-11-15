@@ -11,6 +11,7 @@ export function recommendationCandidateFilter(base, query) {
     filter.$or = [{ title: text }, { description: text }, { 'locationDetails.city': text }, { state: text }];
   }
   if (LISTING_CATEGORIES.includes(query.category)) filter.category = query.category;
+  if (query.subcategory?.trim()) filter.subcategory = query.subcategory.trim();
   if (['physical', 'service'].includes(query.type)) filter.listingType = query.type;
   if (query.location?.trim()) filter.$and = [...(filter.$and ?? []),
     { $or: [{ 'locationDetails.city': pattern(query.location) }, { state: pattern(query.location) }] }];

@@ -174,7 +174,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(InteractiveViewer), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.byTooltip('Close photo'));
+      await tester.tap(find.byTooltip('Close photos'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Close'));
       await tester.pumpAndSettle();

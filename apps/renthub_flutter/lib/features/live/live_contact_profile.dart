@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/user_facing_error.dart';
-import '../../core/trust/trust_profile.dart';
 import 'live_renthub_controller.dart';
 import 'live_trust_page.dart';
 import 'live_subject_reviews.dart';
@@ -150,29 +149,8 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
                                                       child:
                                                           Text('${p['bio']}')),
                                                 const SizedBox(height: 12),
-                                                Wrap(
-                                                    alignment:
-                                                        WrapAlignment.center,
-                                                    spacing: 12,
-                                                    runSpacing: 8,
-                                                    children: [
-                                                      for (final role in [
-                                                        'owner',
-                                                        'renter'
-                                                      ])
-                                                        TrustSummaryButton(
-                                                            userId:
-                                                                '${p['id']}',
-                                                            role: role,
-                                                            prefix: role ==
-                                                                    'owner'
-                                                                ? 'Owner trust score'
-                                                                : 'Renter trust score',
-                                                            summary: TrustProfile
-                                                                    .fromJson(p[
-                                                                        'trustProfile'])
-                                                                .forRole(role)),
-                                                    ]),
+                                                TrustScoreLink(
+                                                    userId: '${p['id']}'),
                                               ]))),
                                       SubjectReviewsSection(
                                           userId: '${p['id']}',
