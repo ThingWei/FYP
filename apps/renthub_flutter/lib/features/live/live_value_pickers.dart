@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import '../../core/validation/input_validation.dart' show InputRule;
 
 String durationLabel(int minutes) => [
@@ -122,23 +123,45 @@ class _ValueSheetState extends State<_ValueSheet> {
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineMedium),
                 const SizedBox(height: 20),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  for (final preset in widget.duration
-                      ? [30, 60, 120, 240, 480, 1440]
-                      : [0, 500, 1000, 2000, 5000, 10000, 20000, 50000])
-                    if (preset <= widget.maximum)
-                      ChoiceChip(
-                          label: Text(widget.duration
-                              ? durationLabel(preset)
-                              : preset == 0
-                                  ? 'None'
-                                  : 'RM ${preset ~/ 100}'),
-                          selected: value == preset,
-                          onSelected: (_) => setState(() {
-                                value = preset;
-                                error = null;
-                              })),
-                ]),
+                ScrollConfiguration(
+                    behavior:
+                        ScrollConfiguration.of(context).copyWith(dragDevices: {
+                      ...ScrollConfiguration.of(context).dragDevices,
+                      PointerDeviceKind.mouse,
+                    }),
+                    child: SingleChildScrollView(
+                        key: const ValueKey('value-preset-strip'),
+                        scrollDirection: Axis.horizontal,
+                        child: Row(children: [
+                          for (final preset in widget.duration
+                              ? [30, 60, 120, 240, 480, 1440]
+                              : [0, 500, 1000, 2000, 5000, 10000, 20000, 50000])
+                            if (preset <= widget.maximum)
+                              Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                      showCheckmark: false,
+                                      avatar: Icon(
+                                          value == preset
+                                              ? Icons.check_circle
+                                              : Icons.circle_outlined,
+                                          size: 18),
+                                      labelStyle: Theme.of(context)
+                                          .textTheme
+                                          .labelLarge
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w500),
+                                      label: Text(widget.duration
+                                          ? durationLabel(preset)
+                                          : preset == 0
+                                              ? 'None'
+                                              : 'RM ${preset ~/ 100}'),
+                                      selected: value == preset,
+                                      onSelected: (_) => setState(() {
+                                            value = preset;
+                                            error = null;
+                                          }))),
+                        ]))),
                 const SizedBox(height: 20),
                 if (widget.duration)
                   Row(children: [

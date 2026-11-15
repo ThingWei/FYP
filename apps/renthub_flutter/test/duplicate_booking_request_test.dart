@@ -128,11 +128,13 @@ Future<void> tapText(WidgetTester tester, String text) async {
 }
 
 Future<void> chooseAppointments(WidgetTester tester) async {
-  for (final label in ['Pickup / delivery time', 'Return time']) {
-    await tapText(tester, label);
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
-  }
+  await tapText(tester, 'Pickup & return times');
+  final fields = find.byType(DropdownButton<int>);
+  tester.widget<DropdownButton<int>>(fields.at(0)).onChanged!(9);
+  tester.widget<DropdownButton<int>>(fields.at(2)).onChanged!(10);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Save times'));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -176,7 +178,7 @@ void main() {
     await tapText(tester, 'Review');
     await tapText(tester, 'I have reviewed these terms');
     await tapText(
-        tester, 'I have reviewed and accept the RentHub booking agreement.');
+        tester, 'I reviewed and accept the booking agreement.');
     await tapText(tester, 'Continue to checkout');
     await tapText(tester, 'Continue');
     await tapText(tester, 'Back to Bookings');
@@ -293,7 +295,7 @@ void main() {
       await tapText(tester, 'Review');
       await tapText(tester, 'I have reviewed these terms');
       await tapText(
-          tester, 'I have reviewed and accept the RentHub booking agreement.');
+          tester, 'I reviewed and accept the booking agreement.');
       await tapText(tester, 'Continue to checkout');
       await tapText(tester, 'Continue');
       expect(find.text('You already have a request'), findsOneWidget);

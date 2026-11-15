@@ -1,3 +1,4 @@
+import 'live_condition_record_page.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import '../../core/booking/dispute_eligibility.dart';
 import '../../core/network/api_client.dart';
@@ -38,6 +39,8 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   final summary = TextEditingController();
   final description = TextEditingController();
   final response = TextEditingController();
+  final claimAmount = TextEditingController();
+  final claimDetails = TextEditingController();
   late String category;
   final List<String> evidenceRefs = [];
   bool refreshing = true, checked = false, closedByServer = false;
@@ -156,6 +159,8 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     summary.dispose();
     description.dispose();
     response.dispose();
+    claimAmount.dispose();
+    claimDetails.dispose();
     super.dispose();
   }
 
@@ -218,12 +223,13 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   }
 
   Future<void> submitClaim(Dispute dispute) async {
-    final amount = TextEditingController();
-    final details = TextEditingController();
+    final amount = claimAmount;
+    final details = claimDetails;
     final accepted = await InputValidation.showFormDialog<bool>(
       context: context,
       builder: (context) => rentHubDialog(
-        title: const Text('Submit damage-waiver claim'),
+        title: const Text('Damage-waiver claim'),
+        scrollable: true,
         content: SizedBox(
           width: 440,
           child: Column(
@@ -234,7 +240,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
                 decoration: (const InputDecoration(
-                  labelText: 'Amount requested (RM)',
+                  labelText: 'Amount (RM)',
                 )).copyWith(counterText: '', errorMaxLines: 3),
                 validator: InputRules.amountRequestedRm.validate,
                 inputFormatters: InputValidation.formatters(
@@ -249,7 +255,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
                 minLines: 3,
                 maxLines: 5,
                 decoration: (const InputDecoration(
-                  labelText: 'Damage and repair details',
+                  labelText: 'Damage & repair',
                 )).copyWith(counterText: '', errorMaxLines: 3),
                 validator: InputRules.damageAndRepairDetails.validate,
                 inputFormatters: InputValidation.formatters(
@@ -262,7 +268,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'After continuing, select a repair quotation or evidence file for administrator review.',
+                  'Next, attach a repair quote or evidence.',
                   style: TextStyle(color: AppColors.secondaryText),
                 ),
               ),
@@ -276,7 +282,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
           ),
           FilledButton(
             onPressed: () => InputValidation.popIfValid(context, true),
-            child: const Text('Submit Claim'),
+            child: const Text('Continue'),
           ),
         ],
       ),
@@ -310,6 +316,8 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
           amount: parsed,
           evidence: [evidence],
         );
+        amount.clear();
+        details.clear();
         if (mounted) showMockSuccess(context, 'Insurance claim submitted');
       } catch (exception) {
         if (mounted) {
@@ -324,8 +332,6 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
         ),
       );
     }
-    amount.dispose();
-    details.dispose();
   }
 
   @override
@@ -339,12 +345,17 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
       appBar: AppBar(
         title: Text(dispute == null ? 'Report a rental issue' : 'Your case'),
       ),
-      body: SafeArea(
-        child: dispute == null
-            ? _createForm(controller.loading, blocked)
-            : _details(dispute, controller.claimForRental(widget.rental.id),
-                controller.loading),
-      ),
+      body: Center(
+          child: SizedBox(
+              width: 840,
+              child: SafeArea(
+                child: dispute == null
+                    ? _createForm(controller.loading, blocked)
+                    : _details(
+                        dispute,
+                        controller.claimForRental(widget.rental.id),
+                        controller.loading),
+              ))),
     );
   }
 
@@ -470,18 +481,51 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
         ),
       );
 
-  Widget _conditionRecords() => ExpansionTile(
-          title: const Text('Handover & return photos'),
-          subtitle: const Text('Compare the saved condition records.'),
-          expandedCrossAxisAlignment: CrossAxisAlignment.start,
-          childrenPadding: const EdgeInsets.all(12),
-          children: [
-            RentalConditionSection(
-                title: 'Before handover', record: widget.rental.handover),
-            const SizedBox(height: 16),
-            RentalConditionSection(
-                title: 'At return', record: widget.rental.returnSubmission),
-          ]);
+  Widget _conditionRecords() {
+    final controller = context.read<LiveRentHubController>();
+    final rental = controller.currentDisputeRental(widget.rental);
+    final cards = [
+      RentalConditionSection(title: 'Handover', record: rental.handover),
+      RentalConditionSection(title: 'Return', record: rental.returnSubmission),
+    ];
+    return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Condition photos',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          LayoutBuilder(builder: (context, bounds) {
+            if (bounds.maxWidth >= 640 &&
+                MediaQuery.textScalerOf(context).scale(14) <= 21) {
+              return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: cards[0]),
+                    const SizedBox(width: 16),
+                    Expanded(child: cards[1])
+                  ]);
+            }
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [cards[0], const SizedBox(height: 12), cards[1]]);
+          }),
+          if (!widget.owner &&
+              rental.renterId == controller.profile?.id &&
+              rental.canSubmitReturn)
+            Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: FilledButton.icon(
+                    onPressed: () =>
+                        openConditionRecord(context, rental, handover: false),
+                    icon: const Icon(Icons.assignment_return_outlined),
+                    label: const Text('Submit return'))),
+          if (rental.returnSubmission != null && rental.status == 'disputed')
+            const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text('Return submitted. Case under review')),
+        ]));
+  }
 
   Widget _details(Dispute dispute, InsuranceClaim? claim, bool loading) => Form(
       key: responseFormKey,
@@ -496,21 +540,20 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(dispute.reason,
+                  Text(
+                      '${dispute.raisedByName.isEmpty ? 'Name unavailable' : dispute.raisedByName}: ${label(dispute.category)}',
                       style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  StatusBadge(disputeLabel(dispute.status)),
-                  const SizedBox(height: 8),
-                  Text(label(dispute.category)),
-                  const SizedBox(height: 4),
-                  SelectableText('Case reference: ${dispute.id}',
-                      style: const TextStyle(color: AppColors.secondaryText)),
+                  if (dispute.reason.trim().toLowerCase() !=
+                      label(dispute.category).trim().toLowerCase()) ...[
+                    const SizedBox(height: 8),
+                    Text(dispute.reason),
+                  ],
                   const SizedBox(height: 8),
                   Text(dispute.description),
                   if (dispute.adminNote.isNotEmpty) ...[
                     const Divider(height: 24),
                     Text(
-                      'Administrator note: ${dispute.adminNote}',
+                      'Administrator: ${dispute.adminNote}',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ],
@@ -524,8 +567,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
           ),
           const SizedBox(height: 16),
           if (dispute.evidence.isNotEmpty) ...[
-            Text('Photos and documents sent with the report',
-                style: Theme.of(context).textTheme.titleMedium),
+            Text('Evidence', style: Theme.of(context).textTheme.titleMedium),
             for (var i = 0; i < dispute.evidence.length; i++)
               PhotoAttachmentTile(
                   reference: dispute.evidence[i],
@@ -533,12 +575,11 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             const SizedBox(height: 16),
           ],
           if (widget.rental.listingType == 'physical') _conditionRecords(),
-          Text('Updates from both parties',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text('Updates', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           if (dispute.responses.isEmpty)
             const Text(
-              'No participant responses yet.',
+              'No responses yet.',
               style: TextStyle(color: AppColors.secondaryText),
             ),
           for (final item in dispute.responses)
@@ -567,7 +608,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
               minLines: 3,
               maxLines: 5,
               decoration: (const InputDecoration(
-                labelText: 'Add information or a response',
+                labelText: 'Your response',
               )).copyWith(counterText: '', errorMaxLines: 3),
               validator: InputRules.addInformationOrAResponse.validate,
               inputFormatters: InputValidation.formatters(

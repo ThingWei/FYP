@@ -132,8 +132,8 @@ void main() {
             blockchainStatus: 'confirmed',
             blockchainReference: '0xPRIVATEHASH'))));
     expect(find.textContaining('0xPRIVATEHASH'), findsNothing);
-    expect(find.text('A supporting rental record was saved.'), findsOneWidget);
-    expect(find.textContaining('Payment update'), findsOneWidget);
+    expect(find.text('Rental record saved'), findsOneWidget);
+    expect(find.textContaining('Renter: RM'), findsOneWidget);
   });
   testWidgets('case flow explains missing information without deciding blame',
       (tester) async {
@@ -142,8 +142,8 @@ void main() {
     await tester.pumpWidget(root(const DisputeProgressPanel(
         dispute: Dispute('case', 'more_evidence_required', 'Issue'))));
     expect(find.text('More information needed'), findsOneWidget);
-    expect(find.textContaining('requested information'), findsOneWidget);
-    expect(find.textContaining('does not automatically blame'), findsOneWidget);
+    expect(find.text('Add the information requested below.'), findsOneWidget);
+    expect(find.text('Review'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets(
@@ -168,13 +168,12 @@ void main() {
         find.byType(TextFormField), 'Scratch on the left corner');
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-        find.text('Send handover for confirmation'), 250,
+    await tester.scrollUntilVisible(find.text('Send handover'), 250,
         scrollable: find.byType(Scrollable).first);
-    await tester.ensureVisible(
-        find.widgetWithText(FilledButton, 'Send handover for confirmation'));
+    await tester
+        .ensureVisible(find.widgetWithText(FilledButton, 'Send handover'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Send handover for confirmation'));
+    await tester.tap(find.text('Send handover'));
     await tester.pumpAndSettle();
     expect(api.calls, 0);
     await tester.scrollUntilVisible(
@@ -199,18 +198,18 @@ void main() {
         child: MaterialApp(
             home: LiveConditionRecordPage(
                 rental: record('scheduled'), handover: true))));
-    expect(find.text('Scheduled for 1 Jan 2099'), findsOneWidget);
-    expect(find.textContaining('renter must confirm receipt'), findsWidgets);
+    expect(find.text('Available from 1 Jan 2099'), findsOneWidget);
+    expect(find.textContaining('You can send handover from'), findsNothing);
     await tester.enterText(
         find.byType(TextFormField), 'Case and strap included');
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Handover opens 1 Jan 2099'), 250,
+    await tester.scrollUntilVisible(find.text('Not available yet'), 250,
         scrollable: find.byType(Scrollable).first);
     expect(
         tester
             .widget<FilledButton>(
-                find.widgetWithText(FilledButton, 'Handover opens 1 Jan 2099'))
+                find.widgetWithText(FilledButton, 'Not available yet'))
             .onPressed,
         isNull);
     controller.profile = const User(
@@ -250,17 +249,18 @@ void main() {
                   child: child!),
               home: LiveConditionRecordPage(
                   rental: record('scheduled'), handover: true))));
-      await tester.scrollUntilVisible(
-          find.text('Handover opens 1 Jan 2099'), 200,
+      final notice = find.text('Available from 1 Jan 2099');
+      await tester.scrollUntilVisible(notice, 200,
           scrollable: find.byType(Scrollable).first);
-      await tester.ensureVisible(find.text('Handover opens 1 Jan 2099'));
-      final notice =
-          find.textContaining('You can send handover from 1 Jan 2099');
+      await tester.ensureVisible(notice);
       expect(notice.hitTestable(), findsOneWidget);
+      expect(find.textContaining('You can send handover from'), findsNothing);
+      await tester.scrollUntilVisible(find.text('Not available yet'), 200,
+          scrollable: find.byType(Scrollable).first);
       expect(
           tester
-              .widget<FilledButton>(find.widgetWithText(
-                  FilledButton, 'Handover opens 1 Jan 2099'))
+              .widget<FilledButton>(
+                  find.widgetWithText(FilledButton, 'Not available yet'))
               .onPressed,
           isNull);
       expect(api.calls, 0);
@@ -284,13 +284,12 @@ void main() {
             home: LiveConditionRecordPage(
                 rental: record('scheduled', start: malaysiaCalendarToday()),
                 handover: true))));
-    await tester.scrollUntilVisible(
-        find.text('Send handover for confirmation'), 200,
+    await tester.scrollUntilVisible(find.text('Send handover'), 200,
         scrollable: find.byType(Scrollable).first);
     expect(
         tester
-            .widget<FilledButton>(find.widgetWithText(
-                FilledButton, 'Send handover for confirmation'))
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Send handover'))
             .onPressed,
         isNotNull);
     expect(

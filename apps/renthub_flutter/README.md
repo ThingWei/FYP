@@ -33,9 +33,13 @@ Normal Android startup retries temporary connection/authorization/forwarding
 problems for about **30 seconds** and shows what needs attention. You can unlock,
 authorize or reconnect the phone while it waits; a ready phone proceeds at once.
 Missing ADB or an invalid ID fails immediately with setup guidance.
-After an initial discovery failure, the launcher starts/reuses ADB and refreshes
-its device list once within the same wait. Running `flutter devices` first should
-not be necessary. This cannot bypass the phone's debugging authorization.
+The launcher uses Flutter's selected Android SDK before an unrelated ADB on
+PATH. After an initial discovery failure, it starts/reuses ADB and refreshes its
+device list. If needed, normal Android startup also runs one bounded Flutter
+device-discovery pass automatically, then verifies the exact phone and API
+forwarding again. Running `flutter devices` first should not be necessary.
+This stays within the existing wait and cannot bypass debugging authorization.
+Services-only mode remains usable without Flutter; it keeps retrying ADB.
 
 After **Flutter run key commands** appears, focus that terminal: **r** reloads,
 **R** restarts, and **q** ends the app debug session (no Enter needed).

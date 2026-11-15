@@ -75,9 +75,13 @@ Android startup retries automatically for about **30 seconds**, showing the
 current problem. Unlock/authorize or reconnect it while the launcher waits;
 startup continues as soon as it is ready. Missing ADB or an invalid device ID
 gives immediate setup guidance instead of waiting unnecessarily.
-If discovery is slow, the launcher also starts/reuses ADB and refreshes its
-device list once within that wait. You should not need to run `flutter devices`
-as a separate workaround. The selected phone must still be authorized and ready.
+The launcher prefers the Android SDK selected by Flutter over an unrelated ADB
+on PATH. If discovery is slow, it starts/reuses ADB and refreshes its device list.
+If that is insufficient, normal Android startup runs one bounded Flutter device
+discovery pass automatically, then rechecks your selected phone and forwarding.
+You should not need to run `flutter devices` first. Unlock/authorize the phone
+when prompted; the launcher cannot bypass debugging permission. The extra
+discovery runs only when needed and stays within the existing wait.
 
 After **Flutter run key commands** appears, click this same terminal and use
 **r** for hot reload, **R** for hot restart, or **q** to end the app's debug

@@ -34,6 +34,7 @@ class CompactApi extends ApiClient {
           'publicId': 'RH-REV-PAGE$page',
           'authorName': 'Review author $page',
           'subjectRole': 'owner',
+          'authorRole': 'renter',
           'overallRating': 4,
           'text': 'The camera was ready and matched the recorded condition.',
           'listingTitle': 'Review camera',
@@ -228,21 +229,21 @@ void main() {
           scale: 1.5));
       await tester.pumpAndSettle();
       await capture(tester, 'reviews-$width');
-      expect(find.text('Review author 1'), findsOneWidget);
-      expect(find.text('Review as Owner'), findsOneWidget);
+      expect(find.text('Review author 1 \u00b7 Renter'), findsOneWidget);
+      expect(find.text('Review as Owner'), findsNothing);
       expect(find.textContaining('1 Nov 2026'), findsOneWidget);
       expect(api.calls.single, contains('role=owner&page=1&limit=20'));
       api.fail = true;
       await tester.tap(find.byTooltip('Next page'));
       await tester.pumpAndSettle();
-      expect(find.text('Review author 1'), findsOneWidget);
+      expect(find.text('Review author 1 \u00b7 Renter'), findsOneWidget);
       expect(find.text('Retry reviews'), findsOneWidget);
       api.fail = false;
       await tester.tap(find.text('Retry reviews'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Next page'));
       await tester.pumpAndSettle();
-      expect(find.text('Review author 2'), findsOneWidget);
+      expect(find.text('Review author 2 \u00b7 Renter'), findsOneWidget);
       api.waiting = Completer<dynamic>();
       await tester.tap(find.byTooltip('Previous page'));
       await tester.pump();
@@ -250,7 +251,7 @@ void main() {
       c.notifyListeners();
       api.waiting!.complete(ApiItems([], {'total': 0}));
       await tester.pumpAndSettle();
-      expect(find.text('Review author 2'), findsNothing);
+      expect(find.text('Review author 2 \u00b7 Renter'), findsNothing);
       expect(find.text('No published reviews yet.'), findsNothing);
       expect(tester.takeException(), isNull);
     });
@@ -338,7 +339,8 @@ void main() {
       await capture(tester, 'owner-$width');
       await tester.tap(find.text('Awaiting approval'));
       expect(requests, 1);
-      expect(find.text('Needs attention (28)'), findsOneWidget);
+      expect(find.text('Needs attention (28)'), findsNothing);
+      expect(find.text('Overdue returns'), findsOneWidget);
       await tester.ensureVisible(find.text('Overdue returns'));
       await tester.tap(find.text('Overdue returns'));
       await tester.pumpAndSettle();

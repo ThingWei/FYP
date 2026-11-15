@@ -101,9 +101,28 @@ class _BookingLocationsButtonState extends State<BookingLocationsButton> {
 
   @override
   Widget build(BuildContext context) => TextButton.icon(
+      style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
       onPressed: loading ? null : _open,
       icon: const Icon(Icons.map_outlined),
-      label: Text(loading ? 'Loading locations…' : 'View booking locations'));
+      label: Text(loading ? 'Loading…' : 'Location'));
+}
+
+class BookingDetailLinks extends StatelessWidget {
+  const BookingDetailLinks({super.key, required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => TextButtonTheme(
+      data: TextButtonThemeData(
+          style: TextButton.styleFrom(
+              minimumSize: const Size(48, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              iconSize: 18,
+              textStyle: Theme.of(context).textTheme.labelLarge)),
+      child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 4,
+          runSpacing: 4,
+          children: children));
 }
 
 class LiveLocationView extends StatelessWidget {

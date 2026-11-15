@@ -247,6 +247,11 @@ void main() {
         'description':
             'The delivered package did not include the agreed edited gallery.',
       },
+      {
+        'publicId': 'RH-RNT-2026-SVC123',
+        'listingType': 'service',
+        'status': 'disputed'
+      },
     ]);
     final controller = LiveRentHubController(api);
     addTearDown(controller.dispose);
@@ -263,12 +268,19 @@ void main() {
           'The delivered package did not include the agreed edited gallery.',
     );
 
-    final body = api.calls.single.$3 as Map<String, dynamic>;
+    final body = api.calls
+        .where((call) => call.$1 == 'POST' && call.$2 == '/disputes')
+        .single
+        .$3 as Map<String, dynamic>;
     expect(body['category'], 'scope_mismatch');
     expect(body.containsKey('condition'), isFalse);
     expect(body.containsKey('depositDeduction'), isFalse);
     expect(body.containsKey('insurance'), isFalse);
     expect(dispute.listingType, 'service');
+    expect(
+        api.calls.where((call) =>
+            call.$1 == 'GET' && call.$2 == '/rentals/RH-RNT-2026-SVC123'),
+        hasLength(1));
   });
 
   test('final UI submits a physical claim through the dispute contract',

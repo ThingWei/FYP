@@ -386,3 +386,93 @@ test('completed rental retains authorized access to its existing resolved case',
   await raise(rentalId).expect(409);
   assert.equal(await DisputeModel.countDocuments(), 1);
 });
+
+
+const returnPhotos = { condition: 'Good', notes: 'Item and accessories returned.', evidence: ['evidence://returned-item'] };
+const submitReturn = (id, actor = renter, body = returnPhotos) => request(app)
+  .post(`/api/v1/rentals/${id}/return`).set(actor).send(body);
+const dismissCase = (id) => request(app).patch(`/api/v1/disputes/${id}/resolve`)
+  .set(admin).send({ outcome: 'dismissed', notes: 'Return evidence reviewed; no financial decision is made.' });
+
+test('renter returns an overdue disputed item without closing the case or moving funds', async () => {
+  const { rentalId, bookingId } = await seedRental();
+  await RentalModel.updateOne({ publicId: rentalId }, { $set: { status: 'overdue' } });
+  const opened = await raise(rentalId, 'physical', owner).expect(201);
+  const id = opened.body.data.id;
+  const get = await request(app).get(`/api/v1/rentals/${rentalId}`).set(renter).expect(200);
+  assert.equal(get.body.data.returnAllowed, true);
+  const list = await request(app).get('/api/v1/rentals/mine').set(renter).expect(200);
+  assert.equal(list.body.data[0].returnAllowed, true);
+  const before = await PaymentModel.find({ bookingId }).lean();
+  await submitReturn(rentalId, outsider).expect(404);
+  await submitReturn(rentalId, owner).expect(404);
+  const submitted = await submitReturn(rentalId).expect(200);
+  assert.equal(submitted.body.data.status, 'disputed');
+  assert.equal(submitted.body.data.returnAllowed, false);
+  assert.equal(submitted.body.data.overdueInfo.isOverdue, false);
+  assert.deepEqual(submitted.body.data.returnSubmission.evidence, returnPhotos.evidence);
+  const duplicate = await submitReturn(rentalId).expect(200);
+  assert.equal(duplicate.body.data.returnSubmission.recordedAt, submitted.body.data.returnSubmission.recordedAt);
+  await submitReturn(rentalId, renter, { ...returnPhotos, notes: 'Changed after submission' }).expect(409);
+  await finish(rentalId, 'physical').expect(409);
+  assert.equal((await DisputeModel.findOne({ publicId: id })).status, 'awaiting_response');
+  assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, 'disputed');
+  assert.deepEqual(await PaymentModel.find({ bookingId }).lean(), before);
+  assert.equal(await NotificationModel.countDocuments({ type: 'return_submitted' }), 1);
+  await dismissCase(id).expect(200);
+  assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'return_submitted');
+  assert.deepEqual(await PaymentModel.find({ bookingId }).lean(), before);
+  await finish(rentalId, 'physical').expect(200);
+});
+
+for (const invalid of ['scheduled', 'unpaid', 'unacknowledged', 'service']) {
+  test(`disputed return rejects ${invalid} without saving evidence`, async () => {
+    const { rentalId, bookingId } = await seedRental(invalid === 'service' ? 'service' : 'physical');
+    if (invalid === 'scheduled') {
+      await RentalModel.updateOne({ publicId: rentalId }, { $set: { status: 'scheduled' } });
+      await BookingModel.updateOne({ publicId: bookingId }, { $set: { status: 'approved', paymentStatus: 'authorized' } });
+    }
+    if (invalid === 'unpaid') await BookingModel.updateOne({ publicId: bookingId }, { $set: { paymentStatus: 'unpaid' } });
+    if (invalid === 'unacknowledged') await RentalModel.updateOne({ publicId: rentalId }, { $set: {
+      handover: { version: 2, handoverId: 'pending-receipt', receiptStatus: 'pending', recordedAt: new Date() },
+    } });
+    await raise(rentalId, invalid === 'service' ? 'service' : 'physical', owner).expect(201);
+    const read = await request(app).get(`/api/v1/rentals/${rentalId}`).set(renter).expect(200);
+    assert.equal(read.body.data.returnAllowed, false);
+    await submitReturn(rentalId).expect(409);
+    assert.equal((await RentalModel.findOne({ publicId: rentalId })).returnSubmission?.recordedAt, undefined);
+    assert.equal(await PaymentModel.countDocuments({ bookingId }), 1);
+  });
+}
+
+test('concurrent disputed returns preserve the first immutable record and notify once', async () => {
+  const { rentalId } = await seedRental();
+  await raise(rentalId, 'physical', owner).expect(201);
+  const responses = await Promise.all([submitReturn(rentalId), submitReturn(rentalId)]);
+  assert.deepEqual(responses.map((r) => r.status), [200, 200]);
+  assert.equal(responses[0].body.data.returnSubmission.recordedAt, responses[1].body.data.returnSubmission.recordedAt);
+  assert.equal(await NotificationModel.countDocuments({ type: 'return_submitted' }), 1);
+});
+
+test('return racing dismissal leaves the saved return awaiting inspection', async () => {
+  const { rentalId, bookingId } = await seedRental();
+  const opened = await raise(rentalId, 'physical', owner).expect(201);
+  const responses = await Promise.all([submitReturn(rentalId), dismissCase(opened.body.data.id)]);
+  assert.deepEqual(responses.map((r) => r.status), [200, 200]);
+  assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'return_submitted');
+  assert.equal(await PaymentModel.countDocuments({ bookingId }), 1);
+});
+
+test('return racing final settlement never reopens the completed rental', async () => {
+  const { rentalId, bookingId } = await seedRental();
+  const opened = await raise(rentalId, 'physical', owner).expect(201);
+  const results = await Promise.all([submitReturn(rentalId), request(app)
+    .patch(`/api/v1/disputes/${opened.body.data.id}/resolve`).set(admin)
+    .send({ outcome: 'release_to_renter', renterAmount: 570, ownerAmount: 0,
+      notes: 'The case is settled using the remaining held funds.' })]);
+  assert.ok([200, 409].includes(results[0].status));
+  assert.equal(results[1].status, 200);
+  assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'completed');
+  assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, 'completed');
+  assert.equal(await NotificationModel.countDocuments({ type: 'return_submitted' }), results[0].status === 200 ? 1 : 0);
+});

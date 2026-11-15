@@ -245,9 +245,13 @@ class BookingStatusHeader extends StatelessWidget {
                       ?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(unpaidExpiry
-                  ? 'Payment was not completed in time. No payment was taken. Choose dates again to start a new checkout.'
+                  ? owner
+                      ? 'The renter did not complete payment in time.'
+                      : 'Payment was not completed in time. No payment was taken. Choose dates again to start a new checkout.'
                   : booking.awaitingPayment
-                      ? 'Complete payment within 10 minutes of starting checkout. The Owner reviews your request after payment.'
+                      ? owner
+                          ? 'The renter must complete payment before you can review this request.'
+                          : 'Complete payment within 10 minutes of starting checkout. The Owner reviews your request after payment.'
                       : RentalJourney.forRecord(
                               booking: booking, rental: rental, owner: owner)
                           .next),

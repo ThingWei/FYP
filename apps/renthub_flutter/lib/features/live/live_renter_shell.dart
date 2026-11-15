@@ -1,9 +1,11 @@
+import 'live_saved_place_selector.dart';
 import 'live_contact_profile.dart';
 import 'live_listing_gallery.dart';
 import 'live_booking_summary.dart';
 import 'live_notification_icon.dart';
 import 'live_booking_filters.dart';
 import '../../shared/widgets/renthub_dialog.dart';
+import '../../shared/widgets/renthub_action_group.dart';
 import 'live_condition_record_page.dart';
 import 'live_rental_progress.dart';
 import 'live_handover_receipt.dart';
@@ -17,7 +19,7 @@ import 'live_search_field.dart';
 import 'user_record_pagination.dart';
 import '../../shared/widgets/dot_pagination.dart';
 import '../../shared/widgets/record_list_header.dart';
-import 'live_trust_page.dart';
+import 'live_product_details.dart';
 import 'live_location_picker.dart';
 import 'live_location_field.dart';
 import 'live_booking_locations.dart';
@@ -1043,19 +1045,16 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   String? encodeTime(TimeOfDay? time) => time == null
       ? null
       : '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-  Future<void> pickAppointment(bool pickup) async {
-    final selected = await showTimePicker(
-        context: context,
-        orientation: Orientation.portrait,
-        initialTime: (pickup ? pickupTime : returnTime) ??
-            const TimeOfDay(hour: 12, minute: 0));
+  Future<void> pickAppointments() async {
+    final selected = await chooseRentalAppointments(context,
+        pickupDate: start,
+        returnDate: end,
+        pickup: pickupTime,
+        returnTime: returnTime);
     if (selected != null && mounted) {
       setState(() {
-        if (pickup) {
-          pickupTime = selected;
-        } else {
-          returnTime = selected;
-        }
+        pickupTime = selected.pickup;
+        returnTime = selected.returnTime;
       });
     }
   }
@@ -1711,54 +1710,64 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     Text(listing.title,
                         style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 4),
-                    TextButton.icon(
-                        onPressed: () =>
-                            openMarketplaceProfile(context, listing.ownerId),
-                        icon: const Icon(Icons.account_circle_outlined),
-                        label: Text(listing.ownerName)),
-                    Text(listing.location),
-                    TrustSummaryButton(
-                        userId: listing.ownerId,
-                        role: 'owner',
-                        prefix: 'Owner trust',
-                        summary: listing.ownerTrustProfile),
-                    if (listing.locationPrecision == 'approximate') ...[
-                      const Text(
-                          'Approximate area · exact pickup point shared after approval'),
-                      if (listing.latitude != null && listing.longitude != null)
-                        TextButton.icon(
-                          icon: const Icon(Icons.map_outlined),
-                          label: const Text('View approximate area'),
-                          onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => LiveLocationView(
-                                        api: ListingLocationApi(context
-                                            .read<LiveRentHubController>()
-                                            .api),
-                                        approximate: true,
-                                        location:
-                                            ListingLocationSelection.fromJson({
-                                          'label': listing.location,
-                                          'coordinates': {
-                                            'latitude': listing.latitude,
-                                            'longitude': listing.longitude
-                                          }
-                                        }),
-                                      ))),
-                        ),
-                    ],
+                    Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (listing.location.trim().isNotEmpty)
+                            TextButton.icon(
+                              icon: const Icon(Icons.place_outlined),
+                              label: Text(listing.location,
+                                  maxLines: 2, overflow: TextOverflow.ellipsis),
+                              onPressed: listing.latitude == null ||
+                                      listing.longitude == null
+                                  ? null
+                                  : () => Navigator.push<void>(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) => LiveLocationView(
+                                                api: ListingLocationApi(context
+                                                    .read<
+                                                        LiveRentHubController>()
+                                                    .api),
+                                                approximate:
+                                                    listing.locationPrecision ==
+                                                        'approximate',
+                                                location:
+                                                    ListingLocationSelection
+                                                        .fromJson({
+                                                  'label': listing.location,
+                                                  'coordinates': {
+                                                    'latitude':
+                                                        listing.latitude,
+                                                    'longitude':
+                                                        listing.longitude
+                                                  },
+                                                }),
+                                              ))),
+                            ),
+                          TextButton.icon(
+                              onPressed: () => openMarketplaceProfile(
+                                  context, listing.ownerId),
+                              icon: const Icon(Icons.account_circle_outlined),
+                              label: Text(listing.ownerName)),
+                        ]),
                   ],
                 ),
               ),
             ),
+            const SizedBox(height: 12),
             if (!listing.isService)
-              ListingDetailCell(
-                  title: 'Condition',
-                  value: listing.conditionRecorded
-                      ? listing.condition
-                      : 'Not specified',
-                  icon: Icons.inventory_2_outlined),
+              Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: ListingDetailCell(
+                      title: 'Condition',
+                      value: listing.conditionRecorded
+                          ? listing.condition
+                          : 'Not specified',
+                      icon: Icons.inventory_2_outlined)),
+            if (!listing.isService) ListingProductDetails(listing: listing),
             if (listing.description.isNotEmpty)
               ListingDetailCell(
                   title: 'Description',
@@ -2010,15 +2019,10 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                             style: Theme.of(context).textTheme.titleMedium),
                         const SizedBox(height: 16),
                         bookingChoice(
-                            'Pickup / delivery time',
-                            pickupTime?.format(context) ?? 'Choose a time',
+                            'Pickup & return times',
+                            '${appointmentDate(start)} · ${pickupTime?.format(context) ?? 'Choose pickup'}\n${appointmentDate(end)} · ${returnTime?.format(context) ?? 'Choose return'}',
                             Icons.schedule_outlined,
-                            () => pickAppointment(true)),
-                        bookingChoice(
-                            'Return time',
-                            returnTime?.format(context) ?? 'Choose a time',
-                            Icons.schedule_outlined,
-                            () => pickAppointment(false)),
+                            pickAppointments),
                       ],
                       if (listing.isService)
                         bookingChoice(
@@ -2083,27 +2087,21 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                                 ?.deliveryAddresses
                                 .isNotEmpty ==
                             true)
-                          DropdownButtonFormField<UserAddress>(
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                  labelText: 'Use a saved address'),
-                              items: context
-                                  .read<LiveRentHubController>()
-                                  .profile!
-                                  .deliveryAddresses
-                                  .map((address) => DropdownMenuItem(
-                                      value: address,
-                                      child: Text(address.label,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis)))
-                                  .toList(),
-                              onChanged: (address) {
-                                if (address == null) return;
-                                setState(() {
-                                  delivery.text = address.line1;
-                                  deliveryLocation = address.mapLocation;
-                                });
-                              }),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 20),
+                            child: SavedPlaceSelector(
+                                enabled: !submitting,
+                                addresses: context
+                                    .read<LiveRentHubController>()
+                                    .profile!
+                                    .deliveryAddresses,
+                                onSelected: (address) {
+                                  setState(() {
+                                    delivery.text = address.line1;
+                                    deliveryLocation = address.mapLocation;
+                                  });
+                                }),
+                          ),
                         LiveLocationField(
                             mapBuilder: widget.locationMapBuilder,
                             api: ListingLocationApi(
@@ -2175,9 +2173,6 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     ListTile(
                       leading: const Icon(Icons.gavel_outlined),
                       title: const Text('Booking agreement'),
-                      subtitle: const Text(
-                        'Review the terms before sending this request.',
-                      ),
                       trailing: TextButton(
                         onPressed: () async {
                           final terms = await showAgreementTerms(context,
@@ -2201,12 +2196,15 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     CheckboxListTile(
                       value: agreementAccepted,
                       controlAffinity: ListTileControlAffinity.leading,
-                      title: const Text(
-                        'I have reviewed and accept the RentHub booking agreement.',
-                      ),
-                      subtitle: Text(reviewedAgreementVersion == null
-                          ? 'Review the agreement first to enable acceptance.'
-                          : 'The reviewed terms will be saved with your request.'),
+                      title: Text(
+                          'I reviewed and accept the booking agreement.',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: AppColors.text)),
+                      subtitle: reviewedAgreementVersion == null
+                          ? const Text('Review the agreement first.')
+                          : null,
                       onChanged: submitting || reviewedAgreementVersion == null
                           ? null
                           : (value) => setState(
@@ -2406,6 +2404,10 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 12),
                                       child: RentalAppointments(
+                                          pickupDate:
+                                              rental?.start ?? booking.start,
+                                          returnDate:
+                                              rental?.end ?? booking.end,
                                           pickup: rental?.pickupTime ??
                                               booking.pickupTime,
                                           returnTime: rental?.returnTime ??
@@ -2426,19 +2428,29 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                             Text(formatDateRange(booking.start, booking.end)),
                             if (widget.payment != null)
                               LivePaymentSummary(payment: widget.payment!),
-                            BookingLocationsButton(bookingId: booking.id),
-                            Wrap(spacing: 8, children: [
+                            BookingDetailLinks(children: [
+                              BookingLocationsButton(bookingId: booking.id),
+                              if (booking.ownerId.isNotEmpty)
+                                TextButton.icon(
+                                    onPressed: () => Navigator.push<void>(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (_) =>
+                                                LiveContactProfilePage(
+                                                    userId: booking.ownerId))),
+                                    icon: const Icon(Icons.person_outline),
+                                    label: const Text('Owner')),
                               TextButton.icon(
                                   onPressed: () =>
                                       showBookingAgreement(context, booking.id),
                                   icon: const Icon(Icons.description_outlined),
-                                  label: const Text('View agreement')),
-                              if (booking.canContinuePayment)
-                                FilledButton.tonal(
-                                    onPressed: () =>
-                                        showLiveCheckout(context, booking.id),
-                                    child: const Text('Continue payment')),
+                                  label: const Text('Agreement')),
                             ]),
+                            if (booking.canContinuePayment)
+                              FilledButton.tonal(
+                                  onPressed: () =>
+                                      showLiveCheckout(context, booking.id),
+                                  child: const Text('Continue payment')),
                             LiveBookingPaymentDetails(booking: booking),
                             if (rental != null) ...[
                               const Divider(height: 22),
@@ -2636,7 +2648,15 @@ class _RenterRentalActions extends StatelessWidget {
       );
     }
     if (rental.status == 'disputed') {
-      return disputeButton ?? const SizedBox.shrink();
+      return RentHubActionGroup(children: [
+        if (rental.canSubmitReturn)
+          FilledButton.icon(
+              onPressed: () =>
+                  openConditionRecord(context, rental, handover: false),
+              icon: const Icon(Icons.assignment_return_outlined),
+              label: const Text('Submit return')),
+        if (disputeButton != null) disputeButton,
+      ]);
     }
     if (!['cancelled', 'scheduled'].contains(rental.status)) {
       return disputeButton ?? const SizedBox.shrink();

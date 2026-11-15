@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import 'live_photo_widgets.dart';
+import 'live_listing_photo_viewer.dart';
 
 class ListingPhotoCarousel extends StatefulWidget {
   const ListingPhotoCarousel(
@@ -54,6 +55,14 @@ class _ListingPhotoCarouselState extends State<ListingPhotoCarousel> {
                       key: ValueKey('$index:${widget.photos[index]}'),
                       reference: widget.photos[index],
                       label: '${widget.title}, photo ${index + 1}',
+                      onOpen: () => Navigator.push<void>(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => ListingPhotoViewer(
+                                  photos:
+                                      List<String>.unmodifiable(widget.photos),
+                                  title: widget.title,
+                                  initialIndex: index))),
                       width: double.infinity,
                       height: double.infinity),
                 ))),

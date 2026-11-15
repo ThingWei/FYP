@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
 import 'package:renthub_flutter/core/theme/app_theme.dart';
 import 'package:renthub_flutter/features/live/live_owner_shell.dart';
+import 'package:renthub_flutter/features/live/live_owner_attention.dart';
 import 'package:renthub_flutter/features/live/live_renter_shell.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
@@ -296,7 +297,10 @@ void main() {
               theme: AppTheme.light,
               home: LiveOwnerDashboard(onOpenRequests: () {})));
       await tester.pumpWidget(app());
-      expect(find.text('Needs attention (0)'), findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.byType(OwnerAttentionCards), matching: find.text('0')),
+          findsNWidgets(2));
       await tester.scrollUntilVisible(find.text('IN camera'), 250,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('IN camera'), findsOneWidget);
@@ -306,7 +310,10 @@ void main() {
         Booking.fromJson(row('IN', renter: 'customer', owner: 'dual'))
       ];
       await tester.pumpWidget(app());
-      expect(find.text('Needs attention (1)'), findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.byType(OwnerAttentionCards), matching: find.text('1')),
+          findsOneWidget);
       expect(tester.takeException(), isNull);
     });
     testWidgets('Owner order uses the saved item title at $width',

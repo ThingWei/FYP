@@ -1,4 +1,3 @@
-import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/domain_models.dart';
@@ -41,62 +40,89 @@ class DisputeProgressPanel extends StatelessWidget {
     final stage = dispute == null
         ? 0
         : dispute!.closed
-            ? 4
+            ? 3
             : ['under_review', 'more_evidence_required', 'escalated']
                     .contains(status)
                 ? 2
                 : 1;
     final next = dispute == null
-        ? 'Tell us what happened and attach helpful photos. The other party can respond, then an administrator reviews the case.'
-        : dispute!.closed
-            ? 'Read the decision below. Any amounts shown are simulated payments.'
-            : status == 'more_evidence_required'
-                ? 'Read the administrator’s message below and add the requested information.'
+        ? 'An administrator reviews both sides.'
+        : status == 'more_evidence_required'
+            ? 'Add the information requested below.'
+            : dispute!.closed
+                ? 'View the decision below.'
                 : stage == 2
-                    ? 'An administrator is reviewing the information from both parties. You can add relevant details below.'
-                    : 'The other party can respond. An administrator will review the agreement, condition records and information from both sides.';
+                    ? 'The case is being reviewed.'
+                    : 'The other party can respond.';
+    const titles = ['Reported', 'Response', 'Review', 'Decision'];
+    const icons = [
+      Icons.flag_outlined,
+      Icons.forum_outlined,
+      Icons.manage_search,
+      Icons.task_alt
+    ];
     return Card(
         child: Padding(
-            padding: const EdgeInsets.all(16),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              RentHubSectionHeader(
-                  dispute == null
-                      ? 'How we help resolve an issue'
-                      : disputeLabel(status!),
-                  help: dispute == null ? next : null,
-                  style: Theme.of(context).textTheme.titleMedium),
-              if (dispute != null) ...[const SizedBox(height: 8), Text(next)],
-              const SizedBox(height: 12),
-              for (final (index, title) in const [
-                'Report the issue',
-                'Both parties respond',
-                'Administrator reviews',
-                'Decision & payment update'
-              ].indexed)
-                Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                              index < stage
-                                  ? Icons.check_circle
-                                  : index == stage
-                                      ? Icons.radio_button_checked
-                                      : Icons.radio_button_unchecked,
-                              color: index <= stage
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(dispute == null ? 'Report an issue' : disputeLabel(status!),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 16),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          for (var i = 0; i < titles.length; i++)
+            Expanded(
+                child: Semantics(
+              label:
+                  '${titles[i]}, ${i < stage ? 'completed' : i == stage ? 'current step' : 'upcoming'}',
+              excludeSemantics: true,
+              child: Column(children: [
+                Row(children: [
+                  Expanded(
+                      child: Container(
+                          height: 2,
+                          color: i == 0
+                              ? Colors.transparent
+                              : i <= stage
                                   ? AppColors.primary
-                                  : AppColors.secondaryText,
-                              size: 22),
-                          const SizedBox(width: 12),
-                          Expanded(child: Text(title)),
-                        ])),
-              const SizedBox(height: 8),
-              const Text(
-                  'Raising an issue does not automatically blame either party or approve a refund.',
-                  style: TextStyle(color: AppColors.secondaryText)),
-            ])));
+                                  : AppColors.border)),
+                  Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: i <= stage
+                              ? AppColors.primaryLight
+                              : AppColors.surface,
+                          border: Border.all(
+                              color: i == stage
+                                  ? AppColors.primary
+                                  : AppColors.border)),
+                      child: Icon(icons[i],
+                          size: 20,
+                          color: i <= stage
+                              ? AppColors.primary
+                              : AppColors.secondaryText)),
+                  Expanded(
+                      child: Container(
+                          height: 2,
+                          color: i == titles.length - 1
+                              ? Colors.transparent
+                              : i < stage
+                                  ? AppColors.primary
+                                  : AppColors.border)),
+                ]),
+                const SizedBox(height: 8),
+                Text(titles[i],
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.labelMedium),
+              ]),
+            )),
+        ]),
+        const SizedBox(height: 12),
+        Text(next, textAlign: TextAlign.center),
+      ]),
+    ));
   }
 }
 
@@ -110,12 +136,12 @@ class DisputeDecisionPanel extends StatelessWidget {
             style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 8),
         Text(
-            'Payment update: renter ${formatMoney(dispute.renterAmount)}, Owner ${formatMoney(dispute.ownerAmount)}.'),
+            'Renter: ${formatMoney(dispute.renterAmount)} · Owner: ${formatMoney(dispute.ownerAmount)}'),
         const SizedBox(height: 8),
         Text(
             dispute.blockchainStatus == 'confirmed'
-                ? 'A supporting rental record was saved.'
-                : 'The case decision is available. Its supporting rental record is unavailable.',
+                ? 'Rental record saved'
+                : 'Supporting record unavailable',
             style: const TextStyle(color: AppColors.secondaryText)),
       ]);
 }

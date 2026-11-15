@@ -177,7 +177,10 @@ class LiveBookingCharges extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (booking.listingType == 'physical')
         RentalAppointments(
-            pickup: booking.pickupTime, returnTime: booking.returnTime),
+            pickupDate: booking.start,
+            returnDate: booking.end,
+            pickup: booking.pickupTime,
+            returnTime: booking.returnTime),
       Text('Charges', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 8),
       if (charges != null) ...[

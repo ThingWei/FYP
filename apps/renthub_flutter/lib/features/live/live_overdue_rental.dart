@@ -7,6 +7,7 @@ import 'live_renthub_controller.dart';
 import 'live_chat_page.dart';
 import 'live_dispute_page.dart';
 import 'live_condition_record_page.dart';
+import '../../shared/widgets/renthub_action_group.dart';
 
 class OverdueRentalPanel extends StatefulWidget {
   const OverdueRentalPanel(
@@ -92,7 +93,7 @@ class _OverdueRentalPanelState extends State<OverdueRentalPanel> {
               child: Text(
                   'This rental needs administrator attention. No penalty or payment decision has been made automatically.')),
         const SizedBox(height: 12),
-        Wrap(spacing: 8, runSpacing: 8, children: [
+        RentHubActionGroup(children: [
           OutlinedButton.icon(
               onPressed: busy ? null : message,
               icon: const Icon(Icons.chat_bubble_outline),
@@ -101,7 +102,7 @@ class _OverdueRentalPanelState extends State<OverdueRentalPanel> {
                   : widget.owner
                       ? 'Message renter'
                       : 'Message Owner')),
-          if (!widget.owner && ['active', 'overdue'].contains(r.status))
+          if (!widget.owner && r.canSubmitReturn)
             FilledButton(
                 onPressed: () =>
                     openConditionRecord(context, r, handover: false),

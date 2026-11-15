@@ -138,6 +138,9 @@ const rentalSchema = new mongoose.Schema(
         delete value.__v;
         delete value.lifecycleRevision;
         value.overdueInfo = overdueSummary(value);
+        value.returnAllowed = _document.$locals.returnAllowed ??
+          (value.listingType === 'physical' && !value.returnSubmission?.recordedAt &&
+            ['active', 'overdue'].includes(value.status));
         return value;
       },
     },

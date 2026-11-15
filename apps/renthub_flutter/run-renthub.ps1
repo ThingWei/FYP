@@ -237,12 +237,53 @@ function Get-RentHubAndroidConnectionMessage {
     }
 }
 
+function Get-RentHubFlutterDiscoveryCommand {
+    param([string]$FlutterPath)
+    if ([string]::IsNullOrWhiteSpace($FlutterPath)) { return $null }
+    if (-not (Test-Path -LiteralPath $FlutterPath -PathType Leaf)) { return $null }
+    $extension = [IO.Path]::GetExtension($FlutterPath)
+    if ($extension -in @('.bat', '.cmd')) {
+        # Reuse the installed tool cache, without invoking a shell, downloading
+        # an SDK or running a batch bootstrap that can leave background children.
+        $bin = Split-Path -Parent (Resolve-Path -LiteralPath $FlutterPath).Path
+        $dart = Join-Path $bin 'cache\dart-sdk\bin\dart.exe'
+        $snapshot = Join-Path $bin 'cache\flutter_tools.snapshot'
+        if (-not (Test-Path -LiteralPath $dart -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $snapshot -PathType Leaf)) { return $null }
+        return [pscustomobject]@{ FilePath = $dart; Arguments = @($snapshot, '--suppress-analytics') }
+    }
+    if ($extension -eq '.exe') {
+        return [pscustomobject]@{ FilePath = $FlutterPath; Arguments = @('--suppress-analytics') }
+    }
+    return $null
+}
+
+function Initialize-RentHubFlutterDeviceDiscovery {
+    param([string]$FlutterPath, [ValidateRange(1, 15)][int]$TimeoutSeconds = 12)
+    $command = Get-RentHubFlutterDiscoveryCommand -FlutterPath $FlutterPath
+    if ($null -eq $command) { return 'flutter-discovery-unavailable' }
+    $discoverySeconds = [Math]::Max(1, [Math]::Min(4, $TimeoutSeconds - 2))
+    try {
+        $result = Invoke-RentHubNativeCommand -FilePath $command.FilePath `
+            -Arguments ($command.Arguments + @('devices', '--machine', '--device-timeout', [string]$discoverySeconds)) `
+            -TimeoutSeconds $TimeoutSeconds -PreserveChildProcesses
+    }
+    catch [Management.Automation.PipelineStoppedException] { throw }
+    catch { return 'flutter-discovery-failed' }
+    if ($result.TimedOut) { return 'flutter-discovery-timeout' }
+    if ($result.ExitCode -ne 0) { return 'flutter-discovery-failed' }
+    # Flutter enumeration is a warm-up only. Never trust its output as proof
+    # of ownership, debugging authorization or working API port forwarding.
+    return 'flutter-refreshed'
+}
+
 function Wait-RentHubAndroidConnection {
     param([string]$AdbPath, [string]$TargetDevice, [int]$HostPort,
         [ValidateRange(1, 120)][int]$TimeoutSeconds = 30,
-        [ValidateRange(100, 5000)][int]$RetryIntervalMilliseconds = 2000)
+        [ValidateRange(100, 5000)][int]$RetryIntervalMilliseconds = 2000,
+        [string]$FlutterPath)
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    $lastState = ''; $state = 'waiting'; $nextProgress = 0; $discoveryRefreshed = $false
+    $lastState = ''; $state = 'waiting'; $nextProgress = 0; $discoveryRefreshed = $false; $flutterRefreshed = $false
     while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
         $remaining = [Math]::Max(1, [int][Math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds))
         $state = Sync-RentHubAndroidConnection -AdbPath $AdbPath -TargetDevice $TargetDevice -HostPort $HostPort -TimeoutSeconds $remaining
@@ -256,6 +297,17 @@ function Wait-RentHubAndroidConnection {
                 $discoveryRefreshed = $true
                 if ($discoveryState -eq 'refreshed') { continue }
                 $state = $discoveryState
+            }
+        }
+        if ($FlutterPath -and $discoveryRefreshed -and -not $flutterRefreshed -and
+            $state -in @('not-found', 'offline', 'adb-timeout', 'adb-error', 'adb-discovery-timeout')) {
+            $remaining = [int][Math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds)
+            # Reserve time to check this exact device and forwarding afterward.
+            if ($remaining -ge 6) {
+                $flutterRefreshed = $true
+                Write-Host 'Refreshing Flutter device discovery automatically...' -ForegroundColor DarkGray
+                $null = Initialize-RentHubFlutterDeviceDiscovery -FlutterPath $FlutterPath -TimeoutSeconds ([Math]::Min(12, $remaining - 5))
+                continue
             }
         }
         if ($state -ne $lastState -or $clock.Elapsed.TotalSeconds -ge $nextProgress) {
@@ -279,20 +331,32 @@ function Test-RentHubKeepServicesRunning {
 function Get-RentHubAdbPath {
     param(
         [string[]]$CandidatePaths = @(),
-        [switch]$SkipPathLookup
+        [switch]$SkipPathLookup,
+        [string]$FlutterSettingsPath
     )
-
-    if (-not $SkipPathLookup) {
-        $pathCommand = Get-Command adb -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($null -ne $pathCommand) { return $pathCommand.Source }
-    }
-
     if (-not $CandidatePaths.Count) {
-        if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SDK_ROOT)) {
-            $CandidatePaths += Join-Path $env:ANDROID_SDK_ROOT 'platform-tools\adb.exe'
+        # Match Flutter's SDK preference before considering a different ADB on
+        # PATH. Read only the SDK setting, never print or rewrite the settings.
+        if (-not $FlutterSettingsPath -and $env:USERPROFILE) {
+            $FlutterSettingsPath = Join-Path $env:USERPROFILE '.flutter_settings'
+        }
+        if ($FlutterSettingsPath -and (Test-Path -LiteralPath $FlutterSettingsPath -PathType Leaf)) {
+            try {
+                $settings = Get-Content -LiteralPath $FlutterSettingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                $sdk = $settings.'android-sdk'
+                if ($sdk -is [string] -and -not [string]::IsNullOrWhiteSpace($sdk)) {
+                    $CandidatePaths += Join-Path $sdk 'platform-tools\adb.exe'
+                    $CandidatePaths += Join-Path $sdk 'sdk\platform-tools\adb.exe'
+                }
+            } catch { } # Missing/malformed preferences do not expose private configuration.
         }
         if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_HOME)) {
             $CandidatePaths += Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
+            $CandidatePaths += Join-Path $env:ANDROID_HOME 'sdk\platform-tools\adb.exe'
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:ANDROID_SDK_ROOT)) {
+            $CandidatePaths += Join-Path $env:ANDROID_SDK_ROOT 'platform-tools\adb.exe'
+            $CandidatePaths += Join-Path $env:ANDROID_SDK_ROOT 'sdk\platform-tools\adb.exe'
         }
         if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
             $CandidatePaths += Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
@@ -304,6 +368,10 @@ function Get-RentHubAdbPath {
             (Test-Path -LiteralPath $candidate -PathType Leaf)) {
             return (Resolve-Path -LiteralPath $candidate).Path
         }
+    }
+    if (-not $SkipPathLookup) {
+        $pathCommand = Get-Command adb -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $pathCommand) { return $pathCommand.Source }
     }
     return $null
 }
@@ -1172,10 +1240,15 @@ try {
         # Stable device port keeps an installed APK usable even if the PC needs a fallback port.
         $clientApiPort = 3000
         $adbPath = Get-RentHubAdbPath
+        $flutterDiscoveryPath = ''
+        if (-not $ServicesOnly) {
+            $flutterCommand = Get-Command flutter -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -ne $flutterCommand) { $flutterDiscoveryPath = $flutterCommand.Source }
+        }
         $phoneState = if ($ServicesOnly) {
             Sync-RentHubAndroidConnection -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort
         } else {
-            Wait-RentHubAndroidConnection -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort
+            Wait-RentHubAndroidConnection -AdbPath $adbPath -TargetDevice $Device -HostPort $ApiPort -FlutterPath $flutterDiscoveryPath
         }
         if ($phoneState -eq 'connected') {
             Write-Host "Forwarded Android localhost:3000 to PC API port $ApiPort." -ForegroundColor Green

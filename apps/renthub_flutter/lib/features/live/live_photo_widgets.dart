@@ -232,12 +232,14 @@ class LivePhotoThumbnail extends StatefulWidget {
       required this.label,
       this.controller,
       this.evidence,
+      this.onOpen,
       this.width = 96,
       this.height = 96});
   final String reference;
   final String label;
   final LiveRentHubController? controller;
   final Map? evidence;
+  final VoidCallback? onOpen;
   final double width;
   final double height;
 
@@ -298,8 +300,9 @@ class _LivePhotoThumbnailState extends State<LivePhotoThumbnail> {
                     button: true,
                     label: 'Preview ${widget.label}',
                     child: InkWell(
-                      onTap: () => showPhotoBytes(context, data, widget.label,
-                          evidence: widget.evidence),
+                      onTap: widget.onOpen ??
+                          () => showPhotoBytes(context, data, widget.label,
+                              evidence: widget.evidence),
                       child: isPdfBytes(data)
                           ? const Center(
                               child:

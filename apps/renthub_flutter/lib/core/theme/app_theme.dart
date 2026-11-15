@@ -33,35 +33,36 @@ abstract final class AppTheme {
     );
     return ThemeData(
       useMaterial3: true,
+      fontFamily: 'Inter',
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.surface,
       textTheme: const TextTheme(
         displaySmall: TextStyle(
-          fontSize: 32,
+          fontSize: 28,
           height: 1.25,
           fontWeight: FontWeight.w700,
           color: AppColors.text,
         ),
         headlineSmall: TextStyle(
-          fontSize: 24,
+          fontSize: 22,
           height: 1.3,
           fontWeight: FontWeight.w700,
           color: AppColors.text,
         ),
         titleLarge: TextStyle(
-          fontSize: 20,
+          fontSize: 18,
           height: 1.4,
           fontWeight: FontWeight.w600,
           color: AppColors.text,
         ),
         titleMedium: TextStyle(
-          fontSize: 16,
+          fontSize: 15,
           height: 1.5,
           fontWeight: FontWeight.w600,
           color: AppColors.text,
         ),
         bodyLarge: TextStyle(
-          fontSize: 16,
+          fontSize: 14,
           height: 1.5,
           color: AppColors.text,
         ),
@@ -70,8 +71,13 @@ abstract final class AppTheme {
           height: 1.45,
           color: AppColors.text,
         ),
+        bodySmall: TextStyle(
+          fontSize: 12,
+          height: 1.45,
+          color: AppColors.secondaryText,
+        ),
         labelLarge: TextStyle(
-          fontSize: 14,
+          fontSize: 13,
           height: 1.4,
           fontWeight: FontWeight.w600,
         ),

@@ -53,7 +53,7 @@ void main() {
         child: const MaterialApp(
             home:
                 Scaffold(body: BookingLocationsButton(bookingId: 'booking')))));
-    await t.tap(find.text('View booking locations'));
+    await t.tap(find.text('Location'));
     await t.pump();
     c.profile = const User(
         id: 'other',
@@ -66,7 +66,7 @@ void main() {
     });
     await t.pumpAndSettle();
     expect(find.text('Booking locations'), findsNothing);
-    expect(find.text('View booking locations'), findsOneWidget);
+    expect(find.text('Location'), findsOneWidget);
   });
   for (final state in [
     'hidden_until_approval',
@@ -84,7 +84,7 @@ void main() {
               theme: AppTheme.light,
               home: const Scaffold(
                   body: BookingLocationsButton(bookingId: 'booking')))));
-      await t.tap(find.text('View booking locations'));
+      await t.tap(find.text('Location'));
       await t.pumpAndSettle();
       expect(
           find.text('No confirmed locations are available for this booking.'),

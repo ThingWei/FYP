@@ -86,6 +86,7 @@ class LiveRentHubController extends ChangeNotifier {
       ownerActivitySummary = {};
       ownerOrderRecords = [];
       ownerOverdueRecords = [];
+      _rentalRevisions.clear();
       listingReviewPages.clear();
       reviews = [];
       receivedReviews = [];
@@ -1761,7 +1762,10 @@ class LiveRentHubController extends ChangeNotifier {
   }
 
   Rental currentDisputeRental(Rental fallback) =>
-      rentals.where((item) => item.id == fallback.id).firstOrNull ?? fallback;
+      [...rentals, ...ownerOrderRecords]
+          .where((item) => item.id == fallback.id)
+          .firstOrNull ??
+      fallback;
 
   String? disputeCreationBlockReason(Rental rental) {
     final current = currentDisputeRental(rental);
@@ -1832,34 +1836,39 @@ class LiveRentHubController extends ChangeNotifier {
         );
         if (!_sameAccount(account)) return dispute;
         disputes.insert(0, dispute);
-        final updatedRentals = rentals
-            .map((item) => item.id == rental.id
-                ? Rental(
-                    item.id,
-                    'disputed',
-                    bookingId: item.bookingId,
-                    listingId: item.listingId,
-                    listingType: item.listingType,
-                    renterId: item.renterId,
-                    ownerId: item.ownerId,
-                    start: item.start,
-                    end: item.end,
-                    extensionStatus: item.extensionStatus,
-                    extension: item.extension,
-                    handover: item.handover,
-                    returnSubmission: item.returnSubmission,
-                    blockchainStatus: item.blockchainStatus,
-                    contractAddress: item.contractAddress,
-                    blockchainTransactionHash: item.blockchainTransactionHash,
-                  )
-                : item)
-            .toList();
-        for (final item in updatedRentals) {
-          _replaceRental(item);
-        }
+        final saved =
+            rentals.where((item) => item.id == rental.id).firstOrNull ?? rental;
+        _replaceRental(saved.withStatus('disputed'));
         notifyListeners();
+        unawaited(_refreshAfterDispute(saved, account));
         return dispute;
       });
+
+  Future<void> _refreshAfterDispute(Rental rental, int account) async {
+    final revision = _rentalRevisions[rental.id];
+    try {
+      final row = await api
+          .request('GET', '/rentals/${rental.id}')
+          .timeout(const Duration(seconds: 15));
+      if (!_sameAccount(account)) return;
+      if (_rentalRevisions[rental.id] == revision) {
+        final fresh = Rental.fromJson(Map<String, dynamic>.from(row as Map));
+        if (!['active', 'overdue', 'scheduled'].contains(fresh.status) ||
+            disputeForRental(rental.id)?.closed == true) {
+          _replaceRental(fresh);
+          notifyListeners();
+        }
+      }
+    } catch (_) {
+      // The case is already saved. Keep its local record and never repeat POST.
+    }
+    if (!_sameAccount(account) || profile?.id != rental.ownerId) return;
+    await Future.wait([
+      for (final key in ['owner-overdue', 'owner-bookings'])
+        if (userRecordPages[key] case final state?)
+          loadUserRecords(key, page: state.page, limit: state.limit),
+    ]);
+  }
 
   Future<Dispute> respondToDispute(
     Dispute dispute,
@@ -2331,7 +2340,9 @@ class LiveRentHubController extends ChangeNotifier {
     notifyListeners();
   }
 
+  final Map<String, int> _rentalRevisions = {};
   void _replaceRental(Rental rental) {
+    _rentalRevisions[rental.id] = (_rentalRevisions[rental.id] ?? 0) + 1;
     ownerOverdueRecords = [
       for (final r in ownerOverdueRecords)
         if (r.id != rental.id) r else if (rental.hasOverdueReturn) rental
@@ -2431,7 +2442,15 @@ class LiveRentHubController extends ChangeNotifier {
           _ => throw ArgumentError('Unknown rental action: $action'),
         };
         try {
-          await api.request(method, path, body: body);
+          final result = await api.request(method, path, body: body);
+          // A returned rental can leave the current result page. Retain its
+          // saved evidence before refreshing lists; fresh list rows still win.
+          if (_sameAccount(account) &&
+              action == 'return' &&
+              result is Map &&
+              (result['publicId'] ?? result['id']) == rental.id) {
+            _replaceRental(Rental.fromJson(Map<String, dynamic>.from(result)));
+          }
         } catch (_) {
           // Read status after an uncertain outcome; never repeat the write.
           if (_sameAccount(account)) {

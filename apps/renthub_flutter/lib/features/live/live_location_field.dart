@@ -72,6 +72,7 @@ class LiveLocationField extends StatelessWidget {
               }
               return null;
             }),
+        const SizedBox(height: 16),
         OutlinedButton.icon(
             onPressed: !enabled ? null : () => _open(context),
             icon: const Icon(Icons.map_outlined),

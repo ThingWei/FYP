@@ -27,9 +27,12 @@ class LiveBookingWorkspace extends StatelessWidget {
   void _retry() => unawaited(onRetry().catchError((Object _) {}));
 
   @override
-  Widget build(BuildContext context) => header == null
-      ? _body(context)
-      : Column(children: [header!, Expanded(child: _body(context))]);
+  Widget build(BuildContext context) => Center(
+      child: SizedBox(
+          width: 1000,
+          child: header == null
+              ? _body(context)
+              : Column(children: [header!, Expanded(child: _body(context))])));
 
   Widget _body(BuildContext context) {
     final failure =

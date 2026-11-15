@@ -221,12 +221,18 @@ void main() {
       }
       await tap(tester, 'Place test pin');
       expect(find.text('Pin selected. Check the location name below.'),
-          findsOneWidget);
+          findsNothing);
+      expect(
+          tester
+              .widget<TextButton>(
+                  find.widgetWithText(TextButton, 'Adjust test pin'))
+              .onPressed,
+          isNotNull);
       expect(tester.takeException(), isNull);
     });
   }
   testWidgets(
-      'GPS accuracy is visible; manual adjustment ignores stale GPS; timeout releases controls',
+      'Limited GPS precision is concise; manual adjustment ignores stale GPS; timeout releases controls',
       (tester) async {
     final gps = Gps()
       ..reading =
@@ -238,8 +244,9 @@ void main() {
             mapBuilder: canvas)));
     await tester.pumpAndSettle();
     await tap(tester, 'Use my current location');
-    expect(find.textContaining('about 120 m'), findsOneWidget);
-    expect(find.textContaining('Accuracy is limited'), findsOneWidget);
+    expect(find.textContaining('Device accuracy'), findsNothing);
+    expect(
+        find.text('Location is approximate. Adjust the pin.'), findsOneWidget);
     gps.held = Completer();
     await tester.tap(find.text('Use my current location'));
     await tester.pump();

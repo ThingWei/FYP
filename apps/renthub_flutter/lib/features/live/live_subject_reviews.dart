@@ -9,6 +9,12 @@ import '../../shared/widgets/record_list_header.dart';
 import 'live_renthub_controller.dart';
 import 'live_rental_progress.dart';
 
+String reviewAuthorLabel(Review review) => switch (review.authorRole) {
+      'owner' => '${review.authorName} · Owner',
+      'renter' => '${review.authorName} · Renter',
+      _ => review.authorName,
+    };
+
 class SubjectReviewsSection extends StatefulWidget {
   const SubjectReviewsSection(
       {super.key, required this.userId, this.role = 'overall'});
@@ -147,14 +153,8 @@ class _SubjectReviewsSectionState extends State<SubjectReviewsSection> {
                             Text('${review.rating} / 5',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700)),
-                            Text(review.authorName),
+                            Text(reviewAuthorLabel(review)),
                           ]),
-                      if (review.subjectRole.isNotEmpty)
-                        Text(
-                            review.subjectRole == 'owner'
-                                ? 'Review as Owner'
-                                : 'Review as renter',
-                            style: Theme.of(context).textTheme.bodySmall),
                       const SizedBox(height: 8),
                       Text(review.text),
                       if (review.listingTitle.isNotEmpty)

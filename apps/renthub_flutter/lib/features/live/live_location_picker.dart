@@ -240,8 +240,9 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
             point: point,
             source: 'gps',
             accuracyMeters: reading.accuracy);
-        gpsMessage =
-            'Device accuracy: about ${reading.accuracy.round()} m. ${reading.approximate || reading.accuracy > 50 ? 'Accuracy is limited. Adjust the pin to the actual entrance or pickup point.' : 'Check the entrance or pickup point before confirming.'}';
+        gpsMessage = reading.approximate || reading.accuracy > 50
+            ? 'Location is approximate. Adjust the pin.'
+            : null;
       });
       _moveMap(point);
       if (!privatePin) _scheduleAddressLookup();
@@ -462,10 +463,6 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                           child: Text(widget.notice!,
                               style: const TextStyle(
                                   fontWeight: FontWeight.w600))),
-                    Text(widget.searchAreaOnly
-                        ? 'Search or use GPS to choose a nearby search centre. GPS and map pins ask OpenStreetMap for the nearest mapped address. Check the place name, then tap Use this location.'
-                        : 'Search or use GPS, check the pin, then tap Use this location. GPS and public pins ask OpenStreetMap for the nearest mapped address. Private pin skips that lookup.'),
-                    const SizedBox(height: 16),
                     TextField(
                         controller: query,
                         maxLength: 160,
@@ -520,6 +517,7 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                                           FocusScope.of(context).unfocus();
                                         });
                                   }))),
+                    if (gpsAvailable) const SizedBox(height: 20),
                     if (gpsAvailable)
                       OutlinedButton.icon(
                           onPressed: locating ? null : _locate,
@@ -528,7 +526,10 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                               ? 'Finding your position…'
                               : 'Use my current location')),
                     if (locating) const LinearProgressIndicator(),
-                    if (gpsMessage != null) Text(gpsMessage!),
+                    if (gpsMessage != null)
+                      Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(gpsMessage!)),
                     if (gpsFailure?.appSettings == true ||
                         gpsFailure?.locationSettings == true)
                       TextButton(
@@ -552,13 +553,10 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                               style: TextStyle(
                                   color: Theme.of(context).colorScheme.error))),
                     if (!widget.searchAreaOnly) ...[
-                      const Text(
-                          'GPS and public pins send their coordinates to OpenStreetMap to fill the mapped address. Check the street and entrance; your exact pin stays unchanged.'),
                       SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Private pin'),
-                          subtitle: const Text(
-                              'Optional: skip address lookup and enter the address yourself.'),
+                          subtitle: const Text('Enter the address yourself.'),
                           value: privatePin,
                           onChanged: (value) {
                             setState(() {
@@ -603,15 +601,11 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                                 (controller.camera.zoom - 1).clamp(4, 18)),
                             icon: const Icon(Icons.remove))
                       ]),
-                    Text(selected == null
-                        ? 'No pin selected yet.'
-                        : 'Pin selected. Check the location name below.'),
                     if (selected != null) ...[
-                      Text(
-                          'Selected pin: ${selected!.point.latitude.toStringAsFixed(6)}, ${selected!.point.longitude.toStringAsFixed(6)}'),
                       if (resolving) const LinearProgressIndicator(),
                       if (resolving) const Text('Finding address\u2026'),
-                      if (addressMessage != null) Text(addressMessage!),
+                      if (addressLookupFailed && addressMessage != null)
+                        Text(addressMessage!),
                       if (addressLookupFailed)
                         TextButton(
                             onPressed:
@@ -630,22 +624,21 @@ class _LiveLocationPickerState extends State<LiveLocationPicker> {
                             errorText: labelError,
                             counterText: '')),
                     if (!widget.searchAreaOnly) ...[
-                      const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Text(
-                              'Keep unit/house details in the exact address above. For listings, only the city/town, state and approximate area are public.')),
+                      const SizedBox(height: 16),
                       TextField(
                           controller: city,
                           onChanged: (_) => setState(_manualAddressEdit),
                           maxLength: 80,
                           decoration: const InputDecoration(
                               labelText: 'City / town', counterText: '')),
+                      const SizedBox(height: 16),
                       TextField(
                           controller: state,
                           onChanged: (_) => setState(_manualAddressEdit),
                           maxLength: 80,
                           decoration: const InputDecoration(
                               labelText: 'State', counterText: '')),
+                      const SizedBox(height: 16),
                       TextField(
                           controller: postcode,
                           onChanged: (_) => setState(_manualAddressEdit),

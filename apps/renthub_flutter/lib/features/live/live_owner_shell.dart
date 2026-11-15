@@ -1,6 +1,8 @@
 import 'live_value_pickers.dart';
 import 'live_contact_profile.dart';
 import 'live_appointments.dart';
+import 'live_owner_attention.dart';
+import '../../shared/widgets/renthub_action_group.dart';
 import '../../shared/widgets/section_help.dart';
 import 'live_booking_summary.dart';
 import 'live_notification_icon.dart';
@@ -238,8 +240,6 @@ class LiveOwnerDashboard extends StatelessWidget {
             .length;
     final overdue = controller.ownerActivitySummary['overdueReturns'] ??
         controller.ownerRentals.where((r) => r.hasOverdueReturn).length;
-    final attention =
-        controller.ownerActivitySummary['attentionNeeded'] ?? pending + overdue;
     return Scaffold(
       appBar: AppBar(
         title: const RentHubLogo(),
@@ -256,159 +256,155 @@ class LiveOwnerDashboard extends StatelessWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: controller.loadOwner,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            RentHubSectionHeader(
-              'Welcome, ${controller.profile?.name ?? 'Owner'}',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 20),
-            _OwnerMetrics(
-              children: [
-                _LiveMetric(
-                  'My listings',
-                  '${controller.ownerActivitySummary['listings'] ?? controller.ownerListings.length}',
-                  Icons.inventory_2_outlined,
-                ),
-                _LiveMetric('Pending requests', '$pending', Icons.schedule),
-                _LiveMetric(
-                    'Active orders', '$active', Icons.local_shipping_outlined),
-                _LiveMetric(
-                  'Owner trust score',
-                  controller.profile?.trustProfile.owner.application
-                              .established ==
-                          true
-                      ? '${controller.profile!.trustProfile.owner.application.score}%'
-                      : controller
-                              .profile?.trustProfile.owner.application.label ??
-                          '—',
-                  onTap: controller.profile == null
-                      ? null
-                      : () => openTrustDetails(context, controller.profile!.id,
-                          role: 'owner'),
-                  Icons.verified_user_outlined,
-                  leading: TrustIndicator(
-                      cohort:
-                          controller.profile?.trustProfile.owner.application ??
-                              const TrustCohort(),
-                      size: 40),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Card(
-              child: Column(children: [
-                ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: AppColors.primaryLight,
-                    child: Icon(Icons.assignment_outlined),
-                  ),
-                  title: Text('Needs attention ($attention)'),
-                ),
-                ListTile(
-                    title: const Text('Awaiting approval'),
-                    trailing: Text('$pending'),
-                    onTap: onOpenRequests),
-                ListTile(
-                    leading:
-                        const Icon(Icons.schedule, color: AppColors.warning),
-                    title: const Text('Overdue returns'),
-                    trailing: Text('$overdue'),
-                    onTap: () => Navigator.push<void>(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) =>
-                                const LiveOwnerOrdersPage(overdueOnly: true)))),
-              ]),
-            ),
-            const SizedBox(height: 16),
-            Text('Rental and service actions',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            if (controller.ownerRentals.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('No active rental or service actions.'),
-                ),
-              )
-            else
-              for (final rental in controller.ownerRentals.take(3))
-                _OwnerRentalCard(rental: rental),
-            TextButton(
-                onPressed: () => Navigator.push<void>(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const LiveOwnerOrdersPage())),
-                child: const Text('View all orders')),
-            const SizedBox(height: 20),
-            Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 16,
-                children: [
-                  Text('Reviews received',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  TextButton(
-                      onPressed: () => Navigator.push<void>(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => LiveReviewsListPage(
-                                  received: true,
-                                  onFlag: (review) => _flag(context, review)))),
-                      child: const Text('View all reviews'))
-                ]),
-            const SizedBox(height: 8),
-            if (controller.receivedReviews.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('Completed-order reviews will appear here.'),
-                ),
-              )
-            else
-              for (final review in controller.receivedReviews.take(3))
-                Card(
-                  child: ListTile(
-                    dense: true,
-                    title: Text(review.authorName,
-                        style: Theme.of(context).textTheme.titleSmall),
-                    subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+      body: Align(
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+              width: 1100,
+              child: RefreshIndicator(
+                onRefresh: controller.loadOwner,
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    RentHubSectionHeader(
+                      'Welcome, ${controller.profile?.name ?? 'Owner'}',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 20),
+                    _OwnerMetrics(
+                      children: [
+                        _LiveMetric(
+                          'My listings',
+                          '${controller.ownerActivitySummary['listings'] ?? controller.ownerListings.length}',
+                          Icons.inventory_2_outlined,
+                        ),
+                        _LiveMetric(
+                            'Pending requests', '$pending', Icons.schedule),
+                        _LiveMetric('Active orders', '$active',
+                            Icons.local_shipping_outlined),
+                        _LiveMetric(
+                          'Owner trust score',
+                          controller.profile?.trustProfile.owner.application
+                                      .established ==
+                                  true
+                              ? '${controller.profile!.trustProfile.owner.application.score}%'
+                              : controller.profile?.trustProfile.owner
+                                      .application.label ??
+                                  '—',
+                          onTap: controller.profile == null
+                              ? null
+                              : () => openTrustDetails(
+                                  context, controller.profile!.id,
+                                  role: 'owner'),
+                          Icons.verified_user_outlined,
+                          leading: TrustIndicator(
+                              cohort: controller.profile?.trustProfile.owner
+                                      .application ??
+                                  const TrustCohort(),
+                              size: 40),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    OwnerAttentionCards(
+                        pending: pending,
+                        overdue: overdue,
+                        onRequests: onOpenRequests,
+                        onOverdue: () => Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const LiveOwnerOrdersPage(
+                                    overdueOnly: true)))),
+                    const SizedBox(height: 16),
+                    Text('Rental and service actions',
+                        style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    if (controller.ownerRentals.isEmpty)
+                      const Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(20),
+                          child: Text('No active rental or service actions.'),
+                        ),
+                      )
+                    else
+                      for (final rental in controller.ownerRentals.take(3))
+                        _OwnerRentalCard(rental: rental),
+                    TextButton(
+                        onPressed: () => Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const LiveOwnerOrdersPage())),
+                        child: const Text('View all orders')),
+                    const SizedBox(height: 20),
+                    Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 16,
                         children: [
-                          Row(children: [
-                            for (var star = 1; star <= 5; star++)
-                              Icon(
-                                  star <= review.rating
-                                      ? Icons.star
-                                      : Icons.star_outline,
-                                  size: 16,
-                                  color: AppColors.warning)
-                          ]),
-                          Text(review.listingTitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall),
-                          Text(review.text,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall),
+                          Text('Reviews received',
+                              style: Theme.of(context).textTheme.titleMedium),
+                          TextButton(
+                              onPressed: () => Navigator.push<void>(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => LiveReviewsListPage(
+                                          received: true,
+                                          onFlag: (review) =>
+                                              _flag(context, review)))),
+                              child: const Text('View all reviews'))
                         ]),
-                    trailing: review.flagged
-                        ? const StatusBadge('Flagged')
-                        : IconButton(
-                            tooltip: 'Flag suspicious review',
-                            onPressed: () => _flag(context, review),
-                            icon: const Icon(Icons.flag_outlined),
+                    const SizedBox(height: 8),
+                    if (controller.receivedReviews.isEmpty)
+                      const Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(20),
+                          child:
+                              Text('Completed-order reviews will appear here.'),
+                        ),
+                      )
+                    else
+                      for (final review in controller.receivedReviews.take(3))
+                        Card(
+                          child: ListTile(
+                            dense: true,
+                            title: Text(review.authorName,
+                                style: Theme.of(context).textTheme.titleSmall),
+                            subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(children: [
+                                    for (var star = 1; star <= 5; star++)
+                                      Icon(
+                                          star <= review.rating
+                                              ? Icons.star
+                                              : Icons.star_outline,
+                                          size: 16,
+                                          color: AppColors.warning)
+                                  ]),
+                                  Text(review.listingTitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
+                                  Text(review.text,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
+                                ]),
+                            trailing: review.flagged
+                                ? const StatusBadge('Flagged')
+                                : IconButton(
+                                    tooltip: 'Flag suspicious review',
+                                    onPressed: () => _flag(context, review),
+                                    icon: const Icon(Icons.flag_outlined),
+                                  ),
                           ),
-                  ),
+                        ),
+                  ],
                 ),
-          ],
-        ),
-      ),
+              ))),
     );
   }
 }
@@ -417,19 +413,7 @@ class _OwnerMetrics extends StatelessWidget {
   const _OwnerMetrics({required this.children});
   final List<Widget> children;
   @override
-  Widget build(BuildContext context) => Column(children: [
-        for (var i = 0; i < children.length; i += 2) ...[
-          if (i > 0) const SizedBox(height: 12),
-          IntrinsicHeight(
-              child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                Expanded(child: children[i]),
-                const SizedBox(width: 12),
-                Expanded(child: children[i + 1]),
-              ])),
-        ],
-      ]);
+  Widget build(BuildContext context) => OwnerMetricGrid(children: children);
 }
 
 class _LiveMetric extends StatelessWidget {
@@ -442,27 +426,8 @@ class _LiveMetric extends StatelessWidget {
   final IconData icon;
 
   @override
-  Widget build(BuildContext context) => Card(
-        child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  leading ?? Icon(icon, color: AppColors.primary),
-                  const SizedBox(height: 8),
-                  Text(value, style: Theme.of(context).textTheme.titleLarge),
-                  Text(label,
-                      style: const TextStyle(
-                        color: AppColors.secondaryText,
-                        fontSize: 12,
-                      )),
-                ],
-              ),
-            )),
-      );
+  Widget build(BuildContext context) => OwnerMetricCard(
+      label: label, value: value, icon: icon, leading: leading, onTap: onTap);
 }
 
 class LiveOwnerListingsPage extends StatelessWidget {
@@ -2030,6 +1995,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                             ],
                             onChanged: (value) =>
                                 setState(() => venueMode = value!)),
+                      if (widget.isService) const SizedBox(height: 20),
                       if (!(widget.isService && venueMode == 'online'))
                         LiveLocationField(
                             mapBuilder: widget.locationMapBuilder,
@@ -2046,7 +2012,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                               setState(() => selectedLocation = value);
                               _clearPriceRecommendation();
                             }),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 20),
                       if (widget.isService)
                         ListingValuePicker(
                             controller: duration,
@@ -2893,6 +2859,10 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 12),
                                       child: RentalAppointments(
+                                          pickupDate:
+                                              rental?.start ?? booking.start,
+                                          returnDate:
+                                              rental?.end ?? booking.end,
                                           pickup: rental?.pickupTime ??
                                               booking.pickupTime,
                                           returnTime: rental?.returnTime ??
@@ -2914,22 +2884,24 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                                 style: Theme.of(context).textTheme.titleMedium),
                             const SizedBox(height: 6),
                             Text('${booking.renterName} · ${booking.id}'),
-                            TextButton.icon(
-                                onPressed: () => openMarketplaceProfile(
-                                    context, booking.renterId),
-                                icon: const Icon(Icons.verified_user_outlined),
-                                label: const Text('Renter profile')),
                             if (payment != null)
                               LivePaymentSummary(payment: payment),
-                            BookingLocationsButton(bookingId: booking.id),
+                            BookingDetailLinks(children: [
+                              BookingLocationsButton(bookingId: booking.id),
+                              TextButton.icon(
+                                  onPressed: () => openMarketplaceProfile(
+                                      context, booking.renterId),
+                                  icon: const Icon(Icons.person_outline),
+                                  label: const Text('Renter')),
+                              TextButton.icon(
+                                  onPressed: () =>
+                                      showBookingAgreement(context, booking.id),
+                                  icon: const Icon(Icons.description_outlined),
+                                  label: const Text('Agreement')),
+                            ]),
                             for (final rental in controller.ownerRentals.where(
                                 (rental) => rental.bookingId == booking.id))
                               _OwnerRentalCard(rental: rental, embedded: true),
-                            TextButton.icon(
-                                onPressed: () =>
-                                    showBookingAgreement(context, booking.id),
-                                icon: const Icon(Icons.description_outlined),
-                                label: const Text('View agreement')),
                             if (booking.displayStatus == 'pending' &&
                                 booking.paymentStatus != 'authorized')
                               const Text(
@@ -3074,7 +3046,8 @@ class _OwnerRentalCard extends StatelessWidget {
         break;
       }
     }
-    Widget? action;
+    Widget? action, actionNote;
+    List<Widget> extensionActions = [];
     if (rental.status == 'completed') {
       final matching = context
           .watch<LiveRentHubController>()
@@ -3106,7 +3079,8 @@ class _OwnerRentalCard extends StatelessWidget {
         ),
       );
     } else if (rental.status == 'scheduled' && rental.awaitingReceipt) {
-      action = const Text('Waiting for renter confirmation');
+      actionNote = const Text('Waiting for renter confirmation',
+          textAlign: TextAlign.center);
     } else if (rental.status == 'scheduled') {
       action = FilledButton(
         onPressed: () async {
@@ -3141,41 +3115,39 @@ class _OwnerRentalCard extends StatelessWidget {
         child: const Text('Confirm Return'),
       );
     } else if (rental.extensionStatus == 'pending') {
-      action = Wrap(
-        spacing: 8,
-        children: [
-          OutlinedButton(
-            onPressed: () => _run(
-              context,
-              'extension-decision',
-              body: {
-                'status': 'rejected',
-                'reason': 'The item is committed to another renter',
-                if (rental.extension != null)
-                  'extensionId': rental.extension!.id,
-              },
-            ),
-            child: const Text('Reject Extension'),
+      extensionActions = [
+        OutlinedButton(
+          onPressed: () => _run(
+            context,
+            'extension-decision',
+            body: {
+              'status': 'rejected',
+              'reason': 'The item is committed to another renter',
+              if (rental.extension != null) 'extensionId': rental.extension!.id,
+            },
           ),
-          FilledButton(
-            onPressed: rental.extension?.paymentStatus != 'authorized'
-                ? null
-                : () => _run(
-                      context,
-                      'extension-decision',
-                      body: {
-                        'status': 'approved',
-                        if (rental.extension != null)
-                          'extensionId': rental.extension!.id
-                      },
-                    ),
-            child: const Text('Approve Extension'),
-          ),
-          Text(rental.extension?.paymentStatus == 'authorized'
-              ? 'Extra days: ${formatMoney(rental.extension!.amount)} payment ready'
-              : 'Awaiting renter payment for extra days'),
-        ],
-      );
+          child: const Text('Reject Extension'),
+        ),
+        FilledButton(
+          onPressed: rental.extension?.paymentStatus != 'authorized'
+              ? null
+              : () => _run(
+                    context,
+                    'extension-decision',
+                    body: {
+                      'status': 'approved',
+                      if (rental.extension != null)
+                        'extensionId': rental.extension!.id
+                    },
+                  ),
+          child: const Text('Approve Extension'),
+        ),
+      ];
+      actionNote = Text(
+          rental.extension?.paymentStatus == 'authorized'
+              ? 'Extra days: ${formatMoney(rental.extension!.amount)} · Payment ready'
+              : 'Awaiting renter payment for extra days',
+          textAlign: TextAlign.center);
     }
     final existingDispute =
         context.watch<LiveRentHubController>().disputeForRental(rental.id);
@@ -3201,14 +3173,19 @@ class _OwnerRentalCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (!embedded) ...[
-              StatusBadge(rentalStatusLabel(rental.status)),
+              Align(
+                  alignment: Alignment.center,
+                  child: StatusBadge(rentalStatusLabel(rental.status))),
               const SizedBox(height: 8),
-              Text(itemTitle, style: Theme.of(context).textTheme.titleMedium),
+              Text(itemTitle,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium),
               if (rental.start != null && rental.end != null)
-                Text(formatDateRange(rental.start!, rental.end!)),
+                Text(formatDateRange(rental.start!, rental.end!),
+                    textAlign: TextAlign.center),
               TextButton.icon(
                   icon: const Icon(Icons.chevron_right),
                   label: const Text('View details'),
@@ -3238,6 +3215,7 @@ class _OwnerRentalCard extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 4,
                 crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.center,
                 children: [
                   Text(
                     agreementStatusLabel(rental),
@@ -3246,17 +3224,22 @@ class _OwnerRentalCard extends StatelessWidget {
                   TextButton.icon(
                     onPressed: () => showBlockchainAgreement(context, rental),
                     icon: const Icon(Icons.receipt_long_outlined),
-                    label: const Text('View agreement'),
+                    label: const Text('Agreement'),
                   ),
                 ],
               ),
-            if (action != null || disputeAction != null) ...[
+            if (actionNote != null)
+              Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: SizedBox(width: double.infinity, child: actionNote)),
+            if (action != null ||
+                extensionActions.isNotEmpty ||
+                disputeAction != null) ...[
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              RentHubActionGroup(
                 children: [
                   if (action != null) action,
+                  ...extensionActions,
                   if (disputeAction != null) disputeAction,
                 ],
               ),
@@ -3276,30 +3259,68 @@ class LiveOwnerOrdersPage extends StatelessWidget {
     final c = context.watch<LiveRentHubController>();
     final collection = overdueOnly ? 'owner-overdue' : 'owner-rentals';
     final records = overdueOnly ? c.ownerOverdueRecords : c.ownerOrderRecords;
+    final state = c.userRecordPages[collection];
     return Scaffold(
         appBar: AppBar(
             title: Text(
                 overdueOnly ? 'Overdue returns' : 'Rental and service orders'),
             bottom: UserRecordToolbar(collection: collection)),
         bottomNavigationBar: UserRecordPagination(collection: collection),
-        body: RefreshIndicator(
-            onRefresh: () => c.loadUserRecords(collection),
-            child: records.isEmpty
-                ? ListView(children: [
-                    Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                            c.userRecordPages[collection]?.loading == true
-                                ? 'Loading orders?'
-                                : 'No orders on this page.'))
-                  ])
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: records.length,
-                    itemBuilder: (_, i) => Column(children: [
-                          _OwnerRentalCard(rental: records[i]),
-                          if (overdueOnly)
-                            OverdueRentalPanel(rental: records[i], owner: true),
-                        ]))));
+        body: Center(
+            child: SizedBox(
+                width: 1100,
+                child: RefreshIndicator(
+                    onRefresh: () => c.loadUserRecords(collection),
+                    child: ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        itemCount: records.length + 1,
+                        itemBuilder: (_, i) => i == 0
+                            ? Column(children: [
+                                if (state?.loading == true)
+                                  const LinearProgressIndicator(),
+                                if (state?.error != null)
+                                  Card(
+                                      child: Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Column(children: [
+                                            const Text(
+                                                'Orders could not be refreshed.'),
+                                            TextButton(
+                                                onPressed: state?.loading ==
+                                                        true
+                                                    ? null
+                                                    : () => c.loadUserRecords(
+                                                        collection,
+                                                        page: state!.page),
+                                                child: const Text('Retry')),
+                                          ]))),
+                                if (records.isEmpty &&
+                                    state?.loading != true &&
+                                    state?.error == null)
+                                  Padding(
+                                      padding: const EdgeInsets.all(24),
+                                      child: Column(children: [
+                                        Text(overdueOnly
+                                            ? 'No overdue returns.'
+                                            : 'No orders on this page.'),
+                                        if (overdueOnly)
+                                          TextButton(
+                                              onPressed: () => Navigator.push<
+                                                      void>(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                      builder: (_) =>
+                                                          const LiveOwnerOrdersPage())),
+                                              child: const Text(
+                                                  'View all orders')),
+                                      ])),
+                              ])
+                            : Column(children: [
+                                _OwnerRentalCard(rental: records[i - 1]),
+                                if (overdueOnly)
+                                  OverdueRentalPanel(
+                                      rental: records[i - 1], owner: true),
+                              ]))))));
   }
 }

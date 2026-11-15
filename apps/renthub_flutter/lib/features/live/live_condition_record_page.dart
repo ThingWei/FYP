@@ -112,6 +112,11 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
     }
     final c = context.read<LiveRentHubController>();
     final latest = currentRental(c);
+    if (!widget.handover && !latest.canSubmitReturn) {
+      setState(() =>
+          error = 'Check the latest rental status before submitting a return.');
+      return;
+    }
     if (widget.handover &&
         (latest.status != 'scheduled' ||
             latest.hasSubmittedHandover ||
@@ -125,8 +130,10 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
             ? 'Send handover for confirmation?'
             : 'Submit your return record?',
         message: widget.handover
-            ? 'Your condition, notes and photos will be sent to the renter and cannot be edited afterward. The rental starts only after the renter confirms receipt.'
-            : 'The Owner will compare these photos with the handover record and inspect the returned item before completing the rental.',
+            ? 'The record cannot be edited after sending. The renter confirms receipt before the rental starts.'
+            : latest.status == 'disputed'
+                ? 'Your photos will be shared with the Owner and administrator. The case stays open for review.'
+                : 'The Owner will compare these photos with the handover record and inspect the returned item before completing the rental.',
         action: widget.handover ? 'Send handover' : 'Submit return');
     if (!accepted || !mounted) return;
     setState(() {
@@ -168,19 +175,13 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
         (rental.status == 'expired' ||
             rental.end != null &&
                 calendarDate(rental.end!).isBefore(malaysiaCalendarToday()));
-    final ready = !widget.handover ||
-        !ended &&
+    final ready = !widget.handover
+        ? rental.canSubmitReturn
+        : !ended &&
             !rental.hasSubmittedHandover &&
             rental.status == 'scheduled' &&
             handoverDayReached(rental);
     final handoverDate = rental.start == null ? null : rentalDay(rental.start!);
-    final handoverNotice = rental.hasSubmittedHandover
-        ? 'The handover record is saved. Check the booking for renter confirmation.'
-        : ended
-            ? 'The booked dates have ended. Handover is closed. Open the booking again to check its expiry and payment status.'
-            : handoverDate == null
-                ? 'The booked start date is not available. Check the latest rental status before handover.'
-                : 'You can send handover from $handoverDate, when you give the item to the renter. The renter must confirm receipt before the rental starts.';
     return PopScope(
         canPop: !busy,
         child: Scaffold(
@@ -201,10 +202,7 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                             child: ListView(
                                 padding: const EdgeInsets.all(16),
                                 children: [
-                                  RentHubSectionHeader(
-                                      widget.handover
-                                          ? 'Record the item before it changes hands'
-                                          : 'Show the item as you return it',
+                                  RentHubSectionHeader('Condition & photos',
                                       help: widget.handover
                                           ? 'Take clear photos of the whole item, accessories and any existing marks. Check them with the renter before handing it over.'
                                           : 'Take clear photos of the item and accessories. Describe any changes honestly so the Owner can inspect the return.',
@@ -212,37 +210,31 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                           .textTheme
                                           .titleLarge),
                                   RentalAppointments(
-                                      pickup: widget.rental.pickupTime,
-                                      returnTime: widget.rental.returnTime),
-                                  if (!ready) ...[
-                                    const SizedBox(height: 16),
-                                    DecoratedBox(
-                                        decoration: BoxDecoration(
-                                            color: AppColors.blueSurface,
-                                            borderRadius:
-                                                BorderRadius.circular(12)),
-                                        child: Padding(
-                                            padding: const EdgeInsets.all(16),
-                                            child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                      ended
-                                                          ? 'Handover is closed'
-                                                          : handoverDate == null
-                                                              ? 'Check the rental start date'
-                                                              : 'Scheduled for $handoverDate',
-                                                      style: Theme.of(context)
-                                                          .textTheme
-                                                          .titleSmall),
-                                                  const SizedBox(height: 8),
-                                                  Text(handoverNotice),
-                                                  const SizedBox(height: 8),
-                                                  const Text(
-                                                      'Condition photos should show the item on the actual handover day.'),
-                                                ]))),
-                                  ],
+                                      pickupDate: rental.start,
+                                      returnDate: rental.end,
+                                      pickup: rental.pickupTime,
+                                      returnTime: rental.returnTime),
+                                  if (!widget.handover && !ready)
+                                    const Padding(
+                                        padding:
+                                            EdgeInsets.symmetric(vertical: 16),
+                                        child: Text(
+                                            'Return submission is unavailable. Check the latest rental status.')),
+                                  if (!ready && widget.handover)
+                                    Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 16),
+                                        child: Text(
+                                            rental.hasSubmittedHandover
+                                                ? 'Handover sent. Awaiting renter confirmation.'
+                                                : ended
+                                                    ? 'Handover is closed.'
+                                                    : handoverDate == null
+                                                        ? 'Start date unavailable. Refresh the booking.'
+                                                        : 'Available from $handoverDate',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleSmall)),
                                   if (!widget.handover)
                                     Padding(
                                         padding: const EdgeInsets.symmetric(
@@ -282,10 +274,9 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                       minLines: 3,
                                       maxLines: 6,
                                       decoration: const InputDecoration(
-                                          labelText:
-                                              'Marks, damage or missing accessories',
+                                          labelText: 'Notes (optional)',
                                           hintText:
-                                              'Describe existing scratches or missing parts. Leave empty if there are none.'),
+                                              'Marks or missing accessories'),
                                       validator: (value) => (value
                                                       ?.trim()
                                                       .length ??
@@ -302,8 +293,7 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                           Icons.add_a_photo_outlined),
                                       label: Text(
                                           'Add condition photos (${photos.length}/10)')),
-                                  const Text(
-                                      'At least one photo is required. Add several angles and close-ups where useful.'),
+                                  const Text('At least 1 photo required.'),
                                   if (attempted && photos.isEmpty)
                                     const Text(
                                         'Add a condition photo before continuing.',
@@ -326,7 +316,7 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                           : (value) => setState(() =>
                                               acknowledged = value ?? false),
                                       title: const Text(
-                                          'These photos and notes show the condition I observed.'),
+                                          'This record reflects the condition I observed.'),
                                       controlAffinity:
                                           ListTileControlAffinity.leading),
                                   if (attempted && !acknowledged)
@@ -342,11 +332,6 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                             style: const TextStyle(
                                                 color: AppColors.error))),
                                   const SizedBox(height: 16),
-                                  if (!ready && !needsStatusCheck)
-                                    Padding(
-                                        padding:
-                                            const EdgeInsets.only(bottom: 12),
-                                        child: Text(handoverNotice)),
                                   FilledButton.icon(
                                       onPressed: busy
                                           ? null
@@ -363,19 +348,20 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                           : needsStatusCheck
                                               ? 'Check latest status'
                                               : !ready
-                                                  ? ended
-                                                      ? 'Handover closed'
-                                                      : handoverDate == null
-                                                          ? 'Start date needed'
-                                                          : 'Handover opens $handoverDate'
+                                                  ? !widget.handover
+                                                      ? 'Return unavailable'
+                                                      : rental
+                                                              .hasSubmittedHandover
+                                                          ? 'Handover sent'
+                                                          : ended
+                                                              ? 'Handover closed'
+                                                              : handoverDate ==
+                                                                      null
+                                                                  ? 'Start date needed'
+                                                                  : 'Not available yet'
                                                   : widget.handover
-                                                      ? 'Send handover for confirmation'
+                                                      ? 'Send handover'
                                                       : 'Review & submit return')),
-                                  const SizedBox(height: 12),
-                                  const Text(
-                                      'The record is shared with the other party and can be reviewed by an administrator if there is a problem. It does not automatically assign responsibility.',
-                                      style: TextStyle(
-                                          color: AppColors.secondaryText)),
                                 ]))))));
   }
 }

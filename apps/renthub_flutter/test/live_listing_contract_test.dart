@@ -350,9 +350,13 @@ void main() {
 
     await tester.tap(find.byTooltip('Filters and sorting'));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Recommended'), 250,
+    final sortField =
+        find.widgetWithText(DropdownButtonFormField<String>, 'Sort by');
+    await tester.scrollUntilVisible(sortField, 250,
         scrollable: find.byType(Scrollable).first);
-    await tester.tap(find.text('Recommended').last);
+    await tester.ensureVisible(sortField);
+    await tester.pumpAndSettle();
+    await tester.tap(sortField);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Price: low to high').last);
     await tester.pump();

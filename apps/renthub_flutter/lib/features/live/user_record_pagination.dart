@@ -164,7 +164,7 @@ class _UserRecordPaginationState extends State<UserRecordPagination> {
     return SafeArea(
         top: false,
         child: Material(
-            color: Theme.of(context).colorScheme.surface,
+            type: MaterialType.transparency,
             child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 4),

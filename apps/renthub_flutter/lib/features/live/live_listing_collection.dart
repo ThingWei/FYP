@@ -150,8 +150,6 @@ class ListingCollection extends StatelessWidget {
                             theme.bodyMedium
                                 ?.copyWith(fontWeight: FontWeight.w700),
                             2) +
-                        measure('Approx. area: ${item.location}',
-                            theme.bodySmall, 1) +
                         (item.recommendationAvailability.isEmpty
                             ? 0
                             : measure(
@@ -274,10 +272,6 @@ class ListingCardSummary extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleSmall),
-            Text('Approx. area: ${listing.location}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall),
             if (showBadges && listing.promotionActive)
               Wrap(spacing: 4, runSpacing: 4, children: [
                 if (listing.promotionActive) const _ListingBadge('Promoted'),

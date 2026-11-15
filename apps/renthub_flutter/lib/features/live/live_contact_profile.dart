@@ -150,12 +150,29 @@ class _LiveContactProfilePageState extends State<LiveContactProfilePage> {
                                                       child:
                                                           Text('${p['bio']}')),
                                                 const SizedBox(height: 12),
-                                                TrustSummaryButton(
-                                                    userId: '${p['id']}',
-                                                    summary:
-                                                        TrustProfile.fromJson(p[
-                                                                'trustProfile'])
-                                                            .overall),
+                                                Wrap(
+                                                    alignment:
+                                                        WrapAlignment.center,
+                                                    spacing: 12,
+                                                    runSpacing: 8,
+                                                    children: [
+                                                      for (final role in [
+                                                        'owner',
+                                                        'renter'
+                                                      ])
+                                                        TrustSummaryButton(
+                                                            userId:
+                                                                '${p['id']}',
+                                                            role: role,
+                                                            prefix: role ==
+                                                                    'owner'
+                                                                ? 'Owner trust score'
+                                                                : 'Renter trust score',
+                                                            summary: TrustProfile
+                                                                    .fromJson(p[
+                                                                        'trustProfile'])
+                                                                .forRole(role)),
+                                                    ]),
                                               ]))),
                                       SubjectReviewsSection(
                                           userId: '${p['id']}',

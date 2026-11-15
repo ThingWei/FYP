@@ -1,6 +1,6 @@
 # RentHub local launcher reliability
 
-Updated 5 November 2026. This keeps the current local API, AI and Ganache setup,
+Updated 15 November 2026. This keeps the current local API, AI and Ganache setup,
 with the configured MongoDB Atlas and photo storage. No hosting deployment,
 database changes, secret changes, model downloads or model deployment were made.
 
@@ -300,3 +300,42 @@ verify once during the next normal startup that the refresh message appears and
 the launcher continues without a separate terminal workaround.
 
 Commit message: `fix(launcher): refresh Android discovery and preserve shared ADB daemon`.
+
+## Flutter discovery fallback and SDK alignment — 15 November 2026
+
+The earlier ADB-only refresh was insufficient for the reported repeated startup failure. Inspection of the installed Flutter SDK confirms that its Android discovery uses the SDK selected in Flutter settings (then `ANDROID_HOME`, `ANDROID_SDK_ROOT`, default SDK and PATH) and enumerates devices rather than treating a single serial-state check as discovery. The launcher's earlier PATH-first lookup could select another installation; it also never ran the Flutter discovery pass that the user reported as effective. These are recovery gaps, not proof that either one caused every physical disconnection.
+
+Normal Android startup now:
+
+1. Resolves ADB using Flutter-compatible SDK preference, reading only the existing SDK setting. No configuration file or environment value is rewritten.
+2. Checks the selected phone and required forwarding immediately. Ready devices incur no Flutter-discovery delay.
+3. On a discovery-related failure, retains the existing single `start-server` / `devices -l` refresh. If checks still fail, it runs **one bounded Flutter `devices --machine --device-timeout` pass** automatically.
+4. Rechecks that same device and its API forwarding. Flutter enumeration, an unrelated phone or a successful tool exit cannot independently satisfy readiness.
+
+The extra Flutter pass shares the existing approximately 30-second deadline, has a maximum 12-second client budget, and reserves five seconds for checking the selected phone afterward. Authorization and forwarding-only failures retain their specific guidance instead of invoking extra discovery tools. The final error remains the selected-device/forwarding failure, not raw Flutter output.
+
+On Windows the fallback invokes the installed cached Dart executable and Flutter tool snapshot directly, with argument arrays and analytics suppression. It does not invoke a batch shell, download/prepare a tool cache, launch the app, rewrite SDK settings or select a different phone. If the optional cached tool is unavailable or times out, ADB checks can still succeed. A timed-out discovery client is stopped without an explicit daemon kill-server or global reconnect.
+
+`-ServicesOnly` and `-CheckOnly` still need no Flutter installation or Flutter discovery. Services-only mode retains its immediate connection check and continuous ADB monitoring. Windows/browser startup, interactive r/R/q handling, service ownership, Atlas setup and cleanup are unchanged.
+
+Verification:
+
+- The dedicated Android-discovery regression covers SDK selection versus PATH, settings preservation, missing caches, paths with spaces, optional Flutter failures, authorization, a missing selected phone, one-pass recovery and deadline reservation.
+- All five launcher suites and ten test-pack tests pass with disposable native-process integration. Final pack: `.data/testing/20261115-145032-de485b07/`. These tests do not contact Atlas, read live credentials, operate the real app or modify database records.
+- Live validation used the installed cached Flutter discovery. It completed successfully, the same connected phone remained online, and all existing ADB process IDs were retained. The combined discovery/read check took about **0.42 seconds**.
+- No forwarding entry existed for that phone during the read-only live check, so it deliberately made no forwarding change and did not claim a full app/service startup test. Exact forwarding and rejection/recovery cases are covered by the isolated launcher tests.
+- The original cold-start failure was not reproduced by restarting ADB or disconnecting the user's phone. A first normal startup on the next genuinely cold connection remains the physical reproduction check.
+- No API, Flutter UI, model, application data, dependency, secret or SDK configuration was changed by this launcher fix.
+
+Use the same command as before. No preliminary `flutter devices` command or new launcher option is needed.
+
+```text
+fix(launcher): recover Android discovery without manual Flutter commands
+
+- align ADB selection with Flutter SDK preferences before PATH fallback
+- run one bounded cached Flutter device-discovery pass when ADB refresh is insufficient
+- reserve time for the exact phone and API-forwarding recheck
+- retain authorization guidance, shared ADB sessions and services-only behaviour
+- cover cold-start recovery, timeout budgets and missing-device safety
+- document normal startup and the remaining physical cold-start check
+```

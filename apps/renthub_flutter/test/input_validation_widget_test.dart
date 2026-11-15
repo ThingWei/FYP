@@ -241,15 +241,12 @@ void main() {
         find.text('Request damage-waiver review'), 200,
         scrollable: find.byType(Scrollable).first);
     await press(tester, 'Request damage-waiver review');
-    await enter(tester, 'Amount requested (RM)', '0');
-    await enter(tester, 'Damage and repair details', 'short');
-    await press(tester, 'Submit Claim');
+    await enter(tester, 'Amount (RM)', '0');
+    await enter(tester, 'Damage & repair', 'short');
+    await press(tester, 'Continue');
     expect(find.byType(AlertDialog), findsOneWidget);
     expect(
-        tester
-            .widget<TextFormField>(field('Damage and repair details'))
-            .controller!
-            .text,
+        tester.widget<TextFormField>(field('Damage & repair')).controller!.text,
         'short');
     expect(find.textContaining('at least 20 characters'), findsOneWidget);
     expect(api.calls, isEmpty);

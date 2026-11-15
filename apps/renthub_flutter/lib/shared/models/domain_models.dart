@@ -822,6 +822,7 @@ class Rental {
     this.extension,
     this.handover,
     this.returnSubmission,
+    this.returnAllowed,
     this.blockchainStatus = 'unavailable',
     this.contractAddress = '',
     this.blockchainTransactionHash = '',
@@ -837,6 +838,13 @@ class Rental {
   final String extensionStatus, expiryReason;
   final RentalExtension? extension;
   final RentalConditionRecord? handover, returnSubmission;
+  final bool? returnAllowed;
+  bool get canSubmitReturn =>
+      listingType == 'physical' &&
+      ['active', 'overdue', 'disputed'].contains(status) &&
+      returnSubmission?.recordedAt == null &&
+      !awaitingReceipt &&
+      (returnAllowed ?? ['active', 'overdue'].contains(status));
   final bool? overdueReturn;
   final bool overdueNeedsAttention;
   final DateTime? overdueSince;
@@ -856,6 +864,35 @@ class Rental {
       handover?.receiptStatus != 'acknowledged';
   bool get hasSubmittedHandover =>
       listingType == 'physical' && handover?.recordedAt != null;
+
+  /// A status change must not discard protected evidence or overdue metadata.
+  Rental withStatus(String value) => Rental(id, value,
+      bookingId: bookingId,
+      listingId: listingId,
+      listingType: listingType,
+      renterId: renterId,
+      ownerId: ownerId,
+      start: start,
+      end: end,
+      pickupTime: pickupTime,
+      returnTime: returnTime,
+      expiryReason: expiryReason,
+      overdueReturn: overdueReturn ?? (status == 'overdue' ? true : null),
+      overdueNeedsAttention: overdueNeedsAttention,
+      overdueSince: overdueSince,
+      extensionStatus: extensionStatus,
+      extension: extension,
+      handover: handover,
+      returnSubmission: returnSubmission,
+      returnAllowed: returnAllowed,
+      blockchainStatus: blockchainStatus,
+      contractAddress: contractAddress,
+      blockchainTransactionHash: blockchainTransactionHash,
+      blockchainDeploymentHash: blockchainDeploymentHash,
+      blockchainState: blockchainState,
+      blockchainNetwork: blockchainNetwork,
+      blockchainSignatureHashes: blockchainSignatureHashes,
+      blockchainError: blockchainError);
 
   factory Rental.fromJson(Map<String, dynamic> json) {
     final blockchain = json['blockchain'] as Map<String, dynamic>? ?? const {};
@@ -904,6 +941,7 @@ class Rental {
           ? RentalConditionRecord.fromJson(
               Map<String, dynamic>.from(json['returnSubmission'] as Map))
           : null,
+      returnAllowed: json['returnAllowed'] as bool?,
       blockchainStatus: blockchain['status'] as String? ?? 'unavailable',
       contractAddress: blockchain['contractAddress'] as String? ??
           json['contractAddress'] as String? ??

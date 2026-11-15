@@ -93,7 +93,9 @@ void main() {
       expect(text.text, '12.50');
       await tester.tap(find.byType(TextFormField));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('RM 20'));
+      await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'RM 20'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, 'RM 20'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Use selection'));
       await tester.pumpAndSettle();

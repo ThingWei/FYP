@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/calendar_date.dart';
 import '../../shared/models/domain_models.dart';
-import 'live_photo_widgets.dart';
+import 'live_listing_gallery.dart';
 
 String rentalDay(DateTime value) {
   const months = [
@@ -122,7 +122,9 @@ class RentalJourney {
     }
     if (status == 'disputed') {
       return RentalJourney(
-          'Issue under review',
+          rental?.returnSubmission != null
+              ? 'Return submitted. Case under review'
+              : 'Issue under review',
           'Open the case to see what information is needed. An administrator will review both sides before deciding.',
           rental?.returnSubmission != null
               ? 4
@@ -200,17 +202,25 @@ class RentalJourney {
                   ? 'Ready for the service'
                   : 'Ready for collection or delivery',
           service
-              ? 'The service is scheduled for $date. Agree the arrangements with the Owner; approval does not mean the service has started.'
+              ? owner
+                  ? 'Your service is scheduled for $date. Confirm arrangements with the renter.'
+                  : 'The service is scheduled for $date. Agree the arrangements with the Owner; approval does not mean the service has started.'
               : owner
-                  ? 'Prepare the item for $date. Record its actual condition and photos before handover. Confirm handover only when you give it to the renter.'
+                  ? 'Prepare the item for $date. Send the condition record when you give it to the renter.'
                   : 'Your dates are approved. Wait until $date and arrange collection or delivery with the Owner. Check the item and the Owner’s condition photos together before accepting it.',
           2,
           steps);
     }
     return RentalJourney(
-        paid ? 'Waiting for Owner approval' : 'Awaiting payment',
         paid
-            ? 'The request is paid but the Owner still needs to approve it. Pending requests do not reserve dates.'
+            ? owner
+                ? 'Waiting for your approval'
+                : 'Waiting for Owner approval'
+            : 'Awaiting payment',
+        paid
+            ? owner
+                ? 'Payment is ready. Review this request to approve or reject it.'
+                : 'Your request is paid and awaiting Owner approval.'
             : owner
                 ? 'The renter needs to finish payment before you can approve this request.'
                 : 'Complete payment within 10 minutes to send your request for Owner approval.',
@@ -274,29 +284,44 @@ class RentalConditionSection extends StatelessWidget {
   final String title;
   final RentalConditionRecord? record;
   @override
-  Widget build(BuildContext context) =>
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 6),
-        if (record == null)
-          const Text('No condition record yet.')
-        else ...[
-          Text(record!.condition.isEmpty
-              ? 'Condition not recorded'
-              : record!.condition),
-          Text(rentalEventTime(record!.recordedAt),
-              style: const TextStyle(color: AppColors.secondaryText)),
-          if (record!.notes.isNotEmpty)
-            Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(record!.notes)),
-          for (var i = 0; i < record!.photos.length; i++)
-            PhotoAttachmentTile(
-                reference: record!.photos[i], label: '$title photo ${i + 1}'),
-          if (record!.photos.isEmpty)
-            const Text('No photos were saved for this older record.'),
-        ],
-      ]);
+  Widget build(BuildContext context) => Card(
+      child: Padding(
+          padding: const EdgeInsets.all(12),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            if (record == null)
+              Text(title == 'Return'
+                  ? 'Return not submitted'
+                  : 'No handover record')
+            else ...[
+              Text(
+                  record!.condition.isEmpty
+                      ? 'Condition not recorded'
+                      : record!.condition,
+                  style: Theme.of(context).textTheme.titleSmall),
+              Text(rentalEventTime(record!.recordedAt),
+                  style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 12),
+              if (record!.photos.isNotEmpty)
+                ListingPhotoCarousel(
+                    photos: record!.photos, title: title, compact: true)
+              else
+                const Text('No photos recorded'),
+              if (record!.notes.isNotEmpty)
+                ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Notes'),
+                    children: [
+                      Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(record!.notes)))
+                    ]),
+            ]
+          ])));
 }
 
 class RentalProgressRail extends StatefulWidget {

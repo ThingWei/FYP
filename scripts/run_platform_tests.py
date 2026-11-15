@@ -71,7 +71,7 @@ def commands(selected, builds=False, integration=False):
     if 'blockchain' in selected:
         add('blockchain', 'blockchain', [npm, 'test'])
     if 'launcher' in selected:
-        for name in ('launcher', 'reliability', 'atlas_access', 'atlas_automation'):
+        for name in ('launcher', 'reliability', 'atlas_access', 'atlas_automation', 'android_discovery'):
             argv = [powershell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
                 f'test/run_renthub_{name}_test.ps1']
             if integration: argv.append('-Integration')

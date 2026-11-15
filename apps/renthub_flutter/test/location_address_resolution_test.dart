@@ -294,7 +294,7 @@ void main() {
     await press(tester, 'Private pin');
     await press(tester, 'Use my current location');
     expect(api.lookups, 0);
-    expect(find.textContaining('Device accuracy'), findsOneWidget);
+    expect(find.textContaining('Device accuracy'), findsNothing);
     await revealField(tester, 'Exact address or pickup point');
     await tester.enterText(
         field('Exact address or pickup point'), 'Private entrance');

@@ -430,7 +430,8 @@ export const disputeService = {
         }),
       };
       if (input.outcome === 'dismissed') {
-        rental.status = dispute.previousRentalStatus;
+        rental.status = rental.listingType === 'physical' && rental.returnSubmission?.recordedAt
+          ? 'return_submitted' : dispute.previousRentalStatus;
         booking.status = dispute.previousBookingStatus;
       } else {
         if (balance.captured > 0) booking.paymentStatus = 'settled';

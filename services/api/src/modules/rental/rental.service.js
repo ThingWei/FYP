@@ -24,8 +24,25 @@ import { PaymentModel } from '../payment/payment.model.js';
 import { cents, ledgerEntry } from '../payment/paymentLedger.js';
 import { commitLifecycle, recoverListingOperations } from '../../operations/lifecycleJournal.js';
 import { requiresReceipt, assertHandoverAuthorization } from './handoverReceipt.js';
+import { DisputeModel } from '../dispute/dispute.model.js';
+import { rentalReturnAllowed } from './returnEligibility.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
+
+async function decorateReturnEligibility(items) {
+  const disputed = items.filter((rental) => rental.status === 'disputed');
+  const [bookings, disputes] = disputed.length ? await Promise.all([
+    BookingModel.find({ publicId: { $in: disputed.map((r) => r.bookingId) } })
+      .select('publicId status paymentStatus').lean(),
+    DisputeModel.find({ rentalId: { $in: disputed.map((r) => r.publicId) } })
+      .select('rentalId status previousRentalStatus').lean(),
+  ]) : [[], []];
+  const bookingMap = new Map(bookings.map((b) => [b.publicId, b]));
+  const disputeMap = new Map(disputes.map((d) => [d.rentalId, d]));
+  for (const rental of items) rental.$locals.returnAllowed = Boolean(rentalReturnAllowed(
+    rental, bookingMap.get(rental.bookingId), disputeMap.get(rental.publicId)));
+  return items;
+}
 
 function pages(query) {
   return {
@@ -157,7 +174,9 @@ export const rentalService = {
     await expireUncollectedRentals({ scope: { publicId: rental.publicId } });
     return withOperationLock('listing-decision', rental.listingId, async (ensureOwned) => {
       await recoverListingOperations(rental.listingId, ensureOwned);
-      return rentalRepository.findParticipantRental(id, identity);
+      const fresh = await rentalRepository.findParticipantRental(id, identity);
+      if (fresh) await decorateReturnEligibility([fresh]);
+      return fresh;
     });
   },
 
@@ -174,7 +193,7 @@ export const rentalService = {
       limit,
       status,
     });
-    return { items, meta: { page, limit, total } };
+    return { items: await decorateReturnEligibility(items), meta: { page, limit, total } };
   },
 
   async listOwner(identity, query) {
@@ -191,7 +210,7 @@ export const rentalService = {
       limit,
       status,
     });
-    return { items, meta: { page, limit, total } };
+    return { items: await decorateReturnEligibility(items), meta: { page, limit, total } };
   },
 
   async listAdmin(query) {
@@ -202,7 +221,7 @@ export const rentalService = {
       limit,
       status,
     });
-    return { items, meta: { page, limit, total } };
+    return { items: await decorateReturnEligibility(items), meta: { page, limit, total } };
   },
 
   async confirmHandover(id, input, identity) {
@@ -464,12 +483,19 @@ export const rentalService = {
   },
 
   async submitReturn(id, input, identity) {
-    return mutateRental(id, identity, 'renter', async (rental) => {
+    return mutateRental(id, identity, 'renter', async (rental, ensureOwned) => {
       await uploadService.assertOwnedImageReferences(identity, input.evidence, ['return_evidence']);
-      if (
-        rental.listingType !== 'physical' ||
-        !['active', 'overdue'].includes(rental.status)
-      ) {
+      if (rental.returnSubmission?.recordedAt) {
+        const saved = rental.returnSubmission;
+        if (saved.condition === input.condition && saved.notes === (input.notes ?? '') &&
+            JSON.stringify([...saved.evidence]) === JSON.stringify(input.evidence)) return rental;
+        throw new AppError('The submitted return record cannot be changed.', 409, 'RETURN_ALREADY_SUBMITTED');
+      }
+      const booking = await linkedBooking(rental);
+      const dispute = rental.status === 'disputed'
+        ? await DisputeModel.findOne({ rentalId: rental.publicId }) : null;
+      if (!rentalReturnAllowed(rental, booking, dispute) ||
+          ['completed', 'cancelled', 'expired'].includes(booking.status)) {
         throw new AppError('Return cannot be submitted', 409, 'INVALID_RENTAL_STATE');
       }
       rental.returnSubmission = {
@@ -479,16 +505,18 @@ export const rentalService = {
         recordedAt: new Date(),
       };
       await voidExtension(rental);
-      rental.status = 'return_submitted';
-      await rental.save();
-      await notifyUser({
-        userId: rental.ownerId,
-        category: 'rental',
-        type: 'return_submitted',
-        title: 'Return submitted',
-        body: 'The renter submitted return condition evidence.',
-        entityType: 'rental',
-        entityId: rental.publicId,
+      if (rental.status !== 'disputed') rental.status = 'return_submitted';
+      await commitLifecycle(`return-submit:${rental._id}`, rental.listingId, [rental], ensureOwned, {
+        notifications: [{
+          userId: rental.ownerId,
+          category: 'rental',
+          type: 'return_submitted',
+          title: 'Return submitted',
+          body: dispute ? 'Return photos were submitted. The case remains under review.' : 'The renter submitted return condition evidence.',
+          entityType: 'rental',
+          entityId: rental.publicId,
+          dedupeKey: `return-submitted:${rental.publicId}`,
+        }],
       });
       return rental;
     });
