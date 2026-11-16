@@ -15,6 +15,15 @@ const digest = value => createHash('sha256').update(JSON.stringify(value)).diges
 const allowedReasons = new Set(['not_enabled', 'not_configured', 'consent_required', 'invalid_photos', 'invalid_response',
   'quota', 'provider_busy', 'provider_unavailable', 'timeout', 'not_assessed', 'sensitive_content', 'budget']);
 
+async function configurationProblem() {
+  if (!env.geminiItemReviewEnabled) return 'not_enabled';
+  const configuration = await aiClient.itemVisionStatus();
+  if (configuration?.unavailable || configuration?.contract !== VISION_CONTRACT) return 'provider_unavailable';
+  if (configuration.enabled !== true) return 'not_enabled';
+  if (configuration.configured !== true || configuration.model !== VISION_MODEL) return 'not_configured';
+  return null;
+}
+
 async function snapshot(listing) {
   if (!hasPhotoConsent(listing)) return null;
   const ids = listing.images.map(ref => typeof ref === 'string' && /^(?:upload:\/\/|\/api\/v1\/uploads\/(?:public\/)?)UPL-[A-Z0-9]+(?:\/content)?$/i.test(ref)
@@ -86,6 +95,8 @@ export async function retryItemVision(id) {
   if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
   if (listing.listingType !== 'physical' || listing.status === 'draft') throw new AppError('Submit an item listing before requesting review', 409, 'ITEM_REVIEW_NOT_AVAILABLE');
   if (!hasPhotoConsent(listing)) throw new AppError('The Owner must first allow photo processing', 409, 'PHOTO_CONSENT_REQUIRED');
+  const problem = await configurationProblem();
+  if (problem) return { state: 'unavailable', reason: problem, canRequest: env.geminiItemReviewEnabled };
   return enqueueItemVision(listing, { retry: true });
 }
 
@@ -116,6 +127,11 @@ export async function runItemVisionJob(now = new Date()) {
     const current = listing && await snapshot(listing);
     if (!current || current.key !== job.snapshot || listing.status === 'draft') {
       await ItemVisionJobModel.updateOne({ _id: job.id, token }, { $set: { state: 'stale' } }); return;
+    }
+    const problem = await configurationProblem();
+    if (problem) {
+      await ItemVisionJobModel.updateOne({ _id: job.id, token }, { $set: { state: 'unavailable', reason: problem, checkedAt: new Date() } });
+      return;
     }
     const at = new Date(), day = at.toISOString().slice(0, 10);
     try { await ItemVisionBudgetModel.updateOne({ _id: 'gemini-item-review' }, { $setOnInsert: { day, used: 0, nextAt: new Date(0), leaseUntil: new Date(0) } }, { upsert: true }); }

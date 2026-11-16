@@ -32,3 +32,9 @@ def verify_item(request: VerificationRequest):
 def review_item_vision(request: ItemVisionRequest):
     from ..services.gemini_item_review import review
     return review(request)
+
+
+@router.get('/item-vision/status')
+def item_vision_status():
+    from ..services.gemini_item_review import status
+    return status()

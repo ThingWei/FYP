@@ -122,9 +122,10 @@ class _AdminItemVisionPanelState extends State<AdminItemVisionPanel> {
   String get message => switch (review['reason']) {
         'consent_required' =>
           'The Owner has not allowed Google photo processing.',
-        'not_enabled' ||
+        'not_enabled' =>
+          'Photo review is switched off in the running service. Ask the maintainer to enable it and restart the service.',
         'not_configured' =>
-          'Extra photo review is not enabled.',
+          'Photo review setup needs attention. Ask the maintainer to check the key and selected model.',
         'invalid_photos' ||
         'sensitive_content' =>
           'These photos need manual review.',
@@ -155,9 +156,11 @@ class _AdminItemVisionPanelState extends State<AdminItemVisionPanel> {
             ? attention
                 ? 'Needs attention'
                 : 'Review ready'
-            : ['not_enabled', 'not_configured'].contains(review['reason'])
+            : review['reason'] == 'not_enabled'
                 ? 'Not enabled'
-                : 'Unavailable';
+                : review['reason'] == 'not_configured'
+                    ? 'Setup needs attention'
+                    : 'Unavailable';
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
         Icon(pending

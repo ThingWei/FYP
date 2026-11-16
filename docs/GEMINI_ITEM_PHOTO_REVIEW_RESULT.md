@@ -35,6 +35,20 @@ V1 pins the supported model to `gemini-3.1-flash-lite`; a different configured m
 
 ## Owner and administrator flow
 
+### If the admin page returns to Not enabled
+
+The API and AI service each have a separate `GEMINI_ITEM_REVIEW_ENABLED` flag. Both must be true, and the **running processes** must load the files after changes. A key being present and the Owner consent checkbox being selected do not enable a disabled Python service. Updating `.env`, reopening admin or hot-reloading app code does not reload the existing Uvicorn parent environment.
+
+During the 16 November configuration check, the API file was enabled while the AI file was disabled. The AI flag was corrected without changing the key; a read-only Google model lookup confirmed access. The running AI process still needed its original launcher restarted. No photos were sent to Google by that diagnostic, and it did not establish free quota or image-review accuracy.
+
+Stop the launcher that owns the AI process and start RentHub again. Reopening another launcher can reuse the old process; the launcher now warns if its Gemini settings are still disabled or incomplete. Then use **Check photos** on the consented listing; re-uploading unchanged photos is unnecessary.
+
+The added internal `GET /verify/item-vision/status` reports configuration only and never calls Google. Explicit retry and background workers use a 2.5-second local-service preflight before image downloads or review-budget use. Disabled, incomplete and unreachable-service results remain distinct. This check cannot validate a key's live generation quota; provider errors are still handled by the existing review flow.
+
+Recovery regressions: 18 focused API tests, 27 focused Python tests, 13 focused Flutter tests and launcher checks passed; Flutter analysis is clean. Main/admin web and Android debug builds passed. The broader Flutter run has 968 passes, three skips and one unrelated failure in `item_detail_polish_test.dart`: the existing gallery test expects `Preview Camera, photo 2`, which the current `ListingPhotoCarousel` no longer exposes. It also fails in isolation; no gallery implementation or test was changed in this recovery fix. Private logs: `.data/testing/20261116-gemini-config-recovery/`.
+
+Configuration recovery commit: `fix: detect disabled Gemini service before queueing photo reviews`.
+
 1. The Owner creates/edits a physical listing and selects **Allow Google photo review (optional)** only for non-sensitive item photos. The notice explains Google's product-improvement use. Declining does not block drafts or the existing local/manual flow.
 2. Submission runs the existing local checks and saves the pending listing. A consented snapshot is queued without waiting for Google. Services have no item-vision processing.
 3. While the API remains running, its worker processes eligible jobs. Admin → Listings → record details → **AI photo review** shows the current state and, when available, item consistency, across-photo consistency, visible condition and branding observations.

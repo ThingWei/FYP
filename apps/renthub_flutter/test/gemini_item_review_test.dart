@@ -62,6 +62,52 @@ class VisionApi extends photos.PhotoApi {
 }
 
 void main() {
+  for (final reason in ['not_enabled', 'not_configured']) {
+    testWidgets(
+        'setup failure is distinct and explicit retry recovers: $reason',
+        (t) async {
+      await t.binding.setSurfaceSize(const Size(360, 1000));
+      addTearDown(() => t.binding.setSurfaceSize(null));
+      final api = VisionApi()
+        ..value = {
+          'state': 'unavailable',
+          'reason': reason,
+          'canRequest': true
+        };
+      final c = LiveRentHubController(api)..profile = admin;
+      addTearDown(c.dispose);
+      await t.pumpWidget(fixture.host(
+          const Scaffold(
+              body: SingleChildScrollView(
+                  child: AdminItemVisionPanel(
+                      listingId: 'l-camera',
+                      photos: [],
+                      initial: {
+                'state': 'unavailable',
+                'reason': 'timeout',
+                'canRequest': true
+              }))),
+          controller: c,
+          scale: 1.6));
+      await t.tap(find.text('Check photos'));
+      await t.pumpAndSettle();
+      expect(
+          find.text(reason == 'not_enabled'
+              ? 'Not enabled'
+              : 'Setup needs attention'),
+          findsOneWidget);
+      expect(
+          find.textContaining(reason == 'not_enabled'
+              ? 'restart the service'
+              : 'check the key'),
+          findsOneWidget);
+      expect(t.takeException(), isNull);
+      api.value = ready();
+      await t.tap(find.text('Check photos'));
+      await t.pumpAndSettle();
+      expect(find.text('Needs attention'), findsOneWidget);
+    });
+  }
   for (final width in [360.0, 390.0, 1024.0, 1440.0]) {
     testWidgets(
         'admin sees short observations and no authenticity verdict at $width',

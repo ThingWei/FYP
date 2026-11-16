@@ -11,7 +11,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw "Launcher syntax errors: $($parseErrors.Count)" }
 
 # Load only these pure/testable helpers, not the launcher's executable body.
-$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget', 'Get-RentHubAdbPath', 'Test-RentHubApiPortAvailable', 'Resolve-RentHubApiPort', 'Get-RentHubApiClientArguments')
+$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Get-RentHubGeminiWarning', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget', 'Get-RentHubAdbPath', 'Test-RentHubApiPortAvailable', 'Resolve-RentHubApiPort', 'Get-RentHubApiClientArguments')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -252,6 +252,10 @@ Assert-Launcher ((@(Get-RentHubApiArguments -DisableReload) -join ' ') -eq 'src/
 Assert-Launcher ($tree.Extent.Text.Contains('Stop-RentHubOwnedApiProcess -OwnedProcess $apiProcess -StartedAt $apiProcessStartedAt')) 'API watch tree cleanup uses owned-process guard'
 
 $reloadArguments = @(Get-RentHubAiArguments)
+Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{}) -Requested $false) -eq '') 'Optional Gemini cannot block normal startup'
+Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $false; configured = $false } }) -Requested $true) -match 'switched off') 'Warn when a reused AI process still has disabled Gemini settings'
+Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $true; configured = $false } }) -Requested $true) -match 'setup needs attention') 'Separate disabled service from missing key or unsupported model'
+Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $true; configured = $true } }) -Requested $true) -eq '') 'Configured Gemini has no startup warning'
 Assert-Launcher ((@(Get-RentHubAiArguments -UseEnvironmentFile) -join ' ').EndsWith('--env-file .env')) 'Optional AI configuration is passed by filename only'
 Assert-Launcher (-not ($reloadArguments -contains '--env-file')) 'Missing AI configuration does not become mandatory'
 Assert-Launcher (($reloadArguments -join ' ') -eq

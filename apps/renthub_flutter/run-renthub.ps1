@@ -556,6 +556,18 @@ function Test-RentHubAiCompatible {
         $Health.item_verification_contract -eq 'renthub-item-evidence-v4'
 }
 
+function Get-RentHubGeminiWarning {
+    param([object]$Health, [bool]$Requested)
+    if (-not $Requested) { return '' }
+    if ($null -eq $Health.item_vision_status -or $Health.item_vision_status.enabled -ne $true) {
+        return 'Gemini is requested by the API, but the running AI service has it switched off. Check services/ai/.env, then restart the original AI launcher to reload its environment.'
+    }
+    if ($Health.item_vision_status.configured -ne $true) {
+        return 'Gemini setup needs attention in the AI service. Check its private key and supported model, then restart the original AI launcher.'
+    }
+    return ''
+}
+
 function Get-RentHubAiArguments {
     param([switch]$DisableReload, [switch]$UseEnvironmentFile)
 
@@ -1166,6 +1178,10 @@ try {
             }
             Write-Host 'RentHub AI service is ready with current scanner, licence, recommendation and item-photo contracts.' -ForegroundColor Green
         }
+
+        $geminiRequested = (Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'GEMINI_ITEM_REVIEW_ENABLED' -DefaultValue 'false') -eq 'true'
+        $geminiWarning = Get-RentHubGeminiWarning -Health $aiHealth -Requested $geminiRequested
+        if ($geminiWarning) { Write-Warning $geminiWarning }
 
         if ($aiHealth.item_verification_status.world.available) {
             Write-Host 'Optional YOLO-World item fallback is prepared locally (advisory; administrator review required).' -ForegroundColor DarkGray

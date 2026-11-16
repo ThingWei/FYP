@@ -170,6 +170,13 @@ def test_internal_endpoint_requires_consent_and_returns_additive_contract(monkey
     assert response.status_code == 200
     assert response.json()['contract'] == g.CONTRACT
     assert len(called) == 1
+    monkeypatch.setenv('GEMINI_ITEM_REVIEW_ENABLED', 'false')
+    assert client.get('/verify/item-vision/status').json()['enabled'] is False
+    monkeypatch.setenv('GEMINI_ITEM_REVIEW_ENABLED', 'true')
+    monkeypatch.setenv('GEMINI_API_KEY', 'fixture-private-key')
+    metadata = client.get('/verify/item-vision/status').json()
+    assert metadata['configured'] is True
+    assert 'fixture-private-key' not in json.dumps(metadata)
 
 
 def test_diagnostic_never_sends_photos_or_exposes_key(provider, monkeypatch, capsys):

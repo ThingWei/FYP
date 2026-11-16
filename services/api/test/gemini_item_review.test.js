@@ -47,6 +47,7 @@ async function listing(extra = {}) {
 }
 function provider(t, value = response()) {
   const calls = [];
+  t.mock.method(aiClient, 'itemVisionStatus', async () => ({ contract: VISION_CONTRACT, enabled: true, configured: true, model: VISION_MODEL }));
   t.mock.method(storageAdapter, 'download', async () => Buffer.from('synthetic photo fixture'));
   t.mock.method(aiClient, 'reviewItemVision', async payload => { calls.push(payload); return typeof value === 'function' ? value(payload) : value; });
   return calls;
@@ -186,4 +187,24 @@ test('disabled integration and invalid provider outputs remain safe manual revie
     response({ observations: [{ photo: 9, observation: 'Unseen image' }] }), response({ observations: [{ photo: 1, observation: 'A genuine product.' }] }), response({ sensitive_content: true })]) {
     assert.equal(cleanVisionResult(raw, 3).state, 'unavailable');
   }
+});
+test('disabled AI configuration fails promptly before queueing a retry or downloading photos', async t => {
+  const row = await listing(), calls = provider(t);
+  t.mock.method(aiClient, 'itemVisionStatus', async () => ({ contract: VISION_CONTRACT, enabled: false, configured: false, model: VISION_MODEL }));
+  const response = await request(app).post(`/api/v1/admin/listings/${row.publicId}/photo-review`).set(h('admin')).expect(200);
+  assert.equal(response.body.data.reason, 'not_enabled');
+  assert.equal(await ItemVisionJobModel.countDocuments(), 0);
+  await enqueueItemVision(row); await runItemVisionJob();
+  assert.equal((await itemVisionSummary(row)).reason, 'not_enabled');
+  assert.equal(calls.length, 0); assert.equal(storageAdapter.download.mock.calls.length, 0);
+  assert.equal(await ItemVisionBudgetModel.countDocuments(), 0);
+});
+test('missing configuration and unreachable AI status are distinct safe retry results', async t => {
+  const row = await listing(); provider(t);
+  t.mock.method(aiClient, 'itemVisionStatus', async () => ({ contract: VISION_CONTRACT, enabled: true, configured: false, model: VISION_MODEL }));
+  let result = await request(app).post(`/api/v1/admin/listings/${row.publicId}/photo-review`).set(h('admin')).expect(200);
+  assert.equal(result.body.data.reason, 'not_configured');
+  t.mock.method(aiClient, 'itemVisionStatus', async () => ({ contract: VISION_CONTRACT, unavailable: true }));
+  result = await request(app).post(`/api/v1/admin/listings/${row.publicId}/photo-review`).set(h('admin')).expect(200);
+  assert.equal(result.body.data.reason, 'provider_unavailable');
 });
