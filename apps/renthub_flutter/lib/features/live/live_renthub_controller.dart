@@ -5,6 +5,7 @@ import '../../core/discovery/discovery_state.dart';
 import '../../core/booking/checkout_models.dart';
 import 'dart:async';
 import 'dart:convert';
+import '../../core/network/listing_photo_cache.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
@@ -48,6 +49,7 @@ class LiveRentHubController extends ChangeNotifier {
   });
 
   final ApiClient api;
+  late final listingPhotos = ListingPhotoCache(downloadPhoto);
   final String socketUrl;
   final PushNotificationService? pushNotifications;
   final _realtimeMessages = StreamController<Message>.broadcast();
@@ -68,6 +70,7 @@ class LiveRentHubController extends ChangeNotifier {
   User? get profile => _profile;
   set profile(User? value) {
     if (_profile?.id != value?.id) {
+      listingPhotos.clear();
       _accountGeneration++;
       _workspaceGeneration++;
       renterWorkspace.clear();
@@ -2971,26 +2974,6 @@ class LiveRentHubController extends ChangeNotifier {
         _replaceOwnerListing(listing);
       });
 
-  Future<void> saveListingBundle(
-    String id,
-    Map<String, dynamic> payload,
-  ) =>
-      _perform(() async {
-        final listing = Listing.fromJson(
-          await api.request('PUT', '/listings/$id/bundle', body: payload)
-              as Map<String, dynamic>,
-        );
-        _replaceOwnerListing(listing);
-      });
-
-  Future<void> clearListingBundle(String id) => _perform(() async {
-        final listing = Listing.fromJson(
-          await api.request('DELETE', '/listings/$id/bundle')
-              as Map<String, dynamic>,
-        );
-        _replaceOwnerListing(listing);
-      });
-
   Future<void> deactivateListing(String id) => _perform(() async {
         final listing = Listing.fromJson(
           await api.request('DELETE', '/listings/$id') as Map<String, dynamic>,
@@ -3097,6 +3080,7 @@ class LiveRentHubController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    listingPhotos.clear();
     _recommendationGeneration++;
     _socketSubscription?.cancel();
     _notificationSubscription?.cancel();

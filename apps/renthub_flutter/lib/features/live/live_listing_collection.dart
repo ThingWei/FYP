@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/domain_models.dart';
 import 'live_renthub_controller.dart';
+import 'live_listing_image.dart';
 
 enum ListingViewMode { carousel, grid, list }
 
@@ -96,6 +97,7 @@ class ListingCollection extends StatelessWidget {
           return Column(children: [
             for (final item in items)
               Card(
+                  key: ValueKey(item.id),
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
                       onTap: () => onOpen(item),
@@ -155,6 +157,7 @@ class ListingCollection extends StatelessWidget {
                         (actions == null ? 0 : 48)))
             .ceilToDouble();
         Widget card(int i) => ListingProductCard(
+            key: ValueKey(items[i].id),
             listing: items[i],
             onOpen: () => onOpen(items[i]),
             actions: actions?.call(items[i]));
@@ -165,8 +168,10 @@ class ListingCollection extends StatelessWidget {
                   scrollDirection: Axis.horizontal,
                   itemCount: items.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (_, i) =>
-                      SizedBox(width: width, child: card(i))));
+                  itemBuilder: (_, i) => SizedBox(
+                      key: ValueKey(items[i].id),
+                      width: width,
+                      child: card(i))));
         }
         return GridView.builder(
             shrinkWrap: true,
@@ -206,14 +211,12 @@ class ListingCardPhoto extends StatelessWidget {
               color: AppColors.primaryLight,
               child: listing.images.isEmpty
                   ? fallback
-                  : Image.network(
-                      context
-                          .read<LiveRentHubController>()
-                          .api
-                          .publicPhotoUrl(listing.images.first),
+                  : LiveListingImage(
+                      key: ValueKey((listing.id, listing.images.first)),
+                      reference: listing.images.first,
+                      publicPhoto: true,
                       fit: BoxFit.cover,
-                      semanticLabel: listing.title,
-                      errorBuilder: (_, __, ___) => fallback)),
+                      label: listing.title)),
           if (showBadges)
             Positioned(
                 left: 4,
@@ -234,11 +237,11 @@ class ListingCardPhoto extends StatelessWidget {
             Positioned(
                 left: 0,
                 bottom: 0,
-                child: IconButton.filledTonal(
+                child: IconButton(
                     tooltip: 'Why this item?',
                     style: IconButton.styleFrom(
                         minimumSize: const Size(48, 48),
-                        backgroundColor: AppColors.background,
+                        backgroundColor: Colors.transparent,
                         foregroundColor: AppColors.primary),
                     onPressed: () => _showListingReason(context, listing),
                     icon: const Icon(Icons.info_outline, size: 20))),

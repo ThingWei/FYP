@@ -46,8 +46,8 @@ class _ListingPhotoViewerState extends State<ListingPhotoViewer> {
     super.dispose();
   }
 
-  Future<Uint8List> photo(String ref) => bytes.putIfAbsent(
-      ref, () => Future<Uint8List>.sync(() => controller.downloadPhoto(ref)));
+  Future<Uint8List> photo(String ref) =>
+      bytes.putIfAbsent(ref, () => controller.listingPhotos.load(ref));
   void move(int target) {
     if (target < 0 || target >= widget.photos.length || !pages.hasClients) {
       return;

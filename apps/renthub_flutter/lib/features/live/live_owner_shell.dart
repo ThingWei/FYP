@@ -540,11 +540,9 @@ class LiveOwnerListingsPage extends StatelessWidget {
                       subtitle: Text(
                         '${listing.dailyPrice > 0 ? formatMoney(listing.dailyPrice) : 'Price not set'} · ${listing.status.replaceAll('_', ' ')}'
                         '${listing.promotionActive ? '\n${listing.promotionLabel} · ${listing.promotionDiscountPercent.toStringAsFixed(0)}% off' : ''}'
-                        '${listing.bundleActive ? '\n${listing.bundleTitle}' : ''}'
                         '${listing.itemVerificationOutcome.isNotEmpty && !listing.isService ? '\n${listing.itemPhotoCheckLabel}' : ''}',
                       ),
                       isThreeLine: listing.promotionActive ||
-                          listing.bundleActive ||
                           listing.itemVerificationOutcome.isNotEmpty,
                       trailing: listing.status == 'inactive'
                           ? const StatusBadge('Inactive')
@@ -577,13 +575,6 @@ class LiveOwnerListingsPage extends StatelessWidget {
                                           LivePromotionPage(listing),
                                     ),
                                   );
-                                } else if (value == 'bundle') {
-                                  await Navigator.push<void>(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => LiveBundlePage(listing),
-                                    ),
-                                  );
                                 } else if (value == 'deactivate') {
                                   final accepted = await confirmAction(
                                     context,
@@ -614,12 +605,6 @@ class LiveOwnerListingsPage extends StatelessWidget {
                                   value: 'promotion',
                                   child: Text('Promotion'),
                                 ),
-                                if (!listing.isService &&
-                                    listing.status == 'active')
-                                  const PopupMenuItem(
-                                    value: 'bundle',
-                                    child: Text('Bundle offer'),
-                                  ),
                                 const PopupMenuItem(
                                   value: 'deactivate',
                                   child: Text('Deactivate'),
@@ -703,6 +688,21 @@ class _LiveListingFormState extends State<LiveListingForm> {
         (widget.listing?.status == 'draft' ? '' : '1'),
   );
   final expectedRentalDays = TextEditingController(text: '1');
+  List<double> get _itemAgeOptions {
+    final existing = widget.listing?.itemAgeYears;
+    return <double>{
+      for (var years = 0; years <= 100; years++) years.toDouble(),
+      for (var years = 0; years < 10; years++) years + 0.5,
+      if (existing != null && existing >= 0 && existing <= 100) existing,
+    }.toList()
+      ..sort();
+  }
+
+  String _itemAgeLabel(double years) => years == 0
+      ? 'New (0 years)'
+      : years == 0.5
+          ? '6 months'
+          : '${years == years.roundToDouble() ? years.toInt() : years} ${years == 1 ? 'year' : 'years'}';
   String category = RentHubCategories.devices;
   String subcategory = 'Smartphones';
   String requiredLicenceClass = '';
@@ -1861,12 +1861,25 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                       ? 'Choose from the catalogue'
                                       : 'Enter model manually'))),
                         ListingFieldPair(
-                          first: TextFormField(
-                            controller: itemAge,
+                          first: DropdownButtonFormField<String>(
                             key: ageFieldKey,
-                            onChanged: (_) => _clearPriceRecommendation(),
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
+                            initialValue:
+                                double.tryParse(itemAge.text)?.toString(),
+                            isExpanded: true,
+                            menuMaxHeight: 320,
+                            hint: const Text('Select item age'),
+                            items: [
+                              for (final age in _itemAgeOptions)
+                                DropdownMenuItem(
+                                    value: age.toString(),
+                                    child: Text(_itemAgeLabel(age))),
+                            ],
+                            onChanged: saving
+                                ? null
+                                : (value) => setState(() {
+                                      itemAge.text = value ?? '';
+                                      priceRecommendation = null;
+                                    }),
                             decoration: (const InputDecoration(
                               labelText: 'Item age (years)',
                             )).copyWith(counterText: '', errorMaxLines: 3),
@@ -1879,19 +1892,27 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   ? null
                                   : 'Use 0 to 100';
                             }),
-                            inputFormatters: InputValidation.formatters(
-                                InputRules.itemAgeYears, itemAge),
                             autovalidateMode:
                                 AutovalidateMode.onUserInteraction,
-                            maxLength: InputRules.itemAgeYears.maxLength,
-                            maxLengthEnforcement:
-                                InputValidation.lengthEnforcement,
                           ),
-                          second: TextFormField(
-                            controller: expectedRentalDays,
+                          second: DropdownButtonFormField<String>(
                             key: daysFieldKey,
-                            onChanged: (_) => _clearPriceRecommendation(),
-                            keyboardType: TextInputType.number,
+                            initialValue: expectedRentalDays.text,
+                            isExpanded: true,
+                            menuMaxHeight: 320,
+                            items: [
+                              for (var days = 1; days <= 365; days++)
+                                DropdownMenuItem(
+                                    value: '$days',
+                                    child: Text(
+                                        '$days ${days == 1 ? 'day' : 'days'}')),
+                            ],
+                            onChanged: saving
+                                ? null
+                                : (value) => setState(() {
+                                      expectedRentalDays.text = value ?? '';
+                                      priceRecommendation = null;
+                                    }),
                             decoration: (const InputDecoration(
                               labelText: 'Expected rental length (days)',
                             )).copyWith(counterText: '', errorMaxLines: 3),
@@ -1904,14 +1925,8 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                   ? null
                                   : 'Use 1 to 365';
                             }),
-                            inputFormatters: InputValidation.formatters(
-                                InputRules.typicalRentalDays,
-                                expectedRentalDays),
                             autovalidateMode:
                                 AutovalidateMode.onUserInteraction,
-                            maxLength: InputRules.typicalRentalDays.maxLength,
-                            maxLengthEnforcement:
-                                InputValidation.lengthEnforcement,
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -2523,164 +2538,6 @@ class _LivePromotionPageState extends State<LivePromotionPage> {
           ),
         ),
       );
-}
-
-class LiveBundlePage extends StatefulWidget {
-  const LiveBundlePage(this.listing, {super.key});
-
-  final Listing listing;
-
-  @override
-  State<LiveBundlePage> createState() => _LiveBundlePageState();
-}
-
-class _LiveBundlePageState extends State<LiveBundlePage> {
-  late final title = TextEditingController(
-    text: widget.listing.bundleTitle.isEmpty
-        ? '${widget.listing.title} Bundle'
-        : widget.listing.bundleTitle,
-  );
-  late final discount = TextEditingController(
-    text: widget.listing.bundleDiscountPercent == 0
-        ? '10'
-        : widget.listing.bundleDiscountPercent.toStringAsFixed(0),
-  );
-  late final selected = widget.listing.bundleListingIds.isEmpty
-      ? <String>{widget.listing.id}
-      : widget.listing.bundleListingIds.toSet();
-  bool saving = false;
-
-  @override
-  void dispose() {
-    title.dispose();
-    discount.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!InputValidation.validate(context)) return;
-    final percentage = double.tryParse(discount.text);
-    if (title.text.trim().length < 3 ||
-        selected.length < 2 ||
-        percentage == null ||
-        percentage < 5 ||
-        percentage > 50) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Select at least two items and check the discount.'),
-        ),
-      );
-      return;
-    }
-    setState(() => saving = true);
-    try {
-      await context.read<LiveRentHubController>().saveListingBundle(
-        widget.listing.id,
-        {
-          'active': true,
-          'title': title.text.trim(),
-          'listingIds': selected.toList(),
-          'discountPercent': percentage,
-        },
-      );
-      if (mounted) Navigator.pop(context);
-    } catch (exception) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
-      }
-    } finally {
-      if (mounted) setState(() => saving = false);
-    }
-  }
-
-  Future<void> _clear() async {
-    final accepted = await confirmAction(
-      context,
-      title: 'Remove bundle offer?',
-      message: 'The bundle will no longer appear on this listing.',
-      action: 'Remove',
-      destructive: true,
-    );
-    if (!accepted || !mounted) return;
-    await context
-        .read<LiveRentHubController>()
-        .clearListingBundle(widget.listing.id);
-    if (mounted) Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final options = context
-        .watch<LiveRentHubController>()
-        .ownerListings
-        .where((item) => !item.isService && item.status == 'active')
-        .toList();
-    return Scaffold(
-      appBar: AppBar(title: const Text('Bundle Offer')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextFormField(
-              controller: title,
-              decoration: (const InputDecoration(labelText: 'Bundle title'))
-                  .copyWith(counterText: '', errorMaxLines: 3),
-              validator: InputRules.bundleTitle.validate,
-              inputFormatters:
-                  InputValidation.formatters(InputRules.bundleTitle, title),
-              autovalidateMode: AutovalidateMode.onUserInteraction,
-              maxLength: InputRules.bundleTitle.maxLength,
-              maxLengthEnforcement: InputValidation.lengthEnforcement,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: discount,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration:
-                  (const InputDecoration(labelText: 'Bundle discount (%)'))
-                      .copyWith(counterText: '', errorMaxLines: 3),
-              validator: InputRules.bundleDiscount.validate,
-              inputFormatters: InputValidation.formatters(
-                  InputRules.bundleDiscount, discount),
-              autovalidateMode: AutovalidateMode.onUserInteraction,
-              maxLength: InputRules.bundleDiscount.maxLength,
-              maxLengthEnforcement: InputValidation.lengthEnforcement,
-            ),
-            const SizedBox(height: 16),
-            Text('Select 2 to 5 physical listings',
-                style: Theme.of(context).textTheme.titleMedium),
-            for (final item in options)
-              CheckboxListTile(
-                value: selected.contains(item.id),
-                title: Text(item.title),
-                subtitle: Text(formatMoney(item.dailyPrice)),
-                onChanged: item.id == widget.listing.id
-                    ? null
-                    : (value) => setState(() {
-                          if (value == true && selected.length < 5) {
-                            selected.add(item.id);
-                          } else if (value == false) {
-                            selected.remove(item.id);
-                          }
-                        }),
-              ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: saving ? null : _save,
-              child: Text(saving ? 'Saving…' : 'Save Bundle'),
-            ),
-            if (widget.listing.bundleTitle.isNotEmpty)
-              TextButton(
-                onPressed: saving ? null : _clear,
-                child: const Text('Remove Bundle'),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class LiveOwnerRequestsPage extends StatefulWidget {

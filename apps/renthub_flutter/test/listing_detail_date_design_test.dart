@@ -38,6 +38,23 @@ class DetailApi extends ApiClient {
   }
 }
 
+class ReviewedDetailApi extends DetailApi {
+  @override
+  Future<dynamic> request(String method, String path, {Object? body}) async {
+    if (path.startsWith('/reviews/listing/')) {
+      return [
+        {
+          'publicId': 'review-camera',
+          'rating': 4,
+          'text': 'The camera was clean and ready to collect.',
+          'authorName': 'Aina Rahman'
+        }
+      ];
+    }
+    return super.request(method, path, body: body);
+  }
+}
+
 Future<LiveRentHubController> mountDetail(WidgetTester tester, DetailApi api,
     {bool own = false,
     bool service = false,
@@ -90,6 +107,24 @@ Future<void> openDates(WidgetTester tester, String title) async {
 }
 
 void main() {
+  testWidgets('listing review summary uses a Material star icon',
+      (tester) async {
+    await mountDetail(tester, ReviewedDetailApi());
+    final summary = find.text('4.0 / 5 · 1 recent reviews');
+    await tester.scrollUntilVisible(summary, 250,
+        scrollable: find
+            .byWidgetPredicate((widget) =>
+                widget is Scrollable &&
+                widget.axisDirection == AxisDirection.down)
+            .first);
+    expect(
+        find.descendant(
+            of: find.ancestor(of: summary, matching: find.byType(Row)).first,
+            matching: find.byIcon(Icons.star)),
+        findsOneWidget);
+    expect(find.textContaining('/ 5 ?'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   test('one available calendar day ignores hidden start/end time components',
       () {
     const model =

@@ -13,7 +13,6 @@ import '../account/account_pages.dart';
 import '../renter/renter_app.dart' show MessagesPage;
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import '../renter/rentals/pages/rate_review_page.dart';
-import 'owner_bundle_management_page.dart';
 
 class OwnerShell extends StatefulWidget {
   const OwnerShell(
@@ -250,18 +249,6 @@ class _OwnerListingsState extends State<OwnerListings> {
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
         title: const Text('My listings'),
-        actions: [
-          IconButton(
-            tooltip: 'Manage bundles',
-            onPressed: () => Navigator.push<void>(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const OwnerBundleManagementPage(),
-              ),
-            ),
-            icon: const Icon(Icons.inventory_2_outlined),
-          ),
-        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
           onPressed: () => showModalBottomSheet(
