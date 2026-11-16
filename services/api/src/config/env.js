@@ -11,6 +11,8 @@ const boolean = (value, fallback) => {
 };
 
 export const env = {
+  geminiItemReviewEnabled: boolean(process.env.GEMINI_ITEM_REVIEW_ENABLED, false),
+  geminiItemReviewDailyLimit: integer(process.env.GEMINI_ITEM_REVIEW_DAILY_LIMIT, 20),
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 3000),
   mongoUri: process.env.MONGODB_URI ?? 'mongodb://localhost:27017/renthub',
@@ -117,6 +119,10 @@ export const env = {
 
 export function validateEnv(config = env) {
   const errors = [];
+  if (!Number.isInteger(config.geminiItemReviewDailyLimit ?? 20) ||
+      (config.geminiItemReviewDailyLimit ?? 20) < 1 || (config.geminiItemReviewDailyLimit ?? 20) > 1000) {
+    errors.push('GEMINI_ITEM_REVIEW_DAILY_LIMIT must be an integer from 1 to 1000');
+  }
   const storageMode = config.storageMode ?? 'local';
   const fcmMode = config.fcmMode ?? 'disabled';
   const mapsMode = config.mapsMode ?? 'openstreetmap';

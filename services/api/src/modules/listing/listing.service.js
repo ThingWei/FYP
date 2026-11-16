@@ -1,4 +1,6 @@
 import { recommendationCandidateFilter } from './recommendationFilters.js';
+import { setPhotoConsent } from './itemVisionConsent.js';
+import { enqueueItemVision } from './itemVision.service.js';
 import { rememberLocationAfterSave } from '../user/recentLocations.js';
 import { requireListingPin, approximatePoint, nearbyFilter } from '../../core/location.js';
 import { AppError } from '../../core/errors.js';
@@ -738,6 +740,10 @@ export const listingService = {
       verified: hasApprovedMykad(owner),
       status: 'draft',
     });
+    if (input.photoReviewConsent !== undefined) {
+      setPhotoConsent(created, input.photoReviewConsent, identity);
+      await created.save();
+    }
     await rememberLocationAfterSave(owner.authId, created.locationDetails, 'Pickup');
     return created;
   },
@@ -798,6 +804,7 @@ export const listingService = {
       listingType: listing.listingType,
     }));
     // Edited photos/category/condition must never inherit an old automated result.
+    setPhotoConsent(listing, input.photoReviewConsent, identity);
     listing.itemVerification = undefined;
     if (input.vehicleGrantRef !== undefined || input.category !== undefined || input.subcategory !== undefined) listing.vehicleGrantReview = undefined;
     if (listing.status === 'active' || listing.status === 'rejected') {
@@ -866,6 +873,8 @@ export const listingService = {
     listing.status = 'pending_review';
     listing.moderationReason = '';
     await listing.save();
+    // Optional cloud assistance cannot turn a successful submission into a failed write.
+    await enqueueItemVision(listing).catch(() => console.warn('Item photo review could not be queued; administrator review remains available.'));
     return listing;
   },
 

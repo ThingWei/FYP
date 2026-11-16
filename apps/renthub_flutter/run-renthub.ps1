@@ -557,13 +557,14 @@ function Test-RentHubAiCompatible {
 }
 
 function Get-RentHubAiArguments {
-    param([switch]$DisableReload)
+    param([switch]$DisableReload, [switch]$UseEnvironmentFile)
 
     $aiArguments = @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8001')
     if (-not $DisableReload) {
         # Watch code only, not private identity datasets or training/model outputs.
         $aiArguments += @('--reload', '--reload-dir', 'app')
     }
+    if ($UseEnvironmentFile) { $aiArguments += @('--env-file', '.env') }
     return $aiArguments
 }
 
@@ -1131,7 +1132,8 @@ try {
                 throw 'Port 8001 is occupied by an unhealthy or different service. Stop the identified owning process before rerunning this launcher. Do not start a second AI server on that port.'
             }
             New-Item -ItemType Directory -Path $aiLogDirectory -Force | Out-Null
-            $aiArguments = Get-RentHubAiArguments -DisableReload:$NoAiReload
+            $aiArguments = Get-RentHubAiArguments -DisableReload:$NoAiReload `
+                -UseEnvironmentFile:(Test-Path -LiteralPath (Join-Path $aiDirectory '.env'))
             if ($NoAiReload) {
                 Write-Host 'Starting the RentHub AI service without development reload...' -ForegroundColor Cyan
             }

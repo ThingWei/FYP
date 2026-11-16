@@ -41,6 +41,17 @@ class VerificationResponse(BaseModel):
     risk_indicators: list[str] = Field(default_factory=list)
 
 
+class ItemVisionRequest(BaseModel):
+    images: list[EncodedImage] = Field(min_length=3, max_length=10)
+    photo_consent: Literal[True]
+    expected_category: str = Field(min_length=1, max_length=100)
+    expected_subcategory: str = Field(default='', max_length=100)
+    expected_product_type: str | None = Field(default=None, max_length=64)
+    expected_condition: str | None = Field(default=None, max_length=120)
+    brand: str = Field(default='', max_length=100)
+    product_model: str = Field(default='', max_length=120)
+
+
 class DocumentFrameRequest(BaseModel):
     content_base64: str
     content_type: Literal['image/jpeg', 'image/png'] = 'image/jpeg'

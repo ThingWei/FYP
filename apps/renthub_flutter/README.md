@@ -2,6 +2,8 @@
 
 RentHub has a Renter/Owner app and a separate administrator portal. For the full setup checklist, supervisor walkthrough, shared-data explanation and troubleshooting, use the **[main operating guide](../../README.md)**.
 
+Optional administrator photo analysis: [Gemini setup and privacy guidance](../../docs/GEMINI_ITEM_PHOTO_REVIEW_RESULT.md). The key stays in the AI service; the app does not need it.
+
 These commands run from `apps/renthub_flutter`. The laptop must already have the project's private configuration, dependencies and AI runtime files.
 
 For the complete priority-ordered platform test cases, manual execution sheets and

@@ -5,6 +5,7 @@ from ..schemas import (
     DocumentFrameResponse,
     VerificationRequest,
     VerificationResponse,
+    ItemVisionRequest,
 )
 from ..services.adapters import ImageIntelligenceService
 
@@ -25,3 +26,9 @@ def verify_document_frame(request: DocumentFrameRequest):
 @router.post('/item', response_model=VerificationResponse)
 def verify_item(request: VerificationRequest):
     return service.verify_item(request)
+
+
+@router.post('/item-vision')
+def review_item_vision(request: ItemVisionRequest):
+    from ..services.gemini_item_review import review
+    return review(request)

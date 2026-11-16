@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { startItemVisionJobs, stopItemVisionJobs } from './operations/itemVisionJobs.js';
 import { Server } from 'socket.io';
 import { app } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
@@ -21,6 +22,7 @@ startLifecycleScheduler();
 server.listen(env.port, () => {
   console.log(`RentHub API listening on ${env.port}`);
   startPriceSyncScheduler();
+  startItemVisionJobs();
 });
 
 let shuttingDown = false;
@@ -29,6 +31,7 @@ async function shutdown(signal) {
   shuttingDown = true;
   stopLifecycleScheduler();
   stopPriceSyncScheduler();
+  stopItemVisionJobs();
   console.log(`${signal} received; shutting down RentHub API`);
   server.close(async () => {
     await drainPriceSyncJobs();

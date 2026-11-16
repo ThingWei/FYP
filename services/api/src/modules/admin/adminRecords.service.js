@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { itemVisionSummary } from '../listing/itemVision.service.js';
 import { applicationTrust, realTrustScore } from '../user/trustPolicy.js';
 import { AppError } from '../../core/errors.js';
 import { UserModel } from '../user/user.model.js';
@@ -28,7 +29,7 @@ export function adminRecordRegistry(auditModel) {
   return {
     users: entry(UserModel, userFields, ['displayName', 'email'], 'accountStatus'),
     verification: entry(UserModel, userFields, ['displayName', 'email']),
-    listings: entry(ListingModel, 'title description ownerId ownerName listingType category subcategory brand productModel dailyPrice securityDeposit deliveryFee fulfilmentMethods condition itemAgeYears images verified itemVerification moderationReason serviceDetails vehicleGrantRef vehicleGrantReview', ['title', 'brand', 'productModel', 'ownerName']),
+    listings: entry(ListingModel, 'title description ownerId ownerName listingType category subcategory brand productModel dailyPrice securityDeposit deliveryFee fulfilmentMethods condition itemAgeYears images verified itemVerification moderationReason serviceDetails vehicleGrantRef vehicleGrantReview itemVisionConsent', ['title', 'brand', 'productModel', 'ownerName']),
     bookings: entry(BookingModel, 'listingId listingTitle listingType renterId renterName ownerId ownerName category startDate endDate fulfilmentMethod serviceVenue serviceVenueMode paymentStatus pricing extensionCharges agreement renterNote ownerDecisionReason cancellationReason decidedAt cancelledAt activatedAt completedAt expiredAt expiresAt sourceType', ['publicId', 'listingTitle', 'renterName', 'ownerName']),
     rentals: entry(RentalModel, 'bookingId listingId listingType renterId ownerId category startDate endDate expiredAt expiryReason handover returnSubmission returnOutcome serviceDeliveredAt serviceCompletedAt extension extensionHistory', ['publicId', 'bookingId', 'listingId']),
     transactions: entry(PaymentModel, 'bookingId payerId payeeId amount currency type method status simulated reason metadata', ['publicId', 'bookingId', 'type']),
@@ -100,6 +101,7 @@ export function createAdminRecordsService(auditModel) {
   const spec = type => { if (!Object.hasOwn(registry, type)) throw new AppError('Record type not found', 404, 'NOT_FOUND'); return registry[type]; };
   function project(doc, type, accountNames = {}, bookings = {}) {
     const raw = doc.toObject ? doc.toObject() : doc;
+    delete raw.itemVisionConsent;
     if (type === 'rentals') {
       raw.overdueInfo = overdueSummary(raw);
       const booking = bookings[raw.bookingId];
@@ -189,6 +191,7 @@ export function createAdminRecordsService(auditModel) {
       if (!doc) throw new AppError('This record is no longer available', 404, 'NOT_FOUND');
       const [names, bookings] = await Promise.all([accountsFor([doc]), rentalBookings(type, [doc])]);
       if (type === 'rentals') doc.overdueReminders = (await overdueDeliverySummary([doc.publicId]))[doc.publicId] ?? [];
+      if (type === 'listings' && doc.listingType === 'physical') doc.itemVisionReview = await itemVisionSummary(doc);
       return { recordType: type, record: project(doc, type, names, bookings) };
     },
     async summary() {

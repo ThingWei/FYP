@@ -13,6 +13,7 @@ import { normalizeIsbn } from './priceProductDomains.js';
 import { DECLARED_PRICE_ORIGINS } from './priceProvenance.js';
 
 const editableFields = new Set([
+  'photoReviewConsent',
   'title',
   'description',
   'category',
@@ -56,6 +57,7 @@ const listingId = param('id').custom(textInput).bail().trim()
   .withMessage('Invalid listing identifier');
 
 const listingFields = [
+  body('photoReviewConsent').optional().custom(value => typeof value === 'boolean'),
   body('vehicleGrantRef').optional({ nullable: true }).custom(textInput).bail().custom(isUploadReference),
   body('priceProvenance').optional().custom((value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value) ||

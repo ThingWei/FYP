@@ -261,6 +261,7 @@ class Listing {
     this.subcategory = '',
     this.requiredLicenceClass = '',
     this.vehicleGrantRef,
+    this.photoReviewConsent = false,
     this.brand = '',
     this.productModel = '',
     this.isbn = '',
@@ -324,6 +325,7 @@ class Listing {
     this.itemVerification = const {},
   });
   final String? vehicleGrantRef;
+  final bool photoReviewConsent;
   final bool conditionRecorded;
   bool get requiresVehicleGrant =>
       !isService &&
@@ -396,6 +398,7 @@ class Listing {
       category: j['category'],
       subcategory: j['subcategory'] as String? ?? '',
       vehicleGrantRef: j['vehicleGrantRef'] as String?,
+      photoReviewConsent: j['photoReviewConsent'] == true,
       brand: j['brand'] as String? ?? '',
       productModel: j['productModel'] as String? ?? '',
       isbn: j['isbn'] as String? ?? '',

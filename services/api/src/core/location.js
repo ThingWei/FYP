@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { AppError } from './errors.js';
+import { hasPhotoConsent } from '../modules/listing/itemVisionConsent.js';
 
 export const coordinatesSchema = new mongoose.Schema({
   latitude: { type: Number, required: true, min: -90, max: 90 },
@@ -46,6 +47,8 @@ export function publicArea(value) {
   return [details.city, details.state || value.state].filter(Boolean).join(', ') || 'Area available after confirmation';
 }
 export function publicListing(value) {
+  delete value.itemVisionConsent;
+  delete value.itemVisionReview;
   delete value.vehicleGrantRef;
   delete value.vehicleGrantReview;
   if (value.priceProvenance) value.priceProvenance = { origin: value.priceProvenance.origin ?? 'unknown' };
@@ -60,6 +63,7 @@ export function publicListing(value) {
 export function ownedListing(document) {
   const value = document.toJSON(); // Public transform remains the safe default everywhere else.
   const raw = document.toObject();
+  value.photoReviewConsent = hasPhotoConsent(raw);
   value.vehicleGrantRef = raw.vehicleGrantRef;
   value.vehicleGrantReview = raw.vehicleGrantReview;
   value.coordinates = raw.coordinates ?? null;

@@ -161,6 +161,7 @@ const listingSchema = new mongoose.Schema(
     promotion: { type: promotionSchema, default: undefined },
     bundleOffer: { type: bundleOfferSchema, default: undefined },
     itemVerification: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    itemVisionConsent: { type: new mongoose.Schema({ version: String, ownerId: String, photos: String, grantedAt: Date }, { _id: false }), default: undefined },
     itemVerificationHistory: { type: [mongoose.Schema.Types.Mixed], default: [] },
     priceRecommendation: { type: mongoose.Schema.Types.Mixed, default: undefined },
   },

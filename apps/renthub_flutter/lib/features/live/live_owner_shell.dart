@@ -710,6 +710,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   final conditionFieldKey = GlobalKey<FormFieldState<String>>();
   bool saving = false;
   bool addingImages = false;
+  bool photoReviewConsent = false;
   bool checkingIdentity = false;
   late String? savedListingId = widget.listing?.id;
   bool suggestingPrice = false;
@@ -1246,7 +1247,10 @@ class _LiveListingFormState extends State<LiveListingForm> {
     try {
       final references = await pickListingPhotos(context, 10 - images.length);
       if (mounted && account == controller.profile?.id) {
-        setState(() => images.addAll(references));
+        setState(() {
+          if (references.isNotEmpty) photoReviewConsent = false;
+          images.addAll(references);
+        });
       }
     } catch (exception) {
       if (mounted) {
@@ -1262,7 +1266,12 @@ class _LiveListingFormState extends State<LiveListingForm> {
     final reference = images[index];
     try {
       await context.read<LiveRentHubController>().deleteUpload(reference);
-      if (mounted) setState(() => images.remove(reference));
+      if (mounted) {
+        setState(() {
+          images.remove(reference);
+          photoReviewConsent = false;
+        });
+      }
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1275,6 +1284,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
   void initState() {
     super.initState();
     images = [...?widget.listing?.images];
+    photoReviewConsent = widget.listing?.photoReviewConsent ?? false;
     price.addListener(_priceEdited);
     catalogBrandId = widget.listing?.catalogBrandId.isEmpty == false
         ? widget.listing!.catalogBrandId
@@ -1439,6 +1449,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
       'description': description.text.trim(),
       'category': category,
       'vehicleGrantRef': needsGrant ? vehicleGrantRef : null,
+      if (!widget.isService) 'photoReviewConsent': photoReviewConsent,
       'listingType': widget.isService ? 'service' : 'physical',
       'dailyPrice': price.text.trim().isEmpty ? null : double.parse(price.text),
       if (!widget.isService) 'priceProvenance': priceOrigin.toJson(),
@@ -1666,6 +1677,21 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                     onRemove: saving || addingImages
                                         ? null
                                         : () => _removeImage(index)),
+                              if (!widget.isService)
+                                CheckboxListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    value: photoReviewConsent,
+                                    controlAffinity:
+                                        ListTileControlAffinity.leading,
+                                    title: const Text(
+                                        'Allow Google photo review (optional)'),
+                                    subtitle: const Text(
+                                        'These item photos contain no personal or private information. Google may use them to improve its products. Local checks remain available.'),
+                                    onChanged: saving || addingImages
+                                        ? null
+                                        : (value) => setState(() =>
+                                            photoReviewConsent =
+                                                value == true)),
                             ],
                           ),
                         ),

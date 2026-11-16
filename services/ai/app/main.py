@@ -17,6 +17,7 @@ app = FastAPI(title='RentHub AI Service', version='2.0.0')
 
 @app.get('/health')
 def health():
+    from .services.gemini_item_review import status as vision_status
     price_bundle, price_path, price_error = pricing_artifact()
     field_status = mykad_field_availability()
     _, _, item_status = models_status()
@@ -44,6 +45,7 @@ def health():
         'driving_licence_contract': DRIVING_CONTRACT,
         'recommendation_contract': RECOMMENDATION_CONTRACT,
         'status': 'ok',
+        'item_vision_status': vision_status(),
         'document_frame_contract': DOCUMENT_FRAME_CONTRACT,
         'item_verification_contract': ITEM_CONTRACT,
         'item_verification_status': item_status,

@@ -252,6 +252,8 @@ Assert-Launcher ((@(Get-RentHubApiArguments -DisableReload) -join ' ') -eq 'src/
 Assert-Launcher ($tree.Extent.Text.Contains('Stop-RentHubOwnedApiProcess -OwnedProcess $apiProcess -StartedAt $apiProcessStartedAt')) 'API watch tree cleanup uses owned-process guard'
 
 $reloadArguments = @(Get-RentHubAiArguments)
+Assert-Launcher ((@(Get-RentHubAiArguments -UseEnvironmentFile) -join ' ').EndsWith('--env-file .env')) 'Optional AI configuration is passed by filename only'
+Assert-Launcher (-not ($reloadArguments -contains '--env-file')) 'Missing AI configuration does not become mandatory'
 Assert-Launcher (($reloadArguments -join ' ') -eq
     '-m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --reload-dir app') 'Default reload arguments'
 $stableArguments = @(Get-RentHubAiArguments -DisableReload)

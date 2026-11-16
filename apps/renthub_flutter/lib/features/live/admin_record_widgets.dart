@@ -1,4 +1,5 @@
 import '../../shared/widgets/section_help.dart';
+import 'admin_item_vision_panel.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -1300,6 +1301,18 @@ class AdminRecordDetails extends StatelessWidget {
                 label: 'Private registration document')),
       if (identity)
         _AdminIdentityDocuments(row: row, expanded: type == 'verification'),
+      if (type == 'listings' && row['listingType'] != 'service')
+        AdminDetailSection(
+            title: 'AI photo review',
+            icon: Icons.manage_search_outlined,
+            child: AdminItemVisionPanel(
+                listingId: '${row['publicId'] ?? row['id']}',
+                photos: (row['images'] as List? ?? const [])
+                    .whereType<String>()
+                    .toList(),
+                initial: row['itemVisionReview'] is Map
+                    ? row['itemVisionReview'] as Map
+                    : null)),
       if (type == 'listings' && row['listingType'] != 'service')
         AdminDetailSection(
             title: 'Item photo review',

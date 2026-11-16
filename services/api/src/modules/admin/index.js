@@ -1,4 +1,5 @@
 import { textInput } from '../../core/inputValidation.js';
+import { retryItemVision } from '../listing/itemVision.service.js';
 import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import mongoose from 'mongoose';
 import { Router } from 'express';
@@ -361,6 +362,8 @@ router.post(
   ),
 );
 router.use(authenticate, authorize('admin'));
+router.post('/listings/:id/photo-review', param('id').matches(/^l-[a-z\d-]+$/i), validate,
+  asyncHandler(async (req, res) => ok(res, await retryItemVision(req.params.id))));
 const records = createAdminRecordsService(Model);
 router.get('/dashboard-summary', asyncHandler(async (_req, res) => ok(res, await records.summary())));
 router.get('/records/:type', asyncHandler(async (req, res) => {
