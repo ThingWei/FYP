@@ -2,8 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/models/domain_models.dart';
-import 'live_photo_widgets.dart';
 import 'live_listing_photo_viewer.dart';
+import 'live_listing_image.dart';
 
 class ListingPhotoCarousel extends StatefulWidget {
   const ListingPhotoCarousel(
@@ -52,11 +52,9 @@ class _ListingPhotoCarouselState extends State<ListingPhotoCarousel> {
                   controller: pages,
                   itemCount: widget.photos.length,
                   onPageChanged: (value) => setState(() => selected = value),
-                  itemBuilder: (context, index) => LivePhotoThumbnail(
+                  itemBuilder: (context, index) => InkWell(
                       key: ValueKey('$index:${widget.photos[index]}'),
-                      reference: widget.photos[index],
-                      label: '${widget.title}, photo ${index + 1}',
-                      onOpen: () => Navigator.push<void>(
+                      onTap: () => Navigator.push<void>(
                           context,
                           MaterialPageRoute(
                               builder: (_) => ListingPhotoViewer(
@@ -64,8 +62,10 @@ class _ListingPhotoCarouselState extends State<ListingPhotoCarousel> {
                                       List<String>.unmodifiable(widget.photos),
                                   title: widget.title,
                                   initialIndex: index))),
-                      width: double.infinity,
-                      height: double.infinity),
+                      child: LiveListingImage(
+                          reference: widget.photos[index],
+                          label: '${widget.title}, photo ${index + 1}',
+                          fit: BoxFit.contain)),
                 ))),
         if (widget.photos.length > 1)
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -114,12 +114,10 @@ class ListingRowThumbnail extends StatelessWidget {
                   child: Icon(listing.isService
                       ? Icons.design_services_outlined
                       : Icons.inventory_2_outlined))
-              : LivePhotoThumbnail(
+              : LiveListingImage(
+                  key: ValueKey((listing.id, listing.images.first)),
                   reference: listing.images.first,
                   label: listing.title,
-                  width: size,
-                  height: size,
-                  interactive: false,
                   fit: BoxFit.cover)));
 }
 

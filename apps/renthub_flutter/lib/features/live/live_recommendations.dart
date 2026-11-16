@@ -9,6 +9,7 @@ import '../../shared/widgets/renthub_components.dart';
 import 'live_location_picker.dart';
 import 'live_renthub_controller.dart';
 import 'live_listing_collection.dart';
+import 'live_listing_image.dart';
 
 class RecommendationListingTile extends StatelessWidget {
   const RecommendationListingTile(
@@ -59,7 +60,6 @@ class ListingThumbnail extends StatelessWidget {
   final Listing listing;
   @override
   Widget build(BuildContext context) {
-    final api = context.read<LiveRentHubController>().api;
     final fallback = Icon(
         listing.isService
             ? Icons.design_services_outlined
@@ -74,10 +74,11 @@ class ListingThumbnail extends StatelessWidget {
             borderRadius: BorderRadius.circular(12)),
         child: listing.images.isEmpty
             ? fallback
-            : Image.network(api.publicPhotoUrl(listing.images.first),
-                semanticLabel: listing.title,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => fallback));
+            : LiveListingImage(
+                key: ValueKey((listing.id, listing.images.first)),
+                reference: listing.images.first,
+                publicPhoto: true,
+                label: listing.title));
   }
 }
 

@@ -7,7 +7,6 @@ import 'package:renthub_flutter/features/account/account_pages.dart';
 import 'package:renthub_flutter/features/account/loyalty_referral_page.dart';
 import 'package:renthub_flutter/features/admin/admin_app.dart';
 import 'package:renthub_flutter/features/owner/owner_app.dart';
-import 'package:renthub_flutter/features/owner/owner_bundle_management_page.dart';
 import 'package:renthub_flutter/features/renter/booking/booking_flow.dart';
 import 'package:renthub_flutter/features/renter/discovery/controllers/renter_prototype_state.dart';
 import 'package:renthub_flutter/features/renter/rentals/pages/insurance_claim_status_page.dart';
@@ -180,29 +179,11 @@ void main() {
     expect(find.text('20 Sep 2026 – 22 Sep 2026'), findsOneWidget);
   });
 
-  testWidgets('Owner can create a validated physical-item bundle',
-      (tester) async {
+  testWidgets('Owner listings do not expose bundle management', (tester) async {
     _mobileSize(tester);
-    await tester.pumpWidget(
-      const MaterialApp(home: OwnerBundleManagementPage()),
-    );
-
-    await tester.tap(find.byKey(const Key('create-bundle')));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), 'Weekend Camera Kit');
-    final boxes = find.byType(CheckboxListTile);
-    await tester.tap(boxes.at(0));
-    await tester.tap(boxes.at(1));
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('save-bundle')),
-      400,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.drag(find.byType(ListView), const Offset(0, -120));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('save-bundle')));
-    await tester.pumpAndSettle();
-    expect(find.text('Weekend Camera Kit'), findsOneWidget);
+    await tester.pumpWidget(const MaterialApp(home: OwnerListings()));
+    expect(find.byTooltip('Manage bundles'), findsNothing);
+    expect(find.text('My listings'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

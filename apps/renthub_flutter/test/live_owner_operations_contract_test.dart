@@ -239,19 +239,13 @@ void main() {
     expect(api.calls.last.$2, contains('catalogBrandId=wikidata%3AQ41187'));
   });
 
-  test('availability, promotion and bundle use live Owner endpoints', () async {
+  test('availability and promotion use live Owner endpoints', () async {
     final promotion = {
       'enabled': true,
       'label': 'Production Week Deal',
       'discountPercent': 20,
       'startsAt': '2026-09-01T00:00:00.000Z',
       'endsAt': '2026-10-01T00:00:00.000Z',
-    };
-    final bundle = {
-      'active': true,
-      'title': 'Camera Production Kit',
-      'listingIds': ['l-camera', 'l-tripod'],
-      'discountPercent': 10,
     };
     final api = RecordingOwnerApiClient([
       {
@@ -263,7 +257,6 @@ void main() {
       },
       {},
       listingJson(promotion: promotion),
-      listingJson(promotion: promotion, bundle: bundle),
     ]);
     final controller = LiveRentHubController(api)
       ..ownerListings = [Listing.fromJson(listingJson())];
@@ -282,17 +275,13 @@ void main() {
       'bufferHours': 2,
     });
     await controller.saveListingPromotion('l-camera', promotion);
-    await controller.saveListingBundle('l-camera', bundle);
 
     expect(api.calls.map((call) => '${call.$1} ${call.$2}'), [
       'GET /listings/l-camera/availability',
       'PUT /listings/l-camera/availability',
       'PUT /listings/l-camera/promotion',
-      'PUT /listings/l-camera/bundle',
     ]);
     expect(controller.ownerListings.single.promotionActive, isTrue);
-    expect(
-        controller.ownerListings.single.bundleTitle, 'Camera Production Kit');
   });
 
   testWidgets('Owner promotion page fits mobile and persists its action',

@@ -1875,7 +1875,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                 },
               ),
             const SizedBox(height: 12),
-            if (listing.promotionActive || listing.bundleActive) ...[
+            if (listing.promotionActive) ...[
               Card(
                 color: AppColors.blueSurface,
                 child: Padding(
@@ -1890,16 +1890,6 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                         ),
                         Text(
                           '${listing.promotionDiscountPercent.toStringAsFixed(0)}% off: ${formatMoney(listing.dailyPrice)} → ${formatMoney(listing.displayPrice)} per ${listing.priceUnit}',
-                        ),
-                      ],
-                      if (listing.bundleActive) ...[
-                        if (listing.promotionActive) const SizedBox(height: 12),
-                        Text(
-                          listing.bundleTitle,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        Text(
-                          '${listing.bundleListingIds.length} items · ${listing.bundleDiscountPercent.toStringAsFixed(0)}% bundle discount',
                         ),
                       ],
                     ],
@@ -1933,10 +1923,16 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '${average.toStringAsFixed(1)} / 5 ? ${reviews.length} recent reviews',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
+                        Row(children: [
+                          const Icon(Icons.star,
+                              size: 20, color: AppColors.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                              child: Text(
+                            '${average.toStringAsFixed(1)} / 5 · ${reviews.length} recent reviews',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          )),
+                        ]),
                         const SizedBox(height: 8),
                         TextButton(
                             onPressed: () => Navigator.push<void>(

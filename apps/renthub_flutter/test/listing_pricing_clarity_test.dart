@@ -20,6 +20,7 @@ import 'package:renthub_flutter/features/live/live_photo_widgets.dart';
 import 'package:renthub_flutter/features/live/live_price_suggestion.dart';
 import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
 import 'package:renthub_flutter/shared/models/domain_models.dart';
+import 'helpers/select_dropdown.dart';
 
 Map<String, dynamic> suggestion(
         {bool product = false, bool synthetic = false}) =>
@@ -144,6 +145,56 @@ void viewport(WidgetTester tester, double width) {
 }
 
 void main() {
+  for (final width in [360.0, 390.0]) {
+    testWidgets('item age and rental length are selectable at $width',
+        (tester) async {
+      viewport(tester, width);
+      final api = PricingApi();
+      final controller = LiveRentHubController(api);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(form(controller, scale: 1.5));
+      await tester.pumpAndSettle();
+      expect(field('Item age (years)'), findsNothing);
+      expect(field('Expected rental length (days)'), findsNothing);
+      await selectDropdownOption(tester, 'Item age (years)', '0.5');
+      await selectDropdownOption(
+          tester, 'Expected rental length (days)', '365');
+      await press(tester, 'Suggest a daily price');
+      expect((api.calls.last as Map)['itemProfile']['item_age_years'], 0.5);
+      expect((api.calls.last as Map)['rentalDurationDays'], 365);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('editing preserves an existing fractional item age',
+      (tester) async {
+    final controller = LiveRentHubController(PricingApi());
+    addTearDown(controller.dispose);
+    final item = Listing.fromJson({
+      'publicId': 'l-old-camera',
+      'title': 'Camera',
+      'category': 'Devices',
+      'subcategory': 'Cameras',
+      'dailyPrice': 70,
+      'itemAgeYears': 12.25,
+      'condition': 'Good',
+      'status': 'draft',
+    });
+    await tester.pumpWidget(form(controller, item: item));
+    expect(
+        tester
+            .state<FormFieldState<String>>(dropdownField('Item age (years)'))
+            .value,
+        '12.25');
+    expect(
+        tester
+            .widget<DropdownButton<String>>(dropdownButton('Item age (years)'))
+            .items!
+            .where((item) => item.value == '12.25'),
+        hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
   test('calculation summary stays short and omits technical diagnostics', () {
     final view = PriceSuggestionView({
       ...suggestion(synthetic: true),
@@ -229,8 +280,8 @@ void main() {
     await tester.ensureVisible(field('Daily price (RM)'));
     await tester.enterText(field('Daily price (RM)'), '');
     for (final days in [2, 3, 7, 30]) {
-      await tester.ensureVisible(field('Expected rental length (days)'));
-      await tester.enterText(field('Expected rental length (days)'), '$days');
+      await selectDropdownOption(
+          tester, 'Expected rental length (days)', '$days');
       await press(tester, 'Suggest a daily price');
       expect((api.calls.last as Map)['rentalDurationDays'], days);
       expect(
@@ -380,10 +431,9 @@ void main() {
     expect(find.text('Choose condition', skipOffstage: false), findsOneWidget);
     expect(
         tester
-            .widget<TextFormField>(field('Item age (years)'))
-            .controller!
-            .text,
-        '');
+            .state<FormFieldState<String>>(dropdownField('Item age (years)'))
+            .value,
+        isNull);
     await press(tester, 'Save Draft');
     expect(api.writeCalls, hasLength(1));
     final saved = api.writeCalls.single as Map;
@@ -861,8 +911,7 @@ void main() {
     await tester.ensureVisible(find.text('Suggest a daily price'));
     await tester.tap(find.text('Suggest a daily price'));
     await tester.pump();
-    await tester.ensureVisible(field('Item age (years)'));
-    await tester.enterText(field('Item age (years)'), '3');
+    await selectDropdownOption(tester, 'Item age (years)', '3.0');
     api.pending!.complete(suggestion());
     await tester.pumpAndSettle();
     expect(find.text('Use this price'), findsNothing);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'helpers/select_dropdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:renthub_flutter/core/network/api_client.dart';
@@ -144,7 +145,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('AI request validates age/days without requiring daily price',
+  testWidgets(
+      'AI request uses valid age/day selections without requiring daily price',
       (tester) async {
     size(tester, 390);
     final api = _Api();
@@ -164,21 +166,22 @@ void main() {
     });
     await tester.pumpWidget(
         app(LiveListingForm(isService: false, listing: listing), controller));
-    // Programmatic malformed values bypass formatters, but not submit validators.
-    await enter(tester, 'Expected rental length (days)', '366');
-    await press(tester, 'Suggest a daily price');
-    expect(api.calls, isEmpty);
+    final days = tester
+        .widget<DropdownButton<String>>(
+            dropdownButton('Expected rental length (days)'))
+        .items!;
     expect(
-        tester
-            .state<FormFieldState<String>>(
-                field('Expected rental length (days)'))
-            .errorText,
-        isNotNull);
-    await enter(tester, 'Expected rental length (days)', '1');
-    await enter(tester, 'Item age (years)', '101');
-    await press(tester, 'Suggest a daily price');
-    expect(api.calls, isEmpty);
-    await enter(tester, 'Item age (years)', '3.5');
+        days.every((item) =>
+            int.parse(item.value!) >= 1 && int.parse(item.value!) <= 365),
+        isTrue);
+    final ages = tester
+        .widget<DropdownButton<String>>(dropdownButton('Item age (years)'))
+        .items!;
+    expect(
+        ages.every((item) =>
+            double.parse(item.value!) >= 0 && double.parse(item.value!) <= 100),
+        isTrue);
+    await selectDropdownOption(tester, 'Item age (years)', '3.5');
     tester.widget<TextFormField>(field('Daily price (RM)')).controller!.clear();
     await press(tester, 'Suggest a daily price');
     final body = api.calls.single.$3 as Map;

@@ -68,16 +68,20 @@ void main() {
         'dailyPrice': 50,
         'images': ['upload://UPL-ABC']
       });
+      final api = PhotoApi();
+      final controller = LiveRentHubController(api);
+      addTearDown(controller.dispose);
       await tester.pumpWidget(root(
-          LiveRentHubController(PhotoApi()),
+          controller,
           SizedBox(
               width: 240,
               child: compact
                   ? ListingThumbnail(listing: listing)
                   : ListingCardPhoto(listing: listing))));
+      await tester.pumpAndSettle();
       final image = tester.widget<Image>(find.byType(Image));
-      expect((image.image as NetworkImage).url,
-          'http://example.invalid/api/v1/uploads/public/UPL-ABC/content');
+      expect(api.paths,
+          ['http://example.invalid/api/v1/uploads/public/UPL-ABC/content']);
       expect(image.fit, BoxFit.cover);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);

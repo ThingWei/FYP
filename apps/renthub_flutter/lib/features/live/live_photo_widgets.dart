@@ -284,6 +284,7 @@ class _LivePhotoThumbnailState extends State<LivePhotoThumbnail> {
         child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: FutureBuilder<Uint8List>(
+              key: ValueKey((widget.reference, widget.controller)),
               future: bytes,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
