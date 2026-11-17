@@ -21,7 +21,9 @@ RentHub is a Malaysian rental marketplace for physical items and services. Rente
 
 For checking all modules in priority order, use the [testing guide](docs/testing/README.md).
 
-For optional Google photo observations in the admin portal, use the [Gemini photo-review setup](docs/GEMINI_ITEM_PHOTO_REVIEW_RESULT.md). It requires a private free-tier API key and Owner consent for non-sensitive item photos; local checks remain available without it.
+For optional Google photo observations in the admin portal, use the [Gemini photo-review setup](docs/GEMINI_ITEM_PHOTO_REVIEW_RESULT.md). Administrators receive assessments of submitted item photos using the platform’s private API configuration. Setup and quota limits are managed on the server.
+
+Admin disputes and damage-waiver claims open in one case workspace. See the [admin photo and case-workspace guide](docs/ADMIN_PHOTO_REVIEW_AND_CASE_WORKSPACE_RESULT.md) for the latest flow and verification results.
 It includes the full manual cases, blank private result sheets and an isolated
 regression command. Automated passes and the real-device walkthrough are recorded
 separately.

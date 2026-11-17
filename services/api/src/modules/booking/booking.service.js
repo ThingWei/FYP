@@ -214,6 +214,8 @@ function pricing(listing, startDate, endDate, waiverSelected, fulfilmentMethod) 
 }
 
 async function assertAvailable(listing, startDate, endDate, excludeId) {
+  const current = await ListingModel.findOne({ publicId: listing.publicId, status: 'active', deletedAt: null }).select('_id');
+  if (!current) throw new AppError('This listing is no longer available', 409, 'LISTING_INACTIVE');
   const exclusiveEnd =
     listing.listingType === 'physical'
       ? new Date(endDate.getTime() + dayMs)
@@ -482,7 +484,7 @@ export const bookingService = {
     const [pending, activeOrders, listings, overdueReturns] = await Promise.all([
       BookingModel.countDocuments({ownerId:identity.authId,status:'pending',paymentStatus:'authorized'}),
       RentalModel.countDocuments({ownerId:identity.authId,status:{$in:['active','overdue']}}),
-      ListingModel.countDocuments({ownerId:identity.authId}),
+      ListingModel.countDocuments({ownerId:identity.authId,deletedAt:null}),
       rentalRepository.countOverdue(identity.authId),
     ]);
     return { items, meta: { page, limit, total, summary:{pending,activeOrders,listings,overdueReturns,attentionNeeded:pending + overdueReturns} } };

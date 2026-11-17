@@ -1,6 +1,8 @@
-# Gemini item-photo review
+# Administrator item-photo assessment
 
-Implemented 16 November 2026. Gemini adds visual observations for administrators; it does not certify authenticity, ownership, functionality or hidden condition. Local YOLO/YOLO-World, quality, duplicate and risk checks remain separate. No model was retrained or deployed, and no live records or private environment files were changed during implementation.
+Updated 17 November 2026.
+
+Gemini provides photo observations for administrator decisions. The admin listing details use one **AI photo assessment** panel. Existing local image checks continue in the submission flow.
 
 ## Enable it once
 
@@ -31,102 +33,53 @@ Implemented 16 November 2026. Gemini adds visual observations for administrators
 
    The first command makes no network request. The second reads Google's model metadata; it sends no photos or generation prompt. Output contains no key. `access=available` confirms model access only, **not billing tier, remaining quota or image-review accuracy**. Verify free status in AI Studio.
 
-V1 pins the supported model to `gemini-3.1-flash-lite`; a different configured model is unavailable rather than silently falling back to a potentially paid model. Google's current documentation lists image input, structured output and free-tier access for this model. Availability and quotas can change. RentHub does not upgrade the project, provision billing or switch providers. [Model documentation](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite), [pricing](https://ai.google.dev/gemini-api/docs/pricing), [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits).
+The integration pins the supported model to `gemini-3.1-flash-lite`; a different configured model is unavailable rather than silently falling back to a potentially paid model. Google's current documentation lists image input, structured output and free-tier access for this model. Availability and quotas can change. RentHub does not upgrade the project, provision billing or switch providers. [Model documentation](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite), [pricing](https://ai.google.dev/gemini-api/docs/pricing), [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits).
 
-## Owner and administrator flow
+## Everyday flow
 
-### If the admin page returns to Not enabled
+1. Owners upload item photos and submit their listing. Processing is controlled by the platform. The Owner form has no AI enable/disable checkbox.
+2. Eligible physical listings enter the shared review queue. Existing pending submissions are reconciled in batches of 20. Drafts, services and deleted listings are excluded from processing.
+3. Open **Admin → Listings → record details → AI photo assessment**. The current saved result appears immediately. Missing current-format checks are ensured automatically, and pending results update while the details remain open.
+4. Choose a photo under **By photo** to read only its observations and concerns. Comparisons involving several images appear under **Across-photo notes**, with all relevant photo numbers. Selecting a photo opens the full-screen black gallery.
+5. Approve or reject using the existing moderation controls. Photo observations provide assistance. Authenticity, ownership, functionality and hidden defects require evidence beyond photos.
 
-The API and AI service each have a separate `GEMINI_ITEM_REVIEW_ENABLED` flag. Both must be true, and the **running processes** must load the files after changes. A key being present and the Owner consent checkbox being selected do not enable a disabled Python service. Updating `.env`, reopening admin or hot-reloading app code does not reload the existing Uvicorn parent environment.
+Opening an eligible physical listing ensures one current assessment through the existing admin photo-review endpoint. `intent=ensure` reuses work and cached results. Explicit `intent=retry` recovers failed attempts. Status refreshes perform read-only requests. Gallery and dialog return resume status updates automatically.
 
-During the 16 November configuration check, the API file was enabled while the AI file was disabled. The AI flag was corrected without changing the key; a read-only Google model lookup confirmed access. The running AI process still needed its original launcher restarted. No photos were sent to Google by that diagnostic, and it did not establish free quota or image-review accuracy.
+## Availability and recovery
 
-Stop the launcher that owns the AI process and start RentHub again. Reopening another launcher can reuse the old process; the launcher now warns if its Gemini settings are still disabled or incomplete. Then use **Check photos** on the consented listing; re-uploading unchanged photos is unnecessary.
+Both API and AI services use their own `GEMINI_ITEM_REVIEW_ENABLED` flag. The AI service also needs its key and supported model. Restart the original launcher after editing private environment files so running processes load the changes.
 
-The added internal `GET /verify/item-vision/status` reports configuration only and never calls Google. Explicit retry and background workers use a 2.5-second local-service preflight before image downloads or review-budget use. Disabled, incomplete and unreachable-service results remain distinct. This check cannot validate a key's live generation quota; provider errors are still handled by the existing review flow.
+The internal `GET /verify/item-vision/status` checks configuration without sending photos or calling Google. Preflight checks have a 2.5-second local-service timeout. API/AI disagreement, missing configuration and service outages produce distinct safe reasons. The API readiness response includes its running photo-review flag and processing contract. The launcher checks both services, warns when a reused API differs from its saved configuration, and rejects older API capabilities.
 
-Recovery regressions: 18 focused API tests, 27 focused Python tests, 13 focused Flutter tests and launcher checks passed; Flutter analysis is clean. Main/admin web and Android debug builds passed. The broader Flutter run has 968 passes, three skips and one unrelated failure in `item_detail_polish_test.dart`: the existing gallery test expects `Preview Camera, photo 2`, which the current `ListingPhotoCarousel` no longer exposes. It also fails in isolation; no gallery implementation or test was changed in this recovery fix. Private logs: `.data/testing/20261116-gemini-config-recovery/`.
+The panel separates current service availability from the last assessment. An earlier disabled/configuration failure becomes eligible after configuration recovers. The scheduler requeues these pending jobs once. Saved successful assessments remain visible during an outage. Storage/provider timeouts require an explicit retry because the earlier request may have reached the provider.
 
-Configuration recovery commit: `fix: detect disabled Gemini service before queueing photo reviews`.
+The panel distinguishes waiting, checking, setup required, service unavailable and local daily-limit states. A temporary request-spacing wait is shown as waiting. Provider quota responses retain a general limit/wait state because the provider may enforce several quota periods.
 
-1. The Owner creates/edits a physical listing and selects **Allow Google photo review (optional)** only for non-sensitive item photos. The notice explains Google's product-improvement use. Declining does not block drafts or the existing local/manual flow.
-2. Submission runs the existing local checks and saves the pending listing. A consented snapshot is queued without waiting for Google. Services have no item-vision processing.
-3. While the API remains running, its worker processes eligible jobs. Admin → Listings → record details → **AI photo review** shows the current state and, when available, item consistency, across-photo consistency, visible condition and branding observations.
-4. Concerns reference photo numbers. Tap a finding to open that photo in the protected full-screen gallery. Additional observations stay collapsed under **Photo findings**.
-5. **Refresh** reads status. **Check photos** explicitly retries eligible unavailable checks; concurrent taps reuse the job. No key is configured through the admin interface.
-6. Administrators still decide the listing. Missing, delayed, declined or failed Gemini output never approves/rejects a listing or adds another approval gate. Existing local enforcement rules remain unchanged.
+## Processing and privacy
 
-Replacing/removing photos invalidates consent. Reopening an unchanged saved draft preserves it; unrelated field edits preserve it on the server. Product, condition or photo-content changes invalidate old observations. Old results cannot appear as current. Existing listings are not bulk-processed: an Owner must supply consent through their existing edit/resubmission flow before an administrator can request an individual check.
+- The internal processing contract is `renthub-item-vision-v3`. Express supplies `processing_authorized=true` after server eligibility checks. Historical Owner consent records are retained. The deprecated optional `photoReviewConsent` write field is accepted for older clients and has no effect on review eligibility.
+- Only 3–10 owned, registered listing-photo uploads are eligible. Identity documents, holder photos, vehicle grants, avatars, foreign uploads and arbitrary URLs are excluded.
+- Images are bounded, resized and re-encoded with filenames and metadata removed. The prompt uses all 22 physical subcategory contexts and peripheral distinctions.
+- The provider schema requires exactly one assessed-or-unassessable result per supplied image and separately scoped findings for several photos. It rejects malformed results, sensitive-content findings, invalid photo numbers and prohibited authenticity claims.
+- Google receives eligible item images under the configured project's service terms. Free-tier data-use conditions should be reviewed in the existing Google project setup.
+- Gemini results are admin-only. They do not change listing moderation or independent pricing-evidence eligibility.
 
-## Privacy and results
+## Queue and limits
 
-- Only owned image uploads whose purpose is `listing_image` are eligible. No arbitrary URL fetching. Private verification documents, holder selfies, licences, vehicle grants, avatars, messages and addresses are excluded from this pipeline.
-- Consent is recorded server-side with its policy version and selected-photo digest. Clients cannot write the consent snapshot or a Gemini result. The worker rechecks consent, ownership, upload purpose and the listing snapshot before forwarding.
-- Google receives resized/re-encoded JPEG copies (maximum 1280-pixel side, bounded combined body), relevant declared product fields and fixed instructions. Originals, filenames, EXIF, account information and location fields are not included.
-- The declaration is not an automatic redaction guarantee. Owners must not select photos containing people/identity documents, readable personal contact/address information or other confidential details. A wrongly labelled upload can still contain sensitive pixels. Revocation prevents future eligible work and stale results, but cannot recall data already sent to Google.
-- Google's free-service terms permit product-improvement use and human review and say not to submit sensitive, confidential or personal information. Do not use this free integration for KYC. [Google's data-use terms](https://ai.google.dev/gemini-api/docs/terms).
-- The prompt treats listing text and text inside photos as untrusted evidence, not instructions. It distinguishes actual items from screenshots/illustrations, allows close-up supporting views and requires uncertainty where details cannot be established.
-- Strict schemas/enums, bounded findings and photo-index validation apply in Python and Express. Malformed, refused, truncated, obviously personal or explicit authenticity/functionality claims are rejected rather than rendered. These controls cannot eliminate hallucinations; administrators must inspect the underlying photos.
-- `authenticityVerified` remains false. No authenticity probability or automatic decision is generated. Detailed observations are available only through admin detail access; public and owned listing responses exclude them. The Owner receives only their own current consent boolean.
+One shared database-backed budget coordinates both laptops. The default is 20 attempts per UTC day, one in-flight request and at least 60 seconds between starts. Failed or uncertain provider attempts consume allowance conservatively. This application limit operates alongside Google's quotas.
 
-## Coverage
+Budget is claimed before reading originals. Storage waits, provider deadlines and leases are bounded. Queue writes are deduplicated using listing identity, current photo-content hashes, relevant item fields, processing contract and model. Changed or deleted listings invalidate in-flight results.
 
-The prompt registry covers the existing 22 physical subcategories. These are **configured and protocol-tested instructions, not measured recognition accuracy**.
+Provider quota/busy responses have at most three automatic attempts with bounded backoff. Successful snapshots are cached. Expired in-flight leases require explicit retry. API downtime pauses the worker.
 
-| Category | Specific categories |
-|---|---|
-| Devices | Smartphones, Cameras, Computers, Audio, Gaming, Other devices |
-| Vehicles | Cars, Motorcycles, Bicycles, Other vehicles |
-| Equipment | Tools, Sports equipment, Event equipment, Other equipment |
-| Books | Textbooks, Reference books, Fiction, Other books |
-| Clothing | Formal wear, Costumes, Traditional wear, Other clothing |
+## Verification
 
-Mice, keyboards, monitors and controllers have explicit separation guidance. Books include page/illustration context; clothing does not infer cultural styles or brand authenticity from appearance. Unknown category/subcategory contexts return an unassessed check. No new taxonomy was introduced.
+Current results and remaining walkthrough checks are recorded in [Admin photo review and case workspace](ADMIN_PHOTO_REVIEW_AND_CASE_WORKSPACE_RESULT.md). Earlier deletion and review behavior is documented in [Listing deletion and admin photo review](LISTING_DELETION_AND_ADMIN_PHOTO_REVIEW_RESULT.md). Earlier verification logs remain in the private `.data/testing/20261116-gemini-review/` and configuration-recovery directories.
 
-## Reliability and interfaces
+Automated provider tests use synthetic pixel fixtures and mocked responses. Real-photo recognition and authenticity accuracy require separately reviewed evaluation data. Provider model access alone does not establish remaining quota or successful image inference.
 
-- Added internal FastAPI `POST /verify/item-vision` with a separate `renthub-item-vision-v1` contract and mandatory consent declaration. Existing scanner, licence and item-verification contracts are unchanged. Keep the AI service bound to localhost/private infrastructure; it is not a public client endpoint.
-- Added admin-only `POST /api/v1/admin/listings/:id/photo-review` and additive `itemVisionReview` data on the existing admin listing-detail endpoint. Existing listing writes accept only an optional boolean `photoReviewConsent`.
-- Private `ItemVisionJob` records are keyed by listing, content/profile snapshot, prompt contract and model. They store safe observations, attempts and timestamps, never image bytes, raw provider bodies or credentials. Shared MongoDB leases fence overlapping workers and stale results.
-- One request at a time and at least 60 seconds between request starts across both laptops. The default daily application allowance is 20 attempts, configurable from 1–1000. Its UTC reset is separate from Google's quota schedule; it does not guarantee provider capacity. Failed/uncertain attempts conservatively consume allowance.
-- Quota is claimed **before** downloading originals, so budget-waiting jobs do not repeatedly consume photo-storage bandwidth. Storage waits are bounded; request deadlines and leases are bounded separately.
-- `429` and `503` responses receive bounded backoff, at most three automatic attempts. A timeout/crashed in-flight lease is unavailable and requires explicit retry rather than blindly repeating a possibly completed request. Each explicit retry still respects the shared allowance and successful snapshots remain cached.
-- Bounded reconciliation revisits up to 20 consented pending listings per scheduler tick to repair an interrupted submission/job write. It does not reset failed jobs or rerun successful snapshots. API downtime pauses processing; saved jobs remain.
-- Optional availability/model configuration is added to AI health. No network call or model download occurs during health checks. No source/pricing settings, payment rules, authentication behaviour, AI weights or historical listings were modified.
+## RentHub allowance and Google rate limits
 
-## Verification and remaining work
+The daily application allowance is separate from Google's RPM, TPM and RPD limits. RentHub defaults to 20 attempts per UTC day, shared across both laptops. Each attempt is reserved before reading images, so failed or uncertain attempts can consume the application allowance. A low current-minute RPM does not describe the application's daily counter.
 
-Tests use isolated temporary databases, synthetic pixel fixtures and mocked provider responses. No listing photos were sent to Google during verification.
-
-| Check | Result |
-|---|---|
-| Python Gemini tests | Structured output, all 22 contexts, peripherals, unsafe claims, invalid images, consent, disabled/key/model states, timeout/refusal/quota and safe access diagnostic covered. |
-| Full AI suite | 666 passed; four existing dependency deprecation warnings. |
-| Full Flutter suite | 957 passed; three existing skips. |
-| Flutter analyzer | No issues found. |
-| Main/admin web and Android debug builds | Passed. Existing Wasm/icon-font and Gradle/Kotlin migration warnings remain non-blocking. |
-| Launcher regression | Passed, including optional environment-file arguments and unchanged defaults. |
-| Private render checks | Four passed, producing eight fixture-only previews at 360/390/1024/1440 widths with enlarged text. Mobile consent and mobile/desktop admin results inspected. |
-| Final API suite | 809 passed; three existing skips; no failures. |
-| Live Gemini/real-photo evaluation | **Not run. Accuracy not evaluated.** |
-
-API regression cases cover authorization, wrong-purpose/foreign uploads, URL refusal, private projections, legacy clients, consent create/reopen/change/revocation, queue deduplication, two-worker scheduling, stale results, budget spacing, storage suppression, bounded recovery/retries, uncertain leases and unchanged moderation. UI tests cover preserved inputs, consent invalidation, responsive results, retry/loading recovery, safe errors and stale-account responses.
-
-Private logs: `.data/testing/20261116-gemini-review/`. Previews: `apps/renthub_flutter/.data/gemini-review-previews/`. Neither is a real evaluation dataset or a source of genuine rental evidence.
-
-Before claiming better real-world recognition, configure an eligible key and evaluate permitted overview/detail/unrelated photos across the 22 subcategories. Include the earlier flowchart, screen-photo and book-page failure patterns. Compare local-only and additional Gemini findings against independently reviewed labels; record false matches, misses, unavailable checks and latency separately. No accuracy percentage is justified by the mocked tests. Real-device gestures, screen readers and live Google/storage delivery remain walkthrough checks.
-
-## Commit message
-
-```text
-feat: add consented Gemini photo review for administrators
-
-- add bounded structured vision observations with all-22 category guidance
-- retain local checks and mandatory human moderation without authenticity claims
-- bind optional photo-sharing consent to owned listing images
-- queue snapshot-specific jobs with shared leases, quota limits and safe recovery
-- prevent duplicate inference, stale evidence and unbounded provider retries
-- expose safe admin-only results, photo findings and explicit retry controls
-- load optional AI configuration through the existing launcher
-- add mocked AI/API/widget regressions, responsive previews and setup guidance
-```
+The admin message identifies RentHub's allowance, shows its used/limit count and the next reset. UTC midnight is 8 am in Malaysia. A saved budget reason from an earlier day is treated as a waiting state once the current allowance is available.

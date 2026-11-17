@@ -43,7 +43,7 @@ class VerificationResponse(BaseModel):
 
 class ItemVisionRequest(BaseModel):
     images: list[EncodedImage] = Field(min_length=3, max_length=10)
-    photo_consent: Literal[True]
+    processing_authorized: Literal[True]
     expected_category: str = Field(min_length=1, max_length=100)
     expected_subcategory: str = Field(default='', max_length=100)
     expected_product_type: str | None = Field(default=None, max_length=64)

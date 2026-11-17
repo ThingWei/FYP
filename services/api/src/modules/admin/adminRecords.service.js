@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { listingDeletionEligibility } from '../listing/listingDeletion.js';
 import { itemVisionSummary } from '../listing/itemVision.service.js';
 import { applicationTrust, realTrustScore } from '../user/trustPolicy.js';
 import { AppError } from '../../core/errors.js';
@@ -29,7 +30,7 @@ export function adminRecordRegistry(auditModel) {
   return {
     users: entry(UserModel, userFields, ['displayName', 'email'], 'accountStatus'),
     verification: entry(UserModel, userFields, ['displayName', 'email']),
-    listings: entry(ListingModel, 'title description ownerId ownerName listingType category subcategory brand productModel dailyPrice securityDeposit deliveryFee fulfilmentMethods condition itemAgeYears images verified itemVerification moderationReason serviceDetails vehicleGrantRef vehicleGrantReview itemVisionConsent', ['title', 'brand', 'productModel', 'ownerName']),
+    listings: entry(ListingModel, 'title description ownerId ownerName listingType category subcategory brand productModel dailyPrice securityDeposit deliveryFee fulfilmentMethods condition itemAgeYears images verified itemVerification moderationReason serviceDetails vehicleGrantRef vehicleGrantReview deletedAt', ['title', 'brand', 'productModel', 'ownerName']),
     bookings: entry(BookingModel, 'listingId listingTitle listingType renterId renterName ownerId ownerName category startDate endDate fulfilmentMethod serviceVenue serviceVenueMode paymentStatus pricing extensionCharges agreement renterNote ownerDecisionReason cancellationReason decidedAt cancelledAt activatedAt completedAt expiredAt expiresAt sourceType', ['publicId', 'listingTitle', 'renterName', 'ownerName']),
     rentals: entry(RentalModel, 'bookingId listingId listingType renterId ownerId category startDate endDate expiredAt expiryReason handover returnSubmission returnOutcome serviceDeliveredAt serviceCompletedAt extension extensionHistory', ['publicId', 'bookingId', 'listingId']),
     transactions: entry(PaymentModel, 'bookingId payerId payeeId amount currency type method status simulated reason metadata', ['publicId', 'bookingId', 'type']),
@@ -177,6 +178,7 @@ export function createAdminRecordsService(auditModel) {
         if (!allowed?.includes(query.status)) throw new AppError('Choose a valid status filter', 422, 'VALIDATION_ERROR');
       }
       if (config.base) clauses.push(config.base);
+      if (type === 'listings') clauses.push({ deletedAt: null });
       if (type !== 'verification' && query.status && query.status !== 'all' && config.statusField) clauses.push({ [config.statusField]: config.statusField === 'active' ? query.status === 'active' : query.status });
       if (query.search?.trim()) clauses.push({ $or: config.search.map(field => ({ [field]: literal(query.search.trim()) })) });
       const filter = clauses.length ? { $and: clauses } : {};
@@ -191,7 +193,11 @@ export function createAdminRecordsService(auditModel) {
       if (!doc) throw new AppError('This record is no longer available', 404, 'NOT_FOUND');
       const [names, bookings] = await Promise.all([accountsFor([doc]), rentalBookings(type, [doc])]);
       if (type === 'rentals') doc.overdueReminders = (await overdueDeliverySummary([doc.publicId]))[doc.publicId] ?? [];
-      if (type === 'listings' && doc.listingType === 'physical') doc.itemVisionReview = await itemVisionSummary(doc);
+      if (type === 'listings') {
+        doc.deleteEligibility = doc.deletedAt ? { allowed: false, reason: 'This listing has been deleted.' }
+          : (await listingDeletionEligibility([doc.publicId])).get(doc.publicId);
+        if (doc.listingType === 'physical' && !doc.deletedAt) doc.itemVisionReview = await itemVisionSummary(doc);
+      }
       return { recordType: type, record: project(doc, type, names, bookings) };
     },
     async summary() {

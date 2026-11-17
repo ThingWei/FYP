@@ -13,7 +13,7 @@ import { normalizeIsbn } from './priceProductDomains.js';
 import { DECLARED_PRICE_ORIGINS } from './priceProvenance.js';
 
 const editableFields = new Set([
-  'photoReviewConsent',
+  'photoReviewConsent', // Deprecated compatibility input; platform settings control review.
   'title',
   'description',
   'category',

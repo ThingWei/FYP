@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { AppError } from '../../core/errors.js';
 import { applicationTrust, realTrustScore } from '../user/trustPolicy.js';
 import { validRentalPrice, validPricePrecision } from './priceLimits.js';
 import { coordinatesSchema, locationSchema, publicListing } from '../../core/location.js';
@@ -76,6 +77,8 @@ const listingSchema = new mongoose.Schema(
       default: () => `l-${new mongoose.Types.ObjectId()}`,
     },
     ownerId: { type: String, required: true, trim: true, index: true },
+    deletedAt: { type: Date, default: undefined },
+    deletedBy: { type: String, select: false },
     ownerName: { type: String, required: true, trim: true, maxlength: 80 },
     vehicleGrantRef: { type: String, maxlength: 100 },
     vehicleGrantReview: { reference: String, reviewedBy: String, reviewedAt: Date },
@@ -264,6 +267,19 @@ listingSchema.index({
   dailyPrice: 1,
 });
 listingSchema.index({ status: 1, rating: -1, createdAt: -1 });
+
+// Guard stale documents and atomic updates against restoring a removed listing.
+listingSchema.pre('save', function () {
+  if (!this.isNew) this.$where = { ...this.$where, deletedAt: null };
+});
+listingSchema.post('save', function (error, _document, next) {
+  next(error.name === 'DocumentNotFoundError'
+    ? new AppError('This listing is no longer available. Refresh your listings.', 409, 'LISTING_DELETED')
+    : error);
+});
+for (const operation of ['updateOne', 'updateMany', 'findOneAndUpdate', 'replaceOne']) {
+  listingSchema.pre(operation, function () { this.where({ deletedAt: null }); });
+}
 
 export const ListingModel =
   mongoose.models.Listing ?? mongoose.model('Listing', listingSchema);

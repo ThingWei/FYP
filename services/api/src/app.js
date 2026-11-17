@@ -34,6 +34,7 @@ apiCapabilities.push('trust-profile-v1');
 apiCapabilities.push('user-records-messaging-v2');
 apiCapabilities.push('renter-handover-ack-v1');
 apiCapabilities.push('review-evidence-appointments-v1');
+apiCapabilities.push('admin-item-photo-assessment-v3', 'conditional-listing-deletion-v1', 'admin-case-workspace-v1');
 app.use(
   helmet(),
   cors({ origin: env.corsOrigins }),
@@ -46,7 +47,7 @@ api.use('/maps', mapsRouter);
 api.get('/health', (_req, res) =>
   res.json({
     success: true,
-    data: { status: 'ok', capabilities: apiCapabilities },
+    data: { status: 'ok', capabilities: apiCapabilities, itemPhotoReview: { enabled: env.geminiItemReviewEnabled, contract: 'renthub-item-vision-v3' } },
   }),
 );
 api.get('/ready', (_req, res) => {
@@ -58,6 +59,7 @@ api.get('/ready', (_req, res) => {
       status: ready ? 'ready' : 'not_ready',
       database,
       capabilities: apiCapabilities,
+      itemPhotoReview: { enabled: env.geminiItemReviewEnabled, contract: 'renthub-item-vision-v3' },
     },
   });
 });

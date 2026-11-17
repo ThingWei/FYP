@@ -1,3 +1,7 @@
+import 'package:renthub_flutter/features/live/live_listing_photo_viewer.dart';
+import 'package:renthub_flutter/features/live/live_renthub_controller.dart';
+import 'gemini_item_review_test.dart' as vision;
+import 'package:renthub_flutter/features/live/admin_item_vision_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:renthub_flutter/features/live/admin_record_widgets.dart';
@@ -112,51 +116,41 @@ void main() {
           controller,
           scale: 1.5));
       await t.pumpAndSettle();
-      expect(find.text('Photos need attention'), findsOneWidget);
-      const finding =
-          'Possible item type detected in 3 of 3 photos; not a confirmed match.';
-      expect(find.text(finding), findsOneWidget);
-      expect(find.textContaining('Item type could not be established'),
-          findsNothing);
-      await t.ensureVisible(find.text('Photo details'));
-      await t.tap(find.text('Photo details'));
-      await t.pumpAndSettle();
-      expect(find.text(finding), findsNWidgets(2));
-      expect(
-          find.text('Tentative object labels: cell phone'), findsNWidgets(3));
+      expect(find.text('AI photo assessment'), findsOneWidget);
+      expect(find.text('Ready to check'), findsOneWidget);
+      expect(find.byType(ItemVerificationPanel), findsNothing);
+      expect(find.textContaining('Tentative object labels'), findsNothing);
       expect(find.textContaining('76%'), findsNothing);
       expect(find.text('What to check'), findsNothing);
       expect(t.takeException(), isNull);
     });
 
-    testWidgets('admin listing exposes evidence findings at $w', (t) async {
+    testWidgets('admin listing uses Gemini photo findings at $w', (t) async {
       width(t, w);
       final controller = DocumentPreviewController();
       addTearDown(controller.dispose);
       await t.pumpWidget(host(
           SingleChildScrollView(
-              child: AdminRecordDetails(
-                  type: 'listings', row: listingRow(outcome: 'manual_review'))),
+              child: AdminRecordDetails(type: 'listings', row: {
+            ...listingRow(outcome: 'manual_review'),
+            'itemVisionReview': vision.ready()
+          })),
           controller,
           scale: 1.5));
       await t.pumpAndSettle();
-      expect(find.text('Item photo review'), findsOneWidget);
-      expect(find.text('Photos need review'), findsOneWidget);
-      expect(find.text('Some photos appear blurry.'), findsOneWidget);
-      expect(find.textContaining('Photos alone cannot prove'), findsOneWidget);
+      expect(find.text('AI photo assessment'), findsOneWidget);
+      expect(find.byType(AdminItemVisionPanel), findsOneWidget);
+      expect(find.byType(ItemVerificationPanel), findsNothing);
+      expect(find.text('Needs attention'), findsOneWidget);
+      expect(find.text('Possible match'), findsOneWidget);
+      expect(find.text('Light wear is visible.'), findsOneWidget);
+      expect(find.textContaining('Photos cannot establish authenticity'),
+          findsOneWidget);
       expect(find.text('Technical details'), findsNothing);
       expect(find.textContaining('98%'), findsNothing);
       expect(find.text('What to check'), findsNothing);
-      expect(find.textContaining('Retake'), findsNothing);
-      expect(find.textContaining('Show the cover, spine or back cover'),
-          findsNothing);
-      await t.ensureVisible(find.text('Photo details'));
-      await t.tap(find.text('Photo details'));
-      await t.pumpAndSettle();
-      expect(find.text('Photo 1'), findsOneWidget);
-      expect(find.text('Photo 2'), findsOneWidget);
-      expect(
-          find.text('Listed item type not identified clearly'), findsOneWidget);
+      expect(find.text('The item is shown from the front.'), findsOneWidget);
+      expect(find.text('Across-photo notes'), findsOneWidget);
       expect(t.takeException(), isNull);
     });
   }
@@ -170,20 +164,39 @@ void main() {
       addTearDown(controller.dispose);
       await t.pumpWidget(host(
           SingleChildScrollView(
-              child: AdminRecordDetails(
-                  type: 'listings', row: listingRow(outcome: outcome))),
+              child: AdminRecordDetails(type: 'listings', row: {
+            ...listingRow(outcome: outcome),
+            if (outcome != null)
+              'itemVisionReview': outcome == 'unavailable'
+                  ? {'state': 'unavailable', 'reason': 'provider_unavailable'}
+                  : {
+                      ...vision.ready(),
+                      'observations': {
+                        ...vision.ready()['observations'],
+                        'photo_findings': [
+                          {
+                            'photo': 1,
+                            'status': 'assessed',
+                            'observations': ['The item is visible.'],
+                            'concerns': []
+                          }
+                        ],
+                        'visible_condition': 'no_obvious_damage'
+                      }
+                    }
+          })),
           controller));
       await t.pumpAndSettle();
       expect(find.text('What to check'), findsNothing);
-      expect(find.textContaining('Photos alone cannot prove'), findsOneWidget);
+      expect(find.byType(ItemVerificationPanel), findsNothing);
       if (outcome == null) {
-        expect(find.textContaining('No saved photo check is available'),
-            findsOneWidget);
-        expect(find.textContaining('when you submit'), findsNothing);
+        expect(find.text('Ready to check'), findsOneWidget);
       } else if (outcome == 'unavailable') {
-        expect(find.text('Photo check unavailable'), findsOneWidget);
+        expect(find.text('Service unavailable'), findsOneWidget);
       } else {
-        expect(find.text('No photo issues flagged'), findsOneWidget);
+        expect(find.text('Assessment ready'), findsOneWidget);
+        expect(find.textContaining('Photos cannot establish authenticity'),
+            findsOneWidget);
       }
       expect(find.text('Technical details'), findsNothing);
       expect(t.takeException(), isNull);
@@ -199,7 +212,7 @@ void main() {
                 type: 'listings', row: listingRow(service: true))),
         controller));
     await t.pumpAndSettle();
-    expect(find.text('Photos and evidence'), findsOneWidget);
+    expect(find.text('Listing photos'), findsOneWidget);
     expect(find.byType(ItemVerificationPanel), findsNothing);
     expect(find.text('What to check'), findsNothing);
   });
@@ -291,5 +304,38 @@ void main() {
         expect(summary.explanation, isNot(contains('screen')));
       }
     }
+  });
+  testWidgets(
+      'listing photos open the selected image in the full black gallery',
+      (t) async {
+    final api = vision.VisionApi();
+    final c = LiveRentHubController(api)..profile = vision.admin;
+    addTearDown(c.dispose);
+    await t.pumpWidget(host(
+        SingleChildScrollView(
+            child: AdminRecordDetails(type: 'listings', row: {
+          ...listingRow(),
+          'images': [
+            '/api/v1/uploads/public/UPL-ABC/content',
+            '/api/v1/uploads/public/UPL-DEF/content',
+            '/api/v1/uploads/public/UPL-GHI/content'
+          ],
+          'itemVisionReview': vision.ready(),
+        })),
+        c));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.bySemanticsLabel('Preview Photo 2'));
+    await t.tap(find.bySemanticsLabel('Preview Photo 2'));
+    await t.pumpAndSettle();
+    final scaffold = t.widget<Scaffold>(find.descendant(
+        of: find.byType(ListingPhotoViewer), matching: find.byType(Scaffold)));
+    expect(scaffold.backgroundColor, Colors.black);
+    expect(find.text('2 / 3'), findsOneWidget);
+    await t.tap(find.byTooltip('Next photo'));
+    await t.pumpAndSettle();
+    expect(find.text('3 / 3'), findsOneWidget);
+    await t.tap(find.byTooltip('Close photos'));
+    await t.pumpAndSettle();
+    expect(find.text('Listing photos'), findsOneWidget);
   });
 }

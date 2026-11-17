@@ -2,14 +2,23 @@ import { ownedListing } from '../../core/location.js';
 import { matchedData } from 'express-validator';
 import { asyncHandler } from '../../core/asyncHandler.js';
 import { created, ok } from '../../core/respond.js';
+import { deleteListing, withListingDeletionEligibility } from './listingDeletion.js';
 import { listingService } from './listing.service.js';
 import { recommendationFeed } from './recommendationFeed.service.js';
 
 const bodyData = (req) => matchedData(req, { locations: ['body'] });
 
+async function ownerResponse(document) {
+  if (document.constructor.modelName === 'Listing' && !document.$locals.deleteEligibility) {
+    await withListingDeletionEligibility([document]);
+  }
+  return ownedListing(document);
+}
+
 export const listingController = {
+  delete: asyncHandler(async (req, res) => ok(res, await deleteListing(req.params.id, req.user))),
   getOwned: asyncHandler(async (req, res) =>
-    ok(res, ownedListing(await listingService.getOwned(req.params.id, req.user)))),
+    ok(res, await ownerResponse(await listingService.getOwned(req.params.id, req.user)))),
   searchSuggestions: asyncHandler(async(req,res)=>ok(res,await listingService.searchSuggestions(req.user,req.query))),
   recommendationFeed: asyncHandler(async (req, res) => ok(res, await recommendationFeed.home(req.user, req.query))),
   recordView: asyncHandler(async (req, res) => ok(res, await recommendationFeed.recordView(req.user, req.params.id))),
@@ -28,7 +37,7 @@ export const listingController = {
     ok(res, await listingService.get(req.params.id)),
   ),
   create: asyncHandler(async (req, res) =>
-    created(res, ownedListing(await listingService.create(bodyData(req), req.user))),
+    created(res, await ownerResponse(await listingService.create(bodyData(req), req.user))),
   ),
   listMine: asyncHandler(async (req, res) => {
     const result = await listingService.listMine(req.user, req.query);
@@ -39,13 +48,13 @@ export const listingController = {
     return ok(res, result.items.map(ownedListing), result.meta);
   }),
   update: asyncHandler(async (req, res) =>
-    ok(res, ownedListing(await listingService.update(req.params.id, bodyData(req), req.user))),
+    ok(res, await ownerResponse(await listingService.update(req.params.id, bodyData(req), req.user))),
   ),
   submit: asyncHandler(async (req, res) =>
-    ok(res, ownedListing(await listingService.submit(req.params.id, req.user))),
+    ok(res, await ownerResponse(await listingService.submit(req.params.id, req.user))),
   ),
   deactivate: asyncHandler(async (req, res) =>
-    ok(res, ownedListing(await listingService.deactivate(req.params.id, req.user))),
+    ok(res, await ownerResponse(await listingService.deactivate(req.params.id, req.user))),
   ),
   getAvailability: asyncHandler(async (req, res) =>
     ok(res, await listingService.getAvailability(req.params.id)),
@@ -53,7 +62,7 @@ export const listingController = {
   setAvailability: asyncHandler(async (req, res) =>
     ok(
       res,
-      ownedListing(await listingService.setAvailability(
+      await ownerResponse(await listingService.setAvailability(
         req.params.id,
         bodyData(req),
         req.user,
@@ -63,7 +72,7 @@ export const listingController = {
   setPromotion: asyncHandler(async (req, res) =>
     ok(
       res,
-      ownedListing(await listingService.setPromotion(
+      await ownerResponse(await listingService.setPromotion(
         req.params.id,
         bodyData(req),
         req.user,
@@ -71,21 +80,21 @@ export const listingController = {
     ),
   ),
   clearPromotion: asyncHandler(async (req, res) =>
-    ok(res, ownedListing(await listingService.clearPromotion(req.params.id, req.user))),
+    ok(res, await ownerResponse(await listingService.clearPromotion(req.params.id, req.user))),
   ),
   setBundle: asyncHandler(async (req, res) =>
     ok(
       res,
-      ownedListing(await listingService.setBundle(req.params.id, bodyData(req), req.user)),
+      await ownerResponse(await listingService.setBundle(req.params.id, bodyData(req), req.user)),
     ),
   ),
   clearBundle: asyncHandler(async (req, res) =>
-    ok(res, ownedListing(await listingService.clearBundle(req.params.id, req.user))),
+    ok(res, await ownerResponse(await listingService.clearBundle(req.params.id, req.user))),
   ),
   moderate: asyncHandler(async (req, res) =>
     ok(
       res,
-      ownedListing(await listingService.moderate(
+      await ownerResponse(await listingService.moderate(
         req.params.id,
         req.body.status,
         req.body.reason,

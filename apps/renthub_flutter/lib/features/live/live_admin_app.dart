@@ -1,3 +1,6 @@
+import 'admin_route_observer.dart';
+import 'admin_case_workspace.dart';
+import 'live_listing_delete.dart';
 import '../../shared/widgets/section_help.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import '../../core/network/user_facing_error.dart';
@@ -14,7 +17,6 @@ import '../../shared/widgets/account_components.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatMoney;
 import 'live_renthub_controller.dart';
-import 'live_item_verification_panel.dart';
 import 'live_pricing_references.dart';
 import 'admin_record_models.dart';
 import 'admin_record_widgets.dart';
@@ -31,6 +33,7 @@ class LiveAdminApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'RentHub Admin',
+        navigatorObservers: [adminRouteObserver],
         theme: AppTheme.light,
         home: Consumer<AuthController>(
           builder: (context, auth, _) => auth.authenticated
@@ -291,12 +294,22 @@ class _AdminRecordSection extends StatelessWidget {
           case 'listings':
             final listing = Listing.fromJson(row);
             return [
-              if (!listing.isService)
-                action(
-                    'View photos',
-                    () => showItemPhotoReview(context, listing,
-                        showDiagnostics: false, forAdminReview: true)),
-              if (listing.status == 'pending_review') ...[
+              ListingDeleteAction(
+                  listing: listing,
+                  admin: true,
+                  onDeleted: () {
+                    reload();
+                  },
+                  onOpenBookings: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => Scaffold(
+                              appBar: AppBar(title: const Text('Bookings')),
+                              body: const SafeArea(
+                                  child: _AdminRecordSection(
+                                      type: 'bookings')))))),
+              if (listing.status == 'pending_review' &&
+                  row['deletedAt'] == null) ...[
                 action(
                     'Reject',
                     () => const _AdminListings()
@@ -341,40 +354,18 @@ class _AdminRecordSection extends StatelessWidget {
               ]
             ];
           case 'disputes':
-            final dispute = Dispute.fromJson(row);
             return [
               action(
-                  'View case and agreement',
-                  () =>
-                      const _AdminDisputesClaims()._viewCase(context, dispute)),
-              if (!['resolved', 'dismissed'].contains(dispute.status)) ...[
-                action(
-                    'Request more evidence',
-                    () => const _AdminDisputesClaims()._updateStatus(
-                        context, dispute, 'more_evidence_required')),
-                action(
-                    'Escalate',
-                    () => const _AdminDisputesClaims()
-                        ._updateStatus(context, dispute, 'escalated')),
-                action(
-                    'Resolve',
-                    () =>
-                        const _AdminDisputesClaims()._resolve(context, dispute))
-              ]
+                  'Open case',
+                  () => openAdminCase(context,
+                      disputeId: '${row['publicId'] ?? row['id']}'))
             ];
           case 'claims':
-            final claim = InsuranceClaim.fromJson(row);
             return [
-              if (claim.status == 'pending') ...[
-                action(
-                    'Reject',
-                    () => const _AdminDisputesClaims()
-                        ._decideClaim(context, claim, 'rejected')),
-                action(
-                    'Approve',
-                    () => const _AdminDisputesClaims()
-                        ._decideClaim(context, claim, 'approved'))
-              ]
+              action(
+                  'Open case',
+                  () => openAdminCase(context,
+                      claimId: '${row['publicId'] ?? row['id']}'))
             ];
           case 'generated-reports':
             return [
@@ -1477,13 +1468,11 @@ class _AdminListings extends StatelessWidget {
         return Card(
           child: ListTile(
             title: Text(listing.title),
-            onTap: listing.isService
-                ? null
-                : () => showItemPhotoReview(context, listing,
-                    showDiagnostics: true, forAdminReview: true),
+            onTap: () => showAdminRecordDialog(context,
+                type: 'listings',
+                record: {'publicId': listing.id, 'title': listing.title}),
             subtitle: Text(
-              '${listing.ownerName} · ${formatMoney(listing.dailyPrice)} · ${listing.listingTypeLabel}'
-              '${!listing.isService ? '\n${listing.itemPhotoCheckLabel} · View photos' : ''}',
+              '${listing.ownerName} · ${formatMoney(listing.dailyPrice)} · ${listing.listingTypeLabel}',
             ),
             isThreeLine: !listing.isService,
             trailing: listing.status == 'pending_review'
@@ -1658,573 +1647,6 @@ class _AdminBookingsTransactions extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _AdminDisputesClaims extends StatelessWidget {
-  const _AdminDisputesClaims();
-
-  void _showError(BuildContext context, Object exception) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
-  }
-
-  Future<void> _viewCase(BuildContext context, Dispute dispute) async {
-    try {
-      final record = await context
-          .read<LiveRentHubController>()
-          .loadDisputeCase(dispute.id);
-      if (!context.mounted) return;
-      final caseContext =
-          record['caseContext'] as Map<String, dynamic>? ?? const {};
-      final agreement =
-          caseContext['agreement'] as Map<String, dynamic>? ?? const {};
-      final inspection =
-          caseContext['inspection'] as Map<String, dynamic>? ?? const {};
-      final messages = caseContext['conversation'] as List? ?? const [];
-      final pricing = agreement['pricing'] as Map<String, dynamic>? ?? const {};
-      final handover =
-          inspection['handover'] as Map<String, dynamic>? ?? const {};
-      final returned =
-          inspection['returnSubmission'] as Map<String, dynamic>? ?? const {};
-      await showDialog<void>(
-        context: context,
-        builder: (context) => rentHubDialog(
-          title: Text('Case file ${dispute.id}'),
-          content: SizedBox(
-            width: 680,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Agreement',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  Text(dispute.listingTitle),
-                  Text(
-                    '${adminLabel(dispute.listingType == 'physical' ? agreement['fulfilmentMethod'] : agreement['serviceVenue'])} • ${adminMoney(pricing['total'])}',
-                  ),
-                  const Divider(height: 28),
-                  Text('Evidence & inspection',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  Text('Dispute attachments: ${dispute.evidence.length}'),
-                  if (dispute.listingType == 'physical') ...[
-                    Text(
-                        'Handover condition: ${handover['condition'] ?? 'Not recorded'}'),
-                    Text(
-                        'Return condition: ${returned['condition'] ?? 'Not recorded'}'),
-                    Text(
-                      'Inspection attachments: ${(handover['evidence'] as List?)?.length ?? 0} handover, ${(returned['evidence'] as List?)?.length ?? 0} return',
-                    ),
-                  ] else
-                    Text(
-                      'Service delivered: ${adminDate(inspection['serviceDeliveredAt'])}',
-                    ),
-                  const Divider(height: 28),
-                  Text('Conversation history',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  if (messages.isEmpty)
-                    const Text('No booking conversation messages.')
-                  else
-                    for (final raw in messages)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        leading: const Icon(Icons.chat_bubble_outline),
-                        title: Text(
-                          (raw as Map<String, dynamic>)['senderName']
-                                  as String? ??
-                              (raw['senderId'] == record['raisedById']
-                                  ? dispute.raisedByName
-                                  : raw['senderId'] == record['respondentId']
-                                      ? dispute.respondentName
-                                      : 'Participant'),
-                        ),
-                        subtitle: Text(raw['text'] as String),
-                      ),
-                  if (dispute.responses.isNotEmpty) ...[
-                    const Divider(height: 28),
-                    Text('Case responses',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    for (final item in dispute.responses)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: Text(item.role),
-                        subtitle: Text(item.text),
-                        trailing: Text('${item.evidence.length} files'),
-                      ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Done'),
-            ),
-          ],
-        ),
-      );
-    } catch (exception) {
-      if (context.mounted) _showError(context, exception);
-    }
-  }
-
-  Future<void> _updateStatus(
-    BuildContext context,
-    Dispute dispute,
-    String status,
-  ) async {
-    final note = TextEditingController();
-    final accepted = await InputValidation.showFormDialog<bool>(
-      context: context,
-      builder: (context) => rentHubDialog(
-        title: Text(
-          status == 'escalated'
-              ? 'Escalate dispute?'
-              : 'Request more evidence?',
-        ),
-        content: TextFormField(
-          controller: note,
-          minLines: 3,
-          maxLines: 5,
-          decoration: (const InputDecoration(labelText: 'Required note'))
-              .copyWith(counterText: '', errorMaxLines: 3),
-          validator: InputRules.requiredNote.validate,
-          inputFormatters:
-              InputValidation.formatters(InputRules.requiredNote, note),
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          maxLength: InputRules.requiredNote.maxLength,
-          maxLengthEnforcement: InputValidation.lengthEnforcement,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => InputValidation.popIfValid(context, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    if (accepted == true && note.text.trim().length >= 5 && context.mounted) {
-      try {
-        await context
-            .read<LiveRentHubController>()
-            .updateDisputeStatus(dispute, status, note.text);
-      } catch (exception) {
-        if (context.mounted) _showError(context, exception);
-      }
-    } else if (accepted == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('A note of at least 5 characters is required.')),
-      );
-    }
-    note.dispose();
-  }
-
-  Future<void> _resolve(BuildContext context, Dispute dispute) async {
-    Map<String, dynamic> balance;
-    try {
-      balance = await context
-          .read<LiveRentHubController>()
-          .paymentBalance(dispute.bookingId);
-    } catch (exception) {
-      if (context.mounted) _showError(context, exception);
-      return;
-    }
-    if (!context.mounted) return;
-    final held = (balance['held'] as num).toDouble();
-    var outcome = 'release_to_renter';
-    var responsibleParty = 'undetermined';
-    final renterAmount = TextEditingController();
-    final ownerAmount = TextEditingController();
-    final notes = TextEditingController();
-    final accepted = await InputValidation.showFormDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => rentHubDialog(
-          title: const Text('Record dispute decision'),
-          content: SizedBox(
-            width: 480,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                      'Remaining held balance: ${formatMoney(held)}. Only this balance will be allocated; previous refunds and payouts stay unchanged.'),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    isExpanded: true,
-                    initialValue: outcome,
-                    decoration: const InputDecoration(labelText: 'Outcome'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'release_to_renter',
-                        child: Text('Release to renter'),
-                      ),
-                      DropdownMenuItem(value: 'split', child: Text('Split')),
-                      DropdownMenuItem(
-                        value: 'release_to_owner',
-                        child: Text('Release to Owner'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'dismissed',
-                        child: Text('Dismiss dispute'),
-                      ),
-                    ],
-                    onChanged: (value) => setState(() => outcome = value!),
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                      isExpanded: true,
-                      initialValue: responsibleParty,
-                      decoration: const InputDecoration(
-                          labelText: 'Responsibility finding'),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'undetermined',
-                            child: Text('Not determined')),
-                        DropdownMenuItem(
-                            value: 'none', child: Text('Neither participant')),
-                        DropdownMenuItem(
-                            value: 'renter', child: Text('Renter')),
-                        DropdownMenuItem(value: 'owner', child: Text('Owner')),
-                        DropdownMenuItem(
-                            value: 'both', child: Text('Both participants'))
-                      ],
-                      onChanged: (value) => setState(
-                          () => responsibleParty = value ?? 'undetermined')),
-                  const Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Text(
-                          'Choose a participant only when the evidence establishes responsibility. Refund amounts alone do not determine fault. This finding can affect the trust score.')),
-                  if (outcome == 'split') ...[
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: renterAmount,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: (const InputDecoration(
-                              labelText: 'Renter amount (RM)'))
-                          .copyWith(counterText: '', errorMaxLines: 3),
-                      validator: InputRules.renterAmountRm.validate,
-                      inputFormatters: InputValidation.formatters(
-                          InputRules.renterAmountRm, renterAmount),
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      maxLength: InputRules.renterAmountRm.maxLength,
-                      maxLengthEnforcement: InputValidation.lengthEnforcement,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: ownerAmount,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      decoration: (const InputDecoration(
-                              labelText: 'Owner amount (RM)'))
-                          .copyWith(counterText: '', errorMaxLines: 3),
-                      validator: (value) {
-                        final error = InputRules.ownerAmountRm.validate(value);
-                        if (error != null) return error;
-                        final renter = double.tryParse(renterAmount.text);
-                        final owner = double.tryParse(value ?? '');
-                        if (renter == null ||
-                            owner == null ||
-                            renter <= 0 ||
-                            owner <= 0) {
-                          return 'Enter a positive amount for both participants.';
-                        }
-                        return (renter * 100).round() + (owner * 100).round() ==
-                                (held * 100).round()
-                            ? null
-                            : 'The split must total ${formatMoney(held)}.';
-                      },
-                      inputFormatters: InputValidation.formatters(
-                          InputRules.ownerAmountRm, ownerAmount),
-                      autovalidateMode: AutovalidateMode.onUserInteraction,
-                      maxLength: InputRules.ownerAmountRm.maxLength,
-                      maxLengthEnforcement: InputValidation.lengthEnforcement,
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: notes,
-                    minLines: 3,
-                    maxLines: 5,
-                    decoration:
-                        (const InputDecoration(labelText: 'Decision notes'))
-                            .copyWith(counterText: '', errorMaxLines: 3),
-                    validator: InputRules.decisionNotes.validate,
-                    inputFormatters: InputValidation.formatters(
-                        InputRules.decisionNotes, notes),
-                    autovalidateMode: AutovalidateMode.onUserInteraction,
-                    maxLength: InputRules.decisionNotes.maxLength,
-                    maxLengthEnforcement: InputValidation.lengthEnforcement,
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Divide the remaining balance between the participants.',
-                    style: TextStyle(color: AppColors.secondaryText),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => InputValidation.popIfValid(context, true),
-              child: const Text('Record Decision'),
-            ),
-          ],
-        ),
-      ),
-    );
-    final renter = double.tryParse(renterAmount.text);
-    final owner = double.tryParse(ownerAmount.text);
-    final splitValid = outcome != 'split' ||
-        (renter != null && renter > 0 && owner != null && owner > 0);
-    if (accepted == true &&
-        notes.text.trim().length >= 10 &&
-        splitValid &&
-        context.mounted) {
-      try {
-        await context.read<LiveRentHubController>().resolveDispute(
-              dispute: dispute,
-              outcome: outcome,
-              responsibleParty: responsibleParty,
-              notes: notes.text,
-              renterAmount: outcome == 'split' ? renter : null,
-              ownerAmount: outcome == 'split' ? owner : null,
-            );
-      } catch (exception) {
-        if (context.mounted) _showError(context, exception);
-      }
-    } else if (accepted == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Enter decision notes and valid split amounts.'),
-        ),
-      );
-    }
-    renterAmount.dispose();
-    ownerAmount.dispose();
-    notes.dispose();
-  }
-
-  Future<void> _decideClaim(
-    BuildContext context,
-    InsuranceClaim claim,
-    String status,
-  ) async {
-    final reason = TextEditingController();
-    final amount = TextEditingController(
-      text:
-          status == 'approved' ? claim.amountRequested.toStringAsFixed(2) : '',
-    );
-    final accepted = await InputValidation.showFormDialog<bool>(
-      context: context,
-      builder: (context) => rentHubDialog(
-        title: Text('${status == 'approved' ? 'Approve' : 'Reject'} claim?'),
-        content: SizedBox(
-          width: 440,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (status == 'approved')
-                const Text(
-                    'Approval records the amount only. Payout stays pending until a funded protection fund is available; no money is paid now.'),
-              if (status == 'approved')
-                TextFormField(
-                  controller: amount,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration:
-                      (const InputDecoration(labelText: 'Approved amount (RM)'))
-                          .copyWith(counterText: '', errorMaxLines: 3),
-                  validator: InputRules.approvedAmountRm.validate,
-                  inputFormatters: InputValidation.formatters(
-                      InputRules.approvedAmountRm, amount),
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                  maxLength: InputRules.approvedAmountRm.maxLength,
-                  maxLengthEnforcement: InputValidation.lengthEnforcement,
-                ),
-              if (status == 'approved') const SizedBox(height: 12),
-              TextFormField(
-                controller: reason,
-                minLines: 2,
-                maxLines: 4,
-                decoration:
-                    (const InputDecoration(labelText: 'Decision reason'))
-                        .copyWith(counterText: '', errorMaxLines: 3),
-                validator: InputRules.decisionReason.validate,
-                inputFormatters: InputValidation.formatters(
-                    InputRules.decisionReason, reason),
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                maxLength: InputRules.decisionReason.maxLength,
-                maxLengthEnforcement: InputValidation.lengthEnforcement,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => InputValidation.popIfValid(context, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    final parsed = double.tryParse(amount.text);
-    if (accepted == true &&
-        reason.text.trim().length >= 5 &&
-        (status == 'rejected' || parsed != null) &&
-        context.mounted) {
-      try {
-        await context.read<LiveRentHubController>().decideClaim(
-              claim: claim,
-              status: status,
-              reason: reason.text,
-              approvedAmount: status == 'approved' ? parsed : null,
-            );
-      } catch (exception) {
-        if (context.mounted) _showError(context, exception);
-      }
-    }
-    reason.dispose();
-    amount.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final data = context.watch<LiveRentHubController>();
-    return RefreshIndicator(
-      onRefresh: data.loadAdmin,
-      child: ListView(
-        padding: const EdgeInsets.all(24),
-        children: [
-          Text('Dispute queue', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          if (data.adminDisputes.isEmpty)
-            const Card(
-              child: ListTile(
-                title: Text('No disputes'),
-                subtitle: Text('Participant disputes will appear here.'),
-              ),
-            ),
-          for (final dispute in data.adminDisputes)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            dispute.reason,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        StatusBadge(dispute.status.replaceAll('_', ' ')),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text('${dispute.listingTitle} • ${dispute.id}'),
-                    Text(
-                      '${dispute.raisedByName} vs ${dispute.respondentName}',
-                      style: const TextStyle(color: AppColors.secondaryText),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton(
-                          onPressed: () => _viewCase(context, dispute),
-                          child: const Text('View Case File'),
-                        ),
-                        if (!dispute.closed) ...[
-                          OutlinedButton(
-                            onPressed: () => _updateStatus(
-                              context,
-                              dispute,
-                              'more_evidence_required',
-                            ),
-                            child: const Text('Request Evidence'),
-                          ),
-                          OutlinedButton(
-                            onPressed: () => _updateStatus(
-                              context,
-                              dispute,
-                              'escalated',
-                            ),
-                            child: const Text('Escalate'),
-                          ),
-                          FilledButton(
-                            onPressed: () => _resolve(context, dispute),
-                            child: const Text('Resolve'),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          const SizedBox(height: 28),
-          Text('Damage-waiver claims',
-              style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          if (data.adminClaims.isEmpty)
-            const Card(
-              child: ListTile(
-                title: Text('No claims'),
-                subtitle: Text('Physical-item claims will appear here.'),
-              ),
-            ),
-          for (final claim in data.adminClaims)
-            Card(
-              child: ListTile(
-                title: Text(claim.listingTitle),
-                subtitle: Text(
-                  '${claim.id} • Requested ${formatMoney(claim.amountRequested)}\n${claim.description}${claim.payoutStatus == 'pending_funding' ? '\nApproved; payout awaits a funded protection fund. No money has been paid.' : ''}',
-                ),
-                isThreeLine: true,
-                trailing: claim.status == 'pending'
-                    ? Wrap(
-                        spacing: 8,
-                        children: [
-                          OutlinedButton(
-                            onPressed: () =>
-                                _decideClaim(context, claim, 'rejected'),
-                            child: const Text('Reject'),
-                          ),
-                          FilledButton(
-                            onPressed: () =>
-                                _decideClaim(context, claim, 'approved'),
-                            child: const Text('Approve'),
-                          ),
-                        ],
-                      )
-                    : StatusBadge(claim.status),
-              ),
-            ),
-        ],
-      ),
     );
   }
 }

@@ -320,11 +320,17 @@ String adminRecordName(String type, Map row) => switch (type) {
 String adminAuditAction(Object? action) =>
     const {
       'listing.moderated': 'Listing reviewed',
+      'listing.deleted': 'Listing deleted',
       'user.verification_decided': 'Identity review completed',
       'user.status_changed': 'Account status updated',
       'review.moderated': 'Review visibility updated',
       'report.resolved': 'Safety report reviewed',
-      'dispute.resolved': 'Dispute decision recorded',
+      'dispute.resolved': 'Case decision recorded',
+      'dispute.under_review': 'Review started',
+      'dispute.more_evidence_required': 'More evidence requested',
+      'dispute.escalated': 'Case escalated',
+      'claim.approved': 'Claim approved',
+      'claim.rejected': 'Claim rejected',
       'claim.decided': 'Claim reviewed',
       'payment.refunded': 'Refund recorded',
       'pricing_source.synced': 'Rental prices updated',

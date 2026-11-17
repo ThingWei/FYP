@@ -2974,6 +2974,23 @@ class LiveRentHubController extends ChangeNotifier {
         _replaceOwnerListing(listing);
       });
 
+  Future<void> deleteListing(String id, {bool admin = false}) =>
+      _perform(() async {
+        final account = accountGeneration;
+        await api.request('POST',
+            admin ? '/admin/listings/$id/delete' : '/listings/$id/delete');
+        if (account != accountGeneration) return;
+        ownerListings.removeWhere((listing) => listing.id == id);
+        if (admin) {
+          await loadAdminOverview();
+        } else {
+          await loadUserRecords('owner-listings');
+          if (account == accountGeneration) {
+            await loadUserRecords('owner-bookings');
+          }
+        }
+      });
+
   Future<void> deactivateListing(String id) => _perform(() async {
         final listing = Listing.fromJson(
           await api.request('DELETE', '/listings/$id') as Map<String, dynamic>,

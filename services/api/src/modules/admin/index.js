@@ -1,4 +1,6 @@
 import { textInput } from '../../core/inputValidation.js';
+import { deleteListing } from '../listing/listingDeletion.js';
+import { wakeItemVisionJobs } from '../../operations/itemVisionJobs.js';
 import { retryItemVision } from '../listing/itemVision.service.js';
 import { numericInput, wholeInput, moneyInput } from '../../core/inputValidation.js';
 import mongoose from 'mongoose';
@@ -34,6 +36,7 @@ import {
 } from '../../operations/lifecycleJobs.js';
 import { technologyHealth } from '../../operations/technologyHealth.js';
 import { pricingReferenceRouter } from './pricingReference.routes.js';
+import { createAdminCasesService } from './adminCases.service.js';
 import { createAdminRecordsService } from './adminRecords.service.js';
 
 const auditSchema = new mongoose.Schema(
@@ -362,8 +365,28 @@ router.post(
   ),
 );
 router.use(authenticate, authorize('admin'));
-router.post('/listings/:id/photo-review', param('id').matches(/^l-[a-z\d-]+$/i), validate,
-  asyncHandler(async (req, res) => ok(res, await retryItemVision(req.params.id))));
+router.post('/listings/:id/delete', param('id').matches(/^l-[a-z\d-]+$/i), validate,
+  asyncHandler(async (req, res) => {
+    const result = await deleteListing(req.params.id, req.user, { admin: true });
+    if (!result.alreadyDeleted) await repository.create({ actorId: req.user.authId, createdBy: req.user.authId, action: 'listing.deleted', targetType: 'listing', targetId: req.params.id });
+    return ok(res, result);
+  }));
+router.post('/listings/:id/photo-review', param('id').matches(/^l-[a-z\d-]+$/i), body('intent').optional().isIn(['ensure', 'retry']), validate,
+  asyncHandler(async (req, res) => {
+    const result = await retryItemVision(req.params.id, req.body.intent ?? 'retry');
+    if (result?.state === 'queued') wakeItemVisionJobs();
+    return ok(res, result);
+  }));
+const cases = createAdminCasesService(Model);
+const caseId = () => param('id').matches(/^RH-DSP-[A-Z0-9]+$/);
+const casePages = () => [query('page').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100000 }),
+  query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 50 })];
+router.get('/cases/:id', caseId(), validate, asyncHandler(async (req, res) => ok(res, await cases.get(req.params.id))));
+router.get('/cases/:id/conversation', caseId(), ...casePages(), validate, asyncHandler(async (req, res) => {
+  const result = await cases.conversation(req.params.id, req.query); return ok(res, result.items, result.meta);
+}));
+router.get('/cases/:id/activity', caseId(), ...casePages(), query('kind').optional().isIn(['events', 'responses']), validate,
+  asyncHandler(async (req, res) => { const result = await cases.activity(req.params.id, req.query); return ok(res, result.items, result.meta); }));
 const records = createAdminRecordsService(Model);
 router.get('/dashboard-summary', asyncHandler(async (_req, res) => ok(res, await records.summary())));
 router.get('/records/:type', asyncHandler(async (req, res) => {

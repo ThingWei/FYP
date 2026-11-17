@@ -1,3 +1,5 @@
+import 'admin_case_workspace.dart';
+import 'live_listing_photo_viewer.dart';
 import '../../shared/widgets/section_help.dart';
 import 'admin_item_vision_panel.dart';
 import 'dart:async';
@@ -12,8 +14,6 @@ import '../../shared/widgets/record_list_header.dart';
 import 'admin_record_models.dart';
 import 'live_renthub_controller.dart';
 import 'live_photo_widgets.dart';
-import 'live_item_verification_panel.dart';
-import '../../shared/models/domain_models.dart' show Listing;
 
 typedef AdminRecordActions = List<Widget> Function(BuildContext context,
     Map<String, dynamic> record, Future<void> Function() reload);
@@ -269,6 +269,16 @@ class _AdminRecordsTableState extends State<AdminRecordsTable> {
   }
 
   Future<void> _open(Map<String, dynamic> row) async {
+    if (['disputes', 'claims'].contains(widget.type)) {
+      await openAdminCase(context,
+          disputeId: widget.type == 'disputes'
+              ? '${row['publicId'] ?? row['id']}'
+              : null,
+          claimId: widget.type == 'claims'
+              ? '${row['publicId'] ?? row['id']}'
+              : null);
+      return;
+    }
     await showAdminRecordDialog(context,
         type: widget.type,
         record: row,
@@ -1303,7 +1313,7 @@ class AdminRecordDetails extends StatelessWidget {
         _AdminIdentityDocuments(row: row, expanded: type == 'verification'),
       if (type == 'listings' && row['listingType'] != 'service')
         AdminDetailSection(
-            title: 'AI photo review',
+            title: 'AI photo assessment',
             icon: Icons.manage_search_outlined,
             child: AdminItemVisionPanel(
                 listingId: '${row['publicId'] ?? row['id']}',
@@ -1313,28 +1323,17 @@ class AdminRecordDetails extends StatelessWidget {
                 initial: row['itemVisionReview'] is Map
                     ? row['itemVisionReview'] as Map
                     : null)),
-      if (type == 'listings' && row['listingType'] != 'service')
-        AdminDetailSection(
-            title: 'Item photo review',
-            icon: Icons.fact_check_outlined,
-            child: Material(
-                color: AppColors.background,
-                child: ItemVerificationPanel(
-                    listing: Listing.fromJson({
-                      ...row,
-                      // Incomplete drafts may not have a category yet.
-                      'category': row['category'] ?? '',
-                    }),
-                    forAdminReview: true))),
       if (row['images'] is List || row['evidence'] is List)
         AdminDetailSection(
-            title: 'Photos and evidence',
+            title:
+                type == 'listings' ? 'Listing photos' : 'Photos and evidence',
             icon: Icons.photo_library_outlined,
             child: _AdminPhotoGallery(
                 references: ((row['images'] ?? row['evidence']) as List)
                     .whereType<String>()
                     .toList(),
-                label: 'Record photo')),
+                listingPhotos: type == 'listings',
+                label: type == 'listings' ? 'Photo' : 'Record photo')),
       for (final entry in histories.entries)
         AdminInlineHistory(
             title: entry.key == 'history'
@@ -1477,7 +1476,11 @@ class _AdminIdentityStatus extends StatelessWidget {
 }
 
 class _AdminPhotoGallery extends StatelessWidget {
-  const _AdminPhotoGallery({required this.references, required this.label});
+  const _AdminPhotoGallery(
+      {required this.references,
+      required this.label,
+      this.listingPhotos = false});
+  final bool listingPhotos;
   final List<String> references;
   final String label;
   @override
@@ -1500,6 +1503,15 @@ class _AdminPhotoGallery extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(12)),
                             child: LivePhotoThumbnail(
                                 reference: references[index],
+                                onOpen: listingPhotos
+                                    ? () => Navigator.of(context,
+                                            rootNavigator: true)
+                                        .push<void>(MaterialPageRoute(
+                                            builder: (_) => ListingPhotoViewer(
+                                                photos: references,
+                                                title: 'Listing photos',
+                                                initialIndex: index)))
+                                    : null,
                                 label: '$label ${index + 1}',
                                 width: width,
                                 height: width * .64)),

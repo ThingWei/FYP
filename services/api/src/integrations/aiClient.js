@@ -35,12 +35,12 @@ export const aiClient = {
       const response = await client.get('/verify/item-vision/status', { timeout: 2500 });
       return response.data;
     } catch {
-      return { contract: 'renthub-item-vision-v1', unavailable: true };
+      return { contract: 'renthub-item-vision-v3', unavailable: true };
     }
   },
   reviewItemVision(payload) {
     return request('/verify/item-vision', payload, {
-      contract: 'renthub-item-vision-v1', model: 'gemini-3.1-flash-lite', state: 'unavailable', reason: 'provider_unavailable',
+      contract: 'renthub-item-vision-v3', model: 'gemini-3.1-flash-lite', state: 'unavailable', reason: 'provider_unavailable',
     }, { timeout: 75000 });
   },
   async health() {

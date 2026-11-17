@@ -1,3 +1,5 @@
+import 'package:provider/provider.dart';
+import 'package:renthub_flutter/features/live/admin_route_observer.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,11 +27,32 @@ Map<String, dynamic> ready() => {
         'photo_consistency': 'consistent',
         'visible_condition': 'visible_wear',
         'visible_branding': 'not_readable',
-        'concerns': [
-          {'photo': 1, 'observation': 'Light wear is visible.'}
+        'photo_findings': [
+          {
+            'photo': 1,
+            'status': 'assessed',
+            'observations': ['The item is shown from the front.'],
+            'concerns': ['Light wear is visible.']
+          },
+          {
+            'photo': 2,
+            'status': 'assessed',
+            'observations': ['Side view.'],
+            'concerns': []
+          },
+          {
+            'photo': 3,
+            'status': 'cannot_assess',
+            'observations': ['The image is too dark.'],
+            'concerns': []
+          },
         ],
-        'observations': [
-          {'photo': 1, 'observation': 'The item is shown from the front.'}
+        'set_findings': [
+          {
+            'photos': [1, 2],
+            'kind': 'observation',
+            'observation': 'The item appears across these views.'
+          }
         ],
       }
     };
@@ -89,21 +112,14 @@ void main() {
               }))),
           controller: c,
           scale: 1.6));
-      await t.tap(find.text('Check photos'));
+      await t.tap(find.text('Try again'));
       await t.pumpAndSettle();
-      expect(
-          find.text(reason == 'not_enabled'
-              ? 'Not enabled'
-              : 'Setup needs attention'),
-          findsOneWidget);
-      expect(
-          find.textContaining(reason == 'not_enabled'
-              ? 'restart the service'
-              : 'check the key'),
+      expect(find.text('Setup needed'), findsOneWidget);
+      expect(find.textContaining('Contact your system maintainer'),
           findsOneWidget);
       expect(t.takeException(), isNull);
       api.value = ready();
-      await t.tap(find.text('Check photos'));
+      await t.tap(find.text('Refresh'));
       await t.pumpAndSettle();
       expect(find.text('Needs attention'), findsOneWidget);
     });
@@ -129,13 +145,13 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('Needs attention'), findsOneWidget);
       expect(find.text('Light wear is visible.'), findsOneWidget);
-      expect(
-          find.textContaining('Authenticity is not verified'), findsOneWidget);
+      expect(find.textContaining('Photos cannot establish authenticity'),
+          findsOneWidget);
       expect(find.textContaining('100%'), findsNothing);
-      expect(api.calls, isEmpty);
+      expect(api.calls, ['GET /admin/records/listings/l-camera']);
       expect(t.takeException(), isNull);
     });
-    testWidgets('optional consent preserves existing draft inputs at $width',
+    testWidgets('owner draft has no AI permission checkbox at $width',
         (t) async {
       await t.binding.setSurfaceSize(Size(width, 1200));
       addTearDown(() => t.binding.setSurfaceSize(null));
@@ -155,15 +171,7 @@ void main() {
           LiveListingForm(isService: false, listing: row),
           controller: controller,
           scale: 1.6));
-      final box = find.widgetWithText(
-          CheckboxListTile, 'Allow Google photo review (optional)');
-      await t.scrollUntilVisible(box, 250,
-          scrollable: find.byType(Scrollable).first);
-      await t.pumpAndSettle();
-      expect(t.widget<CheckboxListTile>(box).value, isTrue);
-      await t.tap(box);
-      await t.pumpAndSettle();
-      expect(t.widget<CheckboxListTile>(box).value, isFalse);
+      expect(find.text('Allow Google photo review (optional)'), findsNothing);
       expect(
           find.widgetWithText(TextFormField, 'Owned camera'), findsOneWidget);
       expect(t.takeException(), isNull);
@@ -183,12 +191,10 @@ void main() {
                 initial: {'state': 'queued'})),
         controller: c));
     await t.pump(const Duration(seconds: 5));
-    expect(api.calls, ['GET /admin/records/listings/l-camera']);
+    expect(api.calls, ['POST /admin/listings/l-camera/photo-review']);
     c.profile = fixture.owner;
     c.notifyListeners();
-    api.gate!.complete({
-      'record': {'itemVisionReview': ready()}
-    });
+    api.gate!.complete(ready());
     await t.pump();
     expect(find.text('Review unavailable for this account.'), findsOneWidget);
     expect(find.text('Light wear is visible.'), findsNothing);
@@ -210,21 +216,21 @@ void main() {
               'canRequest': true
             })),
         controller: c));
-    await t.tap(find.text('Check photos'));
+    await t.tap(find.text('Try again'));
     await t.pump();
-    await t.tap(find.text('Check photos'));
+    await t.tap(find.text('Try again'));
     await t.pump();
     expect(api.calls, ['POST /admin/listings/l-camera/photo-review']);
     api.gate!.completeError(ApiException(503, 'PRIVATE SERVER KEY'));
     await t.pumpAndSettle();
     expect(find.textContaining('PRIVATE'), findsNothing);
     api.gate = null;
-    await t.tap(find.text('Check photos'));
+    await t.tap(find.text('Try again'));
     await t.pumpAndSettle();
     expect(find.text('Needs attention'), findsOneWidget);
   });
   testWidgets(
-      'removing a listing photo invalidates previously selected consent',
+      'removing a listing photo preserves the form without an AI switch',
       (t) async {
     final c = LiveRentHubController(VisionApi())..profile = fixture.owner;
     addTearDown(c.dispose);
@@ -245,9 +251,133 @@ void main() {
     await t.pumpAndSettle();
     await t.tap(find.byTooltip('Remove Image 1'));
     await t.pumpAndSettle();
-    final box = find.widgetWithText(
-        CheckboxListTile, 'Allow Google photo review (optional)');
-    await t.ensureVisible(box);
-    expect(t.widget<CheckboxListTile>(box).value, isFalse);
+    expect(find.text('Allow Google photo review (optional)'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+  testWidgets('photo notes remain scoped and missing checks start on opening',
+      (t) async {
+    final api = VisionApi();
+    final controller = LiveRentHubController(api)..profile = admin;
+    addTearDown(controller.dispose);
+    await t.pumpWidget(fixture.host(
+        const Scaffold(
+            body: AdminItemVisionPanel(
+                listingId: 'l-camera',
+                photos: [],
+                initial: {
+              'state': 'unavailable',
+              'reason': 'not_checked',
+              'canRequest': true
+            })),
+        controller: controller));
+    await t.pumpAndSettle();
+    expect(api.calls, ['POST /admin/listings/l-camera/photo-review']);
+    expect(find.text('Light wear is visible.'), findsOneWidget);
+    await t.tap(find.text('Photo 2'));
+    await t.pumpAndSettle();
+    expect(find.text('Side view.'), findsOneWidget);
+    expect(find.text('Light wear is visible.'), findsNothing);
+    expect(find.text('The item appears across these views.'), findsOneWidget);
+    await t.tap(find.text('Photo 3'));
+    await t.pumpAndSettle();
+    expect(find.text('The image is too dark.'), findsOneWidget);
+  });
+  testWidgets(
+      'pending checks continue after two minutes and finish without refresh',
+      (t) async {
+    final api = VisionApi()..value = {'state': 'queued'};
+    final c = LiveRentHubController(api)..profile = admin;
+    addTearDown(c.dispose);
+    await t.pumpWidget(fixture.host(
+        const Scaffold(
+            body: AdminItemVisionPanel(
+                listingId: 'l-camera',
+                photos: [],
+                initial: {'state': 'queued'})),
+        controller: c));
+    await t.pump();
+    for (var index = 0; index < 28; index++) {
+      await t.pump(const Duration(seconds: 15));
+      await t.pump();
+    }
+    expect(api.calls.length, greaterThan(24));
+    api.value = ready();
+    await t.pump(const Duration(seconds: 15));
+    await t.pumpAndSettle();
+    expect(find.text('Needs attention'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+  });
+  testWidgets('returning from a dialog resumes the assessment automatically',
+      (t) async {
+    final api = VisionApi()..value = {'state': 'queued'};
+    final controller = LiveRentHubController(api)..profile = admin;
+    addTearDown(controller.dispose);
+    await t.pumpWidget(ChangeNotifierProvider.value(
+        value: controller,
+        child: MaterialApp(
+            navigatorObservers: [adminRouteObserver],
+            home: Scaffold(
+                body: Builder(
+                    builder: (context) => Column(children: [
+                          TextButton(
+                              onPressed: () => showDialog<void>(
+                                  context: context,
+                                  builder: (dialog) => AlertDialog(
+                                          content:
+                                              const Text('Review remains open'),
+                                          actions: [
+                                            TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(dialog),
+                                                child:
+                                                    const Text('Close dialog'))
+                                          ])),
+                              child: const Text('Open dialog')),
+                          const Expanded(
+                              child: AdminItemVisionPanel(
+                                  listingId: 'l-camera',
+                                  photos: [],
+                                  initial: {'state': 'queued'})),
+                        ]))))));
+    await t.pump();
+    await t.tap(find.text('Open dialog'));
+    await t.pump(const Duration(milliseconds: 400));
+    final count = api.calls.length;
+    await t.pump(const Duration(seconds: 30));
+    expect(api.calls.length, count);
+    api.value = ready();
+    await t.tap(find.text('Close dialog'));
+    await t.pumpAndSettle();
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(api.calls.last, 'GET /admin/records/listings/l-camera');
+    await t.pumpWidget(const SizedBox());
+  });
+  testWidgets('local daily allowance identifies RentHub and shows the reset',
+      (t) async {
+    final state = {
+      'state': 'queued',
+      'reason': 'budget',
+      'allowance': {
+        'source': 'renthub',
+        'used': 20,
+        'limit': 20,
+        'resetsAt': '2026-11-18T00:00:00.000Z'
+      }
+    };
+    final api = VisionApi()..value = state;
+    final c = LiveRentHubController(api)..profile = admin;
+    addTearDown(c.dispose);
+    await t.pumpWidget(fixture.host(
+        Scaffold(
+            body: AdminItemVisionPanel(
+                listingId: 'l-camera', photos: const [], initial: state)),
+        controller: c));
+    await t.pump();
+    expect(
+        find.textContaining(
+            'RentHub’s daily allowance is used (20/20 attempts)'),
+        findsOneWidget);
+    expect(find.textContaining('18 Nov 2026, 8:00 am'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
   });
 }

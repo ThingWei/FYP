@@ -491,7 +491,10 @@ function Test-RentHubApiReady {
             $response.data.capabilities -contains 'trust-profile-v1' -and `
             $response.data.capabilities -contains 'user-records-messaging-v2' -and `
             $response.data.capabilities -contains 'renter-handover-ack-v1' -and `
-            $response.data.capabilities -contains 'review-evidence-appointments-v1'
+            $response.data.capabilities -contains 'review-evidence-appointments-v1' -and `
+            $response.data.capabilities -contains 'admin-item-photo-assessment-v3' -and `
+            $response.data.capabilities -contains 'conditional-listing-deletion-v1' -and `
+            $response.data.capabilities -contains 'admin-case-workspace-v1'
     }
     catch {
         return $false
@@ -558,12 +561,31 @@ function Test-RentHubAiCompatible {
 
 function Get-RentHubGeminiWarning {
     param([object]$Health, [bool]$Requested)
-    if (-not $Requested) { return '' }
+    if (-not $Requested) {
+        if ($Health.item_vision_status.enabled -eq $true) {
+            return 'Gemini is configured in the AI service, but photo review is switched off in services/api/.env. Enable it there and restart the API launcher.'
+        }
+        return ''
+    }
     if ($null -eq $Health.item_vision_status -or $Health.item_vision_status.enabled -ne $true) {
         return 'Gemini is requested by the API, but the running AI service has it switched off. Check services/ai/.env, then restart the original AI launcher to reload its environment.'
     }
     if ($Health.item_vision_status.configured -ne $true) {
         return 'Gemini setup needs attention in the AI service. Check its private key and supported model, then restart the original AI launcher.'
+    }
+    if ($Health.item_vision_status.contract -ne 'renthub-item-vision-v3') {
+        return 'The running AI service uses an older photo-review contract. Restart the original launcher to load the current API and AI code.'
+    }
+    return ''
+}
+
+function Get-RentHubApiGeminiWarning {
+    param([object]$Health, [bool]$Requested)
+    if ($null -eq $Health.itemPhotoReview) {
+        return 'The running API has older photo-review settings. Restart its original launcher.'
+    }
+    if ($Health.itemPhotoReview.enabled -ne $Requested) {
+        return 'The running API has different photo-review settings from services/api/.env. Restart its original launcher to load the saved setting.'
     }
     return ''
 }
@@ -1235,6 +1257,14 @@ try {
         }
         Write-Host "RentHub API is ready at http://localhost:$ApiPort." -ForegroundColor Green
     }
+
+    try {
+        $apiReviewHealth = Invoke-RestMethod -Uri "http://localhost:$ApiPort/api/v1/ready" -TimeoutSec 2
+        $apiReviewRequested = (Get-RentHubEnvironmentValue -Path $apiEnvironment -Name 'GEMINI_ITEM_REVIEW_ENABLED' -DefaultValue 'false') -eq 'true'
+        $apiReviewWarning = Get-RentHubApiGeminiWarning -Health $apiReviewHealth.data -Requested $apiReviewRequested
+        if ($apiReviewWarning) { Write-Warning $apiReviewWarning }
+    }
+    catch { Write-Warning 'The API photo-review settings could not be checked. Refresh status after startup.' }
 
     if ($CheckOnly) {
         $checkedServices = @('MongoDB', 'the RentHub API')

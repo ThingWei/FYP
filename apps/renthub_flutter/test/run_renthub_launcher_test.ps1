@@ -11,7 +11,7 @@ $tree = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count) { throw "Launcher syntax errors: $($parseErrors.Count)" }
 
 # Load only these pure/testable helpers, not the launcher's executable body.
-$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Get-RentHubGeminiWarning', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget', 'Get-RentHubAdbPath', 'Test-RentHubApiPortAvailable', 'Resolve-RentHubApiPort', 'Get-RentHubApiClientArguments')
+$helperNames = @('Test-RentHubAiCompatible', 'Test-RentHubApiReady', 'Get-RentHubAiArguments', 'Get-RentHubGeminiWarning', 'Get-RentHubApiGeminiWarning', 'Stop-RentHubOwnedAiProcess', 'Get-RentHubFirebaseDefines', 'Get-RentHubApiArguments', 'Stop-RentHubOwnedApiProcess', 'Test-RentHubKeepServicesRunning', 'Get-RentHubMongoTarget', 'Get-RentHubAdbPath', 'Test-RentHubApiPortAvailable', 'Resolve-RentHubApiPort', 'Get-RentHubApiClientArguments')
 $helpers = $tree.FindAll({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -161,6 +161,8 @@ Assert-Launcher (-not (Test-RentHubApiReady)) 'API without renter-confirmed hand
 $script:apiHealthFixture.data.capabilities += 'renter-handover-ack-v1'
 Assert-Launcher (-not (Test-RentHubApiReady)) 'API without appointment and private review-photo support must not be reused.'
 $script:apiHealthFixture.data.capabilities += 'review-evidence-appointments-v1'
+Assert-Launcher (-not (Test-RentHubApiReady)) 'Old photo-review API cannot pass readiness'
+$script:apiHealthFixture.data.capabilities += @('admin-item-photo-assessment-v3', 'conditional-listing-deletion-v1', 'admin-case-workspace-v1')
 Assert-Launcher (Test-RentHubApiReady) 'Current API must pass'
 Assert-Launcher (Test-RentHubApiReady -Port 4321) 'Current API can run on a custom port'
 Assert-Launcher ($script:lastReadyUri -eq 'http://localhost:4321/api/v1/ready') 'Readiness uses the selected port'
@@ -255,7 +257,7 @@ $reloadArguments = @(Get-RentHubAiArguments)
 Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{}) -Requested $false) -eq '') 'Optional Gemini cannot block normal startup'
 Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $false; configured = $false } }) -Requested $true) -match 'switched off') 'Warn when a reused AI process still has disabled Gemini settings'
 Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $true; configured = $false } }) -Requested $true) -match 'setup needs attention') 'Separate disabled service from missing key or unsupported model'
-Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $true; configured = $true } }) -Requested $true) -eq '') 'Configured Gemini has no startup warning'
+Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $true; configured = $true; contract = 'renthub-item-vision-v3' } }) -Requested $true) -eq '') 'Configured Gemini has no startup warning'
 Assert-Launcher ((@(Get-RentHubAiArguments -UseEnvironmentFile) -join ' ').EndsWith('--env-file .env')) 'Optional AI configuration is passed by filename only'
 Assert-Launcher (-not ($reloadArguments -contains '--env-file')) 'Missing AI configuration does not become mandatory'
 Assert-Launcher (($reloadArguments -join ' ') -eq
@@ -372,3 +374,9 @@ if ($Integration) {
 }
 
 Write-Host 'PASS: launcher syntax, AI/API compatibility, automatic port selection, client URLs, child environment, source-watch arguments and owned-tree cleanup guards.'
+
+Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $true; configured = $true; contract = 'renthub-item-vision-v1' } }) -Requested $true) -match 'older photo-review contract') 'Old AI review contracts require a restart'
+Assert-Launcher ((Get-RentHubGeminiWarning -Health ([pscustomobject]@{ item_vision_status = [pscustomobject]@{ enabled = $true; configured = $true } }) -Requested $false) -match 'switched off in services/api') 'Explain the API flag when AI alone is enabled'
+
+Assert-Launcher ((Get-RentHubApiGeminiWarning -Health ([pscustomobject]@{ itemPhotoReview = [pscustomobject]@{ enabled = $false } }) -Requested $true) -match 'different photo-review settings') 'Detect a reused API with a stale disabled flag'
+Assert-Launcher ((Get-RentHubApiGeminiWarning -Health ([pscustomobject]@{ itemPhotoReview = [pscustomobject]@{ enabled = $true } }) -Requested $true) -eq '') 'Matching running API settings have no warning'

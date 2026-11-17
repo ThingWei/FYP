@@ -1,5 +1,6 @@
 import { recommendationCandidateFilter } from './recommendationFilters.js';
-import { setPhotoConsent } from './itemVisionConsent.js';
+import { withOperationLock } from '../booking/bookingRequestLock.js';
+import { withListingDeletionEligibility } from './listingDeletion.js';
 import { enqueueItemVision } from './itemVision.service.js';
 import { rememberLocationAfterSave } from '../user/recentLocations.js';
 import { requireListingPin, approximatePoint, nearbyFilter } from '../../core/location.js';
@@ -721,6 +722,7 @@ export const listingService = {
     await requireOwner(identity);
     const listing = await listingRepository.findOwnedById(id, identity.authId);
     if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
+    await withListingDeletionEligibility([listing]);
     return listing;
   },
 
@@ -740,10 +742,6 @@ export const listingService = {
       verified: hasApprovedMykad(owner),
       status: 'draft',
     });
-    if (input.photoReviewConsent !== undefined) {
-      setPhotoConsent(created, input.photoReviewConsent, identity);
-      await created.save();
-    }
     await rememberLocationAfterSave(owner.authId, created.locationDetails, 'Pickup');
     return created;
   },
@@ -758,6 +756,7 @@ export const listingService = {
       limit,
       status,
     });
+    await withListingDeletionEligibility(items);
     return { items, meta: { page, limit, total } };
   },
 
@@ -769,6 +768,7 @@ export const listingService = {
       limit,
       status,
     });
+    await withListingDeletionEligibility(items);
     return { items, meta: { page, limit, total } };
   },
 
@@ -804,7 +804,6 @@ export const listingService = {
       listingType: listing.listingType,
     }));
     // Edited photos/category/condition must never inherit an old automated result.
-    setPhotoConsent(listing, input.photoReviewConsent, identity);
     listing.itemVerification = undefined;
     if (input.vehicleGrantRef !== undefined || input.category !== undefined || input.subcategory !== undefined) listing.vehicleGrantReview = undefined;
     if (listing.status === 'active' || listing.status === 'rejected') {
@@ -887,7 +886,7 @@ export const listingService = {
 
   async moderate(id, status, reason, identity, vehicleGrantReviewed) {
     const listing = await listingRepository.findById(id);
-    if (!listing) throw new AppError('Listing not found', 404, 'NOT_FOUND');
+    if (!listing || listing.deletedAt) throw new AppError('Listing not found', 404, 'NOT_FOUND');
     if (listing.status !== 'pending_review') {
       throw new AppError(
         'Only pending listings can be moderated',
@@ -931,27 +930,31 @@ export const listingService = {
   },
 
   async setAvailability(id, input, identity) {
-    const listing = await requireOwnedListing(id, identity);
-    const unavailableRanges = (input.unavailableRanges ?? []).map((range) =>
-      listing.listingType === 'physical'
-        ? {
-            ...range,
-            start: physicalRentalDate(range.start),
-            end: physicalRentalDate(range.end),
-          }
-        : range,
-    );
-    const data = {
-      unavailableRanges,
-      weeklyHours: listing.listingType === 'service' ? input.weeklyHours ?? [] : [],
-      minimumNoticeHours: input.minimumNoticeHours ?? 0,
-      bufferHours: input.bufferHours ?? 0,
-    };
-    return listingRepository.saveAvailability(
-      listing.publicId,
-      identity.authId,
-      data,
-    );
+    const context = await requireOwnedListing(id, identity);
+    return withOperationLock('listing-decision', context.publicId, async ensureOwned => {
+      const listing = await requireOwnedListing(id, identity);
+      const unavailableRanges = (input.unavailableRanges ?? []).map((range) =>
+        listing.listingType === 'physical'
+          ? {
+              ...range,
+              start: physicalRentalDate(range.start),
+              end: physicalRentalDate(range.end),
+            }
+          : range,
+      );
+      const data = {
+        unavailableRanges,
+        weeklyHours: listing.listingType === 'service' ? input.weeklyHours ?? [] : [],
+        minimumNoticeHours: input.minimumNoticeHours ?? 0,
+        bufferHours: input.bufferHours ?? 0,
+      };
+      await ensureOwned();
+      return listingRepository.saveAvailability(
+        listing.publicId,
+        identity.authId,
+        data,
+      );
+    });
   },
 
   async setPromotion(id, input, identity) {

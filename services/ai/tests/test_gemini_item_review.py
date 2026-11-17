@@ -19,15 +19,16 @@ def photo():
 
 
 def request(**extra):
-    return ItemVisionRequest(**{'images': [photo()] * 3, 'photo_consent': True,
+    return ItemVisionRequest(**{'images': [photo()] * 3, 'processing_authorized': True,
                                'expected_category': 'Devices', 'expected_subcategory': 'Smartphones', **extra})
 
 
 def observations(**extra):
     return {'item_consistency': 'consistent', 'photo_consistency': 'consistent',
             'visible_condition': 'cannot_assess', 'visible_branding': 'not_readable',
-            'sensitive_content': False, 'concerns': [],
-            'observations': [{'photo': 1, 'observation': 'A handheld item is visible.'}], **extra}
+            'sensitive_content': False,
+            'photo_findings': [{'photo': n, 'status': 'assessed', 'observations': ['A handheld item is visible.'], 'concerns': []} for n in range(1,4)],
+            'set_findings': [], **extra}
 
 
 @pytest.fixture
@@ -145,14 +146,14 @@ def test_disabled_missing_key_or_incompatible_model_never_calls_google(provider,
     assert not provider['calls']
 
 
-def test_bad_images_or_absent_consent_cannot_proceed(provider):
+def test_bad_images_or_absent_authorization_cannot_proceed(provider):
     with pytest.raises(ValidationError):
-        request(photo_consent=False)
+        request(processing_authorized=False)
     assert g.review(request(images=[{'content_base64': 'broken'}] * 3))['reason'] == 'invalid_photos'
     assert not provider['calls']
 
 
-def test_internal_endpoint_requires_consent_and_returns_additive_contract(monkeypatch):
+def test_internal_endpoint_requires_platform_authorization_and_returns_additive_contract(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from app.routers.verification import router
@@ -165,7 +166,7 @@ def test_internal_endpoint_requires_consent_and_returns_additive_contract(monkey
     monkeypatch.setattr(g, 'review', fake_review)
     client = TestClient(app)
     payload = request().model_dump()
-    assert client.post('/verify/item-vision', json={**payload, 'photo_consent': False}).status_code == 422
+    assert client.post('/verify/item-vision', json={**payload, 'processing_authorized': False}).status_code == 422
     response = client.post('/verify/item-vision', json=payload)
     assert response.status_code == 200
     assert response.json()['contract'] == g.CONTRACT
@@ -196,3 +197,21 @@ def test_diagnostic_never_sends_photos_or_exposes_key(provider, monkeypatch, cap
     assert json.loads(text)['access'] == 'available'
     assert len(calls) == 1
     assert not provider['calls']
+
+
+@pytest.mark.parametrize('photos', [[1], [1, 1], [1, 4]])
+def test_cross_photo_findings_have_multiple_distinct_valid_references(provider, photos):
+    provider['body'] = observations(set_findings=[{'photos': photos, 'kind': 'concern', 'observation': 'Different colours are visible.'}])
+    assert g.review(request())['reason'] == 'invalid_response'
+
+
+def test_each_photo_has_exactly_one_result_and_no_cross_photo_comment_is_flattened(provider):
+    rows = observations()['photo_findings']
+    for values in [rows[:2], [rows[0], rows[0], rows[2]]]:
+        provider['body'] = observations(photo_findings=values)
+        assert g.review(request())['reason'] == 'invalid_response'
+    provider['body'] = observations(set_findings=[{'photos': [1, 2], 'kind': 'observation', 'observation': 'The same colour appears in these views.'}])
+    result = g.review(request())
+    assert result['state'] == 'ready'
+    assert len(result['observations']['photo_findings']) == 3
+    assert result['observations']['set_findings'][0]['photos'] == [1, 2]

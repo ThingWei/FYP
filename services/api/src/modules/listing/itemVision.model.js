@@ -4,6 +4,7 @@ const jobs = new mongoose.Schema({
   _id: String, listingId: { type: String, required: true, index: true }, snapshot: String,
   state: { type: String, enum: ['queued', 'running', 'ready', 'unavailable', 'stale'], required: true },
   model: String, promptVersion: String, token: String, leaseUntil: Date, nextAt: Date,
+  priority: { type: Number, default: 0 },
   attempts: { type: Number, default: 0 }, result: mongoose.Schema.Types.Mixed,
   reason: String, checkedAt: Date,
 }, { timestamps: true, strict: 'throw', versionKey: false });

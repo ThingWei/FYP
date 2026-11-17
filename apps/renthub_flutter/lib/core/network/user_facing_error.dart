@@ -17,6 +17,12 @@ class UserFacingError {
     }
     if (error is ApiException) {
       final known = <String, String>{
+        'CASE_CHANGED':
+            'This case changed. Review the latest details before confirming.',
+        'LISTING_HAS_OPEN_BOOKINGS':
+            'Finish open bookings and resolve outstanding rentals or cases before deleting this listing.',
+        'LISTING_DELETED':
+            'This listing has been deleted. Refresh your listings.',
         'APPOINTMENT_TIMES_REQUIRED':
             'Choose pickup and return appointment times before continuing.',
         'PRIVATE_REVIEW_PHOTO_REQUIRED':

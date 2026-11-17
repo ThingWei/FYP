@@ -1,3 +1,4 @@
+import 'live_listing_delete.dart';
 import 'live_owner_listing_details.dart';
 import 'live_listing_gallery.dart';
 import 'live_listing_photo_viewer.dart';
@@ -544,73 +545,80 @@ class LiveOwnerListingsPage extends StatelessWidget {
                       ),
                       isThreeLine: listing.promotionActive ||
                           listing.itemVerificationOutcome.isNotEmpty,
-                      trailing: listing.status == 'inactive'
-                          ? const StatusBadge('Inactive')
-                          : PopupMenuButton<String>(
-                              onSelected: (value) async {
-                                if (value == 'edit') {
-                                  await Navigator.push<void>(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => LiveListingForm(
-                                        isService: listing.isService,
-                                        listing: listing,
-                                      ),
-                                    ),
-                                  );
-                                } else if (value == 'availability' &&
-                                    listing.status == 'active') {
-                                  await Navigator.push<void>(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          LiveAvailabilityPage(listing),
-                                    ),
-                                  );
-                                } else if (value == 'promotion') {
-                                  await Navigator.push<void>(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          LivePromotionPage(listing),
-                                    ),
-                                  );
-                                } else if (value == 'deactivate') {
-                                  final accepted = await confirmAction(
-                                    context,
-                                    title: 'Deactivate listing?',
-                                    message:
-                                        'The listing will no longer appear in renter discovery.',
-                                    action: 'Deactivate',
-                                    destructive: true,
-                                  );
-                                  if (accepted && context.mounted) {
-                                    await controller
-                                        .deactivateListing(listing.id);
-                                  }
-                                }
-                              },
-                              itemBuilder: (_) => [
-                                if (listing.status != 'pending_review')
-                                  const PopupMenuItem(
-                                    value: 'edit',
-                                    child: Text('Edit listing'),
-                                  ),
-                                if (listing.status == 'active')
-                                  const PopupMenuItem(
-                                    value: 'availability',
-                                    child: Text('Availability'),
-                                  ),
-                                const PopupMenuItem(
-                                  value: 'promotion',
-                                  child: Text('Promotion'),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          if (value == 'edit') {
+                            await Navigator.push<void>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => LiveListingForm(
+                                  isService: listing.isService,
+                                  listing: listing,
                                 ),
-                                const PopupMenuItem(
-                                  value: 'deactivate',
-                                  child: Text('Deactivate'),
-                                ),
-                              ],
+                              ),
+                            );
+                          } else if (value == 'availability' &&
+                              listing.status == 'active') {
+                            await Navigator.push<void>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => LiveAvailabilityPage(listing),
+                              ),
+                            );
+                          } else if (value == 'promotion') {
+                            await Navigator.push<void>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => LivePromotionPage(listing),
+                              ),
+                            );
+                          } else if (value == 'delete') {
+                            await confirmListingDeletion(context, listing);
+                          } else if (value == 'deactivate') {
+                            final accepted = await confirmAction(
+                              context,
+                              title: 'Deactivate listing?',
+                              message:
+                                  'The listing will no longer appear in renter discovery.',
+                              action: 'Deactivate',
+                              destructive: true,
+                            );
+                            if (accepted && context.mounted) {
+                              await controller.deactivateListing(listing.id);
+                            }
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          if (!['pending_review', 'inactive']
+                              .contains(listing.status))
+                            const PopupMenuItem(
+                              value: 'edit',
+                              child: Text('Edit listing'),
                             ),
+                          if (listing.status == 'active')
+                            const PopupMenuItem(
+                              value: 'availability',
+                              child: Text('Availability'),
+                            ),
+                          const PopupMenuItem(
+                            value: 'promotion',
+                            child: Text('Promotion'),
+                          ),
+                          if (listing.status != 'inactive')
+                            const PopupMenuItem(
+                              value: 'deactivate',
+                              child: Text('Deactivate'),
+                            ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            enabled: listing.canDelete,
+                            child: Tooltip(
+                              message: listing.deleteReason,
+                              child: const Text('Delete listing'),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -710,7 +718,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
   final conditionFieldKey = GlobalKey<FormFieldState<String>>();
   bool saving = false;
   bool addingImages = false;
-  bool photoReviewConsent = false;
   bool checkingIdentity = false;
   late String? savedListingId = widget.listing?.id;
   bool suggestingPrice = false;
@@ -1248,7 +1255,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
       final references = await pickListingPhotos(context, 10 - images.length);
       if (mounted && account == controller.profile?.id) {
         setState(() {
-          if (references.isNotEmpty) photoReviewConsent = false;
           images.addAll(references);
         });
       }
@@ -1269,7 +1275,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
       if (mounted) {
         setState(() {
           images.remove(reference);
-          photoReviewConsent = false;
         });
       }
     } catch (exception) {
@@ -1284,7 +1289,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
   void initState() {
     super.initState();
     images = [...?widget.listing?.images];
-    photoReviewConsent = widget.listing?.photoReviewConsent ?? false;
     price.addListener(_priceEdited);
     catalogBrandId = widget.listing?.catalogBrandId.isEmpty == false
         ? widget.listing!.catalogBrandId
@@ -1449,7 +1453,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
       'description': description.text.trim(),
       'category': category,
       'vehicleGrantRef': needsGrant ? vehicleGrantRef : null,
-      if (!widget.isService) 'photoReviewConsent': photoReviewConsent,
       'listingType': widget.isService ? 'service' : 'physical',
       'dailyPrice': price.text.trim().isEmpty ? null : double.parse(price.text),
       if (!widget.isService) 'priceProvenance': priceOrigin.toJson(),
@@ -1677,21 +1680,6 @@ class _LiveListingFormState extends State<LiveListingForm> {
                                     onRemove: saving || addingImages
                                         ? null
                                         : () => _removeImage(index)),
-                              if (!widget.isService)
-                                CheckboxListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    value: photoReviewConsent,
-                                    controlAffinity:
-                                        ListTileControlAffinity.leading,
-                                    title: const Text(
-                                        'Allow Google photo review (optional)'),
-                                    subtitle: const Text(
-                                        'These item photos contain no personal or private information. Google may use them to improve its products. Local checks remain available.'),
-                                    onChanged: saving || addingImages
-                                        ? null
-                                        : (value) => setState(() =>
-                                            photoReviewConsent =
-                                                value == true)),
                             ],
                           ),
                         ),

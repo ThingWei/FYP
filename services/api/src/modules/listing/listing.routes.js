@@ -135,6 +135,7 @@ listingRouter.post(
   validate,
   listingController.submit,
 );
+listingRouter.post('/:id/delete', authenticate, authorize('owner'), listingIdValidation, validate, listingController.delete);
 listingRouter.delete(
   '/:id',
   authenticate,

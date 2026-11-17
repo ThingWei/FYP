@@ -1,3 +1,5 @@
+import 'live_listing_delete.dart';
+import 'live_owner_shell.dart' show LiveOwnerRequestsPage, LiveOwnerOrdersPage;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
@@ -120,6 +122,44 @@ class _LiveOwnerListingDetailsPageState
                                         ])),
                               if (row != null) ...[
                                 StatusBadge(row.status.replaceAll('_', ' ')),
+                                const SizedBox(height: 8),
+                                ListingDeleteAction(
+                                  listing: row,
+                                  onDeleted: () => Navigator.pop(context),
+                                  onOpenBookings: () =>
+                                      showModalBottomSheet<void>(
+                                          context: context,
+                                          builder: (sheetContext) => SafeArea(
+                                                  child: Column(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                    ListTile(
+                                                        title: const Text(
+                                                            'Booking requests'),
+                                                        onTap: () {
+                                                          Navigator.pop(
+                                                              sheetContext);
+                                                          Navigator.push<void>(
+                                                              context,
+                                                              MaterialPageRoute(
+                                                                  builder: (_) =>
+                                                                      const LiveOwnerRequestsPage()));
+                                                        }),
+                                                    ListTile(
+                                                        title: const Text(
+                                                            'Rentals and services'),
+                                                        onTap: () {
+                                                          Navigator.pop(
+                                                              sheetContext);
+                                                          Navigator.push<void>(
+                                                              context,
+                                                              MaterialPageRoute(
+                                                                  builder: (_) =>
+                                                                      const LiveOwnerOrdersPage()));
+                                                        }),
+                                                  ]))),
+                                ),
                                 const SizedBox(height: 12),
                                 if (row.images.isNotEmpty) ...[
                                   ListingPhotoCarousel(

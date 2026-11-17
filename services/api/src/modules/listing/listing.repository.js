@@ -23,7 +23,7 @@ export const listingRepository = {
     ListingModel.findOne({ $or: identifiers(id), status: 'active' }),
 
   findOwnedById: (id, ownerId) =>
-    ListingModel.findOne({ $or: identifiers(id), ownerId }),
+    ListingModel.findOne({ $or: identifiers(id), ownerId, deletedAt: null }),
 
   async listPublic({ page, limit, filter, unavailableIds, sort }) {
     const criteria = { status: 'active', ...filter };
@@ -46,7 +46,7 @@ export const listingRepository = {
   },
 
   async listOwned({ ownerId, page, limit, status }) {
-    const filter = { ownerId, ...(status && { status }) };
+    const filter = { ownerId, deletedAt: null, ...(status && { status }) };
     const [items, total] = await Promise.all([
       ListingModel.find(filter)
         .sort({ updatedAt: -1, _id: -1 })
@@ -58,7 +58,7 @@ export const listingRepository = {
   },
 
   async listAdmin({ page, limit, status }) {
-    const filter = { ...(status && { status }) };
+    const filter = { deletedAt: null, ...(status && { status }) };
     const [items, total] = await Promise.all([
       ListingModel.find(filter)
         .sort({ updatedAt: -1, _id: -1 })
