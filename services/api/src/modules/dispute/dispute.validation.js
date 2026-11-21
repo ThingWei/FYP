@@ -46,6 +46,18 @@ export const responseValidation = [
   evidence,
 ];
 
+export const caseMessagesValidation = [
+  disputeId,
+  query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 50 }),
+  query('before').optional().isString().isLength({ min: 1, max: 500 }),
+];
+export const caseMessageSendValidation = [
+  disputeId,
+  body('idempotencyKey').isString().matches(/^[A-Za-z0-9-]{8,100}$/),
+  body('text').optional().custom(textInput).bail().trim().isLength({ max: 2000 }),
+  evidence,
+];
+
 export const claimCreateValidation = [
   disputeId,
   body('description').custom(textInput).bail().trim().isLength({ min: 20, max: 3000 }),

@@ -9,18 +9,26 @@ import '../renter/booking/booking_flow.dart' show formatMoney;
 import 'live_rental_progress.dart';
 import 'live_renthub_controller.dart';
 import 'live_appointments.dart';
+import '../../shared/widgets/renthub_components.dart' show StatusBadge;
 
 class LiveBookingPaymentDetails extends StatelessWidget {
-  const LiveBookingPaymentDetails({super.key, required this.booking});
+  const LiveBookingPaymentDetails(
+      {super.key, required this.booking, this.selectedPayment});
   final Booking booking;
+  final Transaction? selectedPayment;
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
     return _BookingPaymentDetails(
-      key:
-          ValueKey((controller.profile?.id, booking.id, booking.paymentStatus)),
+      key: ValueKey((
+        controller.profile?.id,
+        booking.id,
+        booking.paymentStatus,
+        selectedPayment?.id
+      )),
       booking: booking,
+      selectedPayment: selectedPayment,
       repository: LiveBookingPaymentRepository(controller.api),
     );
   }
@@ -28,9 +36,13 @@ class LiveBookingPaymentDetails extends StatelessWidget {
 
 class _BookingPaymentDetails extends StatefulWidget {
   const _BookingPaymentDetails(
-      {super.key, required this.booking, required this.repository});
+      {super.key,
+      required this.booking,
+      required this.repository,
+      this.selectedPayment});
   final Booking booking;
   final LiveBookingPaymentRepository repository;
+  final Transaction? selectedPayment;
 
   @override
   State<_BookingPaymentDetails> createState() => _BookingPaymentDetailsState();
@@ -40,6 +52,16 @@ class _BookingPaymentDetailsState extends State<_BookingPaymentDetails> {
   List<Transaction> history = [];
   bool loading = false;
   Object? error;
+  @override
+  void initState() {
+    super.initState();
+    if (widget.selectedPayment != null) {
+      history = [widget.selectedPayment!];
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
+    }
+  }
 
   Future<void> _load() async {
     if (loading) return;
@@ -50,7 +72,16 @@ class _BookingPaymentDetailsState extends State<_BookingPaymentDetails> {
     try {
       final payments =
           await widget.repository.listForBooking(widget.booking.id);
-      if (mounted) setState(() => history = payments);
+      if (widget.selectedPayment != null &&
+          !payments.any((row) => row.id == widget.selectedPayment!.id)) {
+        payments.add(widget.selectedPayment!);
+      }
+      if (mounted) {
+        setState(() => history = payments
+          ..sort((a, b) =>
+              (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))));
+      }
     } catch (exception) {
       if (mounted) setState(() => error = exception);
     } finally {
@@ -62,12 +93,8 @@ class _BookingPaymentDetailsState extends State<_BookingPaymentDetails> {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            '${formatMoney(widget.booking.total)} · ${rentalPaymentLabel(widget.booking.paymentStatus)}',
-            style: const TextStyle(
-                color: AppColors.primaryDark, fontWeight: FontWeight.w700),
-          ),
           ExpansionTile(
+            initiallyExpanded: widget.selectedPayment != null,
             tilePadding: EdgeInsets.zero,
             leading: const Icon(Icons.receipt_long_outlined),
             title: const Text('See payment details'),
@@ -76,7 +103,8 @@ class _BookingPaymentDetailsState extends State<_BookingPaymentDetails> {
             },
             expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              LiveBookingCharges(booking: widget.booking),
+              LiveBookingCharges(
+                  booking: widget.booking, showAppointments: false),
               const SizedBox(height: 16),
               Text('Payment history',
                   style: Theme.of(context).textTheme.titleMedium),
@@ -94,6 +122,8 @@ class _BookingPaymentDetailsState extends State<_BookingPaymentDetails> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (widget.selectedPayment != null)
+                      LivePaymentSummary(payment: widget.selectedPayment!),
                     Text(friendlyError(error!)),
                     TextButton.icon(
                       onPressed: _load,
@@ -148,22 +178,39 @@ class LivePaymentSummary extends StatelessWidget {
                   _ => 'Payment update'
                 },
                 style: Theme.of(context).textTheme.titleMedium),
-            Text(formatMoney(payment.amount)),
-            Text('Reference: ${payment.id}'),
-            Text(switch (payment.status) {
-              'succeeded' => 'Complete',
-              'authorized' => 'Authorized',
-              'failed' => 'Declined',
-              'voided' => 'Cancelled',
-              _ => 'Pending'
-            }),
-            const Text('Simulated payment'),
+            const SizedBox(height: 8),
+            Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(formatMoney(payment.amount),
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  StatusBadge(switch (payment.status) {
+                    'succeeded' => 'Complete',
+                    'authorized' => 'Authorized',
+                    'failed' => 'Declined',
+                    'voided' => 'Cancelled',
+                    _ => 'Pending',
+                  }),
+                ]),
+            const SizedBox(height: 8),
+            Text(rentalEventTime(payment.createdAt),
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            SelectableText('Reference: ${payment.id}',
+                style: Theme.of(context).textTheme.bodySmall),
           ])));
 }
 
 class LiveBookingCharges extends StatelessWidget {
-  const LiveBookingCharges({super.key, required this.booking});
+  const LiveBookingCharges(
+      {super.key, required this.booking, this.showAppointments = true});
   final Booking booking;
+  final bool showAppointments;
   @override
   Widget build(BuildContext context) {
     final charges = booking.charges;
@@ -175,7 +222,7 @@ class LiveBookingCharges extends StatelessWidget {
           Text(formatMoney(amount)),
         ]));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (booking.listingType == 'physical')
+      if (showAppointments && booking.listingType == 'physical')
         RentalAppointments(
             pickupDate: booking.start,
             returnDate: booking.end,

@@ -63,6 +63,7 @@ export const createBookingValidation = [
 export const bookingIdValidation = [bookingId];
 
 export const listBookingsValidation = [
+  query('archived').optional().isBoolean(),
   query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
   query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
   query('status').optional().isIn(BOOKING_STATUSES),

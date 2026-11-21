@@ -69,6 +69,10 @@ class CaseApi extends photos.PhotoApi {
   @override
   Future<dynamic> request(String method, String path, {Object? body}) async {
     calls.add('$method $path');
+    if (path.contains('/disputes/') && path.contains('/messages')) {
+      return ApiItems(
+          [], {'status': value['record']['status'], 'nextCursor': null});
+    }
     if (path == '/admin/cases/RH-DSP-CASE') {
       reads++;
       if (gate != null) return gate!.future;
@@ -219,6 +223,9 @@ void main() {
     await t.pumpAndSettle();
     await t.ensureVisible(find.text('Conversation'));
     await t.tap(find.text('Conversation'));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.text('Earlier booking messages'));
+    await t.tap(find.text('Earlier booking messages'));
     await t.pumpAndSettle();
     await t.ensureVisible(find.byTooltip('Next page'));
     await t.tap(find.byTooltip('Next page'));

@@ -5,6 +5,7 @@ import { env } from '../../config/env.js';
 import { storageAdapter } from '../../integrations/storageAdapter.js';
 import { ClaimModel } from '../dispute/claim.model.js';
 import { DisputeModel } from '../dispute/dispute.model.js';
+import { DisputeMessageModel } from '../dispute/disputeMessage.model.js';
 import { RentalModel } from '../rental/rental.model.js';
 import { ListingModel } from '../listing/listing.model.js';
 import { UserModel } from '../user/user.model.js';
@@ -25,6 +26,9 @@ function detectedType(buffer) {
 }
 
 async function participantMayRead(identity, reference) {
+  const caseIds = await DisputeMessageModel.distinct('disputeId', { evidence: reference });
+  if (caseIds.length && await DisputeModel.exists({ publicId: { $in: caseIds },
+    $or: [{ raisedById: identity.authId }, { respondentId: identity.authId }] })) return true;
   if (await MessageModel.exists({
     'attachment.reference': reference,
     recalledAt: null,
@@ -249,6 +253,7 @@ export const uploadService = {
       DisputeModel.exists({
         $or: [{ evidence: reference }, { 'responses.evidence': reference }],
       }),
+      DisputeMessageModel.exists({ evidence: reference }),
       ClaimModel.exists({ evidence: reference }),
       MessageModel.exists({ $or: [
         { 'attachment.reference': reference },

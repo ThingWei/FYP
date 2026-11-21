@@ -41,3 +41,7 @@ export function disconnectUser(userId) {
 export function disconnectSession(sessionId) {
   socketServer?.in(`session:${sessionId}`).disconnectSockets(true);
 }
+
+export function emitCaseUpdate(disputeId) {
+  socketServer?.to(`case:${disputeId}`).emit('case:update', { disputeId });
+}

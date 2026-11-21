@@ -148,6 +148,7 @@ test('opens a participant-only physical dispute and prevents duplicates', async 
   });
   assert.equal(opened.status, 201, JSON.stringify(opened.body));
   assert.equal(opened.body.data.status, 'awaiting_response');
+  assert.equal(await NotificationModel.countDocuments({ userId: 'u-admin', type: 'dispute_opened' }), 1);
   assert.equal((await RentalModel.findOne({ publicId: rentalId })).status, 'disputed');
   assert.equal((await BookingModel.findOne({ publicId: bookingId })).status, 'disputed');
 
@@ -168,7 +169,7 @@ test('handles responses, damage claims and simulated admin resolution', async ()
   const { rentalId } = await seedRental();
   const opened = await request(app).post('/api/v1/disputes').set(renter).send({
     rentalId,
-    category: 'return_condition',
+    category: 'damaged_item',
     summary: 'Return condition differs',
     description: 'The recorded return condition does not match the handover evidence.',
   });
@@ -284,7 +285,7 @@ test('keeps service disputes free of physical-item claims and categories', async
 });
 
 const issue = (rentalId, type = 'physical') => ({ rentalId,
-  category: type === 'physical' ? 'return_condition' : 'service_quality',
+  category: type === 'physical' ? 'communication' : 'service_quality',
   summary: 'Condition needs review', description: 'Please review the item or service before confirming completion.' });
 const raise = (rentalId, type = 'physical', headers = renter) =>
   request(app).post('/api/v1/disputes').set(headers).send(issue(rentalId, type));

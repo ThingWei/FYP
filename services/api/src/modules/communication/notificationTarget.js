@@ -8,6 +8,7 @@ import { PaymentModel } from '../payment/payment.model.js';
 import { DisputeModel } from '../dispute/dispute.model.js';
 import { ClaimModel } from '../dispute/claim.model.js';
 import { ReviewModel } from '../review/review.model.js';
+import { UserModel } from '../user/user.model.js';
 
 // Navigation hints only. Destination reads/actions retain their own authorization.
 export async function notificationTarget(id, identity) {
@@ -37,10 +38,19 @@ export async function notificationTarget(id, identity) {
     return thread ? bookingTarget(thread.bookingId, 'chat', { threadId: thread.publicId }) : unavailable;
   }
   if (['dispute', 'claim'].includes(note.entityType)) {
+    const user = await UserModel.findOne({ authId: identity.authId }).select('roles accountStatus').lean();
+    const admin = identity.roles?.includes('admin') && user?.roles.includes('admin') && user.accountStatus === 'active';
+    if (admin) {
+      const claim = note.entityType === 'claim' ? await ClaimModel.findOne({ publicId: note.entityId }).select('disputeId').lean() : null;
+      const id = claim?.disputeId ?? note.entityId;
+      if (await DisputeModel.exists({ publicId: id })) return { kind: note.type === 'dispute_message' ? 'case_chat' : 'admin_case', disputeId: id };
+      return unavailable;
+    }
     const claim = note.entityType === 'claim' ? await ClaimModel.findOne({ publicId: note.entityId, ...participant }).select('disputeId publicId').lean() : null;
     if (note.entityType === 'claim' && !claim) return unavailable;
     const dispute = await DisputeModel.findOne({ publicId: claim?.disputeId ?? note.entityId,
       $or: [{ raisedById: identity.authId }, { respondentId: identity.authId }] }).select('bookingId publicId').lean();
+    if (dispute && note.type === 'dispute_message') return { kind: 'case_chat', disputeId: dispute.publicId };
     return dispute ? bookingTarget(dispute.bookingId, 'dispute', { disputeId: dispute.publicId, ...(claim && { claimId: claim.publicId }) }) : unavailable;
   }
   if (note.entityType === 'review') {

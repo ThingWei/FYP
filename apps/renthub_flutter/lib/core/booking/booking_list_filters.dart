@@ -14,7 +14,10 @@ class BookingListFilters {
   final DateTime? fromDate, toDate;
   Map<String, String> get parameters => {
         if (query.trim().isNotEmpty) 'q': query.trim(),
-        if (status.isNotEmpty) 'status': status,
+        if (status == 'archived')
+          'archived': 'true'
+        else if (status.isNotEmpty)
+          'status': status,
         if (listingType.isNotEmpty) 'listingType': listingType,
         if (category.isNotEmpty) 'category': category,
         if (paymentStatus.isNotEmpty) 'paymentStatus': paymentStatus,

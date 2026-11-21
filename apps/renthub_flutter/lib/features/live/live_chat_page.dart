@@ -1,3 +1,6 @@
+import 'live_case_conversation.dart';
+import 'live_case_navigation.dart';
+import 'live_chat_bubble.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'dart:async';
 import 'dart:typed_data';
@@ -19,9 +22,19 @@ import 'live_contact_profile.dart';
 
 class LiveChatPage extends StatefulWidget {
   const LiveChatPage(
-      {super.key, required this.conversation, this.locationMapBuilder});
+      {super.key, required this.conversation, this.locationMapBuilder})
+      : disputeId = null,
+        caseTitle = '';
 
-  final Conversation conversation;
+  const LiveChatPage.forCase(
+      {super.key,
+      required String this.disputeId,
+      this.caseTitle = 'Case conversation'})
+      : conversation = null,
+        locationMapBuilder = null;
+  final Conversation? conversation;
+  final String? disputeId;
+  final String caseTitle;
   final LocationMapBuilder? locationMapBuilder;
 
   @override
@@ -43,13 +56,18 @@ class _LiveChatPageState extends State<LiveChatPage> {
   int generation = 0;
   ListingLocationSelection? pendingLocation;
   String? locationKey, textKey, keyText;
-  String? get peerId => widget.conversation.otherParticipantId.isEmpty
+  String? get peerId => widget.conversation!.otherParticipantId.isEmpty
       ? null
-      : widget.conversation.otherParticipantId;
+      : widget.conversation!.otherParticipantId;
 
   @override
   void initState() {
     super.initState();
+    if (widget.disputeId != null) {
+      account = context.read<LiveRentHubController>().profile?.id;
+      loading = false;
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       account = context.read<LiveRentHubController>().profile?.id;
@@ -75,14 +93,15 @@ class _LiveChatPageState extends State<LiveChatPage> {
       error = null;
     });
     subscription ??= controller
-        .watchThread(widget.conversation.id, peerId: peerId)
+        .watchThread(widget.conversation!.id, peerId: peerId)
         .listen((message) => _addMessage(message));
     try {
-      final loaded = await controller.loadMessagePage(widget.conversation.id,
+      final loaded = await controller.loadMessagePage(widget.conversation!.id,
           before: older ? before : null);
       if (!current()) return;
-      unawaited(
-          controller.markThreadRead(widget.conversation.id).catchError((_) {}));
+      unawaited(controller
+          .markThreadRead(widget.conversation!.id)
+          .catchError((_) {}));
       setState(() {
         final map = {for (final m in loaded.$1) m.id: m};
         for (final m in messages) {
@@ -167,7 +186,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
                     mapBuilder: widget.locationMapBuilder,
                     confirmationLabel: 'Share location',
                     notice:
-                        'This exact pin will be shared with ${widget.conversation.otherParticipantName}.',
+                        'This exact pin will be shared with ${widget.conversation!.otherParticipantName}.',
                     title: 'Share a location')));
     if (!mounted || location == null || c.profile?.id != account) return;
     setState(() => pendingLocation = location);
@@ -178,7 +197,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
       sendError = null;
     });
     try {
-      final msg = await c.sendMessage(widget.conversation.id, '',
+      final msg = await c.sendMessage(widget.conversation!.id, '',
           clientMessageId: locationKey,
           location: MessageLocation(location.point.latitude,
               location.point.longitude, location.label));
@@ -302,7 +321,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
     try {
       final message = await context
           .read<LiveRentHubController>()
-          .sendMessage(widget.conversation.id, text, clientMessageId: textKey);
+          .sendMessage(widget.conversation!.id, text, clientMessageId: textKey);
       if (!mounted) return;
       if (input.text.trim() == text) input.clear();
       textKey = null;
@@ -323,7 +342,7 @@ class _LiveChatPageState extends State<LiveChatPage> {
     try {
       final message = await context
           .read<LiveRentHubController>()
-          .pickAndSendMessageImage(widget.conversation.id,
+          .pickAndSendMessageImage(widget.conversation!.id,
               confirmSelection: (bytes, name) =>
                   confirmPhotoSelection(context, bytes, name));
       if (message != null) _addMessage(message);
@@ -435,6 +454,35 @@ class _LiveChatPageState extends State<LiveChatPage> {
               child: Text(
                   'Your session changed. Return to Messages to continue.')));
     }
+    if (widget.disputeId != null) {
+      return Scaffold(
+          appBar: AppBar(title: Text(widget.caseTitle), actions: [
+            TextButton.icon(
+                onPressed: () => openCaseManagement(context, widget.disputeId!),
+                icon: const Icon(Icons.assignment_outlined),
+                label: const Text('Case')),
+          ]),
+          body: SafeArea(
+              child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Center(
+                      child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 800),
+                          child: CaseConversation(
+                              disputeId: widget.disputeId!,
+                              fillHeight: true,
+                              onStatusChanged: context
+                                          .read<LiveRentHubController>()
+                                          .profile
+                                          ?.roles
+                                          .contains(UserRole.admin) ==
+                                      true
+                                  ? null
+                                  : () => context
+                                      .read<LiveRentHubController>()
+                                      .refreshCase(widget.disputeId!)
+                                      .catchError((_) {})))))));
+    }
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -448,11 +496,11 @@ class _LiveChatPageState extends State<LiveChatPage> {
                 context,
                 MaterialPageRoute(
                     builder: (_) => LiveContactProfilePage(
-                        threadId: widget.conversation.id))),
+                        threadId: widget.conversation!.id))),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.conversation.otherParticipantName,
+                Text(widget.conversation!.otherParticipantName,
                     maxLines: 1, overflow: TextOverflow.ellipsis),
                 Text(
                   'Tap to view profile',
@@ -513,22 +561,8 @@ class _LiveChatPageState extends State<LiveChatPage> {
                                 child: GestureDetector(
                                   onLongPress: () => _actions(message),
                                   onSecondaryTap: () => _actions(message),
-                                  child: Container(
-                                    constraints:
-                                        const BoxConstraints(maxWidth: 300),
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: own
-                                          ? AppColors.primaryLight
-                                          : AppColors.background,
-                                      border:
-                                          Border.all(color: AppColors.border),
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
+                                  child: ChatBubbleFrame(
+                                    own: own,
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,

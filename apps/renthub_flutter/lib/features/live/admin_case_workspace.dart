@@ -9,6 +9,8 @@ import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/dot_pagination.dart';
 import '../../shared/widgets/renthub_components.dart';
 import 'admin_record_models.dart';
+import 'live_case_navigation.dart';
+import 'live_dispute_progress.dart';
 import 'live_agreement.dart';
 import 'live_photo_widgets.dart';
 import 'live_renthub_controller.dart';
@@ -726,31 +728,77 @@ class _AdminCaseWorkspaceState extends State<AdminCaseWorkspace> {
                             child: TabBarView(children: [
                           scroll(overview()),
                           scroll(evidence()),
-                          scroll(_CasePagedSection(
-                              endpoint:
-                                  '/admin/cases/${widget.disputeId}/conversation',
-                              revision: revision,
-                              builder: (row) => Card(
-                                  child: Padding(
-                                      padding: const EdgeInsets.all(12),
-                                      child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.stretch,
-                                          children: [
-                                            Text(
-                                                '${adminLabel(row['senderName'])} · ${adminDate(row['createdAt'])}',
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .labelLarge),
-                                            const SizedBox(height: 4),
-                                            Text('${row['text'] ?? ''}'),
-                                            if (row['attachment'] is String)
-                                              _CaseEvidence(references: [
-                                                row['attachment']
-                                              ]),
-                                            if (row['locationLabel'] is String)
-                                              Text('${row['locationLabel']}'),
-                                          ]))))),
+                          scroll(Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                DisputeProgressPanel(
+                                    dispute: Dispute.fromJson(
+                                        Map<String, dynamic>.from(record))),
+                                OutlinedButton.icon(
+                                    onPressed: () async {
+                                      await openCaseConversation(
+                                          context, widget.disputeId,
+                                          title:
+                                              '${record['listingTitle'] ?? 'Case conversation'}');
+                                      if (mounted) await load();
+                                    },
+                                    icon: const Icon(Icons.forum_outlined),
+                                    label: const Text('Open in Messages')),
+                                if (actions['canReview'] == true ||
+                                    !['resolved', 'dismissed']
+                                        .contains(record['status']))
+                                  Builder(
+                                      builder: (context) => Align(
+                                          alignment: Alignment.centerRight,
+                                          child: TextButton.icon(
+                                              onPressed: () =>
+                                                  DefaultTabController.of(
+                                                          context)
+                                                      .animateTo(3),
+                                              icon: const Icon(
+                                                  Icons.gavel_outlined),
+                                              label: const Text(
+                                                  'Review & resolve')))),
+                                ExpansionTile(
+                                    title:
+                                        const Text('Earlier booking messages'),
+                                    children: [
+                                      _CasePagedSection(
+                                          endpoint:
+                                              '/admin/cases/${widget.disputeId}/conversation',
+                                          revision: revision,
+                                          builder: (row) => Card(
+                                              child: Padding(
+                                                  padding:
+                                                      const EdgeInsets.all(12),
+                                                  child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .stretch,
+                                                      children: [
+                                                        Text(
+                                                            '${adminLabel(row['senderName'])} · ${adminDate(row['createdAt'])}',
+                                                            style: Theme.of(
+                                                                    context)
+                                                                .textTheme
+                                                                .labelLarge),
+                                                        const SizedBox(
+                                                            height: 4),
+                                                        Text(
+                                                            '${row['text'] ?? ''}'),
+                                                        if (row['attachment']
+                                                            is String)
+                                                          _CaseEvidence(
+                                                              references: [
+                                                                row['attachment']
+                                                              ]),
+                                                        if (row['locationLabel']
+                                                            is String)
+                                                          Text(
+                                                              '${row['locationLabel']}'),
+                                                      ]))))
+                                    ]),
+                              ])),
                           scroll(decisions())
                         ])),
                       ])));

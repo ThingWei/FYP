@@ -1,5 +1,24 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../core/theme/app_theme.dart';
+
+DateTime malaysiaAppointmentInstant(DateTime day, TimeOfDay time) =>
+    DateTime.utc(day.year, day.month, day.day, time.hour - 8, time.minute);
+bool appointmentTimeAvailable(DateTime day, TimeOfDay time, {DateTime? now}) =>
+    malaysiaAppointmentInstant(day, time)
+        .isAfter((now ?? DateTime.now()).toUtc());
+
+Future<TimeOfDay?> chooseAvailableServiceTime(
+    BuildContext context, DateTime day, TimeOfDay time) async {
+  final result = await showModalBottomSheet<RentalAppointmentSelection>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: 560),
+      builder: (_) => _AppointmentSheet(
+          pickupDate: day, returnDate: day, pickup: time, serviceOnly: true));
+  return result?.pickup;
+}
 
 String appointmentTime(String? value) {
   if (value == null || !RegExp(r'^([01]\d|2[0-3]):[0-5]\d$').hasMatch(value)) {
@@ -102,7 +121,8 @@ Future<RentalAppointmentSelection?> chooseRentalAppointments(
     {required DateTime pickupDate,
     required DateTime returnDate,
     TimeOfDay? pickup,
-    TimeOfDay? returnTime}) {
+    TimeOfDay? returnTime,
+    DateTime Function()? clock}) {
   FocusManager.instance.primaryFocus?.unfocus();
   return showModalBottomSheet<RentalAppointmentSelection>(
       context: context,
@@ -113,7 +133,8 @@ Future<RentalAppointmentSelection?> chooseRentalAppointments(
           pickupDate: pickupDate,
           returnDate: returnDate,
           pickup: pickup,
-          returnTime: returnTime));
+          returnTime: returnTime,
+          clock: clock));
 }
 
 class _AppointmentSheet extends StatefulWidget {
@@ -121,17 +142,46 @@ class _AppointmentSheet extends StatefulWidget {
       {required this.pickupDate,
       required this.returnDate,
       this.pickup,
-      this.returnTime});
+      this.returnTime,
+      this.serviceOnly = false,
+      this.clock});
   final DateTime pickupDate, returnDate;
   final TimeOfDay? pickup, returnTime;
+  final bool serviceOnly;
+  final DateTime Function()? clock;
   @override
   State<_AppointmentSheet> createState() => _AppointmentSheetState();
 }
 
 class _AppointmentSheetState extends State<_AppointmentSheet> {
+  Timer? timer;
+  @override
+  void initState() {
+    super.initState();
+    timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
   late TimeOfDay? pickup = widget.pickup, returning = widget.returnTime;
   bool submitted = false;
   String? get validation {
+    if (pickup != null &&
+            !appointmentTimeAvailable(widget.pickupDate, pickup!,
+                now: widget.clock?.call()) ||
+        !widget.serviceOnly &&
+            returning != null &&
+            !appointmentTimeAvailable(widget.returnDate, returning!,
+                now: widget.clock?.call())) {
+      return 'This time has passed. Choose a later time.';
+    }
+    if (widget.serviceOnly) return pickup == null ? 'Choose a time.' : null;
     if (pickup == null || returning == null) return 'Choose both times.';
     final a = widget.pickupDate, b = widget.returnDate;
     if (DateTime(b.year, b.month, b.day)
@@ -175,6 +225,18 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
             ? 12
             : time.hourOfPeriod;
     final period = time?.period ?? DayPeriod.pm;
+    bool allowed(int h, int m, DayPeriod p) {
+      final value =
+          TimeOfDay(hour: h % 12 + (p == DayPeriod.pm ? 12 : 0), minute: m);
+      if (!appointmentTimeAvailable(date, value, now: widget.clock?.call())) {
+        return false;
+      }
+      return title != 'Return' ||
+          pickup == null ||
+          malaysiaAppointmentInstant(date, value)
+              .isAfter(malaysiaAppointmentInstant(widget.pickupDate, pickup!));
+    }
+
     void update({int? nextHour, int? minute, DayPeriod? nextPeriod}) {
       final h = (nextHour ?? hour ?? 12) % 12;
       changed(TimeOfDay(
@@ -189,7 +251,11 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
       Row(children: [
         select<int>('Hour', hour, [
           for (var i = 1; i <= 12; i++)
-            DropdownMenuItem(value: i, child: Text('$i'))
+            DropdownMenuItem(
+                value: i,
+                enabled: List.generate(60, (m) => allowed(i, m, period))
+                    .any((v) => v),
+                child: Text('$i'))
         ], (v) {
           if (v != null) update(nextHour: v);
         }),
@@ -197,14 +263,22 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
         select<int>('Minute', time?.minute ?? 0, [
           for (var i = 0; i < 60; i++)
             DropdownMenuItem(
-                value: i, child: Text(i.toString().padLeft(2, '0')))
+                value: i,
+                enabled: allowed(hour ?? 12, i, period),
+                child: Text(i.toString().padLeft(2, '0')))
         ], (v) {
           if (v != null) update(minute: v);
         }),
         const SizedBox(width: 8),
-        select<DayPeriod>('am/pm', period, const [
-          DropdownMenuItem(value: DayPeriod.am, child: Text('am')),
-          DropdownMenuItem(value: DayPeriod.pm, child: Text('pm'))
+        select<DayPeriod>('am/pm', period, [
+          for (final p in DayPeriod.values)
+            DropdownMenuItem(
+                value: p,
+                enabled: List.generate(
+                    12,
+                    (h) => List.generate(60, (m) => allowed(h + 1, m, p))
+                        .any((v) => v)).any((v) => v),
+                child: Text(p == DayPeriod.am ? 'am' : 'pm')),
         ], (v) {
           if (v != null) update(nextPeriod: v);
         }),
@@ -228,7 +302,10 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
                     padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
                     child: Row(children: [
                       Expanded(
-                          child: Text('Pickup & return times',
+                          child: Text(
+                              widget.serviceOnly
+                                  ? 'Service time'
+                                  : 'Pickup & return times',
                               style: Theme.of(context).textTheme.titleLarge)),
                       IconButton(
                           tooltip: 'Close',
@@ -241,11 +318,18 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        timeFields('Pickup / delivery', widget.pickupDate,
-                            pickup, (value) => setState(() => pickup = value)),
-                        const SizedBox(height: 24),
-                        timeFields('Return', widget.returnDate, returning,
-                            (value) => setState(() => returning = value)),
+                        timeFields(
+                            widget.serviceOnly
+                                ? 'Service'
+                                : 'Pickup / delivery',
+                            widget.pickupDate,
+                            pickup,
+                            (value) => setState(() => pickup = value)),
+                        if (!widget.serviceOnly) ...[
+                          const SizedBox(height: 24),
+                          timeFields('Return', widget.returnDate, returning,
+                              (value) => setState(() => returning = value)),
+                        ],
                         if (submitted && validation != null)
                           Padding(
                               padding: const EdgeInsets.only(top: 12),
@@ -263,7 +347,7 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
                             Navigator.pop(
                                 context,
                                 RentalAppointmentSelection(
-                                    pickup!, returning!));
+                                    pickup!, returning ?? pickup!));
                           }
                         },
                         child: const Text('Save times'))),

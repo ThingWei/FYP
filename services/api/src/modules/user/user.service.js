@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { uniqueSavedPlaces } from './savedPlaceIdentity.js';
 import { validCoordinates } from '../../core/location.js';
 import { createHash, createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../core/errors.js';
@@ -545,6 +546,7 @@ export const userService = {
       await uploadService.assertOwnedReferences(identity, [input.avatarUrl], ['avatar']);
     }
     if (input.addresses) {
+      if (uniqueSavedPlaces(input.addresses).length !== input.addresses.length) throw new AppError('This place is already saved.', 422, 'DUPLICATE_SAVED_PLACE');
       const existing = user.addresses.map((address) => address.toObject());
       const usedIds = new Set();
       for (const address of input.addresses) {

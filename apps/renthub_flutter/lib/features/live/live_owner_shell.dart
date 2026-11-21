@@ -1,3 +1,6 @@
+import 'live_owner_listing_filters.dart';
+import '../../shared/widgets/async_action_button.dart';
+import 'live_booking_listing_link.dart';
 import 'live_listing_delete.dart';
 import 'live_owner_listing_details.dart';
 import 'live_listing_gallery.dart';
@@ -493,137 +496,146 @@ class LiveOwnerListingsPage extends StatelessWidget {
       ),
       bottomNavigationBar:
           const UserRecordPagination(collection: 'owner-listings'),
-      body: RefreshIndicator(
-        onRefresh: controller.loadOwner,
-        child: controller.ownerListings.isEmpty
-            ? ListView(
-                children: const [
-                  SizedBox(
-                    height: 520,
-                    child: RentHubFeedbackState(
-                      kind: FeedbackKind.empty,
-                      title: 'No listings yet',
-                      message: 'Create an item or service listing to begin.',
+      body: Column(children: [
+        const OwnerListingFilters(),
+        Expanded(
+            child: RefreshIndicator(
+          onRefresh: controller.loadOwner,
+          child: controller.ownerListings.isEmpty
+              ? ListView(
+                  children: [
+                    SizedBox(
+                      height: 520,
+                      child: RentHubFeedbackState(
+                        kind: FeedbackKind.empty,
+                        title: controller.ownerListingFilters.isEmpty
+                            ? 'No listings yet'
+                            : 'No matching listings',
+                        message: controller.ownerListingFilters.isEmpty
+                            ? 'Create an item or service listing to begin.'
+                            : 'Try another search or reset the filters.',
+                      ),
                     ),
-                  ),
-                ],
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: controller.ownerListings.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final listing = controller.ownerListings[index];
-                  return Card(
-                    child: ListTile(
-                      onTap: () async {
-                        Future<void> edit(Listing current) =>
-                            Navigator.push<void>(
+                  ],
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: controller.ownerListings.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final listing = controller.ownerListings[index];
+                    return Card(
+                      child: ListTile(
+                        onTap: () async {
+                          Future<void> edit(Listing current) =>
+                              Navigator.push<void>(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => LiveListingForm(
+                                          isService: current.isService,
+                                          listing: current)));
+                          if (listing.status == 'draft') {
+                            await edit(listing);
+                          } else if (context.mounted) {
+                            await Navigator.push<void>(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) => LiveListingForm(
-                                        isService: current.isService,
-                                        listing: current)));
-                        if (listing.status == 'draft') {
-                          await edit(listing);
-                        } else if (context.mounted) {
-                          await Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => LiveOwnerListingDetailsPage(
-                                      initial: listing, onEdit: edit)));
-                        }
-                      },
-                      leading: ListingRowThumbnail(listing: listing, size: 56),
-                      title: Text(listing.title.trim().isEmpty
-                          ? 'Untitled listing'
-                          : listing.title),
-                      subtitle: Text(
-                        '${listing.dailyPrice > 0 ? formatMoney(listing.dailyPrice) : 'Price not set'} · ${listing.status.replaceAll('_', ' ')}'
-                        '${listing.promotionActive ? '\n${listing.promotionLabel} · ${listing.promotionDiscountPercent.toStringAsFixed(0)}% off' : ''}'
-                        '${listing.itemVerificationOutcome.isNotEmpty && !listing.isService ? '\n${listing.itemPhotoCheckLabel}' : ''}',
-                      ),
-                      isThreeLine: listing.promotionActive ||
-                          listing.itemVerificationOutcome.isNotEmpty,
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (value) async {
-                          if (value == 'edit') {
-                            await Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => LiveListingForm(
-                                  isService: listing.isService,
-                                  listing: listing,
-                                ),
-                              ),
-                            );
-                          } else if (value == 'availability' &&
-                              listing.status == 'active') {
-                            await Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => LiveAvailabilityPage(listing),
-                              ),
-                            );
-                          } else if (value == 'promotion') {
-                            await Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => LivePromotionPage(listing),
-                              ),
-                            );
-                          } else if (value == 'delete') {
-                            await confirmListingDeletion(context, listing);
-                          } else if (value == 'deactivate') {
-                            final accepted = await confirmAction(
-                              context,
-                              title: 'Deactivate listing?',
-                              message:
-                                  'The listing will no longer appear in renter discovery.',
-                              action: 'Deactivate',
-                              destructive: true,
-                            );
-                            if (accepted && context.mounted) {
-                              await controller.deactivateListing(listing.id);
-                            }
+                                    builder: (_) => LiveOwnerListingDetailsPage(
+                                        initial: listing, onEdit: edit)));
                           }
                         },
-                        itemBuilder: (_) => [
-                          if (!['pending_review', 'inactive']
-                              .contains(listing.status))
+                        leading:
+                            ListingRowThumbnail(listing: listing, size: 56),
+                        title: Text(listing.title.trim().isEmpty
+                            ? 'Untitled listing'
+                            : listing.title),
+                        subtitle: Text(
+                          '${listing.dailyPrice > 0 ? formatMoney(listing.dailyPrice) : 'Price not set'} · ${listing.status.replaceAll('_', ' ')}'
+                          '${listing.promotionActive ? '\n${listing.promotionLabel} · ${listing.promotionDiscountPercent.toStringAsFixed(0)}% off' : ''}'
+                          '${listing.itemVerificationOutcome.isNotEmpty && !listing.isService ? '\n${listing.itemPhotoCheckLabel}' : ''}',
+                        ),
+                        isThreeLine: listing.promotionActive ||
+                            listing.itemVerificationOutcome.isNotEmpty,
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (value) async {
+                            if (value == 'edit') {
+                              await Navigator.push<void>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LiveListingForm(
+                                    isService: listing.isService,
+                                    listing: listing,
+                                  ),
+                                ),
+                              );
+                            } else if (value == 'availability' &&
+                                listing.status == 'active') {
+                              await Navigator.push<void>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LiveAvailabilityPage(listing),
+                                ),
+                              );
+                            } else if (value == 'promotion') {
+                              await Navigator.push<void>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LivePromotionPage(listing),
+                                ),
+                              );
+                            } else if (value == 'delete') {
+                              await confirmListingDeletion(context, listing);
+                            } else if (value == 'deactivate') {
+                              final accepted = await confirmAction(
+                                context,
+                                title: 'Deactivate listing?',
+                                message:
+                                    'The listing will no longer appear in renter discovery.',
+                                action: 'Deactivate',
+                                destructive: true,
+                              );
+                              if (accepted && context.mounted) {
+                                await controller.deactivateListing(listing.id);
+                              }
+                            }
+                          },
+                          itemBuilder: (_) => [
+                            if (!['pending_review', 'inactive']
+                                .contains(listing.status))
+                              const PopupMenuItem(
+                                value: 'edit',
+                                child: Text('Edit listing'),
+                              ),
+                            if (listing.status == 'active')
+                              const PopupMenuItem(
+                                value: 'availability',
+                                child: Text('Availability'),
+                              ),
                             const PopupMenuItem(
-                              value: 'edit',
-                              child: Text('Edit listing'),
+                              value: 'promotion',
+                              child: Text('Promotion'),
                             ),
-                          if (listing.status == 'active')
-                            const PopupMenuItem(
-                              value: 'availability',
-                              child: Text('Availability'),
+                            if (listing.status != 'inactive')
+                              const PopupMenuItem(
+                                value: 'deactivate',
+                                child: Text('Deactivate'),
+                              ),
+                            PopupMenuItem(
+                              value: 'delete',
+                              enabled: listing.canDelete,
+                              child: Tooltip(
+                                message: listing.deleteReason,
+                                child: const Text('Delete listing'),
+                              ),
                             ),
-                          const PopupMenuItem(
-                            value: 'promotion',
-                            child: Text('Promotion'),
-                          ),
-                          if (listing.status != 'inactive')
-                            const PopupMenuItem(
-                              value: 'deactivate',
-                              child: Text('Deactivate'),
-                            ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            enabled: listing.canDelete,
-                            child: Tooltip(
-                              message: listing.deleteReason,
-                              child: const Text('Delete listing'),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-      ),
+                    );
+                  },
+                ),
+        )),
+      ]),
     );
   }
 }
@@ -845,6 +857,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
             style: Theme.of(context).textTheme.titleMedium),
         children: [
           if (category == RentHubCategories.books) ...[
+            const SizedBox(height: 16),
             TextFormField(
                 controller: isbn,
                 maxLength: 32,
@@ -870,6 +883,7 @@ class _LiveListingFormState extends State<LiveListingForm> {
                         .validate,
                 onChanged: (_) => _clearPriceRecommendation()),
           ] else ...[
+            const SizedBox(height: 16),
             TextFormField(
                 controller: variant,
                 maxLength: 80,
@@ -2117,8 +2131,6 @@ class LiveAvailabilityPage extends StatefulWidget {
 }
 
 class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
-  final notice = TextEditingController(text: '0');
-  final buffer = TextEditingController(text: '0');
   List<Map<String, dynamic>> ranges = [];
   List<Map<String, dynamic>> weeklyHours = [];
   bool loading = true;
@@ -2144,8 +2156,6 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
       weeklyHours = ((data['weeklyHours'] as List?) ?? const [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList();
-      notice.text = '${data['minimumNoticeHours'] ?? 0}';
-      buffer.text = '${data['bufferHours'] ?? 0}';
     } catch (exception) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -2158,8 +2168,6 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
 
   @override
   void dispose() {
-    notice.dispose();
-    buffer.dispose();
     super.dispose();
   }
 
@@ -2245,8 +2253,6 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
         {
           'unavailableRanges': ranges,
           'weeklyHours': weeklyHours,
-          'minimumNoticeHours': int.parse(notice.text),
-          'bufferHours': int.parse(buffer.text),
         },
       );
       if (mounted) Navigator.pop(context);
@@ -2296,46 +2302,6 @@ class _LiveAvailabilityPageState extends State<LiveAvailabilityPage> {
                     Text(widget.listing.title,
                         style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: notice,
-                            keyboardType: TextInputType.number,
-                            decoration: (const InputDecoration(
-                              labelText: 'Minimum notice (hours)',
-                            )).copyWith(counterText: '', errorMaxLines: 3),
-                            validator: InputRules.minimumNoticeHours.validate,
-                            inputFormatters: InputValidation.formatters(
-                                InputRules.minimumNoticeHours, notice),
-                            autovalidateMode:
-                                AutovalidateMode.onUserInteraction,
-                            maxLength: InputRules.minimumNoticeHours.maxLength,
-                            maxLengthEnforcement:
-                                InputValidation.lengthEnforcement,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: buffer,
-                            keyboardType: TextInputType.number,
-                            decoration: (const InputDecoration(
-                              labelText: 'Buffer (hours)',
-                            )).copyWith(counterText: '', errorMaxLines: 3),
-                            validator: InputRules.bufferHours.validate,
-                            inputFormatters: InputValidation.formatters(
-                                InputRules.bufferHours, buffer),
-                            autovalidateMode:
-                                AutovalidateMode.onUserInteraction,
-                            maxLength: InputRules.bufferHours.maxLength,
-                            maxLengthEnforcement:
-                                InputValidation.lengthEnforcement,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
                     Row(
                       children: [
                         Expanded(
@@ -2664,7 +2630,6 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
   Widget build(BuildContext context) {
     final focusBookingId = widget.focusBookingId;
     final focusRentalId = widget.focusRentalId;
-    final payment = widget.payment;
     final controller = context.watch<LiveRentHubController>();
     final visibleBookings = (focusBookingId == null
             ? controller.bookingPageRecords(owner: true)
@@ -2776,12 +2741,9 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                                   ownerName: booking.ownerName),
                             if (rental?.returnSubmission != null)
                               ReturnPhotosSection(rental: rental!),
-                            Text(booking.listingTitle,
-                                style: Theme.of(context).textTheme.titleMedium),
+                            BookingListingLink(booking: booking),
                             const SizedBox(height: 6),
                             Text('${booking.renterName} · ${booking.id}'),
-                            if (payment != null)
-                              LivePaymentSummary(payment: payment),
                             BookingDetailLinks(children: [
                               BookingLocationsButton(bookingId: booking.id),
                               TextButton.icon(
@@ -2802,8 +2764,9 @@ class _LiveOwnerRequestsPageState extends State<LiveOwnerRequestsPage> {
                                 booking.paymentStatus != 'authorized')
                               const Text(
                                   'Waiting for the renter to complete payment.'),
-                            Text(formatDateRange(booking.start, booking.end)),
-                            LiveBookingPaymentDetails(booking: booking),
+                            LiveBookingPaymentDetails(
+                                booking: booking,
+                                selectedPayment: widget.payment),
                             if (_submitting && _busyBookingId == booking.id)
                               Padding(
                                 padding: const EdgeInsets.only(top: 12),
@@ -2971,7 +2934,7 @@ class _OwnerRentalCard extends StatelessWidget {
         child: const Text('Mark Service Delivered'),
       );
     } else if (rental.status == 'return_submitted') {
-      action = FilledButton(
+      action = AsyncActionButton(
         onPressed: () => _run(
           context,
           'return-confirm',
@@ -2981,7 +2944,8 @@ class _OwnerRentalCard extends StatelessWidget {
             'depositDeduction': 0,
           },
         ),
-        child: const Text('Confirm Return'),
+        label: 'Confirm return',
+        busyLabel: 'Confirming return',
       );
     } else if (rental.extensionStatus == 'pending') {
       extensionActions = [

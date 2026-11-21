@@ -160,10 +160,12 @@ Future<bool> confirmAction(
   required String message,
   String action = 'Confirm',
   bool destructive = false,
+  List<int>? actionFlex,
 }) async =>
     await showDialog<bool>(
       context: context,
       builder: (_) => rentHubDialog(
+        actionFlex: actionFlex,
         title: Text(title),
         content: Text(message),
         actions: [
@@ -176,7 +178,7 @@ Future<bool> confirmAction(
                 ? FilledButton.styleFrom(backgroundColor: AppColors.error)
                 : null,
             onPressed: () => Navigator.pop(context, true),
-            child: Text(action),
+            child: Text(action, textAlign: TextAlign.center),
           ),
         ],
       ),

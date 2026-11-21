@@ -53,8 +53,8 @@ class DisputeProgressPanel extends StatelessWidget {
                 ? 'View the decision below.'
                 : stage == 2
                     ? 'The case is being reviewed.'
-                    : 'The other party can respond.';
-    const titles = ['Reported', 'Response', 'Review', 'Decision'];
+                    : 'Discuss the issue with the Owner, renter and admin.';
+    const titles = ['Opened', 'Discussion', 'Admin review', 'Closed'];
     const icons = [
       Icons.flag_outlined,
       Icons.forum_outlined,
@@ -69,56 +69,62 @@ class DisputeProgressPanel extends StatelessWidget {
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 16),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          for (var i = 0; i < titles.length; i++)
-            Expanded(
-                child: Semantics(
-              label:
-                  '${titles[i]}, ${i < stage ? 'completed' : i == stage ? 'current step' : 'upcoming'}',
-              excludeSemantics: true,
-              child: Column(children: [
-                Row(children: [
-                  Expanded(
-                      child: Container(
-                          height: 2,
-                          color: i == 0
-                              ? Colors.transparent
-                              : i <= stage
-                                  ? AppColors.primary
-                                  : AppColors.border)),
-                  Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: i <= stage
-                              ? AppColors.primaryLight
-                              : AppColors.surface,
-                          border: Border.all(
-                              color: i == stage
-                                  ? AppColors.primary
-                                  : AppColors.border)),
-                      child: Icon(icons[i],
-                          size: 20,
-                          color: i <= stage
-                              ? AppColors.primary
-                              : AppColors.secondaryText)),
-                  Expanded(
-                      child: Container(
-                          height: 2,
-                          color: i == titles.length - 1
-                              ? Colors.transparent
-                              : i < stage
-                                  ? AppColors.primary
-                                  : AppColors.border)),
+        LayoutBuilder(builder: (context, bounds) {
+          final compact = bounds.maxWidth < 440 ||
+              MediaQuery.textScalerOf(context).scale(12) > 18;
+          final labels =
+              compact ? const ['Opened', 'Chat', 'Review', 'Closed'] : titles;
+          return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (var i = 0; i < titles.length; i++)
+              Expanded(
+                  child: Semantics(
+                label:
+                    '${titles[i]}, ${i < stage ? 'completed' : i == stage ? 'current step' : 'upcoming'}',
+                excludeSemantics: true,
+                child: Column(children: [
+                  Row(children: [
+                    Expanded(
+                        child: Container(
+                            height: 2,
+                            color: i == 0
+                                ? Colors.transparent
+                                : i <= stage
+                                    ? AppColors.primary
+                                    : AppColors.border)),
+                    Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: i <= stage
+                                ? AppColors.primaryLight
+                                : AppColors.surface,
+                            border: Border.all(
+                                color: i == stage
+                                    ? AppColors.primary
+                                    : AppColors.border)),
+                        child: Icon(icons[i],
+                            size: 20,
+                            color: i <= stage
+                                ? AppColors.primary
+                                : AppColors.secondaryText)),
+                    Expanded(
+                        child: Container(
+                            height: 2,
+                            color: i == titles.length - 1
+                                ? Colors.transparent
+                                : i < stage
+                                    ? AppColors.primary
+                                    : AppColors.border)),
+                  ]),
+                  const SizedBox(height: 8),
+                  Text(labels[i],
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.labelMedium),
                 ]),
-                const SizedBox(height: 8),
-                Text(titles[i],
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelMedium),
-              ]),
-            )),
-        ]),
+              )),
+          ]);
+        }),
         const SizedBox(height: 12),
         Text(next, textAlign: TextAlign.center),
       ]),

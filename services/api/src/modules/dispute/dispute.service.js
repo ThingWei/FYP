@@ -4,7 +4,7 @@ import { blockchainAdapter } from '../../integrations/blockchainAdapter.js';
 import { adminModule } from '../admin/index.js';
 import { BookingModel } from '../booking/booking.model.js';
 import { MessageModel } from '../communication/message.model.js';
-import { notifyUser } from '../communication/notification.service.js';
+import { notifyUser, notifyCaseAdmins } from '../communication/notification.service.js';
 import { ThreadModel } from '../communication/thread.model.js';
 import { RentalModel } from '../rental/rental.model.js';
 import { UserModel } from '../user/user.model.js';
@@ -16,6 +16,8 @@ import { commitLifecycle, recoverListingOperations } from '../../operations/life
 import { bookingBalance, cents, planAllocations } from '../payment/paymentLedger.js';
 import { prepareVoidBookingPayment } from '../payment/payment.service.js';
 import { PaymentModel } from '../payment/payment.model.js';
+import { emitCaseUpdate } from '../../socket/eventBus.js';
+import { assertDisputeCategory } from './disputeCategoryPolicy.js';
 
 async function mutateDispute(id, operation) {
   const context = await disputeRepository.findById(id);
@@ -77,6 +79,8 @@ async function audit(identity, action, targetType, targetId, metadata = {}) {
 }
 
 async function notifyBoth(dispute, payload) {
+  emitCaseUpdate(dispute.publicId);
+  await notifyCaseAdmins(dispute, { ...payload, dedupeKey: `case-update:${dispute.publicId}:${payload.type}:${dispute.updatedAt?.toISOString()}` });
   await Promise.all(
     [dispute.raisedById, dispute.respondentId].map((userId) =>
       notifyUser({
@@ -113,6 +117,7 @@ export const disputeService = {
       if (await disputeRepository.findByRental(rental.publicId)) {
         throw new AppError('A dispute already exists for this rental', 409, 'DISPUTE_EXISTS');
       }
+      assertDisputeCategory(rental, role, input.category);
       const respondentId = role === 'renter' ? rental.ownerId : rental.renterId;
       const respondent = await UserModel.findOne({ authId: respondentId });
       if (!respondent) throw new AppError('Other participant not found', 409, 'USER_MISSING');
@@ -158,6 +163,7 @@ export const disputeService = {
         rental.transactionHash = chainResult.lastTransactionHash ?? rental.transactionHash;
       }
       await commitLifecycle(`dispute-open:${dispute._id}`, rental.listingId, [dispute, ...(extensionAuthorization ? [extensionAuthorization] : []), rental, booking], ensureOwned);
+      await notifyCaseAdmins(dispute, { type: 'dispute_opened', title: 'New dispute', body: `${raiser.displayName} reported an issue with ${booking.listingTitle}.`, dedupeKey: `case-open:${dispute.publicId}` });
       await notifyUser({
         userId: respondentId,
         category: 'dispute',
@@ -236,6 +242,9 @@ export const disputeService = {
       });
       dispute.status = 'under_review';
       await dispute.save();
+      emitCaseUpdate(dispute.publicId);
+      await notifyCaseAdmins(dispute, { type: 'dispute_response', title: 'Case updated', body: `New information about ${dispute.listingTitle}.`,
+        dedupeKey: `case-response:${dispute.publicId}:${dispute.responses.at(-1)._id}`, excludeId: identity.authId });
       const recipient =
         identity.authId === dispute.raisedById
           ? dispute.respondentId

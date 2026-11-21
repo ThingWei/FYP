@@ -161,8 +161,9 @@ class _HandoverPhotosSectionState extends State<HandoverPhotosSection> {
       final accepted = await confirmAction(context,
           title: 'Confirm item received?',
           message:
-              'Confirm that you have received the item and reviewed the Owner’s condition and photos. This starts the rental and completes the payment. You can still report a problem during the rental.',
-          action: 'Confirm receipt');
+              'Confirm you received the item and reviewed its photos. This starts the rental and completes payment. You can still report a problem.',
+          action: 'Confirm receipt',
+          actionFlex: const [1, 2]);
       if (!current() || !accepted) return;
       await c.runRentalAction(rental, 'handover-acknowledge',
           body: {'handoverId': rental.handover!.handoverId});
@@ -341,11 +342,18 @@ class _HandoverPhotosSectionState extends State<HandoverPhotosSection> {
                               : reviewing
                                   ? () => refreshOrConfirm(confirm: true)
                                   : () => setState(() => reviewing = true),
-                          icon: const Icon(Icons.task_alt),
+                          icon: busy &&
+                                  (ModalRoute.of(context)?.isCurrent ?? true)
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.task_alt),
                           label: Text(busy
                               ? 'Please wait…'
                               : reviewing
-                                  ? 'Confirm item received'
+                                  ? 'Confirm receipt'
                                   : 'Review handover')),
                     if (issue != null || c.canStartDispute(rental))
                       OutlinedButton.icon(

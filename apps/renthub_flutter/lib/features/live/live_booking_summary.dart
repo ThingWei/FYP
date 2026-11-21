@@ -6,6 +6,7 @@ import '../../shared/models/domain_models.dart';
 import '../../shared/widgets/renthub_components.dart';
 import '../renter/booking/booking_flow.dart' show formatDateRange, formatMoney;
 import 'live_authenticated_page.dart';
+import '../../shared/widgets/async_action_button.dart';
 import 'live_payment_countdown.dart';
 import 'live_rental_progress.dart';
 import 'live_renthub_controller.dart';
@@ -188,6 +189,12 @@ class LiveBookingSummaryCard extends StatelessWidget {
                               child: OutlinedButton(
                                   onPressed: onDetails,
                                   child: const Text('View details'))),
+                          if (booking.displayStatus == 'expired') ...[
+                            const SizedBox(width: 12),
+                            Expanded(
+                                child: BookingArchiveAction(
+                                    booking: booking, owner: owner)),
+                          ],
                           if (!owner &&
                               !expired &&
                               booking.canContinuePayment &&
@@ -262,4 +269,41 @@ class BookingStatusHeader extends StatelessWidget {
                         remaining: remaining, expired: expired)),
             ]));
       });
+}
+
+class BookingArchiveAction extends StatelessWidget {
+  const BookingArchiveAction(
+      {super.key, required this.booking, required this.owner});
+  final Booking booking;
+  final bool owner;
+  @override
+  Widget build(BuildContext context) {
+    final c = context.watch<LiveRentHubController>();
+    final collection = owner ? 'owner-bookings' : 'renter-bookings';
+    final archived = c.filtersForBookings(collection).status == 'archived';
+    return AsyncActionButton(
+        label: archived ? 'Restore' : 'Archive',
+        busyLabel: archived ? 'Restoring' : 'Archiving',
+        onPressed: () async {
+          final account = c.accountGeneration;
+          if (!await confirmAction(context,
+              title: archived ? 'Restore booking?' : 'Archive expired booking?',
+              message: archived
+                  ? 'Show this booking in your main list again.'
+                  : 'Move this booking to Archived. Its history remains available.',
+              action: archived ? 'Restore' : 'Archive')) {
+            return;
+          }
+          if (c.accountGeneration != account) return;
+          await c.api.request('PATCH', '/bookings/${booking.id}/archive',
+              body: {'archived': !archived});
+          if (c.accountGeneration != account) return;
+          await c.loadUserRecords(collection);
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content:
+                    Text(archived ? 'Booking restored' : 'Booking archived')));
+          }
+        });
+  }
 }

@@ -2,12 +2,19 @@ import { matchedData } from 'express-validator';
 import { asyncHandler } from '../../core/asyncHandler.js';
 import { created, ok } from '../../core/respond.js';
 import { disputeService } from './dispute.service.js';
+import { disputeChat } from './disputeChat.service.js';
 
 function body(req) {
   return matchedData(req, { locations: ['body'] });
 }
 
 export const disputeController = {
+  messages: asyncHandler(async (req, res) => {
+    const result = await disputeChat.list(req.params.id, req.query, req.user);
+    return ok(res, result.items, result.meta);
+  }),
+  sendMessage: asyncHandler(async (req, res) =>
+    created(res, await disputeChat.send(req.params.id, body(req), req.user))),
   create: asyncHandler(async (req, res) =>
     created(res, await disputeService.create(body(req), req.user)),
   ),

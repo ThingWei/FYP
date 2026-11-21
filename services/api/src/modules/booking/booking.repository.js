@@ -48,7 +48,7 @@ export const bookingRepository = {
     }),
 
   async listFor({ field, identityId, page, limit, status, filters = {} }) {
-    const filter = { ...bookingListFilter({ ...filters, ...(status && { status }) }), [field]: identityId };
+    const filter = { ...bookingListFilter({ ...filters, ...(status && { status }) }), [field]: identityId, archivedBy: filters.archived === 'true' || filters.archived === true ? identityId : { $ne: identityId } };
     const [items, total] = await Promise.all([
       BookingModel.find(filter)
         .sort(bookingListSort(filters.sort))

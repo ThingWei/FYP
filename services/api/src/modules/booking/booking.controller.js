@@ -6,6 +6,7 @@ import { bookingService } from './booking.service.js';
 import { currentAgreementTerms } from './agreementTerms.js';
 
 export const bookingController = {
+  archive: asyncHandler(async (req, res) => ok(res, await bookingService.archive(req.params.id, req.body.archived, req.user))),
   terms: asyncHandler(async (req, res) => ok(res, currentAgreementTerms(req.query.listingType))),
   agreement: asyncHandler(async (req, res) => ok(res, await bookingService.agreement(req.params.id, req.user))),
   locations: asyncHandler(async (req, res) => ok(res, await bookingService.locations(req.params.id, req.user))),

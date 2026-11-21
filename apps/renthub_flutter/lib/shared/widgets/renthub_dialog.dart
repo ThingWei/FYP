@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 /// Equal-width, separated actions instead of OverflowBar's crowded fallback.
 /// Labels wrap inside their own button; text scaling never hides an action.
 class RentHubDialogActions extends StatelessWidget {
-  const RentHubDialogActions({super.key, required this.children});
+  const RentHubDialogActions({super.key, required this.children, this.flexes});
   final List<Widget> children;
+  final List<int>? flexes;
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -31,6 +32,9 @@ class RentHubDialogActions extends StatelessWidget {
                   for (var i = 0; i < children.length; i++) ...[
                     if (i > 0) const SizedBox(width: 12),
                     Expanded(
+                        flex: flexes != null && i < flexes!.length
+                            ? flexes![i]
+                            : 1,
                         child: ConstrainedBox(
                             constraints: const BoxConstraints(minHeight: 48),
                             child: children[i])),
@@ -52,6 +56,7 @@ AlertDialog rentHubDialog(
         EdgeInsetsGeometry? contentPadding,
         TextStyle? contentTextStyle,
         List<Widget>? actions,
+        List<int>? actionFlex,
         EdgeInsetsGeometry? actionsPadding,
         MainAxisAlignment? actionsAlignment,
         OverflowBarAlignment? actionsOverflowAlignment,
@@ -82,7 +87,7 @@ AlertDialog rentHubDialog(
         contentTextStyle: contentTextStyle,
         actions: actions == null || actions.isEmpty
             ? null
-            : [RentHubDialogActions(children: actions)],
+            : [RentHubDialogActions(flexes: actionFlex, children: actions)],
         actionsPadding:
             actionsPadding ?? const EdgeInsets.fromLTRB(20, 12, 20, 20),
         backgroundColor: backgroundColor,

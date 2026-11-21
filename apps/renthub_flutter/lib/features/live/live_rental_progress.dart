@@ -137,11 +137,8 @@ class RentalJourney {
           paused: true);
     }
     if (status == 'completed') {
-      return RentalJourney(
-          'Completed',
-          'Agreement and reviews are available below.',
-          steps.length,
-          steps);
+      return RentalJourney('Completed',
+          'Agreement and reviews are available below.', steps.length, steps);
     }
     if (status == 'return_submitted' || status == 'completion_pending') {
       return RentalJourney(

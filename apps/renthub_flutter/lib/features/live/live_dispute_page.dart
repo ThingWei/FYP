@@ -1,4 +1,5 @@
 import 'live_condition_record_page.dart';
+import 'live_case_navigation.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import '../../core/booking/dispute_eligibility.dart';
 import '../../core/network/api_client.dart';
@@ -38,7 +39,6 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   final responseFormKey = GlobalKey<FormState>();
   final summary = TextEditingController();
   final description = TextEditingController();
-  final response = TextEditingController();
   final claimAmount = TextEditingController();
   final claimDetails = TextEditingController();
   late String category;
@@ -78,24 +78,9 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     }
   }
 
-  List<String> get categories => widget.rental.listingType == 'physical'
-      ? const [
-          'damaged_item',
-          'return_condition',
-          'missing_item',
-          'deposit_deduction',
-          'late_return',
-          'communication',
-          'other',
-        ]
-      : const [
-          'service_quality',
-          'non_delivery',
-          'scope_mismatch',
-          'cancellation',
-          'communication',
-          'other',
-        ];
+  List<String> get categories => allowedDisputeCategories(
+      context.read<LiveRentHubController>().currentDisputeRental(widget.rental),
+      owner: widget.owner);
 
   @override
   void initState() {
@@ -134,7 +119,10 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
       if (mounted &&
           generation == refreshGeneration &&
           id == widget.rental.id) {
-        setState(() => checked = true);
+        setState(() {
+          checked = true;
+          if (!categories.contains(category)) category = categories.first;
+        });
       }
     } catch (exception) {
       if (mounted &&
@@ -158,7 +146,6 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
   void dispose() {
     summary.dispose();
     description.dispose();
-    response.dispose();
     claimAmount.dispose();
     claimDetails.dispose();
     super.dispose();
@@ -176,6 +163,13 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
     }
     if (!(formKey.currentState?.validate() ?? false)) return;
     try {
+      if (!categories.contains(category)) {
+        setState(() => category = categories.first);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text('The rental stage changed. Choose an available reason.')));
+        return;
+      }
       await context.read<LiveRentHubController>().createDispute(
             rental: widget.rental,
             category: category,
@@ -191,31 +185,6 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             exception.code == 'DISPUTE_WINDOW_CLOSED') {
           setState(() => closedByServer = true);
         }
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
-      }
-    }
-  }
-
-  Future<void> respond(Dispute dispute) async {
-    if (!(responseFormKey.currentState?.validate() ?? false)) return;
-    if (response.text.trim().length < 5) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter at least 5 characters.')),
-      );
-      return;
-    }
-    try {
-      await context.read<LiveRentHubController>().respondToDispute(
-            dispute,
-            response.text,
-            evidence: evidenceRefs,
-          );
-      response.clear();
-      evidenceRefs.clear();
-      if (mounted) showMockSuccess(context, 'Response added to the case');
-    } catch (exception) {
-      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(friendlyError(exception))));
       }
@@ -399,8 +368,10 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             if (widget.rental.listingType == 'physical') _conditionRecords(),
             const SizedBox(height: 20),
             DropdownButtonFormField<String>(
+              key: ValueKey('case-reasons-${categories.join('-')}'),
               isExpanded: true,
-              initialValue: category,
+              initialValue:
+                  categories.contains(category) ? category : categories.first,
               decoration: const InputDecoration(labelText: 'Issue category'),
               items: categories
                   .map((item) => DropdownMenuItem(
@@ -512,6 +483,7 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
           }),
           if (!widget.owner &&
               rental.renterId == controller.profile?.id &&
+              controller.disputeForRental(rental.id)?.status != 'resolved' &&
               rental.canSubmitReturn)
             Padding(
                 padding: const EdgeInsets.only(top: 12),
@@ -575,67 +547,11 @@ class _LiveDisputePageState extends State<LiveDisputePage> {
             const SizedBox(height: 16),
           ],
           if (widget.rental.listingType == 'physical') _conditionRecords(),
-          Text('Updates', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          if (dispute.responses.isEmpty)
-            const Text(
-              'No responses yet.',
-              style: TextStyle(color: AppColors.secondaryText),
-            ),
-          for (final item in dispute.responses)
-            Card(
-                child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(label(item.role),
-                              style: Theme.of(context).textTheme.titleSmall),
-                          Text(rentalEventTime(item.submittedAt),
-                              style: const TextStyle(
-                                  color: AppColors.secondaryText)),
-                          const SizedBox(height: 8),
-                          Text(item.text),
-                          for (var i = 0; i < item.evidence.length; i++)
-                            PhotoAttachmentTile(
-                                reference: item.evidence[i],
-                                label: 'Response attachment ${i + 1}'),
-                        ]))),
-          if (!dispute.closed) ...[
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: response,
-              minLines: 3,
-              maxLines: 5,
-              decoration: (const InputDecoration(
-                labelText: 'Your response',
-              )).copyWith(counterText: '', errorMaxLines: 3),
-              validator: InputRules.addInformationOrAResponse.validate,
-              inputFormatters: InputValidation.formatters(
-                  InputRules.addInformationOrAResponse, response),
-              autovalidateMode: AutovalidateMode.onUserInteraction,
-              maxLength: InputRules.addInformationOrAResponse.maxLength,
-              maxLengthEnforcement: InputValidation.lengthEnforcement,
-              keyboardType: TextInputType.multiline,
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: evidenceRefs.length >= 10 ? null : pickEvidence,
-              icon: const Icon(Icons.attach_file),
-              label: Text('Attach evidence (${evidenceRefs.length})'),
-            ),
-            for (var index = 0; index < evidenceRefs.length; index++)
-              PhotoAttachmentTile(
-                  reference: evidenceRefs[index],
-                  label: 'Response evidence ${index + 1}',
-                  onRemove: () => removeEvidence(index)),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: loading ? null : () => respond(dispute),
-              icon: const Icon(Icons.send_outlined),
-              label: const Text('Send update'),
-            ),
-          ],
+          OutlinedButton.icon(
+              onPressed: () => openCaseConversation(context, dispute.id,
+                  title: dispute.listingTitle),
+              icon: const Icon(Icons.forum_outlined),
+              label: const Text('Open conversation')),
           if (widget.rental.listingType == 'physical' &&
               (widget.owner || claim != null)) ...[
             const SizedBox(height: 20),

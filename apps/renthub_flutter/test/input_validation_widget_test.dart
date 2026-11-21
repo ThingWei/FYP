@@ -244,6 +244,9 @@ void main() {
         find.text('Request damage-waiver review'), 200,
         scrollable: find.byType(Scrollable).first);
     await press(tester, 'Request damage-waiver review');
+    // Opening the case now reads its conversation. Invalid claim input must
+    // still perform no uploads or mutation of its own.
+    api.calls.clear();
     await enter(tester, 'Amount (RM)', '0');
     await enter(tester, 'Damage & repair', 'short');
     await press(tester, 'Continue');

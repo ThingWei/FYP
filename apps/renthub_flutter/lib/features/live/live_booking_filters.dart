@@ -16,7 +16,8 @@ const bookingStatuses = <String, String>{
   'disputed': 'Issue under review',
   'cancelled': 'Cancelled',
   'rejected': 'Declined',
-  'expired': 'Expired'
+  'expired': 'Expired',
+  'archived': 'Archived'
 };
 const bookingSorts = <String, String>{
   'newest': 'Newest requests',

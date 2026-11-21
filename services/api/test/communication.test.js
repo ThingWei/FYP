@@ -90,7 +90,8 @@ before(async () => {
   ]);
 });
 
-beforeEach(async () => {
+beforeEach(async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-20T00:00:00Z') });
   await Promise.all([
     UserModel.deleteMany({}),
     ListingModel.deleteMany({}),

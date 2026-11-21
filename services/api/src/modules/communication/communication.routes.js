@@ -3,6 +3,12 @@ import { authenticate, authorize } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { communicationController } from './communication.controller.js';
 import { pushDelivery } from '../../integrations/pushDelivery.js';
+import { asyncHandler } from '../../core/asyncHandler.js';
+import { ok, created } from '../../core/respond.js';
+import { matchedData, body, param } from 'express-validator';
+import { caseMessaging } from './caseMessaging.service.js';
+import { disputeChat } from '../dispute/disputeChat.service.js';
+import { caseMessagesValidation, caseMessageSendValidation } from '../dispute/dispute.validation.js';
 import {
   bookingThreadValidation,
   deviceIdValidation,
@@ -22,6 +28,16 @@ import {
 export const communicationRouter = Router();
 
 communicationRouter.use(authenticate);
+communicationRouter.get('/cases', paginationValidation, validate, asyncHandler(async (req, res) => {
+  const result = await caseMessaging.list(req.user, req.query); return ok(res, result.items, result.meta);
+}));
+communicationRouter.get('/cases/:id/messages', caseMessagesValidation, validate, asyncHandler(async (req, res) => {
+  const result = await disputeChat.list(req.params.id, req.query, req.user); return ok(res, result.items, result.meta);
+}));
+communicationRouter.post('/cases/:id/messages', caseMessageSendValidation, validate, asyncHandler(async (req, res) =>
+  created(res, await disputeChat.send(req.params.id, matchedData(req, { locations: ['body'] }), req.user))));
+communicationRouter.post('/cases/:id/read', [param('id').matches(/^RH-DSP-[A-Z0-9]+$/), body('readThroughAt').isISO8601()], validate,
+  asyncHandler(async (req, res) => ok(res, await caseMessaging.read(req.params.id, req.user, req.body.readThroughAt))));
 communicationRouter.get('/threads/:threadId/participant', markReadValidation, validate, communicationController.participantProfile);
 communicationRouter.patch('/:messageId', changeMessageValidation, validate, communicationController.changeMessage);
 communicationRouter.get('/notifications/:notificationId/target', notificationIdValidation, validate, communicationController.notificationTarget);

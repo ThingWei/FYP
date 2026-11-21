@@ -7,6 +7,38 @@ import 'package:latlong2/latlong.dart';
 
 enum UserRole { renter, owner, admin }
 
+bool sameSavedPlace(UserAddress a, UserAddress b) {
+  String normalize(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll(RegExp(r'\s*,\s*'), ',');
+  final x =
+      [a.line1, a.line2, a.city, a.state, a.postcode].map(normalize).toList();
+  final y =
+      [b.line1, b.line2, b.city, b.state, b.postcode].map(normalize).toList();
+  if (x.first.isEmpty ||
+      List.generate(x.length, (i) => x[i] == y[i]).contains(false)) {
+    return false;
+  }
+  if (a.latitude == null ||
+      b.latitude == null ||
+      a.longitude == null ||
+      b.longitude == null) {
+    return true;
+  }
+  return a.latitude!.toStringAsFixed(4) == b.latitude!.toStringAsFixed(4) &&
+      a.longitude!.toStringAsFixed(4) == b.longitude!.toStringAsFixed(4);
+}
+
+List<UserAddress> uniqueSavedPlaces(Iterable<UserAddress> rows) {
+  final result = <UserAddress>[];
+  for (final row in rows) {
+    if (!result.any((saved) => sameSavedPlace(saved, row))) result.add(row);
+  }
+  return result;
+}
+
 UserRole? _userRoleFromJson(dynamic value) {
   if (value is! String) return null;
   for (final role in UserRole.values) {
@@ -143,12 +175,8 @@ class User {
       emailNotifications: emailNotifications);
   final List<UserAddress> addresses;
   final List<UserAddress> recentLocations;
-  List<UserAddress> get deliveryAddresses => [
-        ...addresses,
-        ...recentLocations.where((recent) => !addresses.any((saved) =>
-            saved.latitude == recent.latitude &&
-            saved.longitude == recent.longitude))
-      ];
+  List<UserAddress> get deliveryAddresses =>
+      uniqueSavedPlaces([...addresses, ...recentLocations]);
   final String language;
   final bool pushNotifications, emailNotifications;
 
@@ -1023,10 +1051,12 @@ class Transaction {
     this.type = '',
     this.bookingId = '',
     this.rewardReversal = false,
+    this.createdAt,
   });
   final String id, status, type, bookingId;
   final double amount;
   final bool rewardReversal;
+  final DateTime? createdAt;
 
   factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
         (json['publicId'] ?? json['id'] ?? json['_id']) as String,
@@ -1034,6 +1064,7 @@ class Transaction {
         json['status'] as String,
         type: json['type'] as String? ?? '',
         bookingId: json['bookingId'] as String? ?? '',
+        createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}'),
         rewardReversal: json['metadata'] is Map &&
             '${json['metadata']['rewardReversal']}' == 'true',
       );

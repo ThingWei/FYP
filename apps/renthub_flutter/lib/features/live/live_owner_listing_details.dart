@@ -78,6 +78,71 @@ class _LiveOwnerListingDetailsPageState
     }
   }
 
+  Future<void> manage(Listing row, bool canEdit) async {
+    final action = await showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (sheetContext) => SafeArea(
+            child: SingleChildScrollView(
+                child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      ListTile(
+                          leading: const Icon(Icons.edit_outlined),
+                          title: const Text('Edit listing'),
+                          enabled: canEdit,
+                          subtitle: canEdit
+                              ? null
+                              : const Text(
+                                  'Editing is unavailable in this status.'),
+                          onTap: canEdit
+                              ? () => Navigator.pop(sheetContext, 'edit')
+                              : null),
+                      ListTile(
+                          leading: const Icon(Icons.delete_outline),
+                          title: const Text('Delete listing'),
+                          enabled: row.canDelete,
+                          onTap: row.canDelete
+                              ? () => Navigator.pop(sheetContext, 'delete')
+                              : null),
+                      if (!row.canDelete) ...[
+                        Text(row.deleteReason.isEmpty
+                            ? 'Finish open bookings before deleting this listing.'
+                            : row.deleteReason),
+                        Wrap(spacing: 8, children: [
+                          TextButton(
+                              onPressed: () =>
+                                  Navigator.pop(sheetContext, 'bookings'),
+                              child: const Text('Bookings')),
+                          TextButton(
+                              onPressed: () =>
+                                  Navigator.pop(sheetContext, 'rentals'),
+                              child: const Text('Rentals')),
+                        ]),
+                      ],
+                    ])))));
+    if (!mounted) return;
+    final c = context.read<LiveRentHubController>();
+    if (!allowed(c)) return;
+    if (action == 'edit') {
+      await widget.onEdit(row);
+      if (mounted && allowed(c)) await load();
+    } else if (action == 'delete') {
+      if (await confirmListingDeletion(context, row) && mounted) {
+        Navigator.pop(context);
+      }
+    } else if (action == 'bookings' || action == 'rentals') {
+      await Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+              builder: (_) => action == 'rentals'
+                  ? const LiveOwnerOrdersPage()
+                  : const LiveOwnerRequestsPage()));
+      if (mounted && allowed(c)) await load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.watch<LiveRentHubController>(), row = listing;
@@ -86,14 +151,11 @@ class _LiveOwnerListingDetailsPageState
         !['pending_review', 'inactive'].contains(row.status);
     return Scaffold(
         appBar: AppBar(title: const Text('Listing details'), actions: [
-          if (canEdit)
+          if (row != null && allowed(c))
             TextButton.icon(
-                onPressed: () async {
-                  await widget.onEdit(row);
-                  if (mounted && allowed(c)) await load();
-                },
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Edit')),
+                onPressed: () => manage(row, canEdit),
+                icon: const Icon(Icons.tune),
+                label: const Text('Manage listing')),
         ]),
         body: !allowed(c)
             ? const Center(
@@ -121,45 +183,10 @@ class _LiveOwnerListingDetailsPageState
                                               child: const Text('Retry')),
                                         ])),
                               if (row != null) ...[
-                                StatusBadge(row.status.replaceAll('_', ' ')),
-                                const SizedBox(height: 8),
-                                ListingDeleteAction(
-                                  listing: row,
-                                  onDeleted: () => Navigator.pop(context),
-                                  onOpenBookings: () =>
-                                      showModalBottomSheet<void>(
-                                          context: context,
-                                          builder: (sheetContext) => SafeArea(
-                                                  child: Column(
-                                                      mainAxisSize:
-                                                          MainAxisSize.min,
-                                                      children: [
-                                                    ListTile(
-                                                        title: const Text(
-                                                            'Booking requests'),
-                                                        onTap: () {
-                                                          Navigator.pop(
-                                                              sheetContext);
-                                                          Navigator.push<void>(
-                                                              context,
-                                                              MaterialPageRoute(
-                                                                  builder: (_) =>
-                                                                      const LiveOwnerRequestsPage()));
-                                                        }),
-                                                    ListTile(
-                                                        title: const Text(
-                                                            'Rentals and services'),
-                                                        onTap: () {
-                                                          Navigator.pop(
-                                                              sheetContext);
-                                                          Navigator.push<void>(
-                                                              context,
-                                                              MaterialPageRoute(
-                                                                  builder: (_) =>
-                                                                      const LiveOwnerOrdersPage()));
-                                                        }),
-                                                  ]))),
-                                ),
+                                Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: StatusBadge(
+                                        row.status.replaceAll('_', ' '))),
                                 const SizedBox(height: 12),
                                 if (row.images.isNotEmpty) ...[
                                   ListingPhotoCarousel(
@@ -202,6 +229,7 @@ class _LiveOwnerListingDetailsPageState
                                   ListingDetailCell(
                                       title: 'Description',
                                       value: row.description,
+                                      expandable: true,
                                       icon: Icons.notes_outlined),
                                   const SizedBox(height: 12),
                                 ],

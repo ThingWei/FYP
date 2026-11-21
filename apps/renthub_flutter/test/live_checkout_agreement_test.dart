@@ -613,7 +613,8 @@ void main() {
     api.saved['ownerName'] = '';
     await mount(tester, api,
         page: const LiveAgreementPage(bookingId: 'BKG-TEST'));
-    expect(find.text('Owner: Historical name unavailable'), findsOneWidget);
+    expect(find.text('Owner'), findsOneWidget);
+    expect(find.text('Historical name unavailable'), findsOneWidget);
     await tapVisible(tester,
         'The accepted wording is unavailable for this historical record. We will not substitute newer terms.');
     expect(find.text('Care and return'), findsNothing);

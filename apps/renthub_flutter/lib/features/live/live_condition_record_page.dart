@@ -1,3 +1,4 @@
+import '../../shared/widgets/async_action_button.dart';
 import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -332,7 +333,7 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                             style: const TextStyle(
                                                 color: AppColors.error))),
                                   const SizedBox(height: 16),
-                                  FilledButton.icon(
+                                  AsyncActionButton(
                                       onPressed: busy
                                           ? null
                                           : needsStatusCheck
@@ -340,28 +341,27 @@ class _LiveConditionRecordPageState extends State<LiveConditionRecordPage> {
                                               : !ready
                                                   ? null
                                                   : submit,
-                                      icon: Icon(needsStatusCheck
+                                      icon: needsStatusCheck
                                           ? Icons.refresh
-                                          : Icons.check_circle_outline),
-                                      label: Text(busy
-                                          ? 'Please wait…'
-                                          : needsStatusCheck
-                                              ? 'Check latest status'
-                                              : !ready
-                                                  ? !widget.handover
-                                                      ? 'Return unavailable'
-                                                      : rental
-                                                              .hasSubmittedHandover
-                                                          ? 'Handover sent'
-                                                          : ended
-                                                              ? 'Handover closed'
-                                                              : handoverDate ==
-                                                                      null
-                                                                  ? 'Start date needed'
-                                                                  : 'Not available yet'
-                                                  : widget.handover
-                                                      ? 'Send handover'
-                                                      : 'Review & submit return')),
+                                          : Icons.check_circle_outline,
+                                      busyLabel: widget.handover
+                                          ? 'Sending handover'
+                                          : 'Submitting return',
+                                      label: needsStatusCheck
+                                          ? 'Check latest status'
+                                          : !ready
+                                              ? (!widget.handover
+                                                  ? 'Return unavailable'
+                                                  : rental.hasSubmittedHandover
+                                                      ? 'Handover sent'
+                                                      : ended
+                                                          ? 'Handover closed'
+                                                          : handoverDate == null
+                                                              ? 'Start date needed'
+                                                              : 'Not available yet')
+                                              : widget.handover
+                                                  ? 'Send handover'
+                                                  : 'Review & submit return'),
                                 ]))))));
   }
 }

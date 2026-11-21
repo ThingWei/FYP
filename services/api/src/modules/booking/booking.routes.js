@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from 'express-validator';
+import { query, body } from 'express-validator';
 import { authenticate, authorize } from '../../middleware/auth.js';
 import { validate } from '../../middleware/validate.js';
 import { bookingController } from './booking.controller.js';
@@ -63,6 +63,7 @@ bookingRouter.post(
   validate,
   bookingController.cancel,
 );
+bookingRouter.patch('/:id/archive', authenticate, bookingIdValidation, body('archived').custom(value => typeof value === 'boolean'), validate, bookingController.archive);
 bookingRouter.get('/:id/locations', authenticate, bookingIdValidation, validate, bookingController.locations);
 bookingRouter.get(
   '/:id',

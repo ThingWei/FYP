@@ -36,6 +36,7 @@ import { expireUncollectedRentals } from '../rental/uncollectedExpiry.js';
 import { assertNoOverdueReturn } from '../rental/overdueEligibility.js';
 import { rentalRepository } from '../rental/rental.repository.js';
 import { bookingAppointments, agreementProof } from './appointments.js';
+import { assertBookingTimeAvailable } from './bookingTimePolicy.js';
 
 const dayMs = 24 * 60 * 60 * 1000;
 export const bookingAgreementVersion = 'renthub-booking-v1';
@@ -335,6 +336,7 @@ async function createBooking(input, identity, ensureLockOwned) {
         await recoverListingOperations(listing.publicId, ensureListingOwned);
         await assertNoOverdueReturn(renter.authId);
         await assertAvailable(listing, startDate, endDate);
+        assertBookingTimeAvailable(listing, input);
         await ensureLockOwned();
         await ensureListingOwned();
         return bookingRepository.create({
@@ -448,6 +450,16 @@ export const bookingService = {
       await expireDuePendingBookings({ scope: { publicId: booking.publicId } });
       return bookingRepository.findParticipantBooking(id, identity);
     });
+  },
+
+  async archive(id, archived, identity) {
+    await requireActiveUser(identity);
+    const booking = await bookingRepository.findById(id);
+    if (!booking || ![booking.renterId, booking.ownerId].includes(identity.authId)) throw new AppError('Booking not found', 404, 'NOT_FOUND');
+    if (booking.status !== 'expired') throw new AppError('Only expired bookings can be archived.', 409, 'BOOKING_NOT_EXPIRED');
+    await BookingModel.updateOne({ _id: booking._id, status: 'expired' }, archived
+      ? { $addToSet: { archivedBy: identity.authId } } : { $pull: { archivedBy: identity.authId } });
+    return { archived: archived === true };
   },
 
   async listMine(identity, query) {

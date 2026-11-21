@@ -161,6 +161,15 @@ async function acknowledgeHandover(rentalId) {
     .send({ handoverId: saved.handover.handoverId }).expect(200);
 }
 
+test('same-day past appointments are rejected before a booking or payment is saved', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
+  const result = await createCameraBooking({ startDate: '2026-09-20', endDate: '2026-09-22', pickupTime: '09:00', returnTime: '18:00' });
+  assert.equal(result.status, 422, JSON.stringify(result.body));
+  assert.equal(result.body.error.code, 'APPOINTMENT_TIME_PASSED');
+  assert.equal(await BookingModel.countDocuments(), 0);
+  assert.equal(await PaymentModel.countDocuments(), 0);
+});
+
 async function applyReferral(referrerHeaders) {
   const summary = await request(app)
     .get('/api/v1/rewards/summary')
@@ -769,7 +778,7 @@ test('self-booking remains prohibited and malformed legacy self-requests cannot 
 });
 
 test('runs physical approval, handover, extension and return lifecycle', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T00:00:00Z') });
   await applyReferral(owner);
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
@@ -946,7 +955,7 @@ test('cancellation racing approval leaves no active scheduled rental or payment 
 });
 
 test('double handover and double return confirmation do not duplicate captures or settlements', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T00:00:00Z') });
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
   await authorizeBooking(bookingId);
@@ -971,7 +980,7 @@ test('double handover and double return confirmation do not duplicate captures o
 });
 
 test('extension cannot overlap an unresolved disputed rental or be approved after return submission', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T00:00:00Z') });
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
   await authorizeBooking(bookingId);
@@ -1532,7 +1541,7 @@ test('future approval waits for the Malaysian start day and does not capture pay
 });
 
 test('handover requires owned photo evidence and preserves the actual condition for both parties', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T00:00:00Z') });
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
   await authorizeBooking(bookingId);
@@ -1706,7 +1715,7 @@ test('a durable timely payment is recovered instead of expiring as unpaid', asyn
 });
 
 async function submittedReceipt(t) {
-  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T04:00:00Z') });
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-20T00:00:00Z') });
   const created = await createCameraBooking();
   const bookingId = created.body.data.id;
   await authorizeBooking(bookingId);

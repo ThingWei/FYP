@@ -81,6 +81,8 @@ class LiveRentHubController extends ChangeNotifier {
       bookingFilters.clear();
       marketplaceViews.clear();
       conversations = [];
+      caseConversations = [];
+      ownerListingFilters.clear();
       notifications = [];
       _notificationUnread = null;
       _navigationActivity = null;
@@ -186,6 +188,7 @@ class LiveRentHubController extends ChangeNotifier {
         'owner-overdue' => ownerOverdueRecords,
         'owner-listings' => ownerListings,
         'conversations' => conversations,
+        'case-conversations' => caseConversations,
         'reviews' => reviews,
         'received-reviews' => receivedReviews,
         'disputes' => disputes,
@@ -203,7 +206,8 @@ class LiveRentHubController extends ChangeNotifier {
     final query = {
       if (state != null && state.page != 1) 'page': '${state.page}',
       if (state != null && state.limit != 20) 'limit': '${state.limit}',
-      if (key.endsWith('-bookings')) ...filtersForBookings(key).parameters
+      if (key.endsWith('-bookings')) ...filtersForBookings(key).parameters,
+      if (key == 'owner-listings') ...ownerListingFilters
     };
     return '$path${query.isEmpty ? '' : '?${Uri(queryParameters: query).query}'}';
   }
@@ -230,6 +234,7 @@ class LiveRentHubController extends ChangeNotifier {
       'owner-overdue' => '/rentals/owner',
       'owner-listings' => '/listings/owner/mine',
       'conversations' => '/messages/threads',
+      'case-conversations' => '/messages/cases',
       'notifications' => '/messages/notifications',
       'reviews' => '/reviews/mine',
       'received-reviews' => '/reviews/received',
@@ -245,6 +250,7 @@ class LiveRentHubController extends ChangeNotifier {
       if (nextPage != 1) 'page': '$nextPage',
       if (nextLimit != 20) 'limit': '$nextLimit',
       if (key.endsWith('-bookings')) ...filtersForBookings(key).parameters,
+      if (key == 'owner-listings') ...ownerListingFilters,
       if (key == 'notifications' && notificationCategory != 'all')
         'category': notificationCategory
     };
@@ -311,6 +317,9 @@ class LiveRentHubController extends ChangeNotifier {
           ownerListings = _models(data, Listing.fromJson);
         case 'conversations':
           conversations = _models(data, Conversation.fromJson);
+        case 'case-conversations':
+          caseConversations =
+              data.map((row) => Map<String, dynamic>.from(row as Map)).toList();
         case 'notifications':
           notifications = _models(data, RentHubNotification.fromJson);
           _acceptNotificationUnread(data);
@@ -762,6 +771,16 @@ class LiveRentHubController extends ChangeNotifier {
   List<Listing> ownerListings = [];
   List<Listing> adminListings = [];
   List<Conversation> conversations = [];
+  List<Map<String, dynamic>> caseConversations = [];
+  final Map<String, String> ownerListingFilters = {};
+
+  Future<void> filterOwnerListings(Map<String, String> filters) async {
+    ownerListingFilters
+      ..clear()
+      ..addAll(filters);
+    await loadUserRecords('owner-listings', page: 1);
+  }
+
   List<RewardLedgerEntry> rewardEntries = [];
   List<Rental> ownerOrderRecords = [];
   List<Rental> ownerOverdueRecords = [];
@@ -883,10 +902,14 @@ class LiveRentHubController extends ChangeNotifier {
   Future<void> refreshNotificationActivity() async {
     final account = _accountGeneration;
     await refreshNotificationUnread();
-    if (_sameAccount(account) &&
-        userRecordPages['notifications']?.loaded == true) {
-      await loadUserRecords('notifications');
-    }
+    if (!_sameAccount(account)) return;
+    await Future.wait([
+      for (final collection in ['notifications', 'case-conversations'])
+        if (userRecordPages[collection]?.loaded == true)
+          loadUserRecords(collection).catchError((_) {
+            // Keep successful records when a background refresh fails.
+          }),
+    ]);
   }
 
   List<Map<String, dynamic>> notificationDevices = [];
@@ -1808,6 +1831,20 @@ class LiveRentHubController extends ChangeNotifier {
   Future<Map<String, dynamic>> loadDisputeCase(String id) async =>
       (await api.request('GET', '/disputes/$id')) as Map<String, dynamic>;
 
+  Future<void> refreshCase(String id) async {
+    final account = accountGeneration;
+    final result = await loadDisputeCase(id);
+    if (!_sameAccount(account)) return;
+    final updated = Dispute.fromJson(result);
+    _replaceDispute(updated, disputes);
+    notifyListeners();
+    if (updated.closed &&
+        updated.bookingId.isNotEmpty &&
+        updated.rentalId.isNotEmpty) {
+      await refreshFocusedBooking(updated.bookingId, updated.rentalId);
+    }
+  }
+
   Future<Dispute> createDispute({
     required Rental rental,
     required String category,
@@ -2023,6 +2060,14 @@ class LiveRentHubController extends ChangeNotifier {
             message.recipientId == peerId && message.senderId == profile?.id)
         : message.threadId == threadId);
   }
+
+  Stream<dynamic> watchCase(String id) {
+    _socket?.joinCase(id);
+    return (_socket?.caseUpdates ?? const Stream<dynamic>.empty()).where(
+        (event) => event == null || event is Map && event['disputeId'] == id);
+  }
+
+  void leaveCase(String id) => _socket?.leaveCase(id);
 
   Future<List<Review>> listingReviews(String listingId) async => _models(
         await api.request('GET', '/reviews/listing/$listingId'),
@@ -2347,6 +2392,14 @@ class LiveRentHubController extends ChangeNotifier {
 
   final Map<String, int> _rentalRevisions = {};
   void _replaceRental(Rental rental) {
+    // A list request started before this confirmed result must not restore its old action.
+    for (final key in ['owner-rentals', 'owner-overdue', 'renter-rentals']) {
+      final page = userRecordPages[key];
+      if (page?.loading == true) {
+        page!.generation++;
+        page.loading = false;
+      }
+    }
     _rentalRevisions[rental.id] = (_rentalRevisions[rental.id] ?? 0) + 1;
     ownerOverdueRecords = [
       for (final r in ownerOverdueRecords)
@@ -2448,15 +2501,25 @@ class LiveRentHubController extends ChangeNotifier {
           'service-completion' => '/rentals/${rental.id}/service-completion',
           _ => throw ArgumentError('Unknown rental action: $action'),
         };
+        var confirmedResult = false;
         try {
           final result = await api.request(method, path, body: body);
           // A returned rental can leave the current result page. Retain its
           // saved evidence before refreshing lists; fresh list rows still win.
           if (_sameAccount(account) &&
-              action == 'return' &&
+              [
+                'return',
+                'handover',
+                'handover-acknowledge',
+                'return-confirm',
+                'start-service',
+                'service-delivered',
+                'service-completion'
+              ].contains(action) &&
               result is Map &&
               (result['publicId'] ?? result['id']) == rental.id) {
             _replaceRental(Rental.fromJson(Map<String, dynamic>.from(result)));
+            confirmedResult = true;
           }
         } catch (_) {
           // Read status after an uncertain outcome; never repeat the write.
@@ -2473,8 +2536,13 @@ class LiveRentHubController extends ChangeNotifier {
           rethrow;
         }
         if (!_sameAccount(account)) return;
-        await _reloadBookingState(owner ? ownerWorkspace : renterWorkspace,
-            owner: owner);
+        try {
+          await _reloadBookingState(owner ? ownerWorkspace : renterWorkspace,
+              owner: owner);
+        } catch (_) {
+          // The write succeeded. Retain its result and the workspace refresh error.
+          if (!confirmedResult) rethrow;
+        }
         if (['return-confirm', 'service-completion'].contains(action)) {
           await _refreshTrustIfSupported();
         }
@@ -2617,6 +2685,21 @@ class LiveRentHubController extends ChangeNotifier {
 
   Future<void> refreshConversations() async {
     await loadUserRecords('conversations');
+  }
+
+  Future<void> connectAdminMessaging() async {
+    if (profile?.roles.contains(UserRole.admin) == true) {
+      await _connectRealtime(profile!.id);
+    }
+  }
+
+  void disconnectMessaging(int account) {
+    if (!_sameAccount(account)) return;
+    _socketSubscription?.cancel();
+    _notificationSubscription?.cancel();
+    _socket?.dispose();
+    _socket = null;
+    _socketUserId = null;
   }
 
   Future<void> loadNotifications({String? category}) async {

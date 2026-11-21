@@ -207,6 +207,7 @@ void main() {
       RentalAppointmentSelection? selected;
       Future<void> open(BuildContext context) async {
         selected = await chooseRentalAppointments(context,
+            clock: () => DateTime.utc(2026, 11, 19),
             pickupDate: DateTime(2026, 11, 20),
             returnDate: DateTime(2026, 11, 20));
       }
@@ -291,6 +292,7 @@ void main() {
             builder: (context) => TextButton(
                 onPressed: () async {
                   result = await chooseRentalAppointments(context,
+                      clock: () => DateTime.utc(2026, 11, 19),
                       pickupDate: DateTime(2026, 11, 20),
                       returnDate: DateTime(2026, 11, 21),
                       pickup: const TimeOfDay(hour: 0, minute: 1),
@@ -489,7 +491,7 @@ void main() {
                   child: DisputeProgressPanel(
                       dispute: Dispute('D', status, 'Issue')))),
           scale: 1.6));
-      for (final label in ['Reported', 'Response', 'Review', 'Decision']) {
+      for (final label in ['Opened', 'Chat', 'Review', 'Closed']) {
         expect(find.text(label), findsOneWidget);
       }
       expect(find.byIcon(Icons.radio_button_checked), findsNothing);

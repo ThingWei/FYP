@@ -12,6 +12,8 @@ import {
   resolveValidation,
   responseValidation,
   reviewStatusValidation,
+  caseMessagesValidation,
+  caseMessageSendValidation,
 } from './dispute.validation.js';
 
 export const disputeRouter = Router();
@@ -47,6 +49,8 @@ disputeRouter.patch(
 );
 disputeRouter.post('/', createDisputeValidation, validate, disputeController.create);
 disputeRouter.get('/:id', disputeDetailValidation, validate, disputeController.get);
+disputeRouter.get('/:id/messages', caseMessagesValidation, validate, disputeController.messages);
+disputeRouter.post('/:id/messages', caseMessageSendValidation, validate, disputeController.sendMessage);
 disputeRouter.post(
   '/:id/responses',
   responseValidation,

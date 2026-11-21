@@ -1,3 +1,4 @@
+import 'live_case_inbox.dart';
 import '../../shared/widgets/renthub_dialog.dart';
 import 'live_reviews_list.dart';
 export 'live_chat_page.dart';
@@ -75,22 +76,40 @@ Future<bool> ensureMarketplaceIdentity(BuildContext context,
 }
 
 class LiveMessagesPage extends StatefulWidget {
-  const LiveMessagesPage({super.key});
+  const LiveMessagesPage({super.key, this.initialCases = false});
+  final bool initialCases;
 
   @override
   State<LiveMessagesPage> createState() => _LiveMessagesPageState();
 }
 
 class _LiveMessagesPageState extends State<LiveMessagesPage> {
+  bool cases = false;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+    cases = widget.initialCases ||
+        context
+                .read<LiveRentHubController>()
+                .profile
+                ?.roles
+                .contains(UserRole.admin) ==
+            true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!cases) _refresh();
+    });
   }
 
   Future<void> _refresh() async {
     try {
-      await context.read<LiveRentHubController>().refreshConversations();
+      if (cases) {
+        await context
+            .read<LiveRentHubController>()
+            .loadUserRecords('case-conversations');
+      } else {
+        await context.read<LiveRentHubController>().refreshConversations();
+      }
     } catch (_) {}
   }
 
@@ -98,9 +117,28 @@ class _LiveMessagesPageState extends State<LiveMessagesPage> {
   Widget build(BuildContext context) {
     final controller = context.watch<LiveRentHubController>();
     final page = controller.userRecordPages['conversations'];
+    final admin = controller.profile?.roles.contains(UserRole.admin) == true;
+    if (cases) {
+      return Scaffold(
+          appBar: AppBar(title: const Text('Messages'), actions: [
+            if (!admin)
+              TextButton(
+                  onPressed: () {
+                    setState(() => cases = false);
+                    _refresh();
+                  },
+                  child: const Text('Bookings')),
+          ]),
+          body: const CaseInbox());
+    }
     return Scaffold(
       appBar: AppBar(
           title: const Text('Messages'),
+          actions: [
+            TextButton(
+                onPressed: () => setState(() => cases = true),
+                child: const Text('Cases'))
+          ],
           bottom: const UserRecordToolbar(collection: 'conversations')),
       bottomNavigationBar:
           const UserRecordPagination(collection: 'conversations'),

@@ -45,6 +45,11 @@ class UserFacingError {
             'Return your overdue item before making another booking. You can still message the Owner, submit your return or report an issue.',
         'DISPUTE_WINDOW_CLOSED':
             'This rental is complete, so a new dispute can no longer be opened.',
+        'DISPUTE_CATEGORY_UNAVAILABLE':
+            'This reason is unavailable at the current rental stage. Choose another reason.',
+        'APPOINTMENT_TIME_PASSED':
+            'This time has passed. Choose a later appointment time.',
+        'DUPLICATE_SAVED_PLACE': 'This place is already saved.',
         'PAYMENT_WINDOW_EXPIRED':
             'Your 10-minute payment window has expired. No payment was taken. Choose dates again to start a new checkout.',
         'HANDOVER_TOO_EARLY':

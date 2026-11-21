@@ -160,11 +160,11 @@ void main() {
       expect(find.textContaining('2 / 2'), findsOneWidget);
       await prepareReceipt(t);
       expect(api.posts, isEmpty);
-      await press(t, 'Confirm item received');
+      await press(t, 'Confirm receipt');
       expect(find.text('Confirm item received?'), findsOneWidget);
       await press(t, 'Cancel');
       expect(api.posts, isEmpty);
-      await press(t, 'Confirm item received');
+      await press(t, 'Confirm receipt');
       await press(t, 'Confirm receipt');
       expect(api.posts, ['/rentals/RH-RNT-2026-RECEIPT/handover/acknowledge']);
       expect(find.text('Renter confirmed receipt'), findsOneWidget);
@@ -182,7 +182,7 @@ void main() {
     addTearDown(controller.dispose);
     await showReceipt(t, controller);
     await prepareReceipt(t);
-    await press(t, 'Confirm item received');
+    await press(t, 'Confirm receipt');
     await press(t, 'Confirm receipt');
     expect(api.posts.length, 1);
     expect(find.text('Renter confirmed receipt'), findsOneWidget);
@@ -196,15 +196,15 @@ void main() {
     addTearDown(c.dispose);
     await showReceipt(t, c);
     await prepareReceipt(t);
-    await press(t, 'Confirm item received');
+    await press(t, 'Confirm receipt');
     await press(t, 'Confirm receipt');
     expect(api.posts.length, 1);
     expect(find.byType(LivePhotoThumbnail), findsWidgets);
     api.failBefore = false;
     await press(t, 'Check latest status');
     expect(api.posts.length, 1);
-    expect(find.text('Confirm item received'), findsOneWidget);
-    await press(t, 'Confirm item received');
+    expect(find.text('Confirm receipt'), findsOneWidget);
+    await press(t, 'Confirm receipt');
     await press(t, 'Confirm receipt');
     expect(api.posts.length, 2);
   });
@@ -214,7 +214,7 @@ void main() {
     addTearDown(c.dispose);
     await showReceipt(t, c);
     await prepareReceipt(t);
-    await press(t, 'Confirm item received');
+    await press(t, 'Confirm receipt');
     expect(api.posts, isEmpty);
     expect(find.textContaining('record changed'), findsOneWidget);
   });
@@ -226,8 +226,8 @@ void main() {
     await showReceipt(t, c);
     await prepareReceipt(t);
     api.readGate = Completer<void>();
-    await t.ensureVisible(find.text('Confirm item received'));
-    await t.tap(find.text('Confirm item received'));
+    await t.ensureVisible(find.text('Confirm receipt'));
+    await t.tap(find.text('Confirm receipt'));
     await t.pump();
     c.profile = receiptOwner;
     c.notifyListeners();
@@ -242,7 +242,7 @@ void main() {
     await showReceipt(t, c, owner: true);
     expect(find.text('Awaiting renter confirmation'), findsOneWidget);
     expect(find.text('Review handover'), findsNothing);
-    expect(find.text('Confirm item received'), findsNothing);
+    expect(find.text('Confirm receipt'), findsNothing);
   });
   testWidgets(
       'late unconfirmed handover offers an issue, never late activation',

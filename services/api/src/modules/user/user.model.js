@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { applicationTrust, realTrustScore } from './trustPolicy.js';
 import { coordinatesSchema, locationSchema } from '../../core/location.js';
+import { uniqueSavedPlaces, sameSavedPlace } from './savedPlaceIdentity.js';
 import { ADMIN_ROLES, MARKETPLACE_ROLES } from './rolePolicy.js';
 
 export const USER_ROLES = ['renter', 'owner', 'admin'];
@@ -242,6 +243,8 @@ const userSchema = new mongoose.Schema(
     strict: 'throw',
     toJSON: {
       transform: (_document, value) => {
+        value.addresses = uniqueSavedPlaces(value.addresses);
+        value.recentLocations = uniqueSavedPlaces(value.recentLocations).filter(recent => !value.addresses.some(saved => sameSavedPlace(saved, recent)));
         value.trustScore = realTrustScore(applicationTrust(value.trustProfile));
         delete value.passwordHash;
         delete value.identityMatchFingerprint;

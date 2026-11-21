@@ -1244,7 +1244,7 @@ test('rejects more than one default address', async () => {
   const response = await request(app)
     .patch('/api/v1/users/me')
     .set(headers)
-    .send({ addresses: [address, { ...address, label: 'Office' }] });
+    .send({ addresses: [address, { ...address, label: 'Office', line1: '20 Jalan Ampang' }] });
 
   assert.equal(response.status, 400);
   assert.equal(response.body.error.code, 'VALIDATION_ERROR');

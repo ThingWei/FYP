@@ -42,7 +42,8 @@ class _SavedPlaceSelectorState extends State<SavedPlaceSelector> {
   @override
   Widget build(BuildContext context) {
     final places = {
-      for (final place in widget.addresses) savedPlaceKey(place): place
+      for (final place in uniqueSavedPlaces(widget.addresses))
+        savedPlaceKey(place): place
     };
     final value = places.containsKey(selected) ? selected : null;
     return DropdownButtonFormField<String>(
@@ -81,7 +82,10 @@ class _SavedPlaceSelectorState extends State<SavedPlaceSelector> {
                       Text(
                           entry.value.automatic
                               ? 'Recent place'
-                              : entry.value.label,
+                              : ['pickup', 'delivery', 'booking location']
+                                      .contains(entry.value.label.toLowerCase())
+                                  ? 'Saved place'
+                                  : entry.value.label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodySmall),

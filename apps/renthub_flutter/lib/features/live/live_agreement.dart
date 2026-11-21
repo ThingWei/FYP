@@ -1,3 +1,5 @@
+import '../../core/theme/app_theme.dart';
+import 'live_appointments.dart';
 import '../../shared/widgets/section_help.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
@@ -308,22 +310,19 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
                                         Text(widget.previewTotal),
                                       if (booking != null) ...[
                                         const SizedBox(height: 12),
-                                        Text(
-                                            'Renter: ${booking.renterName.isEmpty ? 'Historical name unavailable' : booking.renterName}'),
-                                        Text(
-                                            'Owner: ${booking.ownerName.isEmpty ? 'Historical name unavailable' : booking.ownerName}'),
-                                        Text(service
-                                            ? 'Venue: ${booking.serviceVenue ?? 'Available when permitted by booking status'}'
-                                            : 'Arrangement: ${booking.fulfilmentMethod == 'owner_delivery' ? 'Owner delivery' : 'Pickup'}'),
-                                        if (!service)
-                                          Text(booking.pickupLocation == null
-                                              ? 'Exact pickup details are available when permitted by booking status.'
-                                              : 'Pickup: ${booking.pickupLocation!.label}'),
-                                        if (booking.deliveryLocation != null)
-                                          Text(
-                                              'Delivery: ${booking.deliveryLocation!.label}'),
+                                        _AgreementFacts(booking: booking),
+                                        if (!service) ...[
+                                          const SizedBox(height: 16),
+                                          RentalAppointments(
+                                              pickupDate: booking.start,
+                                              returnDate: booking.end,
+                                              pickup: booking.pickupTime,
+                                              returnTime: booking.returnTime),
+                                        ],
                                         const SizedBox(height: 16),
-                                        LiveBookingCharges(booking: booking),
+                                        LiveBookingCharges(
+                                            booking: booking,
+                                            showAppointments: false),
                                       ],
                                     ]),
                                     section('Terms and responsibilities', [
@@ -435,5 +434,59 @@ class _LiveAgreementPageState extends State<LiveAgreementPage> {
                                               Navigator.pop(context),
                                           child: const Text('Close agreement')),
                                   ])))));
+  }
+}
+
+class _AgreementFacts extends StatelessWidget {
+  const _AgreementFacts({required this.booking});
+  final Booking booking;
+  @override
+  Widget build(BuildContext context) {
+    final facts = <String, String>{
+      'Renter': booking.renterName.isEmpty
+          ? 'Historical name unavailable'
+          : booking.renterName,
+      'Owner': booking.ownerName.isEmpty
+          ? 'Historical name unavailable'
+          : booking.ownerName,
+      booking.listingType == 'service' ? 'Venue' : 'Arrangement':
+          booking.listingType == 'service'
+              ? booking.serviceVenue ?? 'Not available'
+              : booking.fulfilmentMethod == 'owner_delivery'
+                  ? 'Owner delivery'
+                  : 'Pickup',
+      if (booking.listingType == 'physical' &&
+          booking.fulfilmentMethod != 'owner_delivery')
+        'Pickup location':
+            booking.pickupLocation?.label ?? 'Shared after approval',
+      if (booking.deliveryLocation != null)
+        'Delivery address': booking.deliveryLocation!.label,
+    };
+    return LayoutBuilder(builder: (context, bounds) {
+      final width =
+          bounds.maxWidth >= 600 ? (bounds.maxWidth - 16) / 2 : bounds.maxWidth;
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Divider(height: 24),
+        Wrap(spacing: 16, runSpacing: 16, children: [
+          for (final entry in facts.entries)
+            SizedBox(
+                width: width,
+                child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        border: Border.all(color: AppColors.border),
+                        borderRadius: BorderRadius.circular(12)),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(entry.key,
+                              style: Theme.of(context).textTheme.labelMedium),
+                          const SizedBox(height: 8),
+                          Text(entry.value)
+                        ])))
+        ])
+      ]);
+    });
   }
 }

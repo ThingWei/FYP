@@ -34,6 +34,7 @@ const pricingSchema = new mongoose.Schema(
 const bookingSchema = new mongoose.Schema(
   {
     lifecycleRevision: { type: Number, default: 0, select: false },
+    archivedBy: { type: [String], default: undefined, select: false },
     publicId: {
       type: String,
       required: true,

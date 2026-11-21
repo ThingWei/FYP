@@ -19,5 +19,6 @@ export async function navigationActivity(userId, now = new Date()) {
     MessageModel.countDocuments({ recipientId: userId, readAt: null,
       recalledAt: null, deletedFor: { $ne: userId } }),
   ]);
-  return { requests, listings, bookings: updates + checkouts, messages };
+  const caseMessages = await NotificationModel.countDocuments({ userId, type: 'dispute_message', readAt: null });
+  return { requests, listings, bookings: updates + checkouts, messages: messages + caseMessages };
 }

@@ -755,6 +755,8 @@ export const listingService = {
       page,
       limit,
       status,
+      category: LISTING_CATEGORIES.includes(query.category) ? query.category : undefined,
+      search: query.search,
     });
     await withListingDeletionEligibility(items);
     return { items, meta: { page, limit, total } };
@@ -942,11 +944,12 @@ export const listingService = {
             }
           : range,
       );
+      const previous = await listingRepository.findAvailability(listing.publicId);
       const data = {
         unavailableRanges,
         weeklyHours: listing.listingType === 'service' ? input.weeklyHours ?? [] : [],
-        minimumNoticeHours: input.minimumNoticeHours ?? 0,
-        bufferHours: input.bufferHours ?? 0,
+        minimumNoticeHours: input.minimumNoticeHours ?? previous?.minimumNoticeHours ?? 0,
+        bufferHours: input.bufferHours ?? previous?.bufferHours ?? 0,
       };
       await ensureOwned();
       return listingRepository.saveAvailability(

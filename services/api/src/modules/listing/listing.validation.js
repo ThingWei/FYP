@@ -203,6 +203,8 @@ export const listMineValidation = [
   query('page').optional().custom(wholeInput).bail().isInt({ min: 1 }),
   query('limit').optional().custom(wholeInput).bail().isInt({ min: 1, max: 100 }),
   query('status').optional().isIn(LISTING_STATUSES),
+  query('category').optional().isIn(LISTING_CATEGORIES),
+  query('search').optional().custom(textInput).bail().trim().isLength({ max: 100 }),
 ];
 
 export const recommendationValidation = [

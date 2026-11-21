@@ -45,8 +45,12 @@ export const listingRepository = {
     return [items, total];
   },
 
-  async listOwned({ ownerId, page, limit, status }) {
-    const filter = { ownerId, deletedAt: null, ...(status && { status }) };
+  async listOwned({ ownerId, page, limit, status, category, search }) {
+    const filter = { ownerId, deletedAt: null, ...(status && { status }), ...(category && { category }) };
+    if (search?.trim()) {
+      const pattern = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = ['title', 'brand', 'productModel', 'subcategory'].map(field => ({ [field]: pattern }));
+    }
     const [items, total] = await Promise.all([
       ListingModel.find(filter)
         .sort({ updatedAt: -1, _id: -1 })

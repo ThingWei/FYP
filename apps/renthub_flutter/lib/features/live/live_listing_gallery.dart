@@ -40,6 +40,13 @@ class _ListingPhotoCarouselState extends State<ListingPhotoCarousel> {
 
   void move(int index) => pages.animateToPage(index,
       duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+  void open(int index) => Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+          builder: (_) => ListingPhotoViewer(
+              photos: List<String>.unmodifiable(widget.photos),
+              title: widget.title,
+              initialIndex: index)));
   @override
   Widget build(BuildContext context) => Column(children: [
         LayoutBuilder(
@@ -52,20 +59,18 @@ class _ListingPhotoCarouselState extends State<ListingPhotoCarousel> {
                   controller: pages,
                   itemCount: widget.photos.length,
                   onPageChanged: (value) => setState(() => selected = value),
-                  itemBuilder: (context, index) => InkWell(
-                      key: ValueKey('$index:${widget.photos[index]}'),
-                      onTap: () => Navigator.push<void>(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => ListingPhotoViewer(
-                                  photos:
-                                      List<String>.unmodifiable(widget.photos),
-                                  title: widget.title,
-                                  initialIndex: index))),
-                      child: LiveListingImage(
-                          reference: widget.photos[index],
-                          label: '${widget.title}, photo ${index + 1}',
-                          fit: BoxFit.contain)),
+                  itemBuilder: (context, index) => Semantics(
+                      label: 'Preview ${widget.title}, photo ${index + 1}',
+                      button: true,
+                      excludeSemantics: true,
+                      onTap: () => open(index),
+                      child: InkWell(
+                          key: ValueKey('$index:${widget.photos[index]}'),
+                          onTap: () => open(index),
+                          child: LiveListingImage(
+                              reference: widget.photos[index],
+                              label: '${widget.title}, photo ${index + 1}',
+                              fit: BoxFit.contain))),
                 ))),
         if (widget.photos.length > 1)
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -126,9 +131,11 @@ class ListingDetailCell extends StatelessWidget {
       {super.key,
       required this.title,
       required this.value,
-      required this.icon});
+      required this.icon,
+      this.expandable = false});
   final String title, value;
   final IconData icon;
+  final bool expandable;
   @override
   Widget build(BuildContext context) => Card(
       child: Padding(
@@ -142,7 +149,49 @@ class ListingDetailCell extends StatelessWidget {
                     children: [
                   Text(title, style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
-                  Text(value),
+                  if (expandable)
+                    ListingDescription(value: value)
+                  else
+                    Text(value),
                 ])),
           ])));
+}
+
+class ListingDescription extends StatefulWidget {
+  const ListingDescription({super.key, required this.value});
+  final String value;
+  @override
+  State<ListingDescription> createState() => _ListingDescriptionState();
+}
+
+class _ListingDescriptionState extends State<ListingDescription> {
+  bool expanded = false;
+  @override
+  void didUpdateWidget(covariant ListingDescription oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.value != oldWidget.value) expanded = false;
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, size) {
+        final style = DefaultTextStyle.of(context).style;
+        final painter = TextPainter(
+            text: TextSpan(text: widget.value, style: style),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+            maxLines: 4)
+          ..layout(maxWidth: size.maxWidth);
+        final overflows = painter.didExceedMaxLines;
+        painter.dispose();
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(widget.value,
+              maxLines: expanded ? null : 4,
+              overflow:
+                  expanded ? TextOverflow.visible : TextOverflow.ellipsis),
+          if (overflows)
+            TextButton(
+                onPressed: () => setState(() => expanded = !expanded),
+                child: Text(expanded ? 'See less' : 'See more')),
+        ]);
+      });
 }

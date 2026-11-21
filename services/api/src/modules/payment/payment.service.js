@@ -1,3 +1,4 @@
+import { assertBookingTimeAvailable } from '../booking/bookingTimePolicy.js';
 import mongoose from 'mongoose';
 import { recordRewardFunding } from '../loyalty/checkoutRewards.js';
 import { bookingPaymentDeadline, payableBookingFilter } from '../booking/bookingDeadlines.js';
@@ -240,7 +241,8 @@ export const paymentService = {
         assertAttemptMatches(recorded, input, identity, outcome);
         return recorded;
       }
-      const gateway = await paymentAdapter.authorize({ amount: booking.pricing.total, method: input.method, simulationOutcome: outcome });
+      assertBookingTimeAvailable(booking, booking);
+    const gateway = await paymentAdapter.authorize({ amount: booking.pricing.total, method: input.method, simulationOutcome: outcome });
       if (!await BookingModel.exists({ ...eligible(), paymentLeaseToken: token, paymentLeaseUntil: { $gt: new Date() } })) {
         if (gateway.status === 'authorized') await paymentAdapter.voidAuthorization({ amount: booking.pricing.total });
         await expireDuePendingBookings({ scope: { publicId: booking.publicId } });

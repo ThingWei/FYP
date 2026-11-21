@@ -7,6 +7,8 @@ import {
 import { ThreadModel } from '../modules/communication/thread.model.js';
 import { setSocketServer } from './eventBus.js';
 import { localSessionService } from '../modules/user/localSession.service.js';
+import { caseViewer } from '../modules/dispute/disputeChat.service.js';
+import { UserModel } from '../modules/user/user.model.js';
 
 let jwks;
 
@@ -35,6 +37,7 @@ export function registerSocket(io) {
         await assertAccountAccess(identity);
         socket.data.userId = identity.authId;
         socket.data.sessionId = identity.sessionId;
+        socket.data.roles = identity.roles;
         return next();
       }
       const issuer = env.authIssuer.endsWith('/')
@@ -48,6 +51,7 @@ export function registerSocket(io) {
       const identity = identityFromPayload(payload);
       await assertAccountAccess(identity);
       socket.data.userId = identity.authId;
+      socket.data.roles = identity.roles;
       return next();
     } catch {
       return next(new Error('Invalid access token'));
@@ -59,6 +63,19 @@ export function registerSocket(io) {
     if (socket.data.sessionId) {
       socket.join(`session:${socket.data.sessionId}`);
     }
+    socket.on('case:join', async (id) => {
+      if (typeof id !== 'string' || id.length > 100 || !/^RH-DSP-[A-Z0-9]+$/.test(id)) return;
+      try {
+        await assertAccountAccess({ authId: userId });
+        const user = await UserModel.findOne({ authId: userId }).select('roles').lean();
+        await caseViewer(id, { authId: userId,
+          roles: env.authMode === 'mock' ? user?.roles ?? [] : socket.data.roles ?? [] });
+        socket.join(`case:${id}`);
+      } catch { /* Unauthorized sockets never join a case room. */ }
+    });
+    socket.on('case:leave', id => {
+      if (typeof id === 'string' && /^RH-DSP-[A-Z0-9]+$/.test(id)) socket.leave(`case:${id}`);
+    });
     socket.on('thread:join', async (threadId) => {
       if (
         typeof threadId !== 'string' ||

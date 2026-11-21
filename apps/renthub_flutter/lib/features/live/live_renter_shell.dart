@@ -1,5 +1,7 @@
+import 'live_booking_listing_link.dart';
 import 'live_rental_reviews.dart';
 import 'live_saved_place_selector.dart';
+import 'live_delivery_advice.dart';
 import 'live_contact_profile.dart';
 import 'live_listing_gallery.dart';
 import 'live_booking_summary.dart';
@@ -1365,10 +1367,8 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
   }
 
   Future<void> _pickServiceTime() async {
-    final selected = await showTimePicker(
-      context: context,
-      initialTime: serviceTime,
-    );
+    final selected =
+        await chooseAvailableServiceTime(context, start, serviceTime);
     if (selected != null) setState(() => serviceTime = selected);
   }
 
@@ -1385,6 +1385,14 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
               'Choose pickup and return times. For the same day, return must be later than pickup.')));
+      return;
+    }
+    if (widget.listing.isService
+        ? !appointmentTimeAvailable(start, serviceTime)
+        : pickupTime != null && !appointmentTimeAvailable(start, pickupTime!) ||
+            returnTime != null && !appointmentTimeAvailable(end, returnTime!)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose a time later than now.')));
       return;
     }
     setState(() => checkingIdentity = true);
@@ -1462,13 +1470,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
     final bookingAccount = controller.profile?.id;
     try {
       final bookingStart = widget.listing.isService
-          ? DateTime(
-              start.year,
-              start.month,
-              start.day,
-              serviceTime.hour,
-              serviceTime.minute,
-            )
+          ? malaysiaAppointmentInstant(start, serviceTime)
           : start;
       final booking = await context.read<LiveRentHubController>().createBooking(
             listing: widget.listing,
@@ -1770,6 +1772,7 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
               ListingDetailCell(
                   title: 'Description',
                   value: listing.description,
+                  expandable: true,
                   icon: Icons.notes_outlined),
             const SizedBox(height: 12),
             if (availabilityLoading)
@@ -2042,10 +2045,24 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                         Text(listing.venueMode == 'online'
                             ? 'This service is online. No physical venue is needed.'
                             : 'The owner’s exact venue is shared after approval.')
-                      else if (listing.fulfilmentMethods.isNotEmpty)
+                      else if (listing.fulfilmentMethods.isNotEmpty) ...[
+                        if (recommendsDelivery(
+                            listing,
+                            deliveryLocation ??
+                                context
+                                    .read<LiveRentHubController>()
+                                    .recommendationCentre))
+                          const Padding(
+                              padding: EdgeInsets.only(bottom: 16),
+                              child: Row(children: [
+                                Icon(Icons.local_shipping_outlined, size: 20),
+                                SizedBox(width: 8),
+                                Text('Delivery recommended'),
+                              ])),
                         Padding(
                             padding: const EdgeInsets.only(bottom: 20),
                             child: DropdownButtonFormField<String>(
+                              key: ValueKey('fulfilment-$fulfilmentMethod'),
                               initialValue: fulfilmentMethod,
                               decoration: const InputDecoration(
                                   labelText: 'Fulfilment'),
@@ -2061,11 +2078,14 @@ class _LiveBookingPageState extends State<LiveBookingPage> {
                                     ),
                                   )
                                   .toList(),
-                              onChanged: (value) => setState(
-                                () => fulfilmentMethod =
-                                    value ?? fulfilmentMethod,
-                              ),
+                              onChanged: submitting
+                                  ? null
+                                  : (value) => setState(() {
+                                        fulfilmentMethod =
+                                            value ?? fulfilmentMethod;
+                                      }),
                             )),
+                      ],
                       if (!listing.isService &&
                           fulfilmentMethod == 'owner_delivery') ...[
                         Padding(
@@ -2432,12 +2452,8 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                                   rental: rental, ownerName: booking.ownerName),
                             if (rental?.returnSubmission != null)
                               ReturnPhotosSection(rental: rental!),
-                            Text(booking.listingTitle,
-                                style: Theme.of(context).textTheme.titleMedium),
+                            BookingListingLink(booking: booking),
                             const SizedBox(height: 6),
-                            Text(formatDateRange(booking.start, booking.end)),
-                            if (widget.payment != null)
-                              LivePaymentSummary(payment: widget.payment!),
                             BookingDetailLinks(children: [
                               BookingLocationsButton(bookingId: booking.id),
                               if (booking.ownerId.isNotEmpty)
@@ -2461,7 +2477,9 @@ class _LiveRenterBookingsPageState extends State<LiveRenterBookingsPage> {
                                   onPressed: () =>
                                       showLiveCheckout(context, booking.id),
                                   child: const Text('Continue payment')),
-                            LiveBookingPaymentDetails(booking: booking),
+                            LiveBookingPaymentDetails(
+                                booking: booking,
+                                selectedPayment: widget.payment),
                             if (rental != null) ...[
                               const Divider(height: 22),
                               const SizedBox(height: 8),

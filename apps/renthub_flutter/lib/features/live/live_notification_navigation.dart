@@ -6,6 +6,7 @@ import '../../core/network/user_facing_error.dart';
 import '../../modules/user/controllers/auth_controller.dart';
 import '../../shared/models/domain_models.dart';
 import 'live_authenticated_page.dart';
+import 'admin_case_workspace.dart';
 import 'live_dispute_page.dart';
 import 'live_loyalty_page.dart';
 import 'live_owner_shell.dart';
@@ -25,6 +26,8 @@ class NotificationTarget {
           'booking',
           'chat',
           'dispute',
+          'case_chat',
+          'admin_case',
           'rewards',
           'verification',
           'unavailable'
@@ -33,6 +36,7 @@ class NotificationTarget {
             !_id(bookingId)) ||
         (kind == 'chat' && !_id(threadId)) ||
         (kind == 'dispute' && (!_id(disputeId) || !_id(rentalId))) ||
+        (['case_chat', 'admin_case'].contains(kind) && !_id(disputeId)) ||
         (rentalId != null && !_id(rentalId)) ||
         (paymentId != null && !_id(paymentId))) {
       throw const FormatException('Invalid notification target');
@@ -125,6 +129,10 @@ class _LiveNotificationDestinationState
         destination = const LiveLoyaltyPage();
       } else if (target.kind == 'verification') {
         destination = const LiveVerificationPage();
+      } else if (target.kind == 'case_chat') {
+        destination = LiveChatPage.forCase(disputeId: target.disputeId!);
+      } else if (target.kind == 'admin_case') {
+        destination = AdminCaseWorkspace(disputeId: target.disputeId!);
       } else if (target.kind != 'unavailable') {
         await c.refreshFocusedBooking(target.bookingId!, target.rentalId);
         if (!current()) return;

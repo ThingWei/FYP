@@ -1,3 +1,5 @@
+import 'live_shared_pages.dart' show LiveMessagesPage, LiveNotificationsPage;
+import 'live_notification_icon.dart';
 import 'admin_route_observer.dart';
 import 'admin_case_workspace.dart';
 import 'live_listing_delete.dart';
@@ -52,6 +54,8 @@ class LiveAdminShell extends StatefulWidget {
 
 class _LiveAdminShellState extends State<LiveAdminShell> {
   int selected = 0;
+  late final LiveRentHubController messaging;
+  late final int account;
 
   static const destinations = [
     ('Dashboard', Icons.dashboard_outlined),
@@ -69,7 +73,19 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    messaging = context.read<LiveRentHubController>();
+    account = messaging.accountGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      messaging.connectAdminMessaging();
+      _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    messaging.disconnectMessaging(account);
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -99,16 +115,53 @@ class _LiveAdminShellState extends State<LiveAdminShell> {
             title: Text(destinations[selected].$1),
             actions: [
               IconButton(
-                tooltip: 'Refresh overview',
-                onPressed: controller.adminWorkspace.loading ? null : _load,
-                icon: const Icon(Icons.refresh),
-              ),
+                  tooltip: 'Messages',
+                  onPressed: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) =>
+                              const LiveMessagesPage(initialCases: true))),
+                  icon: const LiveActivityIcon(
+                      activity: NavigationActivity.messages,
+                      icon: Icons.chat_bubble_outline)),
               IconButton(
-                tooltip: 'Log out',
-                onPressed: () => confirmLogout(
-                    context, context.read<AuthController>().logout),
-                icon: const Icon(Icons.logout),
-              ),
+                  tooltip: 'Notifications',
+                  onPressed: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const LiveNotificationsPage())),
+                  icon: const LiveNotificationIcon()),
+              if (constraints.maxWidth >= 600) ...[
+                IconButton(
+                  tooltip: 'Refresh overview',
+                  onPressed: controller.adminWorkspace.loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                ),
+                IconButton(
+                  tooltip: 'Log out',
+                  onPressed: () => confirmLogout(
+                      context, context.read<AuthController>().logout),
+                  icon: const Icon(Icons.logout),
+                )
+              ] else
+                PopupMenuButton<String>(
+                    tooltip: 'More options',
+                    onSelected: (value) async {
+                      if (value == 'refresh') {
+                        await _load();
+                      } else if (value == 'logout' && context.mounted) {
+                        await confirmLogout(
+                            context, context.read<AuthController>().logout);
+                      }
+                    },
+                    itemBuilder: (_) => [
+                          PopupMenuItem(
+                              value: 'refresh',
+                              enabled: !controller.adminWorkspace.loading,
+                              child: const Text('Refresh overview')),
+                          const PopupMenuItem(
+                              value: 'logout', child: Text('Log out')),
+                        ]),
               const SizedBox(width: 12),
             ],
           ),
